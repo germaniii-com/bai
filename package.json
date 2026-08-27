@@ -1,0 +1,25 @@
+{
+  "name": "bai-ts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "bai — one runtime, every surface, every modality. TypeScript implementation.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "src/packages/*"
+  ],
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "compile": "bun build --compile src/packages/cli/src/index.ts --outfile dist/bai"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.19",
+    "typescript": "^5.9.0"
+  }
+}

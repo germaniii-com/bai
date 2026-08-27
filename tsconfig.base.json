@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    /* Language & emit */
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Bun runs TS directly; imports may use .ts extensions */
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    /* JSX (used by tui + web; harmless elsewhere) */
+    "jsx": "react-jsx",
+
+    /* Bun globals (@types/bun). web overrides with ["vite/client"]. */
+    "types": ["bun"]
+  }
+}

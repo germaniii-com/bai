@@ -1,0 +1,15 @@
+{
+  "name": "@bai/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bai/api": "workspace:*",
+    "@bai/shared": "workspace:*",
+    "ink": "^7.1.1",
+    "react": "^19.2.7"
+  }
+}

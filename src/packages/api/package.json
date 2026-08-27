@@ -1,0 +1,18 @@
+{
+  "name": "@bai/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts"
+  },
+  "dependencies": {
+    "@bai/core": "workspace:*",
+    "@bai/shared": "workspace:*",
+    "@hono/zod-validator": "^0.9.0",
+    "eventsource-parser": "^4.1.0",
+    "hono": "^4.13.5",
+    "zod": "^4.0.0"
+  }
+}
