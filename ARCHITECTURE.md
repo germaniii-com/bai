@@ -448,20 +448,24 @@ Kept out of v1; the web app covers desktop use meanwhile.
 ## 15. Build, release, dev workflow
 
 ```sh
-bun install                      # workspace install (hoisted)
+make build                      # bun build --compile → dist/bai (+ dist/web on bun < 1.4)
+make run                        # build and start the TUI
+make dev-web                    # (see web package) vite dev server on :5173
 bun run dev -- --filter @bai/cli # bun --hot server dev (fetch handler hot-reload)
-bun run dev -- --filter @bai/web # vite dev server on :5173, proxying /api + /mcp
 bun test                         # bun:test across workspaces (--parallel ready)
-bun run typecheck                # tsc --noEmit per package
-bun run compile                  # bun build --compile → dist/bai single executable
+make vet                         # tsc --noEmit per package
+make release                     # all 8 cross-compile targets → dist/
 ```
 
 Release matrix via `bun build --compile` targets:
 `bun-linux-x64|arm64[-musl]`, `bun-windows-x64|arm64`, `bun-darwin-x64|arm64`.
-The SPA is embedded automatically (full-stack executables). Expected binary
-size ~60–85 MB (Bun runtime included) vs the Go design's <40 MB target — an
-accepted trade-off documented in the decision log. Workers must be listed as
-explicit compile entrypoints if ever introduced.
+`BAI_VERSION` is stamped into the binary via `define` (the analog of Go's
+`-ldflags -X`). The SPA is embedded via compile assets on Bun ≥ 1.4; on 1.3.x
+`make build` stages it to `dist/web` beside the binary and the runtime finds
+it there. Expected binary size ~60–96 MB (Bun runtime included) vs the Go
+design's <40 MB target — an accepted trade-off documented in the decision
+log. Workers must be listed as explicit compile entrypoints if ever
+introduced.
 
 Graceful shutdown: drain in-flight runs → `server.stop(true, timeout)` →
 checkpoint WAL → close DB → exit. A hard timeout guards against the known

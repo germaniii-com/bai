@@ -55,11 +55,21 @@ boundaries, and planned key types.
 ## Development
 
 ```sh
-bun install        # install workspaces (requires Bun >= 1.3.14; 1.4+ recommended)
-bun test           # run tests across workspaces
-bun run typecheck  # tsc --noEmit per package
-bun run compile    # single executable → dist/bai
+make build        # single executable → dist/bai (SPA embedded/staged)
+make run          # build and start the TUI
+make test         # bun test across workspaces
+make vet          # tsc --noEmit per package
+make tidy         # bun install
+make web-build    # vite build → src/packages/web/dist
+make release      # cross-compile all 8 targets → dist/
+make clean        # remove dist/
 ```
+
+Or without make: `bun install` · `bun test` · `bun run typecheck` · `bun run compile`.
+
+Requires Bun >= 1.3.14 (1.4+ recommended — its `--compile` embeds the SPA
+directly into the binary; on 1.3.x `make build` stages it to `dist/web`
+beside the binary instead).
 
 ## License
 

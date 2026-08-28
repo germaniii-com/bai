@@ -4,6 +4,7 @@ node_modules/
 # builds
 dist/
 *.tsbuildinfo
+*.bun-build
 
 # runtime data
 *.db

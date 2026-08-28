@@ -41,6 +41,9 @@
     "src/packages/shared": {
       "name": "@bai/shared",
       "version": "0.1.0",
+      "dependencies": {
+        "zod": "^4.0.0",
+      },
     },
     "src/packages/tui": {
       "name": "@bai/tui",
@@ -50,6 +53,9 @@
         "@bai/shared": "workspace:*",
         "ink": "^7.1.1",
         "react": "^19.2.7",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.0",
       },
     },
     "src/packages/web": {

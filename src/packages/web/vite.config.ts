@@ -1,10 +1,34 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 // Dev server proxies API + MCP to a running bai server (default loopback :9640).
 // The built dist/ is served by @bai/api with SPA fallback in production.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["icon.svg"],
+      manifest: {
+        name: "bai",
+        short_name: "bai",
+        description: "One runtime, every surface, every modality.",
+        theme_color: "#0b0e14",
+        background_color: "#0b0e14",
+        display: "standalone",
+        start_url: "/",
+        icons: [
+          {
+            src: "/icon.svg",
+            sizes: "any",
+            type: "image/svg+xml",
+            purpose: "any",
+          },
+        ],
+      },
+    }),
+  ],
   server: {
     port: 5173,
     proxy: {

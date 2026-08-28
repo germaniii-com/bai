@@ -16,7 +16,7 @@
     "build": "bun run --filter '*' build",
     "test": "bun test",
     "typecheck": "bun run --filter '*' typecheck",
-    "compile": "bun build --compile src/packages/cli/src/index.ts --outfile dist/bai"
+    "compile": "bun run scripts/compile.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.2.19",
