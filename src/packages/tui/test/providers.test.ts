@@ -85,6 +85,20 @@ describe("provider picker logic", () => {
     expect(currentModelLabel(null, null)).toBe("stub/echo");
   });
 
+  test("currentModelLabel: config default keeps the header truthful without the list", () => {
+    // On-demand provider list: before the first ctrl+p the list is null, but
+    // the config's default model (tiny GET /api/config) fills the header.
+    expect(currentModelLabel(null, null, "zeta/m9")).toBe("zeta/m9");
+    expect(currentModelLabel(null, null, undefined)).toBe("stub/echo");
+    // Precedence: loaded list beats config default; session meta beats both.
+    expect(currentModelLabel(null, LIST, "zeta/m9")).toBe("alpha/m1");
+    expect(currentModelLabel(
+      { id: "ses_x", meta: { model: "alpha/m2" } } as unknown as Session,
+      null,
+      "zeta/m9",
+    )).toBe("alpha/m2"); // session meta wins; no account suffix without the list
+  });
+
   test("needsSetup: true until a non-stub provider connects", () => {
     expect(needsSetup(LIST)).toBe(false);
     expect(

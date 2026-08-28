@@ -17,7 +17,7 @@ describe("provider & account API", () => {
     const res = await app.request("/api/provider");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      providers: { id: string; accounts: unknown[]; connected: boolean; models: unknown[] }[];
+      providers: { id: string; accounts: unknown[]; connected: boolean; models: { id: string }[] }[];
       default: { model?: string };
     };
     expect(body.default.model).toBe("stub/echo");

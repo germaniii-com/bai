@@ -24,10 +24,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderListResponse | null>(null);
+  const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [runActive, setRunActive] = useState(false);
   const dialogOpenRef = useRef(false);
   dialogOpenRef.current = dialogOpen;
+  // On-demand provider list: fetched on first ctrl+p, kept fresh afterwards.
+  const providersLoadedRef = useRef(false);
+  providersLoadedRef.current = providers !== null;
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -46,21 +50,37 @@ export function App({ client, version }: { client: BaiClient; version: string })
     }
   }, [client]);
 
+  // Tiny startup fetch: the header's default-model label comes from config
+  // (no catalog touch, no models.dev refresh). The full provider list —
+  // 200+ providers, thousands of models — loads only when ctrl+p needs it.
+  const refreshConfig = useCallback(async () => {
+    try {
+      setConfigDefault((await client.getConfig()).models.default);
+    } catch {
+      // Advisory; the label falls back to the session model or stub/echo.
+    }
+  }, [client]);
+
   useEffect(() => {
     void refreshSessions();
-    void refreshProviders();
-  }, [refreshSessions, refreshProviders]);
+    void refreshConfig();
+  }, [refreshSessions, refreshConfig]);
 
   // Live refresh: account/config changes from ANY surface (TUI, web, phone)
   // update this one within a heartbeat — no restart, no manual refresh.
+  // The provider list itself stays on-demand: events refresh it only after
+  // it has been loaded once (i.e. the user engaged the picker).
   useEffect(() => {
     const ctrl = new AbortController();
     void followGlobal(client, {
       signal: ctrl.signal,
       onEvent: (evt) => {
-        if (evt.type === "provider.updated") void refreshProviders();
+        if (evt.type === "provider.updated") {
+          if (providersLoadedRef.current) void refreshProviders();
+        }
         if (evt.type === "config.updated") {
-          void refreshProviders();
+          void refreshConfig();
+          if (providersLoadedRef.current) void refreshProviders();
           void refreshSessions();
         }
         if (evt.type === "session.updated") {
@@ -72,7 +92,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
       },
     });
     return () => ctrl.abort();
-  }, [client, refreshProviders, refreshSessions]);
+  }, [client, refreshProviders, refreshSessions, refreshConfig]);
 
   // Open the durable session stream whenever a session becomes active.
   useEffect(() => {
@@ -137,7 +157,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
     void refreshSessions();
   }, [refreshProviders, refreshSessions]);
 
-  const modelLabel = currentModelLabel(active, providers);
+  const modelLabel = currentModelLabel(active, providers, configDefault);
   const setupHint = needsSetup(providers);
   // Exact footer line count — ChatView needs it to compute the thinking
   // spinner's terminal row for click-to-toggle hit testing.

@@ -71,13 +71,16 @@ export function applyTarget(active: Session | null): "session" | "global" {
 export function currentModelLabel(
   active: Session | null,
   list: ProviderListResponse | null,
+  configDefault?: string,
 ): string {
   const meta = active?.meta as { model?: unknown; account?: unknown } | undefined;
   // Mirrors the run path's fallback (service.ts defaultModel → "stub/echo").
+  // `configDefault` (GET /api/config) keeps the header truthful without the
+  // full provider list, which is fetched on demand (ctrl+p) only.
   const model =
     typeof meta?.model === "string"
       ? meta.model
-      : (list?.default.model ?? "stub/echo");
+      : (list?.default.model ?? configDefault ?? "stub/echo");
   const providerId = model.split("/")[0] ?? model;
   const account =
     typeof meta?.account === "string"

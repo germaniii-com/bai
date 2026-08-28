@@ -104,7 +104,7 @@ describe("CatalogService", () => {
     const fetchMock = (async () => {
       calls++;
       return new Response(JSON.stringify(SAMPLE_DOC), { status: 200 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
     const { catalog, cachePath, dir } = makeCatalog({ fetch: fetchMock, offline: true, ttlMs: 50 });
     // offline blocks the snapshot but fetchAndCache is still reachable via
     // baseProviders' last resort — verify via explicit refresh path instead:
@@ -118,6 +118,54 @@ describe("CatalogService", () => {
     catalog.invalidate();
     const providers = await catalog.providers();
     expect(providers.length).toBeGreaterThan(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("memoizes the disk cache; invalidate() forces a re-read", async () => {
+    const { catalog, cachePath, dir } = makeCatalog({ doc: SAMPLE_DOC, offline: true });
+    const first = await catalog.providers();
+    expect(first.find((p) => p.id === "anthropic")?.name).toBe("Anthropic");
+
+    // Mutate the cache behind the service's back: the memoized service must
+    // NOT re-read the file. (Re-reading the multi-MB cache on every
+    // providers()/get() call was the ~5s startup freeze.)
+    const v2 = { ...SAMPLE_DOC, anthropic: { ...SAMPLE_DOC.anthropic, name: "Anthropic v2" } };
+    writeFileSync(cachePath, JSON.stringify(v2));
+    const second = await catalog.providers();
+    expect(second.find((p) => p.id === "anthropic")?.name).toBe("Anthropic");
+
+    // invalidate() (config edits) must still force a re-read.
+    catalog.invalidate();
+    const third = await catalog.providers();
+    expect(third.find((p) => p.id === "anthropic")?.name).toBe("Anthropic v2");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("background refresh updates the memoized catalog after the TTL", async () => {
+    let calls = 0;
+    const fetchMock = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ anthropic: { ...SAMPLE_DOC.anthropic, name: "Anthropic Fresh" } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+    const { catalog, dir } = makeCatalog({ doc: SAMPLE_DOC, fetch: fetchMock, ttlMs: 20 });
+
+    // First call memoizes from disk (at = cache mtime); no network yet.
+    const first = await catalog.providers();
+    expect(first.find((p) => p.id === "anthropic")?.name).toBe("Anthropic");
+    expect(calls).toBe(0);
+
+    // TTL expires → the next providers() fires the fire-and-forget refresh.
+    await new Promise((r) => setTimeout(r, 40));
+    let refreshed = await catalog.providers();
+    for (let i = 0; i < 50 && refreshed.find((p) => p.id === "anthropic")?.name !== "Anthropic Fresh"; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      refreshed = await catalog.providers();
+    }
+    expect(refreshed.find((p) => p.id === "anthropic")?.name).toBe("Anthropic Fresh");
+    expect(calls).toBe(1); // exactly one refresh; the fresh `at` re-arms the TTL
     rmSync(dir, { recursive: true, force: true });
   });
 

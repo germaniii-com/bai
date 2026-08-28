@@ -28,7 +28,7 @@ export function App() {
   const [runActive, setRunActive] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const streamCtrl = useRef<AbortController | null>(null);
-  const { list, refresh: refreshProviders } = useProviders(client);
+  const { list, refresh: refreshProviders, ensure: ensureProviders } = useProviders(client);
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
   // the assistant's first text lands; run.finished clears it on errors too.
@@ -144,7 +144,15 @@ export function App() {
           <button className={view === "chat" ? "nav-btn active" : "nav-btn"} onClick={() => setView("chat")}>
             chat
           </button>
-          <button className={view === "settings" ? "nav-btn active" : "nav-btn"} onClick={() => setView("settings")}>
+          <button
+            className={view === "settings" ? "nav-btn active" : "nav-btn"}
+            onClick={() => {
+              setView("settings");
+              // On-demand: the provider list loads when the provider UI is
+              // engaged, not at app startup.
+              void ensureProviders();
+            }}
+          >
             providers
           </button>
         </div>
@@ -187,7 +195,20 @@ export function App() {
             {list !== null ? (
               <ModelPicker client={client} list={list} active={active} refreshProviders={refreshProviders} />
             ) : (
-              <span className="dim">model: …</span>
+              // On-demand placeholder: engaging it loads the provider list,
+              // which swaps in the real picker once the fetch lands.
+              <label className="model-picker">
+                <span className="dim">model</span>
+                <select
+                  value=""
+                  aria-label="model (loading — click to load providers)"
+                  onFocus={() => void ensureProviders()}
+                  onClick={() => void ensureProviders()}
+                  onChange={() => {}}
+                >
+                  <option value="">…</option>
+                </select>
+              </label>
             )}
             {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
               <span className="hint">no provider connected — add one under “providers”</span>

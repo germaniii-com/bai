@@ -65,6 +65,13 @@ async function compileOne(target: string | undefined): Promise<void> {
     target: "bun",
     define: { BAI_VERSION: JSON.stringify(version) },
     plugins: [stubPlugin],
+    // Faster startup: minify shrinks the source the binary must parse on
+    // every launch (the bundle carries React/Ink/Hono/SDKs — several MB of
+    // JS). NOTE: `bytecode: true` was tried and REJECTED — on bun 1.3.14 it
+    // fails to bundle yoga-layout 3.2.1 (top-level await module):
+    // "Expected ';' but found ')'" at yoga-layout/dist/src/index.js:13.
+    // Revisit when the runtime is upgraded.
+    minify: true,
     compile: {
       ...(target !== undefined ? { target } : {}),
       outfile,

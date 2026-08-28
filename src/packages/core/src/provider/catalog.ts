@@ -109,12 +109,28 @@ export class CatalogService {
     if (this.memory !== undefined) return this.memory.providers;
 
     const disk = this.readDisk();
-    if (disk !== undefined) return normalizeModelsDev(disk.doc);
+    if (disk !== undefined) {
+      // Memoize: every providers()/get() call funnels through here and the
+      // registry performs hundreds of lookups per request — re-reading and
+      // re-parsing the multi-MB cache each time froze the whole app (server
+      // and TUI share one event loop). `invalidate()` clears memory, so
+      // config-driven re-derivation still sees fresh disk state.
+      const providers = normalizeModelsDev(disk.doc);
+      this.memory = { at: disk.at, providers };
+      return providers;
+    }
 
     if (!this.opts.offline) {
       // Bundled snapshot ships with the binary — local, instant, ≤24 h old.
       const snapshot = await this.readSnapshot();
-      if (snapshot !== undefined) return normalizeModelsDev(snapshot);
+      if (snapshot !== undefined) {
+        // Same memoization as the disk path. `at: 0` marks the data as
+        // TTL-expired so exactly one background refresh fires; a successful
+        // refresh stamps a fresh `at` and writes the disk cache.
+        const providers = normalizeModelsDev(snapshot);
+        this.memory = { at: 0, providers };
+        return providers;
+      }
     }
     // Nothing local at all (fresh install, snapshot excluded): one bounded
     // network attempt; failure leaves an empty base (config providers + stub
