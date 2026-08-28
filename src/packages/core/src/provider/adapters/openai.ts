@@ -35,14 +35,18 @@ export class OpenAiCompatProvider implements Provider {
       .map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content }));
     const messages = system !== undefined ? [{ role: "system" as const, content: system }, ...conversation] : conversation;
 
-    const stream = await client.chat.completions.create({
-      model: req.model,
-      // Anthropic-style default kept for parity with the Go design (§10).
-      max_tokens: typeof req.params?.max_tokens === "number" ? req.params.max_tokens : 4096,
-      messages,
-      stream: true,
-      stream_options: { include_usage: true },
-    });
+    const stream = await client.chat.completions.create(
+      {
+        model: req.model,
+        // Anthropic-style default kept for parity with the Go design (§10).
+        max_tokens: typeof req.params?.max_tokens === "number" ? req.params.max_tokens : 4096,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true },
+      },
+      // Interrupts cancel the in-flight request itself.
+      { ...(req.signal !== undefined ? { signal: req.signal } : {}) },
+    );
 
     async function* generate(): AsyncGenerator<StreamEvent> {
       for await (const chunk of stream) {

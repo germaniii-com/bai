@@ -201,7 +201,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
         <Text dimColor>
-          ctrl+p providers · ctrl+s sessions · ctrl+g gallery · ctrl+j jobs · ctrl+o settings · ctrl+c quit
+          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+s sessions · ctrl+g gallery · ctrl+j jobs ·
+          ctrl+o settings · ctrl+c quit
         </Text>
       </Box>
     </Box>

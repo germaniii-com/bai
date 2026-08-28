@@ -24,6 +24,12 @@ export interface LlmRequest {
    * client caching, key rotation applies to the very next call.
    */
   auth?: { apiKey?: string; baseUrl?: string };
+  /**
+   * Abort signal from the run coordinator — interrupts must cancel the
+   * in-flight HTTP request, not just stop consuming chunks (a provider that
+   * withholds its first token would otherwise hold the drain hostage).
+   */
+  signal?: AbortSignal;
 }
 
 export type StreamEvent =

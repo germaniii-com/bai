@@ -123,6 +123,7 @@ export class RunCoordinator {
         ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
         ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
       },
+      signal,
     });
 
     const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());
@@ -132,8 +133,7 @@ export class RunCoordinator {
     let textPartId: PartId | null = null;
     let textBuffer = "";
     try {
-      for await (const evt of stream) {
-        if (signal.aborted) break;
+      for await (const evt of raceSignal(stream, signal)) {
         if (evt.type === "text_delta") {
           if (textPartId === null) {
             const part = this.deps.store.parts.append(assistant.id, ord++, "text", { text: "" });
@@ -152,6 +152,10 @@ export class RunCoordinator {
         }
         // tool_call_delta / usage handled from Phase 1/3 onward
       }
+    } catch (err) {
+      // An interrupt cancels the in-flight request → the adapter's iterator
+      // throws; that's a clean stop, not a failure. Real errors propagate.
+      if (!signal.aborted) throw err;
     } finally {
       await stream.close();
     }
@@ -160,6 +164,31 @@ export class RunCoordinator {
   private emitDurable(sessionId: SessionId, type: EventType, payload: unknown): void {
     const evt = this.deps.log.append(sessionId, type, payload, this.deps.clock.iso());
     this.deps.bus.publish(evt);
+  }
+}
+
+/**
+ * Stop consuming the moment the run is interrupted — regardless of whether
+ * the provider's HTTP layer honors the signal. Bun's fetch (as of 1.3) does
+ * not cancel a streaming body after the headers arrive, so waiting for the
+ * next chunk would hold the drain hostage until the provider finishes; the
+ * race makes the stop instant. The abandoned `next()` settles later and its
+ * value is dropped; `stream.close()` in the caller's finally releases what
+ * the runtime can release (and cancels upstream on runtimes that support it).
+ */
+async function* raceSignal<T>(stream: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
+  const iterator = stream[Symbol.asyncIterator]();
+  const aborted = new Promise<"abort">((resolve) => {
+    if (signal.aborted) {
+      resolve("abort");
+      return;
+    }
+    signal.addEventListener("abort", () => resolve("abort"), { once: true });
+  });
+  while (true) {
+    const result = await Promise.race([iterator.next(), aborted]);
+    if (result === "abort" || result.done) return;
+    yield result.value;
   }
 }
 

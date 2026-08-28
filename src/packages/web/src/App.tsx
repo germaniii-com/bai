@@ -224,9 +224,22 @@ export function App() {
               onChange={(e) => setDraft(e.target.value)}
               aria-label="message"
             />
-            <button type="submit" disabled={draft.trim().length === 0}>
-              send
-            </button>
+            {runActive && active !== null ? (
+              // Stop replaces send while the model is responding; the partial
+              // reply stays in history after the interrupt.
+              <button
+                type="button"
+                className="stop"
+                onClick={() => void client.interrupt(active.id)}
+                aria-label="stop generating"
+              >
+                stop
+              </button>
+            ) : (
+              <button type="submit" disabled={draft.trim().length === 0}>
+                send
+              </button>
+            )}
           </form>
         </main>
       )}

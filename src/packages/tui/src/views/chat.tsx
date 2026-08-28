@@ -51,6 +51,7 @@ export function ChatView({
   const [busy, setBusy] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [escArmed, setEscArmed] = useState(false);
   const lastLen = useRef(messages.length);
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
@@ -75,6 +76,24 @@ export function ChatView({
     setOffset(0);
     setSentPending(false);
   }, [session?.id]);
+
+  // Double-esc interrupt arming: first esc arms ("esc again to stop"), the
+  // second fires. Arms auto-expire so a stale press can't stop a later run.
+  const escTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmEsc = useCallback(() => {
+    setEscArmed(false);
+    if (escTimer.current !== null) {
+      clearTimeout(escTimer.current);
+      escTimer.current = null;
+    }
+  }, []);
+  useEffect(() => {
+    if (!runActive) disarmEsc(); // run ended (reply, error, or interrupt)
+  }, [runActive, disarmEsc]);
+  useEffect(() => {
+    disarmEsc(); // session switched — never carry an arm across
+  }, [session?.id, disarmEsc]);
+  useEffect(() => disarmEsc, [disarmEsc]); // unmount
 
   const submitText = async (value: string): Promise<void> => {
     const trimmed = value.trim();
@@ -138,6 +157,20 @@ export function ChatView({
     }
     if (key.pageUp || (key.ctrl && ch === "u")) return scrollBy(PAGE);
     if (key.pageDown || (key.ctrl && ch === "d")) return scrollBy(-PAGE);
+    // esc interrupts the running drain (waiting or mid-stream) — double-press:
+    // first arms, second fires. Safe on an idle session; dialogs handle their
+    // own esc and replace this view.
+    if (key.escape && runActive && session !== null) {
+      if (escArmed) {
+        disarmEsc();
+        void client.interrupt(session.id);
+      } else {
+        setEscArmed(true);
+        if (escTimer.current !== null) clearTimeout(escTimer.current);
+        escTimer.current = setTimeout(disarmEsc, 2500);
+      }
+      return;
+    }
     if (busy || key.ctrl || key.meta) return;
     if (key.return) {
       void submit();
@@ -188,6 +221,10 @@ export function ChatView({
   }
   const visible = messages.slice(start, end);
 
+  // Non-user content (assistant replies, the empty-state line, the thinking
+  // spinner) shares one inset so the whole non-user column aligns.
+  const assistantInset = { paddingLeft: 2, paddingRight: 3 };
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Viewport: flexBasis 0 + flexGrow 1 pins this box to exactly the
@@ -204,7 +241,11 @@ export function ChatView({
         flexBasis={0}
         justifyContent="flex-end"
       >
-        {visible.length === 0 && <Text dimColor>No messages yet — say something.</Text>}
+        {visible.length === 0 && !waiting && (
+          <Box {...assistantInset}>
+            <Text dimColor>No messages yet — say something.</Text>
+          </Box>
+        )}
         {visible.map((m) => {
           const text = messageText(m);
           if (m.role === "user") {
@@ -215,14 +256,18 @@ export function ChatView({
             );
           }
           return (
-            <Box key={m.id} paddingLeft={2} paddingRight={3}>
+            <Box key={m.id} {...assistantInset}>
               <Text wrap="wrap" color={m.role === "assistant" ? undefined : "yellow"}>
                 {text}
               </Text>
             </Box>
           );
         })}
-        {waiting && <Spinner label="thinking…" />}
+        {waiting && (
+          <Box {...assistantInset}>
+            <Spinner label="thinking…" />
+          </Box>
+        )}
       </Box>
 
       {clamped > 0 && (
@@ -241,6 +286,8 @@ export function ChatView({
         <Text>{text}</Text>
         <Text dimColor>▌</Text>
         {busy && <Text dimColor> (working…)</Text>}
+        {runActive && !escArmed && <Text dimColor> · esc to stop</Text>}
+        {escArmed && <Text color="yellow"> · esc again to stop</Text>}
       </Box>
     </Box>
   );

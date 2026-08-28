@@ -216,6 +216,12 @@ body {
   cursor: default;
 }
 
+/* Stop button (replaces send while the model responds). */
+.composer button.stop {
+  background: #ff7b72;
+  color: #2a0b09;
+}
+
 /* --- nav --- */
 
 .nav {

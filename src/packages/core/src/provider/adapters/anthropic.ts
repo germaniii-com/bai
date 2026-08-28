@@ -33,12 +33,16 @@ export class AnthropicProvider implements Provider {
       .filter((m) => m.role !== "system")
       .map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content }));
 
-    const stream = client.messages.stream({
-      model: req.model,
-      max_tokens: typeof req.params?.max_tokens === "number" ? req.params.max_tokens : DEFAULT_MAX_TOKENS,
-      messages,
-      ...(system !== undefined ? { system } : {}),
-    });
+    const stream = client.messages.stream(
+      {
+        model: req.model,
+        max_tokens: typeof req.params?.max_tokens === "number" ? req.params.max_tokens : DEFAULT_MAX_TOKENS,
+        messages,
+        ...(system !== undefined ? { system } : {}),
+      },
+      // Interrupts cancel the in-flight request itself.
+      { ...(req.signal !== undefined ? { signal: req.signal } : {}) },
+    );
 
     async function* generate(): AsyncGenerator<StreamEvent> {
       for await (const evt of stream) {

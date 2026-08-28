@@ -19,7 +19,12 @@ class RecordingProvider implements Provider {
   }
 
   async stream(req: LlmRequest): Promise<ProviderStream> {
-    this.requests.push(structuredClone(req));
+    // AbortSignal isn't cloneable — record a selective snapshot.
+    this.requests.push({
+      ...req,
+      messages: [...req.messages],
+      ...(req.auth !== undefined ? { auth: { ...req.auth } } : {}),
+    });
     async function* generate(): AsyncGenerator<StreamEvent> {
       yield { type: "text_delta", delta: "ok" };
       yield { type: "done", stopReason: "end_turn" };
