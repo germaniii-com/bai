@@ -101,4 +101,7 @@ export interface ModelInfo {
   label: string;
   contextWindow?: number;
   supportsTools?: boolean;
+  /** USD per 1M tokens (models.dev), when published. */
+  inputCost?: number;
+  outputCost?: number;
 }

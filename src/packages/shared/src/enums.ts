@@ -38,6 +38,8 @@ export interface EventPayloads {
   "job.updated": { job: Job };
   "asset.created": { asset: Asset };
   "config.updated": Record<string, never>;
+  /** Accounts changed (added/removed) — live-only, surfaces refetch providers. */
+  "provider.updated": Record<string, never>;
   "server.hello": { version: string };
 }
 
@@ -57,6 +59,7 @@ export const EVENT_TYPES = Object.keys({
   "job.updated": 1,
   "asset.created": 1,
   "config.updated": 1,
+  "provider.updated": 1,
   "server.hello": 1,
 } satisfies Record<EventType, 1>) as EventType[];
 

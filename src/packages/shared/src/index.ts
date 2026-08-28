@@ -4,4 +4,5 @@ export * from "./enums";
 export * from "./domain";
 export * from "./events";
 export * from "./config";
+export * from "./providers";
 export * from "./api";

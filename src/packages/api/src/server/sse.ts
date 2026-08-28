@@ -2,7 +2,7 @@ import type { SSEStreamingApi } from "hono/streaming";
 import type { Event } from "@bai/shared";
 import type { Bus, EventLog } from "@bai/core";
 
-const HEARTBEAT_MS = 15_000;
+const HEARTBEAT_MS = 5_000; // must stay below Bun.serve's 10 s default idleTimeout
 
 export function helloEvent(version: string): Event {
   return { seq: 0, type: "server.hello", ts: new Date().toISOString(), payload: { version } };
@@ -42,6 +42,8 @@ export async function runDurableStream(
       }
       if (rows.length > 0) continue;
       await Promise.race([sub.wait(), stream.sleep(HEARTBEAT_MS)]);
+      // Delivery comes from log.replay above, so draining the subscription
+      // here only decides ping-vs-not — nothing can be lost.
       if (sub.take().length === 0 && !stopped && !stream.aborted) {
         await stream.writeSSE({ event: "ping", data: "{}" });
       }
@@ -67,14 +69,20 @@ export async function runFirehose(
   try {
     while (!stopped && !stream.aborted) {
       const events = sub.take();
-      if (events.length === 0) {
-        await Promise.race([sub.wait(), stream.sleep(HEARTBEAT_MS)]);
-        if (sub.take().length === 0 && !stopped && !stream.aborted) {
-          await stream.writeSSE({ event: "ping", data: "{}" });
-        }
+      if (events.length > 0) {
+        for (const evt of events) await writeEvent(stream, evt, false);
         continue;
       }
-      for (const evt of events) await writeEvent(stream, evt, false);
+      // Nothing buffered: wake on the next publish OR send a heartbeat.
+      // The subscription is drained ONLY at the loop top — taking here too
+      // would swallow the very events the wait just resolved for.
+      const result = await Promise.race([
+        sub.wait().then(() => "event" as const),
+        stream.sleep(HEARTBEAT_MS).then(() => "heartbeat" as const),
+      ]);
+      if (result === "heartbeat" && !stopped && !stream.aborted) {
+        await stream.writeSSE({ event: "ping", data: "{}" });
+      }
     }
   } finally {
     stop();

@@ -7,6 +7,8 @@ import {
   enqueueJobSchema,
   permissionReplySchema,
   promptPayloadSchema,
+  putAccountSchema,
+  setSessionModelSchema,
   type SessionId,
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
@@ -95,10 +97,38 @@ function buildApi(deps: ApiDeps) {
       return c.json({ config });
     })
 
-    // --- providers ---
-    .get("/provider", async (c) => {
-      const models = await deps.providers.allModels();
-      return c.json({ providers: deps.providers.list().map((p) => p.name()), models });
+    // --- providers & accounts ---
+    // Merged view: catalog ⊕ config ⊕ accounts (keys never leave the server).
+    .get("/provider", async (c) => c.json(await deps.core.providers()))
+    .put(
+      "/provider/:provider/account/:account",
+      zValidator("json", putAccountSchema),
+      (c) => {
+        const provider = c.req.param("provider");
+        const account = c.req.param("account");
+        const body = c.req.valid("json");
+        try {
+          const saved = deps.core.setAccount(provider, account, body);
+          return c.json({ account: saved }, 201);
+        } catch (err) {
+          return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+        }
+      },
+    )
+    .delete("/provider/:provider/account/:account", (c) => {
+      const provider = c.req.param("provider");
+      const account = c.req.param("account");
+      if (!deps.core.removeAccount(provider, account)) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true });
+    })
+
+    // --- session model/account (per-session override; ctrl+p writes here) ---
+    .put("/session/:id/model", zValidator("json", setSessionModelSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      const body = c.req.valid("json");
+      const session = deps.core.setSessionModel(id, body);
+      if (session === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ session });
     })
 
     // --- jobs & assets ---

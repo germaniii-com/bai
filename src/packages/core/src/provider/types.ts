@@ -18,6 +18,12 @@ export interface LlmRequest {
   messages: OutboundMessage[];
   tools?: ToolDef[];
   params?: Record<string, unknown>;
+  /**
+   * Request-scoped credentials, resolved by the registry from the account
+   * store (multi-account support). Adapters stay stateless — no per-key
+   * client caching, key rotation applies to the very next call.
+   */
+  auth?: { apiKey?: string; baseUrl?: string };
 }
 
 export type StreamEvent =

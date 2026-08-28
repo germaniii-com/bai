@@ -2,7 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AuthStore,
   Bus,
+  CatalogService,
   EchoProvider,
   EventLog,
   JobQueue,
@@ -19,6 +21,8 @@ export interface TestCore {
   bus: Bus;
   log: EventLog;
   core: Service;
+  providers: ProviderRegistry;
+  accounts: AuthStore;
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -27,7 +31,14 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const providers = new ProviderRegistry();
+  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { default: "stub/echo" } });
+  const accounts = new AuthStore({ file: join(dir, "auth.json") });
+  const catalog = new CatalogService({
+    cachePath: join(dir, "models-cache.json"),
+    config: testConfig,
+    offline: true, // tests never touch network or the bundled snapshot
+  });
+  const providers = new ProviderRegistry({ catalog, config: testConfig, accounts });
   providers.register(new EchoProvider());
   const workbenches = createDefaultWorkbenches({ dataDir: dir });
   const jobs = new JobQueue({
@@ -48,7 +59,7 @@ export function makeCore(): TestCore {
     config: () => ({ ...DEFAULT_CONFIG, models: { default: "stub/echo" } }),
     version: "test",
   });
-  return { dir, store, bus, log, core };
+  return { dir, store, bus, log, core, providers, accounts };
 }
 
 export function sleep(ms: number): Promise<void> {

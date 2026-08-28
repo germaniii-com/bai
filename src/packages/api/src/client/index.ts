@@ -9,6 +9,7 @@ import type {
   Message,
   Session,
 } from "@bai/shared";
+import type { PutAccountBody, ProviderListResponse, SetSessionModelBody } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
 
@@ -74,8 +75,9 @@ export class BaiClient {
   /**
    * Snapshot-then-stream bootstrap: full history plus the event-log cursor to
    * pass as `after` when opening the session stream (no replay duplicates).
+   * `runActive` reports a run already in flight at snapshot time.
    */
-  async historySnapshot(id: string): Promise<{ messages: Message[]; afterSeq: number }> {
+  async historySnapshot(id: string): Promise<{ messages: Message[]; afterSeq: number; runActive: boolean }> {
     const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);
     return res.json();
@@ -117,10 +119,35 @@ export class BaiClient {
     return (await res.json()).config;
   }
 
-  async providers(): Promise<{ providers: string[]; models: unknown[] }> {
+  async providers(): Promise<ProviderListResponse> {
     const res = await this.rpc().provider.$get();
     if (!res.ok) throw new Error(`providers failed: ${res.status}`);
-    return (await res.json()) as { providers: string[]; models: unknown[] };
+    return res.json();
+  }
+
+  /** Upsert one provider account (API key lives server-side; never echoed). */
+  async putAccount(provider: string, account: string, body: PutAccountBody): Promise<void> {
+    const res = await this.rpc().provider[":provider"].account[":account"].$put({
+      param: { provider: encodeURIComponent(provider), account: encodeURIComponent(account) },
+      json: body,
+    });
+    if (!res.ok) throw new Error(`put account failed: ${res.status}`);
+  }
+
+  async deleteAccount(provider: string, account: string): Promise<void> {
+    const res = await this.rpc().provider[":provider"].account[":account"].$delete({
+      param: { provider: encodeURIComponent(provider), account: encodeURIComponent(account) },
+    });
+    if (!res.ok) throw new Error(`delete account failed: ${res.status}`);
+  }
+
+  /** Set the per-session model (and optionally account) — applies next prompt. */
+  async setSessionModel(id: string, body: SetSessionModelBody): Promise<void> {
+    const res = await this.rpc().session[":id"].model.$put({
+      param: { id: encodeURIComponent(id) },
+      json: body,
+    });
+    if (!res.ok) throw new Error(`set session model failed: ${res.status}`);
   }
 
   async enqueueJob(body: EnqueueJobBody): Promise<Job> {
@@ -158,6 +185,33 @@ export class BaiClient {
 
 export function createClient(opts: ClientOptions): BaiClient {
   return new BaiClient(opts);
+}
+
+/**
+ * Follow the global firehose with reconnect-on-drop (best-effort stream).
+ * Returns when the signal aborts. Live-only events (config.updated,
+ * provider.updated, server.hello) can be missed during drops — surfaces
+ * should refresh their snapshot on reconnect.
+ */
+export async function followGlobal(
+  client: BaiClient,
+  opts: {
+    signal?: AbortSignal;
+    onEvent: (evt: Event) => void;
+    onDrop?: (err: unknown) => void;
+  },
+): Promise<void> {
+  while (!(opts.signal?.aborted ?? false)) {
+    try {
+      for await (const evt of client.globalEvents({ signal: opts.signal })) {
+        opts.onEvent(evt);
+      }
+    } catch (err) {
+      if (opts.signal?.aborted ?? false) return;
+      if (opts.onDrop !== undefined) opts.onDrop(err);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 /** Local mode: dial the ephemeral loopback listener started in-process. */

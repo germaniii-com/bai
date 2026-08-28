@@ -100,7 +100,16 @@ export class RunCoordinator {
     // single provider turn per drain.
     const session = this.deps.store.sessions.get(sessionId);
     if (!session) return;
-    const { provider, model } = this.deps.providers.resolveModel(this.deps.defaultModel());
+    // Per-session model/account (set via ctrl+p or the API) → global default.
+    const meta = session.meta as { model?: unknown; account?: unknown };
+    const modelId =
+      typeof meta.model === "string" && meta.model.length > 0
+        ? meta.model
+        : this.deps.defaultModel();
+    const { provider, providerId, model } = await this.deps.providers.resolveModel(modelId);
+    const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
+    const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
+    const credentials = await this.deps.providers.resolveCredentials(providerId, account);
     const history = this.deps.store.messages.history(sessionId);
     const stream = await provider.stream({
       model,
@@ -110,6 +119,10 @@ export class RunCoordinator {
           .map((p) => (typeof (p.payload as { text?: unknown })?.text === "string" ? (p.payload as { text: string }).text : ""))
           .join(""),
       })),
+      auth: {
+        ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
+        ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
+      },
     });
 
     const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());

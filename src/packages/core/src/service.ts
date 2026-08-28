@@ -10,6 +10,7 @@ import {
   type PermissionRequest,
   type PermissionStatus,
   type PromptPayload,
+  type ProviderListResponse,
   type Session,
   type SessionId,
   type WorkbenchName,
@@ -133,10 +134,15 @@ export class Service {
   /**
    * History + event-log cursor in one consistent read — the snapshot half of
    * snapshot-then-stream. Surfaces open the durable stream with afterSeq so
-   * replay never duplicates what the snapshot already contains.
+   * replay never duplicates what the snapshot already contains. `runActive`
+   * covers runs that started before the cursor (a mid-run switch or a
+   * just-submitted first prompt) — live events alone can't signal those.
    */
-  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number } {
-    return this.deps.store.sessionSnapshot(sessionId);
+  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number; runActive: boolean } {
+    return {
+      ...this.deps.store.sessionSnapshot(sessionId),
+      runActive: this.coordinator.isActive(sessionId),
+    };
   }
 
   // --- permissions ---
@@ -159,6 +165,49 @@ export class Service {
 
   enqueueJob(kind: JobKind, sessionId: SessionId | undefined, input: unknown) {
     return this.deps.jobs.enqueue(kind, sessionId, input);
+  }
+
+  // --- providers & accounts ---
+
+  /** Merged provider view (catalog ⊕ config ⊕ accounts) for the API layer. */
+  providers(): Promise<ProviderListResponse> {
+    return this.deps.providers.listResponse();
+  }
+
+  /** Upsert an account and notify every surface (live event, no restart). */
+  setAccount(providerId: string, accountId: string, input: { label?: string; key?: string; baseUrl?: string }) {
+    const account = this.deps.providers.setAccount(providerId, accountId, input);
+    this.emitLive("provider.updated", {});
+    return account;
+  }
+
+  removeAccount(providerId: string, accountId: string): boolean {
+    const removed = this.deps.providers.removeAccount(providerId, accountId);
+    if (removed) this.emitLive("provider.updated", {});
+    return removed;
+  }
+
+  /**
+   * Set (or clear) the per-session model/account. Stored in `session.meta`
+   * (JSON column — no migration); the next drain picks it up immediately.
+   */
+  setSessionModel(
+    id: SessionId,
+    body: { model?: string; account?: string; clear?: boolean },
+  ): Session | undefined {
+    const existing = this.deps.store.sessions.get(id);
+    if (existing === undefined) return undefined;
+    const meta = { ...(existing.meta as Record<string, unknown>) };
+    if (body.clear === true) {
+      delete meta.model;
+      delete meta.account;
+    } else {
+      if (body.model !== undefined) meta.model = body.model;
+      if (body.account !== undefined) meta.account = body.account;
+    }
+    const session = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
+    if (session) this.emitDurable(id, "session.updated", { session });
+    return session;
   }
 
   // --- events ---

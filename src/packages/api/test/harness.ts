@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AuthStore,
   Bus,
+  CatalogService,
   EchoProvider,
   EventLog,
   JobQueue,
@@ -30,7 +32,14 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const providers = new ProviderRegistry();
+  const config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
+  const accounts = new AuthStore({ file: join(dir, "auth.json") });
+  const catalog = new CatalogService({
+    cachePath: join(dir, "models-cache.json"),
+    config: () => config,
+    offline: true, // tests never touch network or the bundled snapshot
+  });
+  const providers = new ProviderRegistry({ catalog, config: () => config, accounts });
   providers.register(new EchoProvider());
   const workbenches = createDefaultWorkbenches({ dataDir: dir });
   const jobs = new JobQueue({
@@ -40,7 +49,6 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     executors: Object.assign({}, ...workbenches.map((wb) => wb.jobExecutors())),
   });
   const tools = new ToolRegistry({ spillDir: join(dir, "tmp") });
-  const config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
   const core = new Service({
     store,
     bus,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PermissionAction } from "./enums";
+import type { AdapterName } from "./providers";
 
 export interface ProviderConfig {
   /** Custom base URL — makes any provider OpenAI-compatible (OpenRouter, Ollama…). */
@@ -7,10 +8,18 @@ export interface ProviderConfig {
   /** Env var holding the API key (preferred over embedding keys in files). */
   apiKeyEnv?: string;
   apiKey?: string;
+  /** Wire protocol for this provider (default inferred from the catalog). */
+  adapter?: AdapterName;
+  /** Display name override. */
+  name?: string;
+  /** Model ids for config-defined providers absent from the catalog. */
+  models?: string[];
 }
 
 export interface ModelsConfig {
   default?: string;
+  /** Per-provider default account id, e.g. { "openai": "personal" }. */
+  defaultAccount?: Record<string, string>;
 }
 
 export interface MCPServerConfig {
@@ -47,6 +56,9 @@ const providerSchema = z.object({
   baseUrl: z.string().url().optional(),
   apiKeyEnv: z.string().optional(),
   apiKey: z.string().optional(),
+  adapter: z.enum(["openai", "anthropic", "openai-compatible"]).optional(),
+  name: z.string().min(1).max(100).optional(),
+  models: z.array(z.string().min(1).max(200)).max(1000).optional(),
 });
 
 const mcpServerSchema = z.object({
@@ -58,7 +70,12 @@ const mcpServerSchema = z.object({
 
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
-  models: z.object({ default: z.string().optional() }).default({}),
+  models: z
+    .object({
+      default: z.string().optional(),
+      defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
+    })
+    .default({}),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).default({}),
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
@@ -73,7 +90,12 @@ export const configSchema = z.object({
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
 export const configPatchSchema = z.object({
   providers: z.record(z.string(), providerSchema).optional(),
-  models: z.object({ default: z.string().optional() }).optional(),
+  models: z
+    .object({
+      default: z.string().optional(),
+      defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
+    })
+    .optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),

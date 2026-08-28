@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import {
+  AuthStore,
+  CatalogService,
   ConfigStore,
-  EchoProvider,
   EventLog,
   Bus,
   JobQueue,
@@ -63,8 +65,26 @@ export async function boot(args: CliArgs): Promise<Booted> {
   const bus = new Bus();
   const log = new EventLog(store.events);
 
-  const providers = new ProviderRegistry();
-  providers.register(new EchoProvider());
+  // Credentials live outside config (auth.json, 0600) so keys never ride
+  // config sync; the catalog merges models.dev with config-defined providers.
+  const accounts = new AuthStore({ file: path.join(dataDir(), "auth.json") });
+  const configStore = new ConfigStore({
+    globalPath,
+    cwd: process.cwd(),
+    onChange: () => {
+      providers.invalidate();
+      bus.publish({ seq: 0, type: "config.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
+  const catalog = new CatalogService({
+    cachePath: path.join(dataDir(), "models-cache.json"),
+    config: () => configStore.get(),
+  });
+  const providers = new ProviderRegistry({
+    catalog,
+    config: () => configStore.get(),
+    accounts,
+  });
 
   const workbenches = createDefaultWorkbenches({ dataDir: dataDir() });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
@@ -74,14 +94,6 @@ export async function boot(args: CliArgs): Promise<Booted> {
   const jobs = new JobQueue({ store, bus, assetsDir: assetsDir(), executors });
 
   const tools = new ToolRegistry({ spillDir: tmpDir() });
-
-  const configStore = new ConfigStore({
-    globalPath,
-    cwd: process.cwd(),
-    onChange: () => {
-      bus.publish({ seq: 0, type: "config.updated", ts: new Date().toISOString(), payload: {} });
-    },
-  });
 
   const core = new Service({
     store,

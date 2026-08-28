@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import { messageText } from "../state/sync";
+import { Spinner } from "../components/spinner";
 
 /** Messages jumped per pageUp/pageDown (ctrl+u/ctrl+d) press. */
 const PAGE = 12;
@@ -36,17 +37,31 @@ export function ChatView({
   client,
   session,
   messages,
+  runActive,
   onSessionCreated,
 }: {
   client: BaiClient;
   session: Session | null;
   messages: Message[];
+  /** True while the coordinator is draining this session (run.started → run.finished). */
+  runActive: boolean;
   onSessionCreated: (session: Session) => void;
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sentPending, setSentPending] = useState(false);
   const [offset, setOffset] = useState(0);
   const lastLen = useRef(messages.length);
+
+  // Waiting-for-reply indicator: from submit (optimistic) or run start until
+  // the assistant's first text lands. Stops on errors too — run.finished
+  // clears runActive even when no reply ever arrived.
+  const last = messages[messages.length - 1];
+  const hasVisibleReply = last !== undefined && last.role === "assistant" && messageText(last).length > 0;
+  useEffect(() => {
+    if (runActive || hasVisibleReply) setSentPending(false);
+  }, [runActive, hasVisibleReply]);
+  const waiting = (sentPending || runActive) && !hasVisibleReply;
 
   // Keep the reading window stable when messages arrive while scrolled up.
   useEffect(() => {
@@ -55,9 +70,10 @@ export function ChatView({
     if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
   }, [messages.length]);
 
-  // Session switched → back to the latest messages.
+  // Session switched → back to the latest messages, no stale pending state.
   useEffect(() => {
     setOffset(0);
+    setSentPending(false);
   }, [session?.id]);
 
   const submitText = async (value: string): Promise<void> => {
@@ -73,8 +89,10 @@ export function ChatView({
         await client.submitPrompt(session.id, { text: trimmed });
       }
       setText("");
+      setSentPending(true); // dots until the run's first token (or run.finished)
       setOffset(0); // follow the reply
     } catch (err) {
+      setSentPending(false);
       // Errors surface via the parent's error line on next refresh; keep input.
     } finally {
       setBusy(false);
@@ -204,6 +222,7 @@ export function ChatView({
             </Box>
           );
         })}
+        {waiting && <Spinner label="thinking…" />}
       </Box>
 
       {clamped > 0 && (
