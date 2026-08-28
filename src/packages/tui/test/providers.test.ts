@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   accountOptions,
+  allModelOptions,
   currentModelLabel,
+  currentProviderId,
   modelOptions,
   needsSetup,
   providerOptions,
@@ -66,6 +68,51 @@ describe("provider picker logic", () => {
     expect(opts.map((o) => o.value)).toEqual(["p/a", "p/z", "__custom__"]);
     expect(opts[0]?.hint).toContain("200k ctx");
     expect(opts[0]?.hint).toContain("$3/M in");
+  });
+
+  test("allModelOptions: flat list across connected providers, stub excluded", () => {
+    const opts = allModelOptions(LIST.providers.concat(
+      provider({
+        id: "alpha",
+        connected: true,
+        models: [
+          { id: "alpha/m2", provider: "alpha", label: "M2" },
+          { id: "alpha/m1", provider: "alpha", label: "M1", contextWindow: 100000 },
+        ],
+      }),
+      provider({
+        id: "zeta",
+        connected: true,
+        models: [{ id: "zeta/m9", provider: "zeta", label: "M9", inputCost: 12 }],
+      }),
+    ));
+    // alpha (connected, alphabetically first) then zeta; label-sorted within
+    // each; provider name leads every hint; custom escape hatch last.
+    expect(opts.map((o) => o.value)).toEqual([
+      "alpha/m1",
+      "alpha/m2",
+      "zeta/m9",
+      "__custom__",
+    ]);
+    expect(opts[0]?.hint).toBe("alpha · 100k ctx");
+    expect(opts[2]?.hint).toBe("zeta · $12/M in");
+    expect(opts[3]?.hint).toBe("provider/model");
+  });
+
+  test("allModelOptions: unconnected providers contribute nothing", () => {
+    const opts = allModelOptions([
+      provider({ id: "mid", connected: false, models: [{ id: "mid/x", provider: "mid", label: "X" }] }),
+      provider({ id: "stub", connected: true, models: [{ id: "stub/echo", provider: "stub", label: "Echo" }] }),
+    ]);
+    expect(opts.map((o) => o.value)).toEqual(["__custom__"]);
+  });
+
+  test("currentProviderId: session meta > list default > config default > stub", () => {
+    const session = { id: "ses_x", meta: { model: "zeta/m9" } } as unknown as Session;
+    expect(currentProviderId(session, LIST, "openai/g")).toBe("zeta");
+    expect(currentProviderId(null, LIST, "openai/g")).toBe("alpha");
+    expect(currentProviderId(null, null, "openai/g")).toBe("openai");
+    expect(currentProviderId(null, null, undefined)).toBe("stub");
   });
 
   test("applyTarget: session when active, global otherwise", () => {

@@ -3,13 +3,21 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { PromptDialog, SelectDialog } from "./dialog";
-import { accountOptions, modelOptions, providerOptions } from "../state/providers";
+import {
+  accountOptions,
+  allModelOptions,
+  modelOptions,
+  providerOptions,
+} from "../state/providers";
 
 /**
  * ctrl+p wizard (the opencode /connect pattern, extended for multi-account):
  * provider list → account management (add/remove/select) → model picker →
  * apply to the active session (or the global default when none is open).
  * Each step replaces the last; esc backs out one level.
+ *
+ * Shortcut entries skip the provider step: ctrl+a opens the flow at an
+ * `accounts` step (via `initialStep`), ctrl+l at the flat `all-models` step.
  */
 type Step =
   | { kind: "providers" }
@@ -19,23 +27,27 @@ type Step =
   | { kind: "add-key"; providerId: string; accountId: string; label: string }
   | { kind: "add-url"; providerId: string; accountId: string; label: string; key: string }
   | { kind: "models"; providerId: string; accountId?: string }
-  | { kind: "custom-model"; providerId: string; accountId?: string };
+  | { kind: "all-models" }
+  | { kind: "custom-model"; providerId?: string; accountId?: string };
 
 export function ProviderFlow({
   client,
   list,
   active,
+  initialStep,
   onDone,
   onRefresh,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
   active: Session | null;
+  /** Entry step for the shortcut bindings (default: the provider list). */
+  initialStep?: Step;
   onDone: () => void;
   /** Refetch providers after account mutations (app owns the state). */
   onRefresh: () => void;
 }) {
-  const [step, setStep] = useState<Step>({ kind: "providers" });
+  const [step, setStep] = useState<Step>(initialStep ?? { kind: "providers" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,7 +62,11 @@ export function ProviderFlow({
       .finally(() => setBusy(false));
   };
 
-  const applyModel = (providerId: string, accountId: string | undefined, model: string): void => {
+  const applyModel = (
+    providerId: string | undefined,
+    accountId: string | undefined,
+    model: string,
+  ): void => {
     void guard(async () => {
       if (active !== null) {
         await client.setSessionModel(active.id, {
@@ -61,7 +77,9 @@ export function ProviderFlow({
         await client.putConfig({
           models: {
             default: model,
-            ...(accountId !== undefined ? { defaultAccount: { [providerId]: accountId } } : {}),
+            ...(providerId !== undefined && accountId !== undefined
+              ? { defaultAccount: { [providerId]: accountId } }
+              : {}),
           },
         });
       }
@@ -214,15 +232,42 @@ export function ProviderFlow({
           onClose={() => setStep({ kind: "accounts", providerId: provider.id })}
         />
       );
+  } else if (step.kind === "all-models") {
+    // ctrl+l entry: every connected provider's models in one type-to-filter
+    // list. Account is omitted on apply — the server resolves the provider's
+    // default (config override → first stored → env).
+    dialog = (
+      <SelectDialog
+        key="all-models"
+        title="Models"
+        options={allModelOptions(list.providers)}
+        onPick={(value) => {
+          if (value === "__custom__") {
+            setStep({ kind: "custom-model" });
+          } else {
+            applyModel(value.split("/")[0], undefined, value);
+          }
+        }}
+        onClose={onDone}
+      />
+    );
   } else {
     dialog = (
       <PromptDialog
         key="custom-model"
         title="Model id"
-        placeholder="e.g. gpt-5-turbo"
+        placeholder="e.g. openai/gpt-5-turbo"
         description="Sent to the provider verbatim — the catalog is a convenience, not a gate."
         onSubmit={(model) => applyModel(step.providerId, step.accountId, model)}
-        onClose={() => setStep({ kind: "models", providerId: step.providerId, accountId: step.accountId })}
+        onClose={() =>
+          step.providerId !== undefined
+            ? setStep({
+                kind: "models",
+                providerId: step.providerId,
+                ...(step.accountId !== undefined ? { accountId: step.accountId } : {}),
+              })
+            : setStep({ kind: "all-models" })
+        }
       />
     );
   }

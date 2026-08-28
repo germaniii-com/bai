@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { PickerOption } from "../state/providers";
+import { deleteWord } from "../state/composer";
 
 /** Options rendered around the highlight when the list is longer than this. */
 const WINDOW = 12;
@@ -54,6 +55,12 @@ export function SelectDialog({
     if (key.return) {
       const picked = visible[clamped];
       if (picked !== undefined) onPick(picked.value);
+      return;
+    }
+    // ctrl+w: shell-style word delete in the filter, matching the composer.
+    if (key.ctrl && ch === "w") {
+      setFilter((f) => deleteWord(f));
+      setIndex(0);
       return;
     }
     if (key.ctrl || key.meta) return;
@@ -156,6 +163,11 @@ export function PromptDialog({
     }
     if (key.backspace || key.delete) {
       setText((t) => t.slice(0, -1));
+      return;
+    }
+    // ctrl+w: shell-style word delete, matching the composer.
+    if (key.ctrl && ch === "w") {
+      setText((t) => deleteWord(t));
       return;
     }
     if (key.ctrl || key.meta) return;

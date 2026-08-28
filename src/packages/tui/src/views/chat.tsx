@@ -1,9 +1,27 @@
-import { Box, Text, useInput, useStdout, useWindowSize } from "ink";
+import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import { messageText, thinkingText } from "../state/sync";
 import { Spinner } from "../components/spinner";
+import {
+  backspace,
+  deleteForward,
+  deleteWordBefore,
+  insert,
+  insertMultiline,
+  moveLeft,
+  moveLineDown,
+  moveLineEnd,
+  moveLineStart,
+  moveLineUp,
+  moveRight,
+  openAbove,
+  openBelow,
+  sanitize,
+  type Editor,
+} from "../state/composer";
+import { recordPrompt, resetTraversal, traverse } from "../state/history";
 
 /** Messages jumped per pageUp/pageDown (ctrl+u/ctrl+d) press. */
 const PAGE = 12;
@@ -45,10 +63,11 @@ function estimateRows(m: Message, columns: number, expanded: boolean): number {
 
 /**
  * Chat view: scrollable message history + inline composer. The composer is a
- * minimal useInput-driven text input (no extra deps); ctrl-prefixed globals
- * are ignored here so typing stays clean. Scrolling is message-anchored:
- * `offset` counts messages hidden from the bottom (0 = pinned to latest), and
- * the window stays put while new messages arrive mid-read.
+ * multi-line, cursor-aware text input built on the pure `Editor` model (no
+ * extra deps); ctrl-prefixed globals are ignored here so typing stays clean.
+ * Scrolling is message-anchored: `offset` counts messages hidden from the
+ * bottom (0 = pinned to latest), and the window stays put while new messages
+ * arrive mid-read.
  */
 export function ChatView({
   client,
@@ -67,7 +86,7 @@ export function ChatView({
   footerLines: number;
   onSessionCreated: (session: Session) => void;
 }) {
-  const [text, setText] = useState("");
+  const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -103,10 +122,13 @@ export function ChatView({
     if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
   }, [messages.length]);
 
-  // Session switched → back to the latest messages, no stale pending state.
+  // Session switched → back to the latest messages, no stale pending state,
+  // history traversal back to the live-draft boundary (history itself is
+  // global and survives the switch).
   useEffect(() => {
     setOffset(0);
     setSentPending(false);
+    resetTraversal();
   }, [session?.id]);
 
   // Double-esc interrupt arming: first esc arms ("esc again to stop"), the
@@ -127,7 +149,14 @@ export function ChatView({
   }, [session?.id, disarmEsc]);
   useEffect(() => disarmEsc, [disarmEsc]); // unmount
 
-  const submitText = async (value: string): Promise<void> => {
+  /**
+   * Submit `value` as a prompt. On success the draft clears to `nextDraft`
+   * (default: empty) — but only when the draft is still exactly `value`, so
+   * keystrokes that landed during the await survive. Burst submits pass the
+   * post-Enter tail as `nextDraft`; a tail that coincidentally equals the
+   * submitted value then clears to itself (a no-op), never to empty.
+   */
+  const submitText = async (value: string, nextDraft = ""): Promise<void> => {
     const trimmed = value.trim();
     if (trimmed.length === 0 || busy) return;
     setBusy(true);
@@ -142,7 +171,10 @@ export function ChatView({
       } else {
         await client.submitPrompt(session.id, { text: trimmed });
       }
-      setText("");
+      recordPrompt(trimmed);
+      setEditor((e) =>
+        e.text === value ? { text: nextDraft, cursor: nextDraft.length } : e,
+      );
       setSentPending(true); // dots until the run's first token (or run.finished)
       setOffset(0); // follow the reply
     } catch (err) {
@@ -154,7 +186,7 @@ export function ChatView({
   };
 
   const submit = (): void => {
-    void submitText(text);
+    void submitText(editor.text);
   };
 
   // Latest message count for clamping — readable from stale closures (the
@@ -181,6 +213,11 @@ export function ChatView({
       stdout.write("\x1b[?1006l\x1b[?1000l");
     };
   }, [stdout]);
+
+  // Bracketed paste: pasted text (including newlines) arrives on its own
+  // channel and is inserted literally at the cursor — it never reaches
+  // useInput, which is what makes a lone "\n" there a reliable ctrl+j.
+  usePaste((pasted) => setEditor((e) => insert(e, sanitize(pasted))));
 
   useInput((ch, key) => {
     // SGR mouse events arrive as literal input (ESC stripped): press
@@ -238,24 +275,70 @@ export function ChatView({
       setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
       return;
     }
+    // Editing shortcuts — clean ctrl bytes, never insert text.
+    if (key.ctrl && ch === "w") return setEditor(deleteWordBefore);
+    // ctrl+j opens a line below (vim o). Legacy terminals deliver it as a
+    // lone "\n" (Ink parses it as name='enter' with key.ctrl=false); kitty
+    // -protocol terminals deliver a real ctrl+j — accept both spellings.
+    if ((key.ctrl && ch === "j") || ch === "\n") return setEditor(openBelow);
+    if (key.ctrl && ch === "k") return setEditor(openAbove);
+    // Up/down are line-wise cursor movement in the draft (standard editor
+    // behavior). History traversal only engages from an empty draft — once
+    // an entry is recalled, the arrows move within it; clear the draft to
+    // traverse further. Scrolling stays on pageUp/pageDown, ctrl+u/ctrl+d
+    // and the mouse wheel. Recalled entries put the cursor at their end.
+    if (key.upArrow) {
+      if (editor.text.length === 0) {
+        const recalled = traverse(true, editor.text);
+        if (recalled !== null) setEditor({ text: recalled, cursor: recalled.length });
+      } else {
+        setEditor(moveLineUp);
+      }
+      return;
+    }
+    if (key.downArrow) {
+      if (editor.text.length === 0) {
+        const recalled = traverse(false, editor.text);
+        if (recalled !== null) setEditor({ text: recalled, cursor: recalled.length });
+      } else {
+        setEditor(moveLineDown);
+      }
+      return;
+    }
     if (busy || key.ctrl || key.meta) return;
     if (key.return) {
       void submit();
-    } else if (key.backspace || key.delete) {
-      setText((t) => t.slice(0, -1));
+    } else if (key.backspace) {
+      setEditor(backspace);
+    } else if (key.delete) {
+      setEditor(deleteForward);
+    } else if (key.home) {
+      setEditor(moveLineStart);
+    } else if (key.end) {
+      setEditor(moveLineEnd);
+    } else if (key.leftArrow) {
+      setEditor(moveLeft);
+    } else if (key.rightArrow) {
+      setEditor(moveRight);
     } else if (ch !== undefined && ch.length > 0) {
-      // Input can arrive batched: several keystrokes (or pasted text) in one
-      // chunk. Newlines inside the chunk are submit boundaries — the text
-      // accumulated so far, plus the completed segment, goes out as a message.
-      const segments = ch.split(/[\r\n]+/);
-      const tail = (segments.pop() ?? "").replace(/[\x00-\x1f\x7f]/g, "");
-      if (segments.length > 0) {
-        const completed = segments
-          .map((s) => s.replace(/[\x00-\x1f\x7f]/g, ""))
-          .join(" ");
-        void submitText(text + completed);
+      // Typed input can arrive batched (several keystrokes in one chunk).
+      // \r is the only submit boundary (Enter); "\n" is ctrl+j and stays in
+      // the draft as a structural newline (insertMultiline → vim o).
+      const parts = ch.split(/\r/);
+      const tail = sanitize(parts.pop() ?? "");
+      if (parts.length > 0) {
+        // Enter inside the burst: the draft (with the completed segment
+        // inserted at the cursor) goes out; the tail becomes the new draft.
+        const completed = parts.map((s) => sanitize(s)).join(" ");
+        const value =
+          editor.text.slice(0, editor.cursor) +
+          completed +
+          editor.text.slice(editor.cursor);
+        setEditor({ text: tail, cursor: tail.length });
+        void submitText(value, tail);
+      } else if (tail.length > 0) {
+        setEditor((e) => insertMultiline(e, tail));
       }
-      if (tail.length > 0) setText((t) => t + tail);
     }
   });
 
@@ -266,9 +349,13 @@ export function ChatView({
   // left over from the fixed chrome (header, composer, footer, indicator).
   // Walking backward from the anchor keeps the newest messages visible.
   const { columns, rows } = useWindowSize();
+  // The composer box grows with the draft: 2 border rows + one row per draft
+  // line (multi-line drafts are real since ctrl+j/ctrl+k and paste).
+  const composerLines = Math.max(1, editor.text.split("\n").length);
+  const composerRows = 2 + composerLines;
   const chrome =
     3 /* header box */ +
-    3 /* composer box */ +
+    composerRows +
     1 /* footer hints */ +
     1 /* list marginBottom */ +
     2 /* error line + estimation slack */ +
@@ -284,7 +371,7 @@ export function ChatView({
   const viewportBottomRow =
     rows -
     footerLines -
-    3 /* composer box */ -
+    composerRows -
     (clamped > 0 ? 2 : 0) -
     1; /* viewport marginBottom */
   let start = Math.max(0, end - 1);
@@ -410,11 +497,16 @@ export function ChatView({
       )}
 
       {/* Green border ties the composer to the user's message boxes — what
-          you type here is what a green box above shows. */}
+          you type here is what a green box above shows. The ▌ block sits at
+          the cursor position (multi-line drafts render their embedded
+          newlines; ←/→/Home/End move the cursor). */}
       <Box borderStyle="round" borderColor="green" paddingX={1}>
         <Text color="magenta">› </Text>
-        <Text>{text}</Text>
-        <Text dimColor>▌</Text>
+        <Text>
+          {editor.text.slice(0, editor.cursor)}
+          <Text dimColor>▌</Text>
+          {editor.text.slice(editor.cursor)}
+        </Text>
         {busy && <Text dimColor> (working…)</Text>}
         {runActive && !escArmed && <Text dimColor> · esc to stop</Text>}
         {escArmed && <Text color="yellow"> · esc again to stop</Text>}

@@ -11,5 +11,8 @@
     "@bai/core": "workspace:*",
     "@bai/shared": "workspace:*",
     "@bai/tui": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }

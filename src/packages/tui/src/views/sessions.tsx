@@ -50,7 +50,7 @@ export function SessionsView({
           </Text>
         </Text>
       ))}
-      <Text dimColor>↑/↓ navigate · enter open · n new</Text>
+      <Text dimColor>↑/↓ navigate · enter open · n new · esc back</Text>
     </Box>
   );
 }

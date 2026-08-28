@@ -11,7 +11,10 @@ export interface RenderedApp {
 export function renderApp(opts: { client: BaiClient; version: string }): RenderedApp {
   const instance = render(<App client={opts.client} version={opts.version} />, {
     alternateScreen: true,
-    exitOnCtrlC: true,
+    // ctrl+c is app-managed (double-press: interrupt, then quit) — the App
+    // component owns it via useInput + useApp().exit() so the CLI's finally
+    // block still drains the server.
+    exitOnCtrlC: false,
   });
   return {
     waitUntilExit: async () => {

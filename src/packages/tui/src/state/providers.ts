@@ -62,6 +62,43 @@ export function modelOptions(provider: ProviderInfo): PickerOption[] {
   return out;
 }
 
+/**
+ * Flat model list across all connected providers (the ctrl+l picker — no
+ * provider step). Values are full "provider/model" ids; the server resolves
+ * the provider's default account when none is sent. The echo stub is not a
+ * real model to switch to and is excluded (same stance as `needsSetup`).
+ */
+export function allModelOptions(providers: ProviderInfo[]): PickerOption[] {
+  const connected = providers
+    .filter((p) => p.connected && p.id !== "stub" && p.models.length > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const out: PickerOption[] = [];
+  for (const p of connected) {
+    for (const m of [...p.models].sort((a, b) => a.label.localeCompare(b.label))) {
+      const parts: string[] = [p.name];
+      if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
+      if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
+      out.push({ value: m.id, label: m.label, hint: parts.join(" · ") });
+    }
+  }
+  out.push({ value: "__custom__", label: "Type a model id…", hint: "provider/model" });
+  return out;
+}
+
+/** Provider id of the current model: session meta → list default → config default → stub. */
+export function currentProviderId(
+  active: Session | null,
+  list: ProviderListResponse | null,
+  configDefault?: string,
+): string {
+  const meta = active?.meta as { model?: unknown } | undefined;
+  const model =
+    typeof meta?.model === "string"
+      ? meta.model
+      : (list?.default.model ?? configDefault ?? "stub/echo");
+  return model.split("/")[0] ?? model;
+}
+
 /** Where a model pick applies: the active session, or the global default. */
 export function applyTarget(active: Session | null): "session" | "global" {
   return active !== null ? "session" : "global";

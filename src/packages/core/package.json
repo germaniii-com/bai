@@ -11,5 +11,8 @@
     "@bai/shared": "workspace:*",
     "@opencode-ai/models": "^0.0.56",
     "openai": "^7.8.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }

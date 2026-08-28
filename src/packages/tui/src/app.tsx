@@ -1,4 +1,4 @@
-import { Box, Text, useInput, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
 import type { Message, ProviderListResponse, Session } from "@bai/shared";
@@ -7,17 +7,30 @@ import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent } from "./state/sync";
-import { currentModelLabel, needsSetup } from "./state/providers";
+import { currentModelLabel, currentProviderId, needsSetup } from "./state/providers";
 
 export type UiState = "chat" | "sessions" | "gallery" | "jobs" | "settings";
 
 /**
+ * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
+ * ctrl+p → full wizard, ctrl+a → current provider's accounts, ctrl+l → flat
+ * model list across connected providers.
+ */
+type DialogOpen =
+  | { kind: "providers" }
+  | { kind: "accounts"; providerId: string }
+  | { kind: "all-models" };
+
+/**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
  * keys before global bindings (the Crush pattern); global bindings here are
- * ctrl-prefixed so the chat input never fights them.
+ * ctrl-prefixed so the chat input never fights them. ctrl+c and esc-as-back
+ * are handled before the dialog defer — ctrl+c must stay global (quit hatch)
+ * and esc only means "back" outside dialogs and chat.
  */
 export function App({ client, version }: { client: BaiClient; version: string }) {
   const { rows } = useWindowSize();
+  const { exit } = useApp();
   const [view, setView] = useState<UiState>("chat");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
@@ -26,11 +39,16 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [providers, setProviders] = useState<ProviderListResponse | null>(null);
   const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
   const dialogOpenRef = useRef(false);
-  dialogOpenRef.current = dialogOpen;
-  // On-demand provider list: fetched on first ctrl+p, kept fresh afterwards.
+  dialogOpenRef.current = dialog !== null;
+  // ctrl+c double-press arming (mirrors the chat composer's esc arming):
+  // first press arms, second interrupts a running drain or quits.
+  const [quitArmed, setQuitArmed] = useState(false);
+  const quitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // On-demand provider list: fetched on first ctrl+p/ctrl+l/ctrl+a, kept
+  // fresh afterwards.
   const providersLoadedRef = useRef(false);
   providersLoadedRef.current = providers !== null;
 
@@ -69,6 +87,35 @@ export function App({ client, version }: { client: BaiClient; version: string })
     void refreshSessions();
     void refreshConfig();
   }, [refreshSessions, refreshConfig]);
+
+  // ctrl+c arming expires like the composer's esc arming — a stale press
+  // must never quit (or interrupt) a later session of events.
+  const disarmQuit = useCallback(() => {
+    setQuitArmed(false);
+    if (quitTimer.current !== null) {
+      clearTimeout(quitTimer.current);
+      quitTimer.current = null;
+    }
+  }, []);
+  useEffect(() => disarmQuit, [disarmQuit]); // unmount
+
+  // ctrl+a: accounts of the provider backing the current model. Needs the
+  // provider list (on-demand, like ctrl+p); an unknown/stub provider falls
+  // back to the full wizard.
+  const openAccounts = useCallback(async () => {
+    try {
+      const list = providers ?? (await client.providers());
+      setProviders(list);
+      const providerId = currentProviderId(active, list, configDefault);
+      setDialog(
+        list.providers.some((p) => p.id === providerId)
+          ? { kind: "accounts", providerId }
+          : { kind: "providers" },
+      );
+    } catch {
+      // Advisory; the footer hint covers the empty case.
+    }
+  }, [providers, client, active, configDefault]);
 
   // Live refresh: account/config changes from ANY surface (TUI, web, phone)
   // update this one within a heartbeat — no restart, no manual refresh.
@@ -142,21 +189,44 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [active, client]);
 
   useInput((ch, key) => {
+    // ctrl+c is global (even over dialogs — dialogs ignore ctrl keys):
+    // first press arms, second interrupts a running drain or quits.
+    // exitOnCtrlC is off (index.tsx), so this is the only ctrl+c path.
+    if (key.ctrl && ch === "c") {
+      if (quitArmed) {
+        disarmQuit();
+        if (runActive && active !== null) void client.interrupt(active.id);
+        else exit();
+      } else {
+        setQuitArmed(true);
+        if (quitTimer.current !== null) clearTimeout(quitTimer.current);
+        quitTimer.current = setTimeout(disarmQuit, 2500);
+      }
+      return;
+    }
+    // esc is "back": out of any non-chat view. Dialogs handle their own esc
+    // (per-level back-out) and chat uses it to interrupt a run.
+    if (key.escape && view !== "chat" && !dialogOpenRef.current) {
+      setView("chat");
+      return;
+    }
     if (!key.ctrl || dialogOpenRef.current) return;
     if (ch === "p") {
-      setDialogOpen(true);
+      setDialog({ kind: "providers" });
       void refreshProviders();
+    } else if (ch === "l") {
+      // Flat model picker across connected providers — no provider step.
+      setDialog({ kind: "all-models" });
+      void refreshProviders();
+    } else if (ch === "a") {
+      void openAccounts();
     } else if (ch === "s") setView("sessions");
     else if (ch === "g") setView("gallery");
-    else if (ch === "j") setView("jobs");
     else if (ch === "o") setView("settings");
-    else if (ch === "c" && key.return === false) {
-      // ctrl+c handled by ink (exitOnCtrlC)
-    }
   });
 
   const closeDialog = useCallback(() => {
-    setDialogOpen(false);
+    setDialog(null);
     void refreshProviders();
     void refreshSessions();
   }, [refreshProviders, refreshSessions]);
@@ -165,7 +235,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const setupHint = needsSetup(providers);
   // Exact footer line count — ChatView needs it to compute the thinking
   // spinner's terminal row for click-to-toggle hit testing.
-  const footerLines = 1 + (error !== null ? 1 : 0) + (setupHint ? 1 : 0);
+  const footerLines =
+    1 + (error !== null ? 1 : 0) + (setupHint ? 1 : 0) + (quitArmed ? 1 : 0);
 
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
@@ -182,21 +253,24 @@ export function App({ client, version }: { client: BaiClient; version: string })
       </Box>
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {dialogOpen && providers !== null ? (
+        {dialog !== null && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and
           // surface the engagement refetch as a hint — the dialog state
           // survives and the list updates in place when the fetch lands.
+          // ProviderFlow unmounts between openings, so its step state
+          // restarts at `initialStep` each time.
           <Box flexDirection="column">
             {providersFetching && <Text dimColor>updating providers…</Text>}
             <ProviderFlow
               client={client}
               list={providers}
               active={active}
+              initialStep={dialog}
               onDone={closeDialog}
               onRefresh={() => void refreshProviders()}
             />
           </Box>
-        ) : dialogOpen ? (
+        ) : dialog !== null ? (
           <Text dimColor>loading providers…</Text>
         ) : (
           <>
@@ -234,9 +308,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
+        {quitArmed && (
+          <Text color="yellow">
+            {runActive ? "ctrl+c again to interrupt" : "ctrl+c again to quit"}
+          </Text>
+        )}
         <Text dimColor>
-          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery ·
-          ctrl+j jobs · ctrl+o settings · ctrl+c quit
+          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+t thoughts ·
+          ctrl+w word · ctrl+j/k newline · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit
         </Text>
       </Box>
     </Box>
