@@ -124,12 +124,49 @@ body {
   word-break: break-word;
 }
 
-/* Waiting-for-the-model indicator: three staggered bouncing dots. */
+/* Waiting-for-the-model indicator: three staggered bouncing dots + label. */
 .typing {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 6px 0;
+}
+
+.typing-label {
+  color: var(--dim);
+  font-size: 13px;
+  margin-left: 4px;
+}
+
+/* Reasoning transcript node (opencode parity): collapsible chain-of-thought
+   block rendered above the reply. Collapsed by default; per-node toggle. */
+.thinking-node {
+  margin-bottom: 10px;
+}
+
+.thinking-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.thinking-toggle:hover {
+  color: var(--text);
+}
+
+.thinking-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dim);
+  font-size: 13px;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 10px;
+  margin: 4px 0 0;
 }
 
 .typing .dot {

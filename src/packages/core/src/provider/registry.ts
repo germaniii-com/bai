@@ -18,6 +18,8 @@ export interface ResolvedModel {
   provider: Provider;
   providerId: string;
   model: string;
+  /** Model emits reasoning tokens — the run enables thinking for it. */
+  reasoning: boolean;
 }
 
 export interface ResolvedCredentials {
@@ -87,7 +89,7 @@ export class ProviderRegistry {
     return provider;
   }
 
-  /** Resolve "provider/model" → adapter + vendor model id. */
+  /** Resolve "provider/model" → adapter + vendor model id (+ reasoning flag). */
   async resolveModel(modelId: string): Promise<ResolvedModel> {
     const idx = modelId.indexOf("/");
     const providerId = idx >= 0 ? modelId.slice(0, idx) : modelId;
@@ -95,7 +97,10 @@ export class ProviderRegistry {
     if (provider === undefined) {
       throw new Error(`Unknown or unsupported provider in model id "${modelId}"`);
     }
-    return { provider, providerId, model: idx >= 0 ? modelId.slice(idx + 1) : modelId };
+    const model = idx >= 0 ? modelId.slice(idx + 1) : modelId;
+    const entry = await this.deps.catalog.get(providerId);
+    const reasoning = entry?.models.find((m) => m.id === model)?.reasoning === true;
+    return { provider, providerId, model, reasoning };
   }
 
   /** Stored accounts ⊕ the env pseudo-account when the provider's env var is set. */
@@ -322,6 +327,7 @@ function catalogModels(providerId: string, entry: CatalogProvider): ModelInfo[] 
     supportsTools: m.toolCall,
     ...(m.inputCost !== undefined ? { inputCost: m.inputCost } : {}),
     ...(m.outputCost !== undefined ? { outputCost: m.outputCost } : {}),
+    ...(m.reasoning ? { reasoning: true } : {}),
   }));
 }
 

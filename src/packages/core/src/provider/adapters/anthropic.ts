@@ -33,12 +33,23 @@ export class AnthropicProvider implements Provider {
       .filter((m) => m.role !== "system")
       .map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content }));
 
+    // Extended thinking: enabled for reasoning models by the run coordinator
+    // (params.thinking). Anthropic requires max_tokens > budget_tokens.
+    const thinking = req.params?.thinking as { type: "enabled"; budget_tokens: number } | undefined;
+    const maxTokens =
+      typeof req.params?.max_tokens === "number"
+        ? req.params.max_tokens
+        : thinking !== undefined
+          ? Math.max(8192, thinking.budget_tokens + 6144)
+          : DEFAULT_MAX_TOKENS;
+
     const stream = client.messages.stream(
       {
         model: req.model,
-        max_tokens: typeof req.params?.max_tokens === "number" ? req.params.max_tokens : DEFAULT_MAX_TOKENS,
+        max_tokens: maxTokens,
         messages,
         ...(system !== undefined ? { system } : {}),
+        ...(thinking !== undefined ? { thinking } : {}),
       },
       // Interrupts cancel the in-flight request itself.
       { ...(req.signal !== undefined ? { signal: req.signal } : {}) },
@@ -48,6 +59,8 @@ export class AnthropicProvider implements Provider {
       for await (const evt of stream) {
         if (evt.type === "content_block_delta" && evt.delta.type === "text_delta") {
           yield { type: "text_delta", delta: evt.delta.text };
+        } else if (evt.type === "content_block_delta" && evt.delta.type === "thinking_delta") {
+          yield { type: "thinking_delta", delta: evt.delta.thinking };
         } else if (evt.type === "message_start") {
           yield { type: "usage", inputTokens: evt.message.usage?.input_tokens };
         } else if (evt.type === "message_delta") {

@@ -26,6 +26,8 @@ class RecordingProvider implements Provider {
       ...(req.auth !== undefined ? { auth: { ...req.auth } } : {}),
     });
     async function* generate(): AsyncGenerator<StreamEvent> {
+      yield { type: "thinking_delta", delta: "pondering " };
+      yield { type: "thinking_delta", delta: "the request" };
       yield { type: "text_delta", delta: "ok" };
       yield { type: "done", stopReason: "end_turn" };
     }
@@ -64,9 +66,14 @@ describe("per-session model/account + accounts API", () => {
     expect(fake.requests).toHaveLength(1);
     expect(fake.requests[0]?.model).toBe("m1");
     expect(fake.requests[0]?.auth?.apiKey).toBe("key-123");
-    // reply streamed from the fake provider into history
+    // reply streamed from the fake provider into history — reasoning tokens
+    // land in their own "thinking" part, the answer in the "text" part
     const history = t.core.history(session.id);
-    expect((history[1]?.parts[0]?.payload as { text: string }).text).toBe("ok");
+    expect(history[1]?.parts).toHaveLength(2);
+    expect(history[1]?.parts[0]?.kind).toBe("thinking");
+    expect((history[1]?.parts[0]?.payload as { text: string }).text).toBe("pondering the request");
+    expect(history[1]?.parts[1]?.kind).toBe("text");
+    expect((history[1]?.parts[1]?.payload as { text: string }).text).toBe("ok");
   });
 
   test("clearing session model falls back to the global default", async () => {

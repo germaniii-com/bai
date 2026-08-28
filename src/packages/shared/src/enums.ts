@@ -6,7 +6,7 @@ export type WorkbenchName = "chat" | "code" | "image" | "video";
 
 export type Role = "user" | "assistant" | "system";
 
-export type PartKind = "text" | "file" | "image" | "tool_call" | "tool_result";
+export type PartKind = "text" | "thinking" | "file" | "image" | "tool_call" | "tool_result";
 
 export type InputState = "admitted" | "promoted" | "cancelled";
 

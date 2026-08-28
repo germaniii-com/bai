@@ -2,7 +2,7 @@ import { Box, Text, useInput, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
-import { messageText } from "../state/sync";
+import { messageText, thinkingText } from "../state/sync";
 import { Spinner } from "../components/spinner";
 
 /** Messages jumped per pageUp/pageDown (ctrl+u/ctrl+d) press. */
@@ -18,11 +18,28 @@ const WHEEL_DOWN = 65;
  * paddingLeft 2 + paddingRight 3 → columns - 5, one em narrower than the
  * user box's text width.
  */
-function estimateRows(m: Message, columns: number): number {
+function estimateRows(m: Message, columns: number, expanded: boolean): number {
   const text = messageText(m);
   const width = Math.max(8, columns - (m.role === "user" ? 4 : 5));
+  // Empty text (thinking-only phase, before the first answer delta) renders
+  // zero rows — don't count a line for it.
   let lines = 0;
-  for (const seg of text.split("\n")) lines += Math.max(1, Math.ceil(seg.length / width));
+  if (text.length > 0) {
+    for (const seg of text.split("\n"))
+      lines += Math.max(1, Math.ceil(seg.length / width));
+  }
+  // Thinking nodes count toward the budget: expanded = header + reasoning
+  // lines + gap; collapsed = summary line + gap before the reply.
+  const thinking = thinkingText(m);
+  if (thinking.length > 0 && m.role !== "user") {
+    if (expanded) {
+      lines += 2; // header + gap
+      for (const seg of thinking.split("\n"))
+        lines += Math.max(1, Math.ceil(seg.length / width));
+    } else {
+      lines += 2; // summary line + gap
+    }
+  }
   return m.role === "user" ? lines + 2 : Math.max(lines, 1);
 }
 
@@ -38,6 +55,7 @@ export function ChatView({
   session,
   messages,
   runActive,
+  footerLines,
   onSessionCreated,
 }: {
   client: BaiClient;
@@ -45,6 +63,8 @@ export function ChatView({
   messages: Message[];
   /** True while the coordinator is draining this session (run.started → run.finished). */
   runActive: boolean;
+  /** Exact footer line count (hints + error + setup hint) — click hit testing. */
+  footerLines: number;
   onSessionCreated: (session: Session) => void;
 }) {
   const [text, setText] = useState("");
@@ -58,11 +78,23 @@ export function ChatView({
   // the assistant's first text lands. Stops on errors too — run.finished
   // clears runActive even when no reply ever arrived.
   const last = messages[messages.length - 1];
-  const hasVisibleReply = last !== undefined && last.role === "assistant" && messageText(last).length > 0;
+  const hasVisibleReply =
+    last !== undefined &&
+    last.role === "assistant" &&
+    messageText(last).length > 0;
   useEffect(() => {
     if (runActive || hasVisibleReply) setSentPending(false);
   }, [runActive, hasVisibleReply]);
   const waiting = (sentPending || runActive) && !hasVisibleReply;
+
+  // Thinking nodes (opencode parity): every assistant message's reasoning
+  // renders as its own transcript node — collapsed by default, each toggled
+  // individually by clicking its row (ctrl+t toggles all). The state
+  // persists after the run and across session revisits; only the
+  // *visibility* toggles.
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Keep the reading window stable when messages arrive while scrolled up.
   useEffect(() => {
@@ -101,7 +133,10 @@ export function ChatView({
     setBusy(true);
     try {
       if (session === null) {
-        const created = await client.createSession({ title: trimmed.slice(0, 60), workbench: "chat" });
+        const created = await client.createSession({
+          title: trimmed.slice(0, 60),
+          workbench: "chat",
+        });
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: trimmed });
       } else {
@@ -128,7 +163,9 @@ export function ChatView({
   lenRef.current = messages.length;
 
   const scrollBy = useCallback((delta: number): void => {
-    setOffset((o) => Math.max(0, Math.min(o + delta, Math.max(0, lenRef.current - 1))));
+    setOffset((o) =>
+      Math.max(0, Math.min(o + delta, Math.max(0, lenRef.current - 1))),
+    );
   }, []);
 
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
@@ -146,13 +183,31 @@ export function ChatView({
   }, [stdout]);
 
   useInput((ch, key) => {
-    // Mouse wheel (SGR sequence forwarded by ink as literal input, ESC
-    // stripped). Works even while busy — reading history during a run.
-    const wheel = ch !== undefined ? /^\x1b?\[<(\d+);\d+;\d+[Mm]$/.exec(ch) : null;
-    if (wheel !== null) {
-      const button = Number(wheel[1]);
+    // SGR mouse events arrive as literal input (ESC stripped): press
+    // `ESC[<button;col;rowM`, release `…m`. Coordinates are 1-based. Works
+    // even while busy — reading history during a run.
+    const mouse =
+      ch !== undefined ? /^\x1b?\[<(\d+);(\d+);(\d+)([Mm])$/.exec(ch) : null;
+    if (mouse !== null) {
+      const button = Number(mouse[1]);
       if (button === WHEEL_UP) return scrollBy(1);
       if (button === WHEEL_DOWN) return scrollBy(-1);
+      // Left press (release ignored — one click, one toggle) on a thinking
+      // node's row toggles that node individually.
+      if (button === 0 && mouse[4] === "M") {
+        const row = Number(mouse[3]);
+        for (const [id, nodeRow] of nodeRows) {
+          if (nodeRow === row) {
+            setExpandedThinking((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
+            break;
+          }
+        }
+      }
       return;
     }
     if (key.pageUp || (key.ctrl && ch === "u")) return scrollBy(PAGE);
@@ -171,6 +226,18 @@ export function ChatView({
       }
       return;
     }
+    // ctrl+t toggles ALL reasoning nodes (works mid-typing; ctrl never
+    // inserts): expand all when any is collapsed, collapse all otherwise.
+    if (key.ctrl && ch === "t") {
+      const thinkingIds = messages
+        .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
+        .map((m) => m.id);
+      const allExpanded =
+        thinkingIds.length > 0 &&
+        thinkingIds.every((id) => expandedThinking.has(id));
+      setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
+      return;
+    }
     if (busy || key.ctrl || key.meta) return;
     if (key.return) {
       void submit();
@@ -183,7 +250,9 @@ export function ChatView({
       const segments = ch.split(/[\r\n]+/);
       const tail = (segments.pop() ?? "").replace(/[\x00-\x1f\x7f]/g, "");
       if (segments.length > 0) {
-        const completed = segments.map((s) => s.replace(/[\x00-\x1f\x7f]/g, "")).join(" ");
+        const completed = segments
+          .map((s) => s.replace(/[\x00-\x1f\x7f]/g, ""))
+          .join(" ");
         void submitText(text + completed);
       }
       if (tail.length > 0) setText((t) => t + tail);
@@ -203,23 +272,54 @@ export function ChatView({
     1 /* footer hints */ +
     1 /* list marginBottom */ +
     2 /* error line + estimation slack */ +
-    (clamped > 0 ? 2 : 0) /* scroll indicator */;
+    (clamped > 0 ? 2 : 0); /* scroll indicator */
   const budget = Math.max(1, rows - chrome);
   const end = len - clamped;
+
+  // Terminal row (1-based) of the viewport's last content row: the viewport
+  // is bottom-anchored, so its bottom edge is the terminal bottom minus
+  // composer, footer, scroll block, and the viewport's bottom margin.
+  // Referenced from the mouse handler above via closure (via nodeRows).
+  // Keep these constants in sync with the JSX below and App's footer.
+  const viewportBottomRow =
+    rows -
+    footerLines -
+    3 /* composer box */ -
+    (clamped > 0 ? 2 : 0) -
+    1; /* viewport marginBottom */
   let start = Math.max(0, end - 1);
   const newest = messages[end - 1];
   if (newest !== undefined) {
-    let used = estimateRows(newest, columns);
+    let used = estimateRows(newest, columns, expandedThinking.has(newest.id));
     for (let i = end - 2; i >= 0; i--) {
       const m = messages[i];
       if (m === undefined) break;
-      const cost = estimateRows(m, columns) + 1; // + gap row
+      const cost = estimateRows(m, columns, expandedThinking.has(m.id)) + 1; // + gap row
       if (used + cost > budget) break;
       used += cost;
       start = i;
     }
   }
   const visible = messages.slice(start, end);
+
+  // Terminal row of each visible thinking node (1-based) — click hit testing.
+  // Walk bottom-up from the viewport's last row: while waiting the spinner
+  // occupies that row plus a gap row above it; every message block is
+  // separated by a gap row, and a node's clickable line is its block's first
+  // row. Must stay in sync with the JSX below.
+  const nodeRows = new Map<string, number>();
+  {
+    let cursorBottom = viewportBottomRow - (waiting ? 2 : 0);
+    for (let i = visible.length - 1; i >= 0; i--) {
+      const m = visible[i];
+      if (m === undefined) break;
+      const height = estimateRows(m, columns, expandedThinking.has(m.id));
+      const top = cursorBottom - height + 1;
+      if (m.role === "assistant" && thinkingText(m).length > 0)
+        nodeRows.set(m.id, top);
+      cursorBottom = top - 1;
+    }
+  }
 
   // Non-user content (assistant replies, the empty-state line, the thinking
   // spinner) shares one inset so the whole non-user column aligns.
@@ -231,7 +331,9 @@ export function ChatView({
           leftover rows between header and composer; flex-end keeps messages
           hugging the composer. Overflow (estimation error) escapes upward,
           never into the composer. User messages get a bordered box; assistant
-          messages render plain — role is conveyed by shape, not labels. */}
+          messages render plain — role is conveyed by shape, not labels.
+          Reasoning renders as a transcript node (opencode parity): collapsed
+          to a summary line, expanded to the full chain of thought. */}
       <Box
         flexDirection="column"
         gap={1}
@@ -250,14 +352,42 @@ export function ChatView({
           const text = messageText(m);
           if (m.role === "user") {
             return (
-              <Box key={m.id} borderStyle="round" borderColor="green" paddingX={1}>
+              <Box
+                key={m.id}
+                borderStyle="round"
+                borderColor="green"
+                paddingX={1}
+              >
                 <Text wrap="wrap">{text}</Text>
               </Box>
             );
           }
+          const thinking = thinkingText(m);
+          const thinkingLineCount =
+            thinking.length > 0 ? thinking.split("\n").length : 0;
+          const expanded = expandedThinking.has(m.id);
           return (
-            <Box key={m.id} {...assistantInset}>
-              <Text wrap="wrap" color={m.role === "assistant" ? undefined : "yellow"}>
+            <Box key={m.id} {...assistantInset} flexDirection="column" gap={1}>
+              {thinkingLineCount > 0 &&
+                (expanded ? (
+                  <Box flexDirection="column">
+                    <Text dimColor>── thought ──</Text>
+                    {thinking.split("\n").map((line, i) => (
+                      <Text key={i} dimColor wrap="wrap">
+                        {line.length > 0 ? line : " "}
+                      </Text>
+                    ))}
+                  </Box>
+                ) : (
+                  <Text dimColor>
+                    ▸ thought ({thinkingLineCount} line
+                    {thinkingLineCount === 1 ? "" : "s"})
+                  </Text>
+                ))}
+              <Text
+                wrap="wrap"
+                color={m.role === "assistant" ? undefined : "yellow"}
+              >
                 {text}
               </Text>
             </Box>
@@ -273,8 +403,8 @@ export function ChatView({
       {clamped > 0 && (
         <Box marginBottom={1}>
           <Text dimColor>
-            ↑ {clamped} earlier message{clamped === 1 ? "" : "s"} · mouse wheel or pageUp/pageDown
-            to scroll
+            ↑ {clamped} earlier message{clamped === 1 ? "" : "s"} · mouse wheel
+            or pageUp/pageDown to scroll
           </Text>
         </Box>
       )}

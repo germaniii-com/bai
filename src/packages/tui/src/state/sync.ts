@@ -78,3 +78,11 @@ export function messageText(message: Message): string {
     .map((p) => (p.kind === "text" ? ((p.payload as { text?: string } | null)?.text ?? "") : ""))
     .join("");
 }
+
+/** Flatten a message's reasoning (thinking) parts — shown behind the reveal panel. */
+export function thinkingText(message: Message): string {
+  return message.parts
+    .filter((p) => p.kind === "thinking")
+    .map((p) => (p.payload as { text?: string } | null)?.text ?? "")
+    .join("");
+}

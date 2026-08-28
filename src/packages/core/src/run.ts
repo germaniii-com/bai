@@ -106,7 +106,7 @@ export class RunCoordinator {
       typeof meta.model === "string" && meta.model.length > 0
         ? meta.model
         : this.deps.defaultModel();
-    const { provider, providerId, model } = await this.deps.providers.resolveModel(modelId);
+    const { provider, providerId, model, reasoning } = await this.deps.providers.resolveModel(modelId);
     const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
     const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
     const credentials = await this.deps.providers.resolveCredentials(providerId, account);
@@ -123,6 +123,8 @@ export class RunCoordinator {
         ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
         ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
       },
+      // Reasoning models: enable extended thinking so reasoning tokens flow.
+      ...(reasoning ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
       signal,
     });
 
@@ -132,6 +134,8 @@ export class RunCoordinator {
     let ord = 0;
     let textPartId: PartId | null = null;
     let textBuffer = "";
+    let thinkingPartId: PartId | null = null;
+    let thinkingBuffer = "";
     try {
       for await (const evt of raceSignal(stream, signal)) {
         if (evt.type === "text_delta") {
@@ -145,6 +149,29 @@ export class RunCoordinator {
           this.emitDurable(sessionId, "message.part.delta", {
             messageId: assistant.id,
             partId: textPartId,
+            delta: evt.delta,
+          });
+        } else if (evt.type === "thinking_delta") {
+          // Reasoning tokens live in their own part kind — surfaces render
+          // them behind the click-to-reveal panel, never in the main reply.
+          if (thinkingPartId === null) {
+            const part = this.deps.store.parts.append(assistant.id, ord++, "thinking", { text: "" });
+            thinkingPartId = part.id;
+            thinkingBuffer = "";
+            // Surfaces learn the kind before deltas arrive (mirrors user
+            // parts) — otherwise they'd default the part to "text".
+            this.emitDurable(sessionId, "message.part.updated", {
+              messageId: assistant.id,
+              partId: thinkingPartId,
+              kind: "thinking",
+              payload: { text: "" },
+            });
+          }
+          thinkingBuffer += evt.delta;
+          this.deps.store.parts.updatePayload(thinkingPartId, { text: thinkingBuffer });
+          this.emitDurable(sessionId, "message.part.delta", {
+            messageId: assistant.id,
+            partId: thinkingPartId,
             delta: evt.delta,
           });
         } else if (evt.type === "done") {

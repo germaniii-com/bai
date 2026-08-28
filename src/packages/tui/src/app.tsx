@@ -139,6 +139,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
 
   const modelLabel = currentModelLabel(active, providers);
   const setupHint = needsSetup(providers);
+  // Exact footer line count — ChatView needs it to compute the thinking
+  // spinner's terminal row for click-to-toggle hit testing.
+  const footerLines = 1 + (error !== null ? 1 : 0) + (setupHint ? 1 : 0);
 
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
@@ -173,6 +176,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 session={active}
                 messages={messages}
                 runActive={runActive}
+                footerLines={footerLines}
                 onSessionCreated={(s) => {
                   setActive(s);
                   void refreshSessions();
@@ -201,8 +205,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
         <Text dimColor>
-          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+s sessions · ctrl+g gallery · ctrl+j jobs ·
-          ctrl+o settings · ctrl+c quit
+          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery ·
+          ctrl+j jobs · ctrl+o settings · ctrl+c quit
         </Text>
       </Box>
     </Box>

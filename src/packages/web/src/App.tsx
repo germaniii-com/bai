@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
-import { applyEvent, messageText } from "./state";
+import { applyEvent, messageText, thinkingText } from "./state";
 import { useProviders } from "./use-providers";
 import { Settings } from "./settings";
 import { ModelPicker } from "./model-picker";
@@ -197,15 +197,17 @@ export function App() {
             {messages.length === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
             {messages.map((m) => (
               <div key={m.id} className={`message ${m.role}`}>
+                {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
                 <p>{messageText(m)}</p>
               </div>
             ))}
             {waiting && (
               <div className="message assistant">
-                <div className="typing" aria-label="assistant is thinking" role="status">
+                <div className="typing" role="status" aria-label="assistant is thinking">
                   <span className="dot" />
                   <span className="dot" />
                   <span className="dot" />
+                  <span className="typing-label">thinking…</span>
                 </div>
               </div>
             )}
@@ -243,6 +245,30 @@ export function App() {
           </form>
         </main>
       )}
+    </div>
+  );
+}
+
+/**
+ * A reasoning transcript node (opencode parity): the model's chain of
+ * thought rendered as its own collapsible block above the reply. Collapsed
+ * by default; each node toggles independently; the state survives session
+ * switches because the thinking parts live in the message history itself.
+ */
+function ThinkingNode({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const lineCount = text.split("\n").length;
+  return (
+    <div className="thinking-node">
+      <button
+        type="button"
+        className="thinking-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? "▾" : "▸"} thought ({lineCount} line{lineCount === 1 ? "" : "s"})
+      </button>
+      {open && <div className="thinking-body">{text}</div>}
     </div>
   );
 }

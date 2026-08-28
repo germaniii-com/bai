@@ -104,4 +104,6 @@ export interface ModelInfo {
   /** USD per 1M tokens (models.dev), when published. */
   inputCost?: number;
   outputCost?: number;
+  /** Model emits reasoning tokens (models.dev); bai enables thinking for it. */
+  reasoning?: boolean;
 }

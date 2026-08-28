@@ -50,9 +50,16 @@ export class OpenAiCompatProvider implements Provider {
 
     async function* generate(): AsyncGenerator<StreamEvent> {
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (typeof delta === "string" && delta.length > 0) {
-          yield { type: "text_delta", delta };
+        const delta = chunk.choices[0]?.delta;
+        // Reasoning models (DeepSeek R1, OpenRouter reasoning, …) stream
+        // chain-of-thought in non-standard fields before the answer.
+        const ext = delta as unknown as { reasoning_content?: unknown; reasoning?: unknown } | undefined;
+        const reasoning = ext?.reasoning_content ?? ext?.reasoning;
+        if (typeof reasoning === "string" && reasoning.length > 0) {
+          yield { type: "thinking_delta", delta: reasoning };
+        }
+        if (typeof delta?.content === "string" && delta.content.length > 0) {
+          yield { type: "text_delta", delta: delta.content };
         }
         if (chunk.usage !== undefined && chunk.usage !== null) {
           yield {

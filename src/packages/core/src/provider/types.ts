@@ -34,6 +34,8 @@ export interface LlmRequest {
 
 export type StreamEvent =
   | { type: "text_delta"; delta: string }
+  /** Reasoning tokens (chain of thought) — rendered behind a click-to-reveal panel. */
+  | { type: "thinking_delta"; delta: string }
   | { type: "tool_call_delta"; id: string; name: string; argsDelta: string }
   | { type: "usage"; inputTokens?: number; outputTokens?: number }
   | { type: "done"; stopReason?: string };

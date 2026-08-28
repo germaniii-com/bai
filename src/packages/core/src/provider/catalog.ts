@@ -25,6 +25,7 @@ export interface CatalogModel {
   id: string;
   name: string;
   toolCall: boolean;
+  reasoning: boolean;
   contextWindow?: number;
   inputCost?: number;
   outputCost?: number;
@@ -55,6 +56,7 @@ interface ModelsDevProvider {
       id?: string;
       name?: string;
       tool_call?: boolean;
+      reasoning?: boolean;
       limit?: { context?: number };
       cost?: { input?: number; output?: number };
     }
@@ -200,6 +202,7 @@ function normalizeModelsDev(doc: Record<string, ModelsDevProvider>): CatalogProv
         id: modelId,
         name: m.name ?? modelId,
         toolCall: m.tool_call === true,
+        reasoning: m.reasoning === true,
         ...(typeof m.limit?.context === "number" ? { contextWindow: m.limit.context } : {}),
         ...(typeof m.cost?.input === "number" ? { inputCost: m.cost.input } : {}),
         ...(typeof m.cost?.output === "number" ? { outputCost: m.cost.output } : {}),
@@ -231,7 +234,7 @@ function mergeConfigProviders(catalog: CatalogProvider[], config: Config): Catal
     const models: CatalogModel[] = [...(existing?.models ?? [])];
     for (const modelId of pc.models ?? []) {
       if (!models.some((m) => m.id === modelId)) {
-        models.push({ id: modelId, name: modelId, toolCall: false });
+        models.push({ id: modelId, name: modelId, toolCall: false, reasoning: false });
       }
     }
     const merged: CatalogProvider = {
