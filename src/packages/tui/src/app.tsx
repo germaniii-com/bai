@@ -24,6 +24,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderListResponse | null>(null);
+  const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [runActive, setRunActive] = useState(false);
@@ -43,10 +44,13 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [client]);
 
   const refreshProviders = useCallback(async () => {
+    setProvidersFetching(true);
     try {
       setProviders(await client.providers());
     } catch {
       // Provider list is advisory; the footer hint covers the empty case.
+    } finally {
+      setProvidersFetching(false);
     }
   }, [client]);
 
@@ -179,13 +183,19 @@ export function App({ client, version }: { client: BaiClient; version: string })
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         {dialogOpen && providers !== null ? (
-          <ProviderFlow
-            client={client}
-            list={providers}
-            active={active}
-            onDone={closeDialog}
-            onRefresh={() => void refreshProviders()}
-          />
+          // Re-open with the list already loaded: render it instantly and
+          // surface the engagement refetch as a hint — the dialog state
+          // survives and the list updates in place when the fetch lands.
+          <Box flexDirection="column">
+            {providersFetching && <Text dimColor>updating providers…</Text>}
+            <ProviderFlow
+              client={client}
+              list={providers}
+              active={active}
+              onDone={closeDialog}
+              onRefresh={() => void refreshProviders()}
+            />
+          </Box>
         ) : dialogOpen ? (
           <Text dimColor>loading providers…</Text>
         ) : (

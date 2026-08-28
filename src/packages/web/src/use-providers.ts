@@ -3,36 +3,37 @@ import { followGlobal, type BaiClient } from "@bai/api/client";
 import type { ProviderListResponse } from "@bai/shared";
 
 /**
- * Providers/config state + live refresh — ON DEMAND. The full list (200+
- * providers, thousands of models) is not fetched at startup; `ensure()`
- * loads it on first provider-UI engagement (settings view, model picker).
- * Afterwards the firehose keeps it live: account or config changes from ANY
- * surface (TUI ctrl+p, another browser, the phone) arrive as
- * provider.updated / config.updated and re-render here — no restart, no
- * manual refresh.
+ * Providers/config state + live refresh — ON DEMAND, refetch on engagement.
+ * The full list (200+ providers, thousands of models) is never fetched at
+ * startup. Every engagement with the provider UI (settings view, model
+ * picker) refetches — mirroring the TUI's ctrl+p — and `fetching` reports
+ * when a fetch is in flight so surfaces can show an updating hint.
+ * Between engagements the firehose keeps a loaded list live: account or
+ * config changes from ANY surface (TUI ctrl+p, another browser, the phone)
+ * arrive as provider.updated / config.updated and re-render here — no
+ * restart, no manual refresh.
  */
 export function useProviders(client: BaiClient): {
   list: ProviderListResponse | null;
   refresh: () => Promise<void>;
-  /** Fetch on first engagement; no-op once loaded. */
-  ensure: () => Promise<void>;
+  /** True while a provider-list fetch is in flight. */
+  fetching: boolean;
 } {
   const [list, setList] = useState<ProviderListResponse | null>(null);
+  const [fetching, setFetching] = useState(false);
   const loadedRef = useRef(false);
   loadedRef.current = list !== null;
 
   const refresh = useCallback(async () => {
+    setFetching(true);
     try {
       setList(await client.providers());
     } catch {
       // Advisory state; the settings view surfaces errors on mutation.
+    } finally {
+      setFetching(false);
     }
   }, [client]);
-
-  const ensure = useCallback(async () => {
-    if (loadedRef.current) return;
-    await refresh();
-  }, [refresh]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -48,5 +49,5 @@ export function useProviders(client: BaiClient): {
     return () => ctrl.abort();
   }, [client, refresh]);
 
-  return { list, refresh, ensure };
+  return { list, refresh, fetching };
 }

@@ -11,10 +11,13 @@ export function Settings({
   client,
   list,
   refresh,
+  fetching = false,
 }: {
   client: BaiClient;
   list: ProviderListResponse | null;
   refresh: () => Promise<void>;
+  /** True while an engagement refetch is in flight (list already shown). */
+  fetching?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -37,6 +40,7 @@ export function Settings({
       {error !== null && <div className="error">{error}</div>}
       {notice !== null && <div className="notice">{notice}</div>}
       {list === null && <p className="dim">Loading…</p>}
+      {list !== null && fetching && <p className="dim">updating…</p>}
       {list !== null && (
         <>
           {list.providers.map((p) => (

@@ -28,7 +28,7 @@ export function App() {
   const [runActive, setRunActive] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const streamCtrl = useRef<AbortController | null>(null);
-  const { list, refresh: refreshProviders, ensure: ensureProviders } = useProviders(client);
+  const { list, refresh: refreshProviders, fetching: providersFetching } = useProviders(client);
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
   // the assistant's first text lands; run.finished clears it on errors too.
@@ -148,9 +148,10 @@ export function App() {
             className={view === "settings" ? "nav-btn active" : "nav-btn"}
             onClick={() => {
               setView("settings");
-              // On-demand: the provider list loads when the provider UI is
-              // engaged, not at app startup.
-              void ensureProviders();
+              // On-demand + refetch on engagement (TUI ctrl+p parity): the
+              // provider list never loads at startup, and every open pulls
+              // fresh data.
+              void refreshProviders();
             }}
           >
             providers
@@ -187,13 +188,16 @@ export function App() {
 
       {view === "settings" ? (
         <main className="settings-pane">
-          <Settings client={client} list={list} refresh={refreshProviders} />
+          <Settings client={client} list={list} refresh={refreshProviders} fetching={providersFetching} />
         </main>
       ) : (
         <main className="chat">
           <div className="chat-head">
             {list !== null ? (
-              <ModelPicker client={client} list={list} active={active} refreshProviders={refreshProviders} />
+              <>
+                <ModelPicker client={client} list={list} active={active} refreshProviders={refreshProviders} />
+                {providersFetching && <span className="dim">updating…</span>}
+              </>
             ) : (
               // On-demand placeholder: engaging it loads the provider list,
               // which swaps in the real picker once the fetch lands.
@@ -202,11 +206,11 @@ export function App() {
                 <select
                   value=""
                   aria-label="model (loading — click to load providers)"
-                  onFocus={() => void ensureProviders()}
-                  onClick={() => void ensureProviders()}
+                  onFocus={() => void refreshProviders()}
+                  onClick={() => void refreshProviders()}
                   onChange={() => {}}
                 >
-                  <option value="">…</option>
+                  <option value="">loading…</option>
                 </select>
               </label>
             )}
