@@ -8,6 +8,10 @@ browsers **and** phones (PWA) from the same bundle.
 
 - Views: sessions sidebar, chat, code (file tree + diffs), image gallery,
   video gallery, jobs queue, settings (config editor), pairing screen.
+- Two-level navigation: a master icon rail (Chat, Workspace / Image Gen /
+  Video Gen as phase placeholders, Settings pinned bottom) plus a
+  contextual nested panel per section (sessions for chat, General +
+  providers for settings).
 - Sync engine mirroring the TUI's semantics:
   1. REST bootstrap snapshot on connect (typed via `hc<AppType>`)
   2. global SSE firehose applied through pure per-entity reducers

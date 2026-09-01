@@ -3,21 +3,90 @@ import type { BaiClient } from "@bai/api/client";
 import type { ProviderInfo, ProviderListResponse } from "@bai/shared";
 
 /**
- * Settings: provider/account management + default model. Same endpoints the
- * TUI's ctrl+p wizard uses — add an account here and the TUI's picker picks
- * it up live via provider.updated.
+ * Settings section, split for the two-level nav: `SettingsNav` renders the
+ * nested sidebar (General entry + provider list, connected first); the main
+ * pane (`SettingsPane`) shows the default-model form (General) or the picked
+ * provider's detail — accounts, remove, and an add-account form scoped to
+ * that provider. Same endpoints the TUI's ctrl+p wizard uses — add an
+ * account here and the TUI's picker picks it up live via provider.updated.
  */
-export function Settings({
+
+/** Nested-sidebar list: General (default model) + providers. */
+export function SettingsNav({
+  list,
+  fetching,
+  selected,
+  onSelect,
+}: {
+  list: ProviderListResponse | null;
+  /** True while an engagement refetch is in flight (list already shown). */
+  fetching: boolean;
+  /** Resolved selection: null = General. */
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  // Connected first (stable), stub last — same stance as the TUI's picker.
+  const sorted =
+    list === null
+      ? []
+      : [...list.providers].sort((a, b) => {
+          const ac = a.connected ? 0 : 1;
+          const bc = b.connected ? 0 : 1;
+          if (ac !== bc) return ac - bc;
+          if (a.id === "stub") return 1;
+          if (b.id === "stub") return -1;
+          return a.id.localeCompare(b.id);
+        });
+
+  return (
+    <div className="settings-nav">
+      <button
+        type="button"
+        className={selected === null ? "provider-item active" : "provider-item"}
+        onClick={() => onSelect(null)}
+      >
+        <span className="title">General</span>
+        <span className="dim">default model</span>
+      </button>
+      <div className="nested-heading">providers</div>
+      {list === null && <p className="dim">Loading…</p>}
+      {list !== null && sorted.length === 0 && <p className="dim">No providers yet.</p>}
+      {sorted.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={selected === p.id ? "provider-item active" : "provider-item"}
+          onClick={() => onSelect(p.id)}
+        >
+          <span className="title">{p.name}</span>
+          <span className="dim">{p.adapter}</span>
+          {p.connected && (
+            <span className="check" title="connected">
+              ✓
+            </span>
+          )}
+        </button>
+      ))}
+      {fetching && <p className="dim">updating…</p>}
+    </div>
+  );
+}
+
+/**
+ * Main pane for the settings section: General (default-model form) or the
+ * picked provider's detail. Owns the mutation error/notice state.
+ */
+export function SettingsPane({
   client,
   list,
   refresh,
-  fetching = false,
+  selectedId,
 }: {
   client: BaiClient;
   list: ProviderListResponse | null;
   refresh: () => Promise<void>;
-  /** True while an engagement refetch is in flight (list already shown). */
-  fetching?: boolean;
+  /** Resolved selection: null = General (stale ids resolved by the caller). */
+  selectedId: string | null;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -34,27 +103,35 @@ export function Settings({
     }
   };
 
+  if (list === null) {
+    return (
+      <div className="settings">
+        <p className="dim">Loading…</p>
+      </div>
+    );
+  }
+
+  const provider =
+    selectedId !== null ? list.providers.find((p) => p.id === selectedId) : undefined;
+
   return (
     <div className="settings">
-      <h2>Providers</h2>
       {error !== null && <div className="error">{error}</div>}
       {notice !== null && <div className="notice">{notice}</div>}
-      {list === null && <p className="dim">Loading…</p>}
-      {list !== null && fetching && <p className="dim">updating…</p>}
-      {list !== null && (
+      {provider === undefined ? (
         <>
-          {list.providers.map((p) => (
-            <ProviderCard key={p.id} provider={p} client={client} mutate={mutate} />
-          ))}
-          <AddAccount client={client} list={list} mutate={mutate} />
+          <h2>General</h2>
           <DefaultModel client={client} list={list} mutate={mutate} />
         </>
+      ) : (
+        <ProviderDetail provider={provider} client={client} mutate={mutate} />
       )}
     </div>
   );
 }
 
-function ProviderCard({
+/** One provider's detail: accounts + remove + scoped add-account form. */
+function ProviderDetail({
   provider,
   client,
   mutate,
@@ -64,70 +141,75 @@ function ProviderCard({
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   return (
-    <div className={`provider-card ${provider.connected ? "connected" : ""}`}>
-      <div className="provider-head">
-        <strong>{provider.name}</strong>
-        <span className="dim">
-          {provider.id} · {provider.adapter}
-          {provider.baseUrl !== undefined ? ` · ${provider.baseUrl}` : ""}
-        </span>
-        {provider.connected && <span className="check">✓</span>}
+    <>
+      <h2>{provider.name}</h2>
+      <p className="dim">
+        {provider.id} · {provider.adapter}
+        {provider.baseUrl !== undefined ? ` · ${provider.baseUrl}` : ""}
+      </p>
+      <div className={`provider-card ${provider.connected ? "connected" : ""}`}>
+        <div className="provider-head">
+          <strong>accounts</strong>
+          {provider.connected && <span className="check">✓ connected</span>}
+        </div>
+        {provider.accounts.length === 0 && (
+          <p className="dim">No accounts yet — add one below.</p>
+        )}
+        {provider.accounts.length > 0 && (
+          <ul className="accounts">
+            {provider.accounts.map((a) => (
+              <li key={a.id}>
+                <span>
+                  {a.label} <span className="dim">({a.id})</span>
+                  {a.baseUrl !== undefined && <span className="dim"> · {a.baseUrl}</span>}
+                </span>
+                <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
+                {a.source === "api" && (
+                  <button
+                    className="danger"
+                    onClick={() => {
+                      void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
+                    }}
+                  >
+                    remove
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      {provider.accounts.length > 0 && (
-        <ul className="accounts">
-          {provider.accounts.map((a) => (
-            <li key={a.id}>
-              <span>
-                {a.label} <span className="dim">({a.id})</span>
-                {a.baseUrl !== undefined && <span className="dim"> · {a.baseUrl}</span>}
-              </span>
-              <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
-              {a.source === "api" && (
-                <button
-                  className="danger"
-                  onClick={() => {
-                    void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
-                  }}
-                >
-                  remove
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+      <AddAccount provider={provider} client={client} mutate={mutate} />
+    </>
   );
 }
 
+/** Add-account form scoped to one provider — no provider dropdown needed. */
 function AddAccount({
+  provider,
   client,
-  list,
   mutate,
 }: {
+  provider: ProviderInfo;
   client: BaiClient;
-  list: ProviderListResponse;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
-  const [provider, setProvider] = useState("");
   const [accountId, setAccountId] = useState("");
   const [label, setLabel] = useState("");
   const [key, setKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
 
-  const selected = list.providers.find((p) => p.id === provider);
-
   const submit = (e: FormEvent): void => {
     e.preventDefault();
-    if (provider.length === 0 || accountId.length === 0 || key.length === 0) return;
+    if (accountId.length === 0 || key.length === 0) return;
     void mutate(
       () =>
-        client.putAccount(provider, accountId, {
+        client.putAccount(provider.id, accountId, {
           label: label.length > 0 ? label : accountId,
           key,
           ...(baseUrl.length > 0 ? { baseUrl } : {}),
         }),
-      `Added account "${label.length > 0 ? label : accountId}" for ${provider}`,
+      `Added account "${label.length > 0 ? label : accountId}" for ${provider.id}`,
     );
     setAccountId("");
     setLabel("");
@@ -142,20 +224,9 @@ function AddAccount({
         submit(e);
       }}
     >
-      <h3>Add account</h3>
+      <h3>Add account · {provider.name}</h3>
       <p className="dim">Multiple accounts per provider are fine — each keeps its own key. Keys are stored server-side (auth.json, 0600) and never echoed back.</p>
       <div className="form-grid">
-        <label>
-          provider
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="">choose…</option>
-            {list.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           account id
           <input value={accountId} placeholder="personal, work…" onChange={(e) => setAccountId(e.target.value)} />
@@ -168,14 +239,16 @@ function AddAccount({
           api key
           <input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
         </label>
-        {selected !== undefined && selected.baseUrl === undefined && selected.source !== "catalog" && (
+        {/* Catalog providers have known endpoints; config/account-only
+            providers without a baseUrl must be told where to send requests. */}
+        {provider.baseUrl === undefined && provider.source !== "catalog" && (
           <label>
             base url
             <input value={baseUrl} placeholder="https://…/v1" onChange={(e) => setBaseUrl(e.target.value)} />
           </label>
         )}
       </div>
-      <button type="submit" disabled={provider.length === 0 || accountId.length === 0 || key.length === 0}>
+      <button type="submit" disabled={accountId.length === 0 || key.length === 0}>
         add account
       </button>
     </form>
