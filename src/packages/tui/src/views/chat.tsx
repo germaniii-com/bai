@@ -2,6 +2,7 @@ import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
+import type { Mode } from "../app";
 import { messageText, thinkingText } from "../state/sync";
 import { Spinner } from "../components/spinner";
 import {
@@ -22,6 +23,7 @@ import {
   type Editor,
 } from "../state/composer";
 import { recordPrompt, resetTraversal, traverse } from "../state/history";
+import { moveFocus, snapOffset } from "../state/focus";
 
 /** Messages jumped per pageUp/pageDown (ctrl+u/ctrl+d) press. */
 const PAGE = 12;
@@ -75,6 +77,9 @@ export function ChatView({
   messages,
   runActive,
   footerLines,
+  mode,
+  onEnterInput,
+  onExitInput,
   onSessionCreated,
 }: {
   client: BaiClient;
@@ -84,6 +89,12 @@ export function ChatView({
   runActive: boolean;
   /** Exact footer line count (hints + error + setup hint) — click hit testing. */
   footerLines: number;
+  /** Input mode owned by App: NORMAL (vim motions) vs INPUT (typing). */
+  mode: Mode;
+  /** Switch to INPUT mode (i/a/Enter in NORMAL; paste implies typing). */
+  onEnterInput: () => void;
+  /** Back to NORMAL (esc in INPUT). */
+  onExitInput: () => void;
   onSessionCreated: (session: Session) => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
@@ -115,6 +126,15 @@ export function ChatView({
     new Set(),
   );
 
+  // NORMAL-mode transcript focus: index into `messages`, null = no focus
+  // (plain browsing). j/k/up/down move it; the focused message renders
+  // highlighted; Enter/Space toggle a focused thought's visibility.
+  const [focus, setFocus] = useState<number | null>(null);
+  // Last rendered visible window [start, end) — read by the key handler to
+  // re-snap the scroll offset when focus leaves the viewport (same estimate
+  // fidelity as click hit-testing; ref write during render, like lenRef).
+  const windowRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+
   // Keep the reading window stable when messages arrive while scrolled up.
   useEffect(() => {
     const grew = messages.length - lastLen.current;
@@ -123,11 +143,13 @@ export function ChatView({
   }, [messages.length]);
 
   // Session switched → back to the latest messages, no stale pending state,
-  // history traversal back to the live-draft boundary (history itself is
-  // global and survives the switch).
+  // focus cleared (the transcript it pointed into is gone), history
+  // traversal back to the live-draft boundary (history itself is global and
+  // survives the switch).
   useEffect(() => {
     setOffset(0);
     setSentPending(false);
+    setFocus(null);
     resetTraversal();
   }, [session?.id]);
 
@@ -217,7 +239,12 @@ export function ChatView({
   // Bracketed paste: pasted text (including newlines) arrives on its own
   // channel and is inserted literally at the cursor — it never reaches
   // useInput, which is what makes a lone "\n" there a reliable ctrl+j.
-  usePaste((pasted) => setEditor((e) => insert(e, sanitize(pasted))));
+  // Paste implies typing intent: NORMAL mode switches to INPUT first
+  // (idempotent when already there), so pasted content is always editable.
+  usePaste((pasted) => {
+    onEnterInput();
+    setEditor((e) => insert(e, sanitize(pasted)));
+  });
 
   useInput((ch, key) => {
     // SGR mouse events arrive as literal input (ESC stripped): press
@@ -247,46 +274,121 @@ export function ChatView({
       }
       return;
     }
-    if (key.pageUp || (key.ctrl && ch === "u")) return scrollBy(PAGE);
-    if (key.pageDown || (key.ctrl && ch === "d")) return scrollBy(-PAGE);
-    // esc interrupts the running drain (waiting or mid-stream) — double-press:
-    // first arms, second fires. Safe on an idle session; dialogs handle their
-    // own esc and replace this view.
-    if (key.escape && runActive && session !== null) {
-      if (escArmed) {
-        disarmEsc();
-        void client.interrupt(session.id);
-      } else {
-        setEscArmed(true);
-        if (escTimer.current !== null) clearTimeout(escTimer.current);
-        escTimer.current = setTimeout(disarmEsc, 2500);
+    // pageUp/pageDown scroll in both modes (not ctrl chords); ctrl+u/ctrl+d
+    // paging is a NORMAL-mode command — dead while typing (mode split).
+    if (key.pageUp) return scrollBy(PAGE);
+    if (key.pageDown) return scrollBy(-PAGE);
+
+    // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
+    // then interrupts the running drain (double-press: first arms, second
+    // fires). Safe on an idle session; dialogs handle their own esc and
+    // replace this view.
+    if (key.escape) {
+      if (mode === "input") return onExitInput();
+      if (focus !== null) {
+        setFocus(null);
+        return;
+      }
+      if (runActive && session !== null) {
+        if (escArmed) {
+          disarmEsc();
+          void client.interrupt(session.id);
+        } else {
+          setEscArmed(true);
+          if (escTimer.current !== null) clearTimeout(escTimer.current);
+          escTimer.current = setTimeout(disarmEsc, 2500);
+        }
       }
       return;
     }
-    // ctrl+t toggles ALL reasoning nodes (works mid-typing; ctrl never
-    // inserts): expand all when any is collapsed, collapse all otherwise.
-    if (key.ctrl && ch === "t") {
-      const thinkingIds = messages
-        .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
-        .map((m) => m.id);
-      const allExpanded =
-        thinkingIds.length > 0 &&
-        thinkingIds.every((id) => expandedThinking.has(id));
-      setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
+
+    // ctrl+j's legacy spelling (lone "\n", key.ctrl=false in legacy
+    // terminals) is a kept editing chord in both modes — match it before the
+    // mode branches. Kitty-protocol terminals deliver a real ctrl+j below.
+    if (ch === "\n") return setEditor(openBelow);
+
+    if (mode === "normal") {
+      // NORMAL: vim motions + the ctrl command family. Plain typing is
+      // ignored — only single-char mode entries count (batched chunks are
+      // rapid-typing artifacts that belong to INPUT).
+      if (key.ctrl) {
+        if (ch === "u") return scrollBy(PAGE);
+        if (ch === "d") return scrollBy(-PAGE);
+        // ctrl+t toggles ALL reasoning nodes: expand all when any is
+        // collapsed, collapse all otherwise.
+        if (ch === "t") {
+          const thinkingIds = messages
+            .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
+            .map((m) => m.id);
+          const allExpanded =
+            thinkingIds.length > 0 &&
+            thinkingIds.every((id) => expandedThinking.has(id));
+          setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
+          return;
+        }
+        // Editing chords stay live in both modes (the draft persists).
+        if (ch === "w") return setEditor(deleteWordBefore);
+        if (ch === "j") return setEditor(openBelow);
+        if (ch === "k") return setEditor(openAbove);
+        return; // remaining ctrl chords belong to App's globals handler
+      }
+      if (ch === "i" || ch === "a") return onEnterInput();
+      // Enter/Space toggle the focused thought's visibility; Enter falls
+      // through to INPUT mode when the focus isn't on a thought.
+      if (key.return || ch === " ") {
+        const focusedMessage = focus !== null ? messages[focus] : undefined;
+        if (
+          focusedMessage !== undefined &&
+          thinkingText(focusedMessage).length > 0
+        ) {
+          setExpandedThinking((prev) => {
+            const next = new Set(prev);
+            if (next.has(focusedMessage.id)) next.delete(focusedMessage.id);
+            else next.add(focusedMessage.id);
+            return next;
+          });
+          return;
+        }
+        if (key.return) return onEnterInput();
+        return; // space outside a thought: no-op
+      }
+      // j/k/up/down: transcript traversal. The first press focuses the last
+      // visible message (where you're looking); further steps clamp at the
+      // ends and re-snap the scroll window when focus leaves the viewport.
+      if (key.upArrow || ch === "k" || key.downArrow || ch === "j") {
+        const len = messages.length;
+        if (len === 0) return;
+        const down = key.downArrow || ch === "j";
+        const base =
+          focus ?? Math.max(0, Math.min(windowRef.current.end, len) - 1);
+        const next = moveFocus(base, len, down);
+        setFocus(next);
+        setOffset((o) =>
+          snapOffset(
+            next,
+            len,
+            o,
+            windowRef.current.start,
+            windowRef.current.end,
+          ),
+        );
+      }
       return;
     }
-    // Editing shortcuts — clean ctrl bytes, never insert text.
-    if (key.ctrl && ch === "w") return setEditor(deleteWordBefore);
-    // ctrl+j opens a line below (vim o). Legacy terminals deliver it as a
-    // lone "\n" (Ink parses it as name='enter' with key.ctrl=false); kitty
-    // -protocol terminals deliver a real ctrl+j — accept both spellings.
-    if ((key.ctrl && ch === "j") || ch === "\n") return setEditor(openBelow);
-    if (key.ctrl && ch === "k") return setEditor(openAbove);
+
+    // ---- INPUT mode: typing into the draft ----
+    // Kept editing chords; every other ctrl chord is dead while typing.
+    if (key.ctrl) {
+      if (ch === "w") return setEditor(deleteWordBefore);
+      if (ch === "j") return setEditor(openBelow);
+      if (ch === "k") return setEditor(openAbove);
+      return;
+    }
+    if (busy || key.meta) return;
     // Up/down are line-wise cursor movement in the draft (standard editor
     // behavior). History traversal only engages from an empty draft — once
     // an entry is recalled, the arrows move within it; clear the draft to
-    // traverse further. Scrolling stays on pageUp/pageDown, ctrl+u/ctrl+d
-    // and the mouse wheel. Recalled entries put the cursor at their end.
+    // traverse further. Recalled entries put the cursor at their end.
     if (key.upArrow) {
       if (editor.text.length === 0) {
         const recalled = traverse(true, editor.text);
@@ -305,7 +407,6 @@ export function ChatView({
       }
       return;
     }
-    if (busy || key.ctrl || key.meta) return;
     if (key.return) {
       void submit();
     } else if (key.backspace) {
@@ -388,6 +489,9 @@ export function ChatView({
     }
   }
   const visible = messages.slice(start, end);
+  // Publish the rendered window for the key handler's focus re-snap (ref
+  // write during render — the established pattern here, cf. lenRef).
+  windowRef.current = { start, end };
 
   // Terminal row of each visible thinking node (1-based) — click hit testing.
   // Walk bottom-up from the viewport's last row: while waiting the spinner
@@ -435,17 +539,22 @@ export function ChatView({
             <Text dimColor>No messages yet — say something.</Text>
           </Box>
         )}
-        {visible.map((m) => {
+        {visible.map((m, vi) => {
           const text = messageText(m);
+          const focused = focus === start + vi;
           if (m.role === "user") {
             return (
               <Box
                 key={m.id}
                 borderStyle="round"
-                borderColor="green"
+                // Neutral white outline at rest; the cyan accent is reserved
+                // for the focus highlight so it stands out.
+                borderColor={focused ? "cyan" : "white"}
                 paddingX={1}
               >
-                <Text wrap="wrap">{text}</Text>
+                <Text wrap="wrap" bold={focused}>
+                  {text}
+                </Text>
               </Box>
             );
           }
@@ -453,12 +562,18 @@ export function ChatView({
           const thinkingLineCount =
             thinking.length > 0 ? thinking.split("\n").length : 0;
           const expanded = expandedThinking.has(m.id);
+          // Focus marker: an inline cyan ❯ on the block's first rendered
+          // line — no extra rows, so estimateRows and click hit-testing stay
+          // exact (the 2-column prefix lives inside the estimation slack).
+          const marker = focused ? <Text color="cyan">❯ </Text> : null;
           return (
             <Box key={m.id} {...assistantInset} flexDirection="column" gap={1}>
               {thinkingLineCount > 0 &&
                 (expanded ? (
                   <Box flexDirection="column">
-                    <Text dimColor>── thought ──</Text>
+                    <Text dimColor>
+                      {marker}── thought ──
+                    </Text>
                     {thinking.split("\n").map((line, i) => (
                       <Text key={i} dimColor wrap="wrap">
                         {line.length > 0 ? line : " "}
@@ -466,8 +581,8 @@ export function ChatView({
                     ))}
                   </Box>
                 ) : (
-                  <Text dimColor>
-                    ▸ thought ({thinkingLineCount} line
+                  <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                    {marker}▸ thought ({thinkingLineCount} line
                     {thinkingLineCount === 1 ? "" : "s"})
                   </Text>
                 ))}
@@ -475,6 +590,7 @@ export function ChatView({
                 wrap="wrap"
                 color={m.role === "assistant" ? undefined : "yellow"}
               >
+                {thinkingLineCount === 0 ? marker : null}
                 {text}
               </Text>
             </Box>
@@ -490,26 +606,38 @@ export function ChatView({
       {clamped > 0 && (
         <Box marginBottom={1}>
           <Text dimColor>
-            ↑ {clamped} earlier message{clamped === 1 ? "" : "s"} · mouse wheel
-            or pageUp/pageDown to scroll
+            ↑ {clamped} earlier message{clamped === 1 ? "" : "s"} · j/k or
+            mouse wheel / pageUp-pageDown to scroll
           </Text>
         </Box>
       )}
 
-      {/* Green border ties the composer to the user's message boxes — what
-          you type here is what a green box above shows. The ▌ block sits at
-          the cursor position (multi-line drafts render their embedded
-          newlines; ←/→/Home/End move the cursor). */}
-      <Box borderStyle="round" borderColor="green" paddingX={1}>
-        <Text color="magenta">› </Text>
+      {/* The composer mirrors the mode: INPUT keeps the green border and ›
+          prompt (the typing affordance — message boxes themselves are
+          neutral white so the cyan focus highlight stands out), with the ▌
+          block at the cursor position (multi-line drafts render their
+          embedded newlines; ←/→/Home/End move the cursor). NORMAL dims the
+          box and swaps the prompt to vim's ex-mode `:` — typing is off
+          there. */}
+      <Box
+        borderStyle="round"
+        borderColor={mode === "input" ? "green" : "gray"}
+        paddingX={1}
+      >
+        <Text color="magenta">{mode === "input" ? "› " : ": "}</Text>
         <Text>
           {editor.text.slice(0, editor.cursor)}
-          <Text dimColor>▌</Text>
+          {mode === "input" && <Text dimColor>▌</Text>}
           {editor.text.slice(editor.cursor)}
         </Text>
         {busy && <Text dimColor> (working…)</Text>}
-        {runActive && !escArmed && <Text dimColor> · esc to stop</Text>}
-        {escArmed && <Text color="yellow"> · esc again to stop</Text>}
+        {mode === "input" && <Text dimColor> · esc normal</Text>}
+        {mode === "normal" && runActive && !escArmed && (
+          <Text dimColor> · esc to stop</Text>
+        )}
+        {mode === "normal" && escArmed && (
+          <Text color="yellow"> · esc again to stop</Text>
+        )}
       </Box>
     </Box>
   );

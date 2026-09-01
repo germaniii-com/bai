@@ -12,6 +12,14 @@ import { currentModelLabel, currentProviderId, needsSetup } from "./state/provid
 export type UiState = "chat" | "sessions" | "gallery" | "jobs" | "settings";
 
 /**
+ * Input mode, vim-style. NORMAL (default): vim motions over the transcript
+ * plus the ctrl command family. INPUT: plain typing into the composer —
+ * app-level ctrl commands are dead there (editing chords ctrl+w/j/k and the
+ * ctrl+c safety hatch excepted). esc always returns to NORMAL.
+ */
+export type Mode = "normal" | "input";
+
+/**
  * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
  * ctrl+p → full wizard, ctrl+a → current provider's accounts, ctrl+l → flat
  * model list across connected providers.
@@ -41,6 +49,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
+  // Input mode (NORMAL default). App owns it because it gates the global
+  // ctrl bindings; ChatView switches it via onEnterInput/onExitInput.
+  const [mode, setMode] = useState<Mode>("normal");
   const dialogOpenRef = useRef(false);
   dialogOpenRef.current = dialog !== null;
   // ctrl+c double-press arming (mirrors the chat composer's esc arming):
@@ -188,24 +199,30 @@ export function App({ client, version }: { client: BaiClient; version: string })
     return () => ctrl.abort();
   }, [active, client]);
 
+  // ctrl+c is global in BOTH modes (even over dialogs — dialogs ignore ctrl
+  // keys): first press arms, second interrupts a running drain or quits.
+  // exitOnCtrlC is off (index.tsx), so this is the only ctrl+c path. Kept on
+  // its own always-active handler — the safety hatch never mode-gates.
   useInput((ch, key) => {
-    // ctrl+c is global (even over dialogs — dialogs ignore ctrl keys):
-    // first press arms, second interrupts a running drain or quits.
-    // exitOnCtrlC is off (index.tsx), so this is the only ctrl+c path.
-    if (key.ctrl && ch === "c") {
-      if (quitArmed) {
-        disarmQuit();
-        if (runActive && active !== null) void client.interrupt(active.id);
-        else exit();
-      } else {
-        setQuitArmed(true);
-        if (quitTimer.current !== null) clearTimeout(quitTimer.current);
-        quitTimer.current = setTimeout(disarmQuit, 2500);
-      }
-      return;
+    if (!(key.ctrl && ch === "c")) return;
+    if (quitArmed) {
+      disarmQuit();
+      if (runActive && active !== null) void client.interrupt(active.id);
+      else exit();
+    } else {
+      setQuitArmed(true);
+      if (quitTimer.current !== null) clearTimeout(quitTimer.current);
+      quitTimer.current = setTimeout(disarmQuit, 2500);
     }
+  });
+
+  // NORMAL-mode globals: esc-as-back + the ctrl command family. Gated off in
+  // INPUT mode — typing must never trigger app commands (the point of the
+  // mode split). Dialogs handle their own keys and are only reachable from
+  // NORMAL anyway (they open via ctrl chords).
+  useInput((ch, key) => {
     // esc is "back": out of any non-chat view. Dialogs handle their own esc
-    // (per-level back-out) and chat uses it to interrupt a run.
+    // (per-level back-out) and chat uses it for focus/interrupt/mode-exit.
     if (key.escape && view !== "chat" && !dialogOpenRef.current) {
       setView("chat");
       return;
@@ -223,7 +240,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
     } else if (ch === "s") setView("sessions");
     else if (ch === "g") setView("gallery");
     else if (ch === "o") setView("settings");
-  });
+  }, { isActive: mode === "normal" });
 
   const closeDialog = useCallback(() => {
     setDialog(null);
@@ -250,6 +267,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
         <Text dimColor> · {active ? active.title || active.id : "no session"}</Text>
         <Text dimColor> · </Text>
         <Text color="magenta">{modelLabel}</Text>
+        <Text dimColor> · </Text>
+        <Text bold color={mode === "normal" ? "cyan" : "green"}>
+          {mode === "normal" ? "NORMAL" : "INPUT"}
+        </Text>
       </Box>
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -281,6 +302,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 messages={messages}
                 runActive={runActive}
                 footerLines={footerLines}
+                mode={mode}
+                onEnterInput={() => setMode("input")}
+                onExitInput={() => setMode("normal")}
                 onSessionCreated={(s) => {
                   setActive(s);
                   void refreshSessions();
@@ -314,8 +338,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
           </Text>
         )}
         <Text dimColor>
-          {runActive ? "esc stop · " : ""}ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+t thoughts ·
-          ctrl+w word · ctrl+j/k newline · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit
+          {mode === "normal"
+            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
+            : "enter send · esc normal · ctrl+j/k newline · ctrl+w word"}
         </Text>
       </Box>
     </Box>

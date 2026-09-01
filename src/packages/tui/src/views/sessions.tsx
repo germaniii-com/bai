@@ -20,8 +20,10 @@ export function SessionsView({
 
   useInput((ch, key) => {
     if (busy) return;
-    if (key.upArrow) setIndex((i) => Math.max(0, i - 1));
-    else if (key.downArrow) setIndex((i) => Math.min(sessions.length - 1, i + 1));
+    // j/k are vim aliases for the arrow keys (NORMAL-mode consistency).
+    if (key.upArrow || ch === "k") setIndex((i) => Math.max(0, i - 1));
+    else if (key.downArrow || ch === "j")
+      setIndex((i) => Math.min(sessions.length - 1, i + 1));
     else if (key.return) {
       const picked = sessions[index];
       if (picked !== undefined) onPick(picked);
@@ -50,7 +52,7 @@ export function SessionsView({
           </Text>
         </Text>
       ))}
-      <Text dimColor>↑/↓ navigate · enter open · n new · esc back</Text>
+      <Text dimColor>↑/↓ or j/k navigate · enter open · n new · esc back</Text>
     </Box>
   );
 }
