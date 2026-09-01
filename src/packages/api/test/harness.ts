@@ -14,7 +14,7 @@ import {
   ToolRegistry,
   createDefaultWorkbenches,
 } from "@bai/core";
-import { DEFAULT_CONFIG, type Config } from "@bai/shared";
+import { DEFAULT_CONFIG, deepMerge, type Config, type ConfigPatch } from "@bai/shared";
 import type { ApiDeps } from "../src";
 
 export interface TestStack {
@@ -67,7 +67,9 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     log,
     configStore: {
       get: () => config,
-      update: () => config,
+      // Minimal stand-in for the real ConfigStore: deep-merge the patch
+      // (arrays replaced) so config-mutation tests observe their writes.
+      update: (patch: ConfigPatch) => deepMerge(config, patch),
     } as unknown as ApiDeps["configStore"],
     jobs,
     providers,

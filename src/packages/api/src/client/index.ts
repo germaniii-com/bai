@@ -47,8 +47,19 @@ export class BaiClient {
     return res.json();
   }
 
-  async listSessions(limit = 50, offset = 0): Promise<Session[]> {
-    const res = await this.rpc().session.$get({ query: { limit: String(limit), offset: String(offset) } });
+  async listSessions(
+    limit = 50,
+    offset = 0,
+    filters: { workbench?: string; cwd?: string } = {},
+  ): Promise<Session[]> {
+    const res = await this.rpc().session.$get({
+      query: {
+        limit: String(limit),
+        offset: String(offset),
+        ...(filters.workbench !== undefined ? { workbench: filters.workbench } : {}),
+        ...(filters.cwd !== undefined ? { cwd: filters.cwd } : {}),
+      },
+    });
     if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
     return (await res.json()).sessions;
   }
@@ -111,6 +122,72 @@ export class BaiClient {
     const res = await this.rpc().config.$get();
     if (!res.ok) throw new Error(`get config failed: ${res.status}`);
     return (await res.json()).config;
+  }
+
+  /**
+   * List one directory inside `root` (read-only; powers the file tree).
+   * `root` must be a registered workspace. Throws with the server's plain
+   * message on failures ("path not found", "permission denied", …).
+   */
+  async listDir(
+    root: string,
+    path?: string,
+  ): Promise<{ path: string; root: string; entries: { name: string; type: "dir" | "file" }[]; truncated: boolean }> {
+    const res = await this.rpc().fs.$get({
+      query: { root, ...(path !== undefined ? { path } : {}) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `list directory failed: ${res.status}`);
+    }
+    return (await res.json()).listing;
+  }
+
+  /**
+   * Validate a single candidate workspace path: exists, is a directory, and
+   * is readable by the server's user. Throws with the server's message.
+   */
+  async statPath(path: string): Promise<{ path: string; type: "dir" | "file" | "other" }> {
+    const res = await this.rpc().fs.stat.$get({ query: { path } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `stat path failed: ${res.status}`);
+    }
+    return (await res.json()).stat;
+  }
+
+  /**
+   * Create a missing folder (and missing parents) as a workspace target.
+   * The server only allows creation inside the user's home directory and
+   * answers with plain messages ("permission denied", "folder creation is
+   * only allowed inside your home directory", …). Returns the resolved path.
+   */
+  async createFolder(path: string): Promise<{ path: string; type: "dir" | "file" | "other" }> {
+    const res = await this.rpc().fs.mkdir.$post({ json: { path } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `create folder failed: ${res.status}`);
+    }
+    return (await res.json()).stat;
+  }
+
+  /**
+   * Complete one folder-path segment against its parent (directories only).
+   * Powers the two-column explorer in the add-workspace modal; `dotfiles`
+   * includes hidden (dot) directories — the explorer's show-dotfiles toggle.
+   */
+  async completePath(
+    path: string,
+    opts: { dotfiles?: boolean } = {},
+  ): Promise<{ base: string; prefix: string; entries: string[]; truncated: boolean }> {
+    const res = await this.rpc().fs.complete.$get({
+      query: { path, ...(opts.dotfiles === true ? { dotfiles: "1" } : {}) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `complete path failed: ${res.status}`);
+    }
+    return (await res.json()).completion;
   }
 
   async putConfig(patch: ConfigPatch): Promise<Config> {

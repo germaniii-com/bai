@@ -81,8 +81,12 @@ export class Service {
     return session;
   }
 
-  listSessions(limit = 50, offset = 0): Session[] {
-    return this.deps.store.sessions.list(limit, offset);
+  listSessions(
+    limit = 50,
+    offset = 0,
+    filters: { workbench?: string; cwd?: string } = {},
+  ): Session[] {
+    return this.deps.store.sessions.list(limit, offset, filters);
   }
 
   getSession(id: SessionId): Session | undefined {

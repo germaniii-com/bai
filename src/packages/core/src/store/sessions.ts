@@ -1,5 +1,6 @@
 import type { Session, SessionId, WorkbenchName } from "@bai/shared";
 import { newId } from "@bai/shared";
+import type { SQLQueryBindings } from "bun:sqlite";
 import { q, type SqliteDb } from "./db";
 
 interface SessionRow {
@@ -67,11 +68,24 @@ export class SessionsRepo {
     return row ? toSession(row) : undefined;
   }
 
-  list(limit = 50, offset = 0): Session[] {
-    const rows = q<SessionRow>(this.db, 
-        "SELECT * FROM sessions ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?",
-      )
-      .all(limit, offset);
+  list(limit = 50, offset = 0, filters: { workbench?: string; cwd?: string } = {}): Session[] {
+    // Dynamic WHERE from validated equality filters (parameterized — no
+    // interpolation of values, only fixed clause text).
+    const clauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+    if (filters.workbench !== undefined) {
+      clauses.push("workbench = ?");
+      params.push(filters.workbench);
+    }
+    if (filters.cwd !== undefined) {
+      clauses.push("cwd = ?");
+      params.push(filters.cwd);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = q<SessionRow>(
+      this.db,
+      `SELECT * FROM sessions ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+    ).all(...params, limit, offset);
     return rows.map(toSession);
   }
 

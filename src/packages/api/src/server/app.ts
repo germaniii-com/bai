@@ -1,5 +1,7 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
+import { homedir } from "node:os";
+import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import {
   configPatchSchema,
@@ -13,6 +15,7 @@ import {
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
+import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, statPath } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
 import { staticHandler } from "./static";
 
@@ -27,10 +30,19 @@ function buildApi(deps: ApiDeps) {
     .get("/health", (c) => c.json({ ok: true, version: deps.version }))
 
     // --- sessions ---
+    // Optional filters (web: chat section lists workbench=chat; the
+    // workspace view lists cwd=<workspace path>).
     .get("/session", (c) => {
       const limit = Number(c.req.query("limit") ?? "50");
       const offset = Number(c.req.query("offset") ?? "0");
-      return c.json({ sessions: deps.core.listSessions(limit, offset) });
+      const workbench = c.req.query("workbench");
+      const cwd = c.req.query("cwd");
+      return c.json({
+        sessions: deps.core.listSessions(limit, offset, {
+          ...(workbench !== undefined && workbench.length > 0 ? { workbench } : {}),
+          ...(cwd !== undefined && cwd.length > 0 ? { cwd } : {}),
+        }),
+      });
     })
     .post("/session", zValidator("json", createSessionSchema), (c) => {
       const body = c.req.valid("json");
@@ -95,6 +107,58 @@ function buildApi(deps: ApiDeps) {
       const config = deps.configStore.update(patch);
       deps.core.emitLive("config.updated", {});
       return c.json({ config });
+    })
+
+    // --- filesystem (read-only; powers the web file tree) ---
+    // Listing is scoped to REGISTERED workspaces (config.workspaces): the
+    // tree can browse workspaces, never arbitrary machine paths. One flat
+    // directory per call; `path` must resolve (realpath) inside `root`.
+    .get("/fs", (c) => {
+      const root = c.req.query("root") ?? "";
+      const sub = c.req.query("path");
+      try {
+        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        return c.json({ listing: listDir(root, sub) });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    // Validate a single candidate path for the add-workspace form (exists,
+    // is a directory, readable) — no listing, no content disclosure.
+    .get("/fs/stat", (c) => {
+      try {
+        return c.json({ stat: statPath(c.req.query("path") ?? "", deps.home ?? homedir()) });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    // Create a missing folder (with parents) as a workspace target. The
+    // server only allows creation inside the user's home directory —
+    // see createFolder for the three safety guards.
+    .post("/fs/mkdir", zValidator("json", z.object({ path: z.string().min(1).max(1024) })), (c) => {
+      const body = c.req.valid("json");
+      try {
+        return c.json({ stat: createFolder(body.path, deps.home ?? homedir()) });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    // One-segment directory-name completion for the path input (debounced
+    // client-side). Directories only, capped; ~ expands to home; dotfiles
+    // included only when requested (explorer's show-dotfiles toggle).
+    .get("/fs/complete", (c) => {
+      try {
+        const includeHidden = ["1", "true"].includes(c.req.query("dotfiles") ?? "");
+        return c.json({
+          completion: completePath(c.req.query("path") ?? "", deps.home ?? homedir(), includeHidden),
+        });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
     })
 
     // --- providers & accounts ---

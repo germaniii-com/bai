@@ -40,6 +40,9 @@ export interface Config {
   permissions: Record<string, PermissionAction>;
   mcp: Record<string, MCPServerConfig>;
   workbenches: Record<string, Record<string, unknown>>;
+  /** Registered workspace folder paths (absolute); the web Workspace view
+   * groups cwd-rooted sessions by these. Edited via PUT /api/config. */
+  workspaces: string[];
   server: ServerConfig;
 }
 
@@ -49,6 +52,7 @@ export const DEFAULT_CONFIG: Config = {
   permissions: {},
   mcp: {},
   workbenches: {},
+  workspaces: [],
   server: {},
 };
 
@@ -79,6 +83,7 @@ export const configSchema = z.object({
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).default({}),
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
+  workspaces: z.array(z.string().min(1).max(1024)).max(100).default([]),
   server: z
     .object({
       port: z.number().int().positive().max(65535).optional(),
@@ -99,6 +104,7 @@ export const configPatchSchema = z.object({
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  workspaces: z.array(z.string().min(1).max(1024)).max(100).optional(),
   server: z
     .object({
       port: z.number().int().positive().max(65535).optional(),

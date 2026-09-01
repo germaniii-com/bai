@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
-import { applyEvent, messageText, thinkingText } from "./state";
+import { applyEvent, messageText } from "./state";
 import { useProviders } from "./use-providers";
 import { SettingsNav, SettingsPane } from "./settings";
-import { ModelPicker } from "./model-picker";
+import { WorkspaceNav, FolderGlyph } from "./workspace";
+import { FileTree } from "./file-tree";
+import { ChatPane } from "./chat-pane";
 
 /**
- * Master-rail sections. Workspace/Image/Video are Phase 3/5 placeholders —
- * the rail renders them disabled (same stance as the TUI's placeholder
- * views); only chat and settings are reachable.
+ * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
+ * renders them disabled (same stance as the TUI's placeholder views);
+ * chat, workspace, and settings are reachable.
  */
 type Section = "chat" | "workspace" | "image" | "video" | "settings";
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
- * settings) → contextual nested panel (sessions for chat, General +
- * providers for settings) → main pane. Provider/account state is shared
+ * settings) → contextual nested panel (sessions for chat, workspaces for
+ * the workspace view, General + providers for settings) → main pane.
+ * Workspace sessions are `workbench: "code"` sessions rooted at the
+ * workspace folder path (cwd) — the same chat surface in the center, plus
+ * a read-only file tree on the right. Provider/account state is shared
  * with the settings pane and refreshes live from the firehose — changes
  * made in the TUI (ctrl+p) or on the phone appear here without a reload.
  */
@@ -27,6 +32,9 @@ export function App() {
   );
   const [section, setSection] = useState<Section>("chat");
   const [settingsProviderId, setSettingsProviderId] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [workspaceSessions, setWorkspaceSessions] = useState<Session[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -36,14 +44,16 @@ export function App() {
   const [sentPending, setSentPending] = useState(false);
   const streamCtrl = useRef<AbortController | null>(null);
   const { list, refresh: refreshProviders, fetching: providersFetching } = useProviders(client);
-  // Default model from config — a tiny startup fetch so the header's model
-  // button shows the real default before the (heavy, on-demand) provider
-  // list ever loads. Same pattern as the TUI's header label.
+  // Default model + workspace list from config — a tiny startup fetch so
+  // the header's model button shows the real default before the (heavy,
+  // on-demand) provider list ever loads. Same pattern as the TUI's header.
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
 
   const refreshConfig = useCallback(async () => {
     try {
-      setConfigDefault((await client.getConfig()).models.default);
+      const config = await client.getConfig();
+      setConfigDefault(config.models.default);
+      setWorkspaces(config.workspaces ?? []);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
@@ -64,7 +74,9 @@ export function App() {
 
   const refreshSessions = useCallback(async () => {
     try {
-      setSessions(await client.listSessions());
+      // Chat section lists general chat sessions only — workspace sessions
+      // (workbench "code") live in the workspace view.
+      setSessions(await client.listSessions(50, 0, { workbench: "chat" }));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -74,6 +86,22 @@ export function App() {
   useEffect(() => {
     void refreshSessions();
   }, [refreshSessions]);
+
+  const refreshWorkspaceSessions = useCallback(async () => {
+    if (workspacePath === null) {
+      setWorkspaceSessions([]);
+      return;
+    }
+    try {
+      setWorkspaceSessions(await client.listSessions(50, 0, { cwd: workspacePath }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [client, workspacePath]);
+
+  useEffect(() => {
+    void refreshWorkspaceSessions();
+  }, [refreshWorkspaceSessions]);
 
   // Live refresh of session state (e.g. model picked from another surface).
   useEffect(() => {
@@ -87,15 +115,21 @@ export function App() {
             setActive((current) => (current?.id === payload.session?.id ? payload.session ?? null : current));
           }
         }
+        // Sessions created on other surfaces (TUI, phone) appear live in
+        // whichever lists are loaded.
+        if (evt.type === "session.created") {
+          void refreshSessions();
+          void refreshWorkspaceSessions();
+        }
         // Config changes from ANY surface (TUI, phone) update the header
-        // label without a reload.
+        // label and the workspace list without a reload.
         if (evt.type === "config.updated") {
           void refreshConfig();
         }
       },
     });
     return () => ctrl.abort();
-  }, [client, refreshConfig]);
+  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions]);
 
   useEffect(() => {
     streamCtrl.current?.abort();
@@ -143,10 +177,13 @@ export function App() {
     return () => ctrl.abort();
   }, [active, client]);
 
-  // Stale-selection fallback: a provider deleted from another surface
-  // (firehose provider.updated) resolves back to General.
+  // Stale-selection fallbacks: a provider deleted from another surface
+  // (firehose provider.updated) resolves back to General; a workspace
+  // removed from config (config.updated) resolves back to no selection.
   const providerExists = list?.providers.some((p) => p.id === settingsProviderId) ?? false;
   const effectiveSettingsId = providerExists ? settingsProviderId : null;
+  const effectiveWorkspacePath =
+    workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
 
   const navigate = (next: Section): void => {
     if (next === "settings") {
@@ -154,7 +191,33 @@ export function App() {
       // list never loads at startup, and every engagement pulls fresh data.
       void refreshProviders();
     }
+    if (next === "workspace") {
+      // Engagement refetch: fresh session list for the selected workspace.
+      void refreshWorkspaceSessions();
+    }
+    // Keep the open session coherent with the section — a chat session in
+    // the workspace view (or vice versa) would read as a context mixup.
+    if (next === "chat" && active?.workbench !== "chat") setActive(null);
+    if (next === "workspace" && active?.workbench !== "code") setActive(null);
     setSection(next);
+  };
+
+  const selectWorkspace = (path: string | null): void => {
+    setWorkspacePath(path);
+    // Keep the open session only when it belongs to the chosen workspace.
+    setActive((current) => (path !== null && current?.cwd === path ? current : null));
+  };
+
+  /** Validate-then-persist happened in the nav; here: append + save config. */
+  const addWorkspace = async (path: string): Promise<void> => {
+    if (!workspaces.includes(path)) {
+      await client.putConfig({ workspaces: [...workspaces, path] });
+    }
+    // Immediate refresh (config.updated also refreshes via the firehose —
+    // this covers dropped live events).
+    await refreshConfig();
+    // Select the freshly added workspace — the user added it to work in it.
+    setWorkspacePath(path);
   };
 
   const submit = async (): Promise<void> => {
@@ -163,11 +226,21 @@ export function App() {
     setDraft("");
     setSentPending(true);
     try {
-      const session =
-        active ?? (await client.createSession({ title: text.slice(0, 60), workbench: "chat" }));
-      if (active === null) {
+      let session = active;
+      if (session === null) {
+        // First message lazily creates the session — workspace sessions are
+        // code-workbench sessions rooted at the workspace folder path.
+        session =
+          section === "workspace" && effectiveWorkspacePath !== null
+            ? await client.createSession({
+                title: text.slice(0, 60),
+                workbench: "code",
+                cwd: effectiveWorkspacePath,
+              })
+            : await client.createSession({ title: text.slice(0, 60), workbench: "chat" });
         setActive(session);
-        void refreshSessions();
+        if (section === "workspace") void refreshWorkspaceSessions();
+        else void refreshSessions();
       }
       await client.submitPrompt(session.id, { text });
     } catch (err) {
@@ -181,7 +254,9 @@ export function App() {
       <MasterNav section={section} onNavigate={navigate} />
 
       <aside className="nested-panel">
-        <div className="nested-title">{section === "settings" ? "Settings" : "Chat"}</div>
+        <div className="nested-title">
+          {section === "settings" ? "Settings" : section === "workspace" ? "Workspace" : "Chat"}
+        </div>
         {section === "chat" && (
           <>
             <button
@@ -209,6 +284,63 @@ export function App() {
             </nav>
           </>
         )}
+        {section === "workspace" && effectiveWorkspacePath === null && (
+          <WorkspaceNav
+            client={client}
+            workspaces={workspaces}
+            selected={effectiveWorkspacePath}
+            onSelect={selectWorkspace}
+            onAdd={addWorkspace}
+          />
+        )}
+        {section === "workspace" && effectiveWorkspacePath !== null && (
+          <>
+            {/* Active-mode head: the selected workspace's title + path.
+                Clicking it swaps the panel back to the picker list. */}
+            <button
+              type="button"
+              className="workspace-item workspace-active-head"
+              title={`${effectiveWorkspacePath} — switch workspace`}
+              onClick={() => selectWorkspace(null)}
+            >
+              <span className="ws-item-head">
+                <FolderGlyph />
+                <span className="title">{wsBasename(effectiveWorkspacePath)}</span>
+              </span>
+              <span className="dim path">{effectiveWorkspacePath}</span>
+              <span className="switch" aria-hidden="true">
+                ⇄
+              </span>
+            </button>
+            <button
+              className="new-session"
+              onClick={() => {
+                void client
+                  .createSession({ workbench: "code", cwd: effectiveWorkspacePath })
+                  .then((s) => {
+                    setActive(s);
+                    void refreshWorkspaceSessions();
+                  });
+              }}
+            >
+              + new session
+            </button>
+            <nav className="session-list">
+              {workspaceSessions.length === 0 && (
+                <p className="dim">No sessions in this workspace yet.</p>
+              )}
+              {workspaceSessions.map((s) => (
+                <button
+                  key={s.id}
+                  className={active?.id === s.id ? "session active" : "session"}
+                  onClick={() => setActive(s)}
+                >
+                  <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
         {section === "settings" && (
           <SettingsNav
             list={list}
@@ -228,80 +360,42 @@ export function App() {
             selectedId={effectiveSettingsId}
           />
         </main>
-      ) : (
+      ) : section === "workspace" && effectiveWorkspacePath === null ? (
         <main className="chat">
-          <div className="chat-head">
-            <ModelPicker
-              client={client}
-              list={list}
-              active={active}
-              configDefault={configDefault}
-              refreshProviders={refreshProviders}
-            />
-            {providersFetching && <span className="dim">updating…</span>}
-            {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
-              <span className="hint">no provider connected — add one under settings</span>
-            )}
-          </div>
-          <div className="messages">
-            {messages.length === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
-            {messages.map((m) => (
-              <div key={m.id} className={`message ${m.role}`}>
-                {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
-                <p>{messageText(m)}</p>
-              </div>
-            ))}
-            {waiting && (
-              <div className="message assistant">
-                <div className="typing" role="status" aria-label="assistant is thinking">
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="typing-label">thinking…</span>
-                </div>
-              </div>
-            )}
-          </div>
-          {error !== null && <div className="error">{error}</div>}
-          <form
-            className="composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submit();
-            }}
-          >
-            <input
-              value={draft}
-              placeholder={active === null ? "Start a chat…" : "Message…"}
-              onChange={(e) => setDraft(e.target.value)}
-              aria-label="message"
-            />
-            {runActive && active !== null ? (
-              // Stop replaces send while the model is responding; the partial
-              // reply stays in history after the interrupt.
-              <button
-                type="button"
-                className="stop"
-                onClick={() => void client.interrupt(active.id)}
-                aria-label="stop generating"
-              >
-                stop
-              </button>
-            ) : (
-              <button type="submit" disabled={draft.trim().length === 0}>
-                send
-              </button>
-            )}
-          </form>
+          <p className="dim empty">Select or add a workspace to start.</p>
         </main>
+      ) : (
+        <>
+          <ChatPane
+            client={client}
+            list={list}
+            active={active}
+            configDefault={configDefault}
+            refreshProviders={refreshProviders}
+            providersFetching={providersFetching}
+            messages={messages}
+            draft={draft}
+            setDraft={setDraft}
+            onSubmit={() => void submit()}
+            runActive={runActive}
+            waiting={waiting}
+            error={error}
+            startPlaceholder={
+              section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
+            }
+          />
+          {section === "workspace" && effectiveWorkspacePath !== null && (
+            <FileTree client={client} root={effectiveWorkspacePath} />
+          )}
+        </>
       )}
     </div>
   );
 }
 
 /**
- * Master rail: brand mark, workbench sections (Workspace/Image/Video
- * disabled until their phases land), Settings pinned at the bottom.
+ * Master rail: brand mark, workbench sections (Image/Video disabled until
+ * their phases land), Settings pinned at the bottom.
  * Icons are inline SVG — no icon dependency.
  */
 function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: Section) => void }) {
@@ -315,7 +409,7 @@ function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: 
             <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
           </Icon>
         </MasterItem>
-        <MasterItem section="workspace" label="Workspace" disabled onNavigate={onNavigate}>
+        <MasterItem section="workspace" label="Workspace" active={section === "workspace"} onNavigate={onNavigate}>
           <Icon>
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </Icon>
@@ -392,6 +486,14 @@ function MasterItem({
   );
 }
 
+function basename(p: string): string {
+  const parts = p.split("/").filter((s) => s.length > 0);
+  return parts[parts.length - 1] ?? p;
+}
+
+/** Local alias — the sessions panel head shows the workspace's basename. */
+const wsBasename = basename;
+
 /** Stroke icon wrapper — inherits currentColor, sized by CSS. */
 function Icon({ children }: { children: ReactNode }) {
   return (
@@ -407,29 +509,5 @@ function Icon({ children }: { children: ReactNode }) {
     >
       {children}
     </svg>
-  );
-}
-
-/**
- * A reasoning transcript node (opencode parity): the model's chain of
- * thought rendered as its own collapsible block above the reply. Collapsed
- * by default; each node toggles independently; the state survives session
- * switches because the thinking parts live in the message history itself.
- */
-function ThinkingNode({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const lineCount = text.split("\n").length;
-  return (
-    <div className="thinking-node">
-      <button
-        type="button"
-        className="thinking-toggle"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {open ? "▾" : "▸"} thought ({lineCount} line{lineCount === 1 ? "" : "s"})
-      </button>
-      {open && <div className="thinking-body">{text}</div>}
-    </div>
   );
 }

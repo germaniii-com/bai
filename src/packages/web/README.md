@@ -6,12 +6,16 @@ browsers **and** phones (PWA) from the same bundle.
 
 ## Responsibilities
 
-- Views: sessions sidebar, chat, code (file tree + diffs), image gallery,
+- Views: sessions sidebar, chat, workspace (folder-path workspaces with
+  per-workspace sessions + file tree), code (diffs), image gallery,
   video gallery, jobs queue, settings (config editor), pairing screen.
-- Two-level navigation: a master icon rail (Chat, Workspace / Image Gen /
+- Two-level navigation: a master icon rail (Chat, Workspace, Image Gen /
   Video Gen as phase placeholders, Settings pinned bottom) plus a
-  contextual nested panel per section (sessions for chat, General +
-  providers for settings).
+  contextual nested panel per section (sessions for chat, workspaces +
+  their sessions for the workspace view, General + providers for
+  settings). Workspace sessions are `workbench: "code"` sessions rooted
+  at the workspace folder path (`cwd`); the workspace list lives in
+  config (`workspaces`) and syncs live via `config.updated`.
 - Sync engine mirroring the TUI's semantics:
   1. REST bootstrap snapshot on connect (typed via `hc<AppType>`)
   2. global SSE firehose applied through pure per-entity reducers
