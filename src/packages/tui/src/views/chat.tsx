@@ -184,10 +184,9 @@ export function ChatView({
     setBusy(true);
     try {
       if (session === null) {
-        const created = await client.createSession({
-          title: trimmed.slice(0, 60),
-          workbench: "chat",
-        });
+        // The server titles the session (truncated-prompt fallback, then an
+        // LLM refine) from this first prompt — core/src/title.ts.
+        const created = await client.createSession({ workbench: "chat" });
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: trimmed });
       } else {

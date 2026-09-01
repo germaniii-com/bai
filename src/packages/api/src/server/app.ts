@@ -10,6 +10,7 @@ import {
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
+  renameSessionSchema,
   setSessionModelSchema,
   type SessionId,
 } from "@bai/shared";
@@ -191,6 +192,15 @@ function buildApi(deps: ApiDeps) {
       const id = c.req.param("id") as SessionId;
       const body = c.req.valid("json");
       const session = deps.core.setSessionModel(id, body);
+      if (session === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ session });
+    })
+
+    // --- session title (manual rename; auto-titles ride session.updated) ---
+    .put("/session/:id/title", zValidator("json", renameSessionSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      const body = c.req.valid("json");
+      const session = deps.core.renameSession(id, body.title);
       if (session === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ session });
     })

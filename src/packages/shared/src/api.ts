@@ -5,6 +5,17 @@ export const createSessionSchema = z.object({
   title: z.string().max(200).optional(),
   workbench: z.enum(["chat", "code", "image", "video"]).default("chat"),
   cwd: z.string().optional(),
+  /**
+   * Ephemeral proxy run (bai --one-shot): the session lives in an in-memory
+   * store and dies with the process — surfaces never list it, and core skips
+   * title generation for it.
+   */
+  oneshot: z.boolean().optional(),
+});
+
+/** PUT /api/session/:id/title */
+export const renameSessionSchema = z.object({
+  title: z.string().min(1).max(200),
 });
 
 /** POST /api/session/:id/message */
@@ -31,3 +42,4 @@ export type CreateSessionBody = z.infer<typeof createSessionSchema>;
 export type PromptPayloadBody = z.infer<typeof promptPayloadSchema>;
 export type PermissionReplyBody = z.infer<typeof permissionReplySchema>;
 export type EnqueueJobBody = z.infer<typeof enqueueJobSchema>;
+export type RenameSessionBody = z.infer<typeof renameSessionSchema>;

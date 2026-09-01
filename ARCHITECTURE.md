@@ -362,7 +362,7 @@ Example:
 ```json
 {
   "providers": { "openrouter": { "base_url": "https://openrouter.ai/api/v1" } },
-  "models": { "default": "anthropic/claude-sonnet-4-5" },
+  "models": { "default": "anthropic/claude-sonnet-4-5", "title": "anthropic/claude-haiku-4-5" },
   "permissions": { "bash.*": "ask", "fs.read": "allow" },
   "mcp": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } },
   "workbenches": { "image": { "adapter": "fal", "model": "flux-2" } }

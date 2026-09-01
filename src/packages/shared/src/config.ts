@@ -18,6 +18,11 @@ export interface ProviderConfig {
 
 export interface ModelsConfig {
   default?: string;
+  /**
+   * Model for background calls (session title generation). Unset → a small
+   * non-reasoning model of the session's provider → the session's own model.
+   */
+  title?: string;
   /** Per-provider default account id, e.g. { "openai": "personal" }. */
   defaultAccount?: Record<string, string>;
 }
@@ -77,6 +82,7 @@ export const configSchema = z.object({
   models: z
     .object({
       default: z.string().optional(),
+      title: z.string().optional(),
       defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
     })
     .default({}),
@@ -98,6 +104,7 @@ export const configPatchSchema = z.object({
   models: z
     .object({
       default: z.string().optional(),
+      title: z.string().optional(),
       defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
     })
     .optional(),

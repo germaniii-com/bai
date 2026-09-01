@@ -53,7 +53,7 @@ async function resolveSession(
   }
   const sessions = await client.listSessions(1, 0);
   if (opts.continueLast && sessions.length > 0) return sessions[0] as NonNullable<typeof sessions[number]>;
-  return client.createSession({ workbench: "chat" });
+  return client.createSession({ workbench: "chat", oneshot: true });
 }
 
 function printEvent(evt: Event, format: "json" | "text"): void {

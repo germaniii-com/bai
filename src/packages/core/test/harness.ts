@@ -23,6 +23,8 @@ export interface TestCore {
   core: Service;
   providers: ProviderRegistry;
   accounts: AuthStore;
+  /** Mutable config state — tests mutate, the stack reads live. */
+  config: { models: { default?: string; title?: string } };
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -31,7 +33,8 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { default: "stub/echo" } });
+  const config: TestCore["config"] = { models: { default: "stub/echo" } };
+  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { ...config.models } });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
     cachePath: join(dir, "models-cache.json"),
@@ -56,10 +59,10 @@ export function makeCore(): TestCore {
     tools,
     workbenches,
     jobs,
-    config: () => ({ ...DEFAULT_CONFIG, models: { default: "stub/echo" } }),
+    config: testConfig,
     version: "test",
   });
-  return { dir, store, bus, log, core, providers, accounts };
+  return { dir, store, bus, log, core, providers, accounts, config };
 }
 
 export function sleep(ms: number): Promise<void> {

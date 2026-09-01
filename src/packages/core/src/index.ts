@@ -8,4 +8,11 @@ export { evaluatePermission, patternMatches } from "./permissions/engine";
 export * from "./workbench";
 export { JobQueue } from "./jobs/queue";
 export { RunCoordinator } from "./run";
+export {
+  defaultTitle,
+  isDefaultTitle,
+  pickSmallModel,
+  sanitizeGeneratedTitle,
+  TITLE_SYSTEM_PROMPT,
+} from "./title";
 export { Service, type ServiceDeps } from "./service";

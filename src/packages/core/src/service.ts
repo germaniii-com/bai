@@ -20,6 +20,7 @@ import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
 import type { ProviderRegistry } from "./provider/registry";
 import { RunCoordinator } from "./run";
+import { defaultTitle } from "./title";
 import type { Store } from "./store/store";
 import type { ToolRegistry } from "./tools/registry";
 import type { Workbench } from "./workbench/types";
@@ -58,6 +59,7 @@ export class Service {
       providers: deps.providers,
       tools: deps.tools,
       defaultModel: () => deps.config().models.default ?? "stub/echo",
+      titleModel: () => deps.config().models.title,
     });
     for (const wb of deps.workbenches) {
       deps.tools.registerAll(wb.tools());
@@ -66,15 +68,25 @@ export class Service {
 
   // --- sessions ---
 
-  createSession(opts: { title?: string; workbench?: WorkbenchName; cwd?: string } = {}): Session {
+  createSession(opts: {
+    title?: string;
+    workbench?: WorkbenchName;
+    cwd?: string;
+    /** Ephemeral proxy run — core skips title generation for these. */
+    oneshot?: boolean;
+  } = {}): Session {
     const workbench = opts.workbench ?? "chat";
     if (!this.deps.workbenches.some((wb) => wb.name() === workbench)) {
       throw new Error(`Unknown workbench: ${workbench}`);
     }
     const session = this.deps.store.sessions.insert({
-      ...(opts.title !== undefined ? { title: opts.title } : {}),
+      // Untitled sessions get the "New Chat Session - <timestamp>" default
+      // (opencode parity): the AI refine keys on isDefaultTitle, and the
+      // default stands whenever the refine fails or is skipped.
+      title: opts.title !== undefined && opts.title.length > 0 ? opts.title : defaultTitle(this.clock.iso()),
       workbench,
       ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+      ...(opts.oneshot === true ? { meta: { oneshot: true } } : {}),
       now: this.clock.iso(),
     });
     this.emitDurable(session.id, "session.created", { session });

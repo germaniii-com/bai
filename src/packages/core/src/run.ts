@@ -1,13 +1,20 @@
 import type { Clock, EventType, PartId, PromptPayload, SessionId } from "@bai/shared";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
-import type { ProviderRegistry } from "./provider/registry";
+import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry";
+import type { Provider } from "./provider/types";
 import type { Store } from "./store/store";
 import type { ToolRegistry } from "./tools/registry";
+import { isDefaultTitle, sanitizeGeneratedTitle, TITLE_SYSTEM_PROMPT } from "./title";
 
 interface ActiveRun {
   controller: AbortController;
 }
+
+/** The detached title refine's hard budget — a hung provider must not leak. */
+const TITLE_TIMEOUT_MS = 10_000;
+/** Prompt text bound for the title call (titles don't need full prompts). */
+const TITLE_PROMPT_CHARS = 2000;
 
 export interface RunCoordinatorDeps {
   store: Store;
@@ -18,6 +25,8 @@ export interface RunCoordinatorDeps {
   tools: ToolRegistry;
   /** Resolves the effective default model id, e.g. "stub/echo". */
   defaultModel(): string;
+  /** Configured title-call model (config models.title), when set. */
+  titleModel(): string | undefined;
 }
 
 /**
@@ -101,7 +110,20 @@ export class RunCoordinator {
     const session = this.deps.store.sessions.get(sessionId);
     if (!session) return;
     // Per-session model/account (set via ctrl+p or the API) → global default.
-    const meta = session.meta as { model?: unknown; account?: unknown };
+    const meta = session.meta as { model?: unknown; account?: unknown; oneshot?: unknown };
+
+    // Session titling: untitled sessions are created as "New Chat Session -
+    // <timestamp>"; the first prompt of a default-titled session kicks off a
+    // detached mini LLM call (same model as the session) that replaces the
+    // default with a generated title — the default stands if it fails or is
+    // skipped, and a still-default session retries on later prompts
+    // (self-healing). One-shot sessions are ephemeral proxies — no title
+    // spend; the stub provider would only echo, never refine.
+    const firstPrompt = promoted[0]?.payload.text ?? "";
+    const refineTitle =
+      isDefaultTitle(session.title) && meta.oneshot !== true && firstPrompt.length > 0;
+
+    // Per-session model/account (set via ctrl+p or the API) → global default.
     const modelId =
       typeof meta.model === "string" && meta.model.length > 0
         ? meta.model
@@ -110,6 +132,22 @@ export class RunCoordinator {
     const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
     const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
     const credentials = await this.deps.providers.resolveCredentials(providerId, account);
+
+    // The refine runs fully detached — see refineSessionTitle. It prefers a
+    // small non-thinking model (config models.title → the session provider's
+    // small model) so a reasoning session model can't eat the whole call.
+    if (refineTitle && providerId !== "stub") {
+      const title = await this.resolveTitleModel(providerId, { provider, model, credentials });
+      this.refineSessionTitle({
+        sessionId,
+        provider: title.provider,
+        model: title.model,
+        credentials: title.credentials,
+        defaultTitle: session.title,
+        prompt: firstPrompt,
+      });
+    }
+
     const history = this.deps.store.messages.history(sessionId);
     const stream = await provider.stream({
       model,
@@ -186,6 +224,99 @@ export class RunCoordinator {
     } finally {
       await stream.close();
     }
+  }
+
+  /**
+   * Title-call model: config models.title → a small non-reasoning model of
+   * the session's provider (opencode's getSmallModel) → the session's own
+   * model. Resolution failures fall back to the session's model — the title
+   * call is best-effort and must never break the drain.
+   */
+  private async resolveTitleModel(
+    sessionProviderId: string,
+    session: { provider: Provider; model: string; credentials: ResolvedCredentials },
+  ): Promise<{ provider: Provider; model: string; credentials: ResolvedCredentials }> {
+    const configured = this.deps.titleModel();
+    const modelId =
+      configured ?? (await this.deps.providers.smallModelFor(sessionProviderId).catch(() => undefined));
+    if (modelId === undefined) return session;
+    try {
+      const resolved = await this.deps.providers.resolveModel(modelId);
+      const account = await this.deps.providers.defaultAccount(resolved.providerId);
+      return {
+        provider: resolved.provider,
+        model: resolved.model,
+        credentials: await this.deps.providers.resolveCredentials(resolved.providerId, account),
+      };
+    } catch {
+      return session;
+    }
+  }
+
+  /**
+   * Detached title refine: a mini LLM call that
+   * replaces the creation-time default title with a generated one. Never
+   * awaited — the drain's timing (run.finished, one-shot exit) is untouched —
+   * and never rejects. The generated title applies only while the session's
+   * title still equals the default it started with: a concurrent rename wins.
+   */
+  private refineSessionTitle(input: {
+    sessionId: SessionId;
+    provider: Provider;
+    model: string;
+    credentials: ResolvedCredentials;
+    defaultTitle: string;
+    prompt: string;
+  }): void {
+    void (async () => {
+      const stream = await input.provider.stream({
+        model: input.model,
+        messages: [
+          { role: "system", content: TITLE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            // The word-count target rides the user message too — models
+            // weight it heavily, and it's the fix for one-word titles on
+            // long prompts.
+            content: `Generate a 5-10 word title for this conversation:\n${input.prompt.slice(0, TITLE_PROMPT_CHARS)}`,
+          },
+        ],
+        auth: {
+          ...(input.credentials.apiKey !== undefined ? { apiKey: input.credentials.apiKey } : {}),
+          ...(input.credentials.baseUrl !== undefined ? { baseUrl: input.credentials.baseUrl } : {}),
+        },
+        // No token cap: a reasoning fallback model may spend tokens thinking
+        // first, and a title call stops naturally after a line anyway.
+        // Thinking is deliberately not enabled (Anthropic requires
+        // max_tokens > budget_tokens).
+        // Own timeout, not the run's signal: an interrupt shouldn't kill the
+        // refine, and a hung provider must not leak the request forever.
+        signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
+      });
+      try {
+        let text = "";
+        for await (const evt of stream) {
+          if (evt.type === "text_delta") text += evt.delta;
+          else if (evt.type === "done") break;
+        }
+        const title = sanitizeGeneratedTitle(text);
+        if (title.length === 0) return;
+        const current = this.deps.store.sessions.get(input.sessionId);
+        if (current === undefined || current.title !== input.defaultTitle) return;
+        const updated = this.deps.store.sessions.update(input.sessionId, {
+          title,
+          now: this.deps.clock.iso(),
+        });
+        if (updated !== undefined) {
+          this.emitDurable(input.sessionId, "session.updated", { session: updated });
+        }
+      } finally {
+        await stream.close();
+      }
+    })().catch(() => {
+      // Best-effort: any failure (provider error, timeout, abort) leaves the
+      // default title in place.
+    });
   }
 
   private emitDurable(sessionId: SessionId, type: EventType, payload: unknown): void {

@@ -61,7 +61,12 @@ export async function boot(args: CliArgs): Promise<Booted> {
     ...(Object.keys(flags).length > 0 ? { flags } : {}),
   });
 
-  const store = new Store(dbPath());
+  // A fresh one-shot is a pure proxy to the model: it never reads prior
+  // data, so the whole store lives in RAM and dies with the process —
+  // nothing is persisted, no session clutter. --continue/--session target
+  // real persisted sessions and keep the on-disk store.
+  const ephemeral = args.mode === "oneshot" && !args.continueLast && args.sessionId === undefined;
+  const store = new Store(ephemeral ? ":memory:" : dbPath());
   const bus = new Bus();
   const log = new EventLog(store.events);
 

@@ -76,6 +76,32 @@ describe("api contract", () => {
     expect(res.status).toBe(404);
   });
 
+  test("PUT /api/session/:id/title renames; 404 unknown; validates body", async () => {
+    const session = stack.core.createSession({ workbench: "chat" });
+    const res = await app.request(`/api/session/${session.id}/title`, {
+      method: "PUT",
+      body: JSON.stringify({ title: "renamed" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { session: { title: string } }).session.title).toBe("renamed");
+    expect(stack.core.getSession(session.id)?.title).toBe("renamed");
+
+    const missing = await app.request("/api/session/ses_nope/title", {
+      method: "PUT",
+      body: JSON.stringify({ title: "x" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(missing.status).toBe(404);
+
+    const bad = await app.request(`/api/session/${session.id}/title`, {
+      method: "PUT",
+      body: JSON.stringify({ title: "" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(bad.status).toBe(400);
+  });
+
   test("static hosting: hint page when dist is missing", async () => {
     const res = await app.request("/");
     expect(res.status).toBe(200);

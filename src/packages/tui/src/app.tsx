@@ -137,6 +137,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
     void followGlobal(client, {
       signal: ctrl.signal,
       onEvent: (evt) => {
+        // Universal healing (§8.4): the firehose's first frame on every
+        // (re)connect refreshes the snapshots — live events missed during a
+        // drop can't linger.
+        if (evt.type === "server.hello") {
+          void refreshSessions();
+          void refreshConfig();
+          if (providersLoadedRef.current) void refreshProviders();
+        }
         if (evt.type === "provider.updated") {
           if (providersLoadedRef.current) void refreshProviders();
         }
@@ -148,7 +156,11 @@ export function App({ client, version }: { client: BaiClient; version: string })
         if (evt.type === "session.updated") {
           const payload = evt.payload as { session?: Session };
           if (payload.session !== undefined) {
-            setActive((current) => (current?.id === payload.session?.id ? payload.session ?? null : current));
+            const updated = payload.session;
+            setActive((current) => (current?.id === updated.id ? updated : current));
+            // Server-side title changes (fallback + LLM refine) must reach
+            // the sessions list without a refetch.
+            setSessions((list) => list.map((s) => (s.id === updated.id ? updated : s)));
           }
         }
       },
@@ -313,13 +325,19 @@ export function App({ client, version }: { client: BaiClient; version: string })
             )}
             {view === "sessions" && (
               <SessionsView
-                client={client}
                 sessions={sessions}
                 onPick={(s) => {
                   setActive(s);
                   setView("chat");
                 }}
-                onChanged={refreshSessions}
+                onNew={() => {
+                  // Draft state (opencode parity): no session row exists
+                  // until the first prompt is submitted — land in the chat
+                  // composer ready to type.
+                  setActive(null);
+                  setView("chat");
+                  setMode("input");
+                }}
               />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}

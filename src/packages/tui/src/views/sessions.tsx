@@ -1,25 +1,21 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
-import type { BaiClient } from "@bai/api/client";
 import type { Session } from "@bai/shared";
 
-/** Session picker: arrows to navigate, enter to open, n to create. */
+/** Session picker: arrows to navigate, enter to open, n to start a new one. */
 export function SessionsView({
-  client,
   sessions,
   onPick,
-  onChanged,
+  onNew,
 }: {
-  client: BaiClient;
   sessions: Session[];
   onPick: (session: Session) => void;
-  onChanged: () => void;
+  /** "n": draft state — no session exists until the first message is sent. */
+  onNew: () => void;
 }) {
   const [index, setIndex] = useState(0);
-  const [busy, setBusy] = useState(false);
 
   useInput((ch, key) => {
-    if (busy) return;
     // j/k are vim aliases for the arrow keys (NORMAL-mode consistency).
     if (key.upArrow || ch === "k") setIndex((i) => Math.max(0, i - 1));
     else if (key.downArrow || ch === "j")
@@ -28,21 +24,14 @@ export function SessionsView({
       const picked = sessions[index];
       if (picked !== undefined) onPick(picked);
     } else if (ch === "n") {
-      setBusy(true);
-      void client
-        .createSession({ workbench: "chat" })
-        .then((created) => {
-          onChanged();
-          onPick(created);
-        })
-        .finally(() => setBusy(false));
+      onNew();
     }
   });
 
   return (
     <Box flexDirection="column">
       <Text bold>Sessions</Text>
-      {sessions.length === 0 && <Text dimColor>No sessions yet — press n to create one.</Text>}
+      {sessions.length === 0 && <Text dimColor>No sessions yet — press n to start one.</Text>}
       {sessions.map((s, i) => (
         <Text key={s.id} color={i === index ? "cyan" : undefined}>
           {i === index ? "❯ " : "  "}

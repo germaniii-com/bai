@@ -56,7 +56,8 @@ describe("per-session model/account + accounts API", () => {
 
   test("session meta model/account drives the drain; credentials injected", async () => {
     t.core.setAccount("fakeprov", "work", { label: "Work", key: "key-123" });
-    const session = t.core.createSession({ workbench: "chat" });
+    // Titled: no title-refine request may join the drain's single call.
+    const session = t.core.createSession({ title: "t", workbench: "chat" });
     t.core.setSessionModel(session.id, { model: "fakeprov/m1", account: "work" });
 
     const finished = waitForEvent(t.bus, "run.finished");

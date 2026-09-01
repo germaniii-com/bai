@@ -79,6 +79,13 @@ describe("client ↔ server (integration)", () => {
     expect(updated.models.default).toBe("stub/echo");
   });
 
+  test("renameSession round trip through the typed client", async () => {
+    const session = await client.createSession({ workbench: "chat" });
+    const renamed = await client.renameSession(session.id, "my title");
+    expect(renamed.title).toBe("my title");
+    expect((await client.getSession(session.id))?.title).toBe("my title");
+  });
+
   test("job enqueue → poll → asset content", async () => {
     const job = await client.enqueueJob({ kind: "image.generate", input: { prompt: "e2e" } });
     let current = await client.getJob(job.id);

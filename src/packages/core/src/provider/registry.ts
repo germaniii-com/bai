@@ -5,6 +5,7 @@ import { WELL_KNOWN_BASE_URLS } from "./catalog";
 import type { AuthStore, SetAccountInput } from "./auth-store";
 import type { LlmRequest, Provider, ProviderStream } from "./types";
 import { EchoProvider } from "./stub";
+import { pickSmallModel } from "../title";
 
 export interface RegistryDeps {
   catalog: CatalogService;
@@ -226,6 +227,28 @@ export class ProviderRegistry {
   async allModels(): Promise<ModelInfo[]> {
     const providers = await this.listProviders();
     return providers.flatMap((p) => p.models);
+  }
+
+  /**
+   * A small non-thinking model of the given provider for background calls
+   * (session titling) — opencode's getSmallModel adapted to bai's catalog.
+   * Registered providers win, then the catalog, then config-declared models.
+   * Undefined when nothing qualifies (caller falls back to the session's own
+   * model).
+   */
+  async smallModelFor(providerId: string): Promise<string | undefined> {
+    const registered = this.registered.get(providerId);
+    if (registered !== undefined) return pickSmallModel(await registered.models());
+    const entry = await this.deps.catalog.get(providerId);
+    if (entry !== undefined) return pickSmallModel(catalogModels(providerId, entry));
+    const pc = this.deps.config().providers[providerId];
+    const models = (pc?.models ?? []).map((m) => ({
+      id: `${providerId}/${m}`,
+      provider: providerId,
+      label: m,
+      supportsTools: false,
+    }));
+    return pickSmallModel(models);
   }
 
   /** GET /api/provider payload. */

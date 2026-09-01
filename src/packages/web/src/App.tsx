@@ -109,10 +109,23 @@ export function App() {
     void followGlobal(client, {
       signal: ctrl.signal,
       onEvent: (evt) => {
+        // Universal healing (§8.4): the firehose's first frame on every
+        // (re)connect refreshes the snapshots — live events missed during a
+        // drop (e.g. a background title change) can't linger.
+        if (evt.type === "server.hello") {
+          void refreshSessions();
+          void refreshWorkspaceSessions();
+          void refreshConfig();
+        }
         if (evt.type === "session.updated") {
           const payload = evt.payload as { session?: Session };
           if (payload.session !== undefined) {
-            setActive((current) => (current?.id === payload.session?.id ? payload.session ?? null : current));
+            const updated = payload.session;
+            setActive((current) => (current?.id === updated.id ? updated : current));
+            // Server-side title changes (fallback + LLM refine) must reach
+            // both sidebars without a refetch.
+            setSessions((list) => list.map((s) => (s.id === updated.id ? updated : s)));
+            setWorkspaceSessions((list) => list.map((s) => (s.id === updated.id ? updated : s)));
           }
         }
         // Sessions created on other surfaces (TUI, phone) appear live in
@@ -229,15 +242,12 @@ export function App() {
       let session = active;
       if (session === null) {
         // First message lazily creates the session — workspace sessions are
-        // code-workbench sessions rooted at the workspace folder path.
+        // code-workbench sessions rooted at the workspace folder path. The
+        // server titles it (fallback + LLM refine) from this first prompt.
         session =
           section === "workspace" && effectiveWorkspacePath !== null
-            ? await client.createSession({
-                title: text.slice(0, 60),
-                workbench: "code",
-                cwd: effectiveWorkspacePath,
-              })
-            : await client.createSession({ title: text.slice(0, 60), workbench: "chat" });
+            ? await client.createSession({ workbench: "code", cwd: effectiveWorkspacePath })
+            : await client.createSession({ workbench: "chat" });
         setActive(session);
         if (section === "workspace") void refreshWorkspaceSessions();
         else void refreshSessions();
@@ -259,15 +269,9 @@ export function App() {
         </div>
         {section === "chat" && (
           <>
-            <button
-              className="new-session"
-              onClick={() => {
-                void client.createSession({ workbench: "chat" }).then((s) => {
-                  void refreshSessions();
-                  setActive(s);
-                });
-              }}
-            >
+            {/* Draft state: no session row exists until the first message is
+                sent (submit() creates it) — opencode's new-chat pattern. */}
+            <button className="new-session" onClick={() => setActive(null)}>
               + new session
             </button>
             <nav className="session-list">
@@ -312,17 +316,9 @@ export function App() {
                 ⇄
               </span>
             </button>
-            <button
-              className="new-session"
-              onClick={() => {
-                void client
-                  .createSession({ workbench: "code", cwd: effectiveWorkspacePath })
-                  .then((s) => {
-                    setActive(s);
-                    void refreshWorkspaceSessions();
-                  });
-              }}
-            >
+            {/* Draft state: the code session (rooted at this workspace) is
+                created by submit() on the first message. */}
+            <button className="new-session" onClick={() => setActive(null)}>
               + new session
             </button>
             <nav className="session-list">

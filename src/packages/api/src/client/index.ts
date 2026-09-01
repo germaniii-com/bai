@@ -227,6 +227,16 @@ export class BaiClient {
     if (!res.ok) throw new Error(`set session model failed: ${res.status}`);
   }
 
+  /** Rename a session (manual rename; auto-titles arrive via session.updated). */
+  async renameSession(id: string, title: string): Promise<Session> {
+    const res = await this.rpc().session[":id"].title.$put({
+      param: { id: encodeURIComponent(id) },
+      json: { title },
+    });
+    if (!res.ok) throw new Error(`rename session failed: ${res.status}`);
+    return (await res.json()).session;
+  }
+
   async enqueueJob(body: EnqueueJobBody): Promise<Job> {
     const res = await this.rpc().job.$post({ json: body });
     if (!res.ok) throw new Error(`enqueue job failed: ${res.status}`);
