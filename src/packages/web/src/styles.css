@@ -704,6 +704,213 @@ body {
   margin: 4px 0 0;
 }
 
+/* Tool-call transcript nodes: collapsible per-call lines with a status
+   glyph, expanding to the (possibly error) result body. */
+.tool-nodes {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-toggle:hover {
+  color: var(--dim);
+}
+
+.tool-glyph-running { color: #d9a038; }
+.tool-glyph-done { color: #4a9d5b; }
+.tool-glyph-error { color: #c4443f; }
+
+.tool-args {
+  color: var(--dim);
+}
+
+.tool-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dim);
+  font-size: 12px;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 10px;
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tool-body-error {
+  color: #c4443f;
+  border-left-color: #c4443f;
+}
+
+/* Agents & tools management pane: two-tab list + form/code editor. */
+.agents-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.notice {
+  background: rgba(74, 157, 91, 0.12);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agents-layout {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.agents-list {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  flex-shrink: 0;
+}
+
+.agents-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.agents-tab {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agents-tab.active {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.agents-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.agents-item {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.agents-item:hover {
+  background: var(--border);
+}
+
+.agents-item.active {
+  background: var(--border);
+}
+
+.agents-create {
+  margin-top: 8px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agents-create:hover {
+  color: var(--text);
+}
+
+.agents-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-form h3 {
+  margin: 0;
+}
+
+.agent-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.agent-form input,
+.agent-form textarea {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.agent-form textarea.code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.agents-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agents-actions button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.agents-actions button.danger {
+  color: #c4443f;
+  border-color: #c4443f;
+}
+
 .typing .dot {
   width: 7px;
   height: 7px;

@@ -34,7 +34,10 @@ export interface Part {
   messageId: MessageId;
   ord: number;
   kind: PartKind;
-  /** Shape depends on `kind`: text → {text}, tool_call → {name,args}, etc. */
+  /**
+   * Shape depends on `kind`: text/thinking → {text}; tool_call →
+   * {callId, name, args}; tool_result → {callId, content, isError?, title?}.
+   */
   payload: unknown;
 }
 

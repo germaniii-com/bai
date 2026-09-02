@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AgentRegistry,
   AuthStore,
   Bus,
   CatalogService,
@@ -11,6 +12,7 @@ import {
   ProviderRegistry,
   Service,
   Store,
+  ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
 } from "../src";
@@ -24,7 +26,10 @@ export interface TestCore {
   providers: ProviderRegistry;
   accounts: AuthStore;
   /** Mutable config state — tests mutate, the stack reads live. */
-  config: { models: { default?: string; title?: string } };
+  config: { models: { default?: string; title?: string }; permissions: Record<string, "allow" | "ask" | "deny"> };
+  tools: ToolRegistry;
+  toolLoader: ToolLoader;
+  agents: AgentRegistry;
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -33,8 +38,8 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: TestCore["config"] = { models: { default: "stub/echo" } };
-  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { ...config.models } });
+  const config: TestCore["config"] = { models: { default: "stub/echo" }, permissions: {} };
+  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { ...config.models }, permissions: { ...config.permissions } });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
     cachePath: join(dir, "models-cache.json"),
@@ -51,6 +56,8 @@ export function makeCore(): TestCore {
     executors: Object.assign({}, ...workbenches.map((wb) => wb.jobExecutors())),
   });
   const tools = new ToolRegistry({ spillDir: join(dir, "tmp") });
+  const toolLoader = new ToolLoader({ dir: join(dir, "tools"), registry: tools, debounceMs: 40 });
+  const agents = new AgentRegistry({ dir: join(dir, "agents"), debounceMs: 50 });
   const core = new Service({
     store,
     bus,
@@ -59,10 +66,12 @@ export function makeCore(): TestCore {
     tools,
     workbenches,
     jobs,
+    agents,
+    toolLoader,
     config: testConfig,
     version: "test",
   });
-  return { dir, store, bus, log, core, providers, accounts, config };
+  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents };
 }
 
 export function sleep(ms: number): Promise<void> {

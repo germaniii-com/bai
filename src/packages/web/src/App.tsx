@@ -7,13 +7,14 @@ import { SettingsNav, SettingsPane } from "./settings";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
+import { AgentsPage } from "./agents-page";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "image" | "video" | "settings";
+type Section = "chat" | "workspace" | "agents" | "image" | "video" | "settings";
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
@@ -48,6 +49,10 @@ export function App() {
   // the header's model button shows the real default before the (heavy,
   // on-demand) provider list ever loads. Same pattern as the TUI's header.
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
+  // Agent/tool catalog version — bumped by live events so the Agents page
+  // refetches while open (file edits from any surface, TUI included).
+  const [catalogTick, setCatalogTick] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refreshConfig = useCallback(async () => {
     try {
@@ -138,6 +143,11 @@ export function App() {
         // label and the workspace list without a reload.
         if (evt.type === "config.updated") {
           void refreshConfig();
+        }
+        // Agent/tool files changed anywhere (TUI manager, disk, web editor):
+        // bump the tick so the Agents page refetches while open.
+        if (evt.type === "agents.updated" || evt.type === "tools.updated") {
+          setCatalogTick((t) => t + 1);
         }
       },
     });
@@ -265,7 +275,13 @@ export function App() {
 
       <aside className="nested-panel">
         <div className="nested-title">
-          {section === "settings" ? "Settings" : section === "workspace" ? "Workspace" : "Chat"}
+          {section === "settings"
+            ? "Settings"
+            : section === "workspace"
+              ? "Workspace"
+              : section === "agents"
+                ? "Agents"
+                : "Chat"}
         </div>
         {section === "chat" && (
           <>
@@ -356,6 +372,15 @@ export function App() {
             selectedId={effectiveSettingsId}
           />
         </main>
+      ) : section === "agents" ? (
+        <main className="agents-pane">
+          {notice !== null && (
+            <div className="notice" role="status" onClick={() => setNotice(null)}>
+              {notice}
+            </div>
+          )}
+          <AgentsPage client={client} tick={catalogTick} activeSessionId={active?.id ?? null} onNotice={setNotice} />
+        </main>
       ) : section === "workspace" && effectiveWorkspacePath === null ? (
         <main className="chat">
           <p className="dim empty">Select or add a workspace to start.</p>
@@ -408,6 +433,20 @@ function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: 
         <MasterItem section="workspace" label="Workspace" active={section === "workspace"} onNavigate={onNavigate}>
           <Icon>
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </Icon>
+        </MasterItem>
+        <MasterItem section="agents" label="Agents" active={section === "agents"} onNavigate={onNavigate}>
+          <Icon>
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <rect x="9" y="9" width="6" height="6" />
+            <line x1="9" y1="1" x2="9" y2="4" />
+            <line x1="15" y1="1" x2="15" y2="4" />
+            <line x1="9" y1="20" x2="9" y2="23" />
+            <line x1="15" y1="20" x2="15" y2="23" />
+            <line x1="20" y1="9" x2="23" y2="9" />
+            <line x1="20" y1="14" x2="23" y2="14" />
+            <line x1="1" y1="9" x2="4" y2="9" />
+            <line x1="1" y1="14" x2="4" y2="14" />
           </Icon>
         </MasterItem>
         <MasterItem section="image" label="Image Gen" disabled onNavigate={onNavigate}>

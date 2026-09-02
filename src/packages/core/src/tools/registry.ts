@@ -9,6 +9,13 @@ export interface ToolContext {
   signal: AbortSignal;
   /** Emit a live-only event (firehose). */
   emitLive(type: EventType, payload: unknown): void;
+  /**
+   * Raise an interactive permission ask for this tool call (write/edit use
+   * it implicitly via the central gate; custom tools may call it directly).
+   * Resolves true when approved. `metadata` (e.g. a diff) rides the
+   * permission.asked event to surfaces.
+   */
+  ask?(tool: string, metadata?: Record<string, unknown>): Promise<boolean>;
 }
 
 export interface ToolResult {
@@ -18,10 +25,12 @@ export interface ToolResult {
 
 export interface Tool {
   /** Namespaced name, e.g. "fs.read", "mcp/myserver/search". */
-  name(): string;
-  description(): string;
+  name: string;
+  description: string;
   /** JSON Schema for arguments. */
-  schema(): Record<string, unknown>;
+  schema: Record<string, unknown>;
+  /** Where the tool comes from — built-in, a user tool file, or "mcp/<server>". */
+  origin?: "builtin" | "file" | string;
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -36,11 +45,30 @@ export class ToolRegistry {
   constructor(private opts: { spillDir?: string } = {}) {}
 
   register(tool: Tool): void {
-    this.tools.set(tool.name(), tool);
+    this.tools.set(tool.name, tool);
   }
 
   registerAll(tools: Tool[]): void {
     for (const tool of tools) this.register(tool);
+  }
+
+  /**
+   * Register or replace a tool under the same name (hot-reload of custom
+   * tools). Returns true when an existing registration was replaced.
+   */
+  replace(tool: Tool): boolean {
+    const existed = this.tools.has(tool.name);
+    this.tools.set(tool.name, tool);
+    return existed;
+  }
+
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
+  /** True when a tool with this name is currently registered. */
+  has(name: string): boolean {
+    return this.tools.has(name);
   }
 
   get(name: string): Tool | undefined {

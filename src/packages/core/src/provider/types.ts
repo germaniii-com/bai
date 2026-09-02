@@ -1,8 +1,20 @@
 import type { ModelInfo, Role } from "@bai/shared";
 
+/**
+ * One content block of an outbound message. Text-only turns stay plain
+ * strings; agentic turns carry tool calls (assistant) and results (user
+ * side). Adapters lower blocks to the vendor wire format.
+ */
+export type ContentBlock =
+  | { type: "text"; text: string }
+  /** Reasoning text — replayed natively by Anthropic, dropped by OpenAI-compat. */
+  | { type: "thinking"; text: string }
+  | { type: "tool_use"; callId: string; name: string; /** Raw JSON text of the arguments. */ args: string }
+  | { type: "tool_result"; callId: string; content: string; isError?: boolean };
+
 export interface OutboundMessage {
   role: Role;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 export interface ToolDef {
@@ -38,6 +50,7 @@ export type StreamEvent =
   | { type: "thinking_delta"; delta: string }
   | { type: "tool_call_delta"; id: string; name: string; argsDelta: string }
   | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  /** stopReason: "end_turn" | "tool_use" | "length" | "unknown" */
   | { type: "done"; stopReason?: string };
 
 export interface ProviderStream extends AsyncIterable<StreamEvent> {

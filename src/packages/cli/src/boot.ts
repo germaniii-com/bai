@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   AuthStore,
+  AgentRegistry,
   CatalogService,
   ConfigStore,
   EventLog,
@@ -10,6 +11,7 @@ import {
   ProviderRegistry,
   Service,
   Store,
+  ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
   loadConfig,
@@ -18,7 +20,7 @@ import {
 import { createApp } from "@bai/api";
 import type { Config, ConfigPatch, JobKind } from "@bai/shared";
 import type { CliArgs } from "./args";
-import { assetsDir, dataDir, dbPath, globalConfigPath, serverStatePath, tmpDir, webDistDir } from "./paths";
+import { assetsDir, configDir, dataDir, dbPath, globalConfigPath, serverStatePath, tmpDir, webDistDir } from "./paths";
 
 /**
  * Version stamp: `BAI_VERSION` is injected at compile time via `define`
@@ -91,7 +93,12 @@ export async function boot(args: CliArgs): Promise<Booted> {
     accounts,
   });
 
-  const workbenches = createDefaultWorkbenches({ dataDir: dataDir() });
+  const workbenches = createDefaultWorkbenches({
+    dataDir: dataDir(),
+    // fs tools may also touch registered workspaces (config.workspaces),
+    // not just the session's own cwd.
+    workspaceRoots: () => configStore.get().workspaces ?? [],
+  });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
     {},
     ...workbenches.map((wb) => wb.jobExecutors()),
@@ -99,6 +106,24 @@ export async function boot(args: CliArgs): Promise<Booted> {
   const jobs = new JobQueue({ store, bus, assetsDir: assetsDir(), executors });
 
   const tools = new ToolRegistry({ spillDir: tmpDir() });
+
+  // Custom tool files (~/.config/bai/tools/*.ts|js), hot-reloaded.
+  const toolLoader = new ToolLoader({
+    dir: path.join(configDir(), "tools"),
+    registry: tools,
+    onChange: () => {
+      bus.publish({ seq: 0, type: "tools.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
+
+  // File-defined agents (~/.config/bai/agents/*.md), hot-reloaded; changes
+  // broadcast live so every surface refetches without a restart.
+  const agents = new AgentRegistry({
+    dir: path.join(configDir(), "agents"),
+    onChange: () => {
+      bus.publish({ seq: 0, type: "agents.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
 
   const core = new Service({
     store,
@@ -108,6 +133,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
     tools,
     workbenches,
     jobs,
+    agents,
+    toolLoader,
     config: () => configStore.get(),
     version: VERSION,
   });
@@ -137,6 +164,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
     ...(token !== undefined ? { token } : {}),
     stop: async () => {
       core.coordinator.interruptAll();
+      agents.stop();
+      toolLoader.stop();
       store.close();
     },
   };

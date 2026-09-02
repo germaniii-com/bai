@@ -87,4 +87,10 @@ export class PartsRepo {
     const row = q<PartRow>(this.db, "SELECT * FROM parts WHERE id = ?").get(partId);
     return row ? toPart(row) : undefined;
   }
+
+  /** Next free `ord` for a message (MAX(ord)+1; 0 when empty). */
+  nextOrd(messageId: MessageId): number {
+    const row = q<{ max: number | null }>(this.db, "SELECT MAX(ord) AS max FROM parts WHERE message_id = ?").get(messageId);
+    return (row?.max ?? -1) + 1;
+  }
 }

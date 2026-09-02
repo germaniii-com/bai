@@ -5,6 +5,7 @@ import type { Message, ProviderListResponse, Session } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
+import { AgentManager } from "./views/agent-manager";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent } from "./state/sync";
 import { currentModelLabel, currentProviderId, needsSetup } from "./state/providers";
@@ -27,7 +28,8 @@ export type Mode = "normal" | "input";
 type DialogOpen =
   | { kind: "providers" }
   | { kind: "accounts"; providerId: string }
-  | { kind: "all-models" };
+  | { kind: "all-models" }
+  | { kind: "agents" };
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -49,6 +51,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
+  // Agent/tool catalog version — bumped by live events so the manager
+  // dialog refetches while open (file edits from any surface).
+  const [catalogTick, setCatalogTick] = useState(0);
   // Input mode (NORMAL default). App owns it because it gates the global
   // ctrl bindings; ChatView switches it via onEnterInput/onExitInput.
   const [mode, setMode] = useState<Mode>("normal");
@@ -153,6 +158,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
           if (providersLoadedRef.current) void refreshProviders();
           void refreshSessions();
         }
+        if (evt.type === "agents.updated" || evt.type === "tools.updated") {
+          setCatalogTick((t) => t + 1);
+        }
         if (evt.type === "session.updated") {
           const payload = evt.payload as { session?: Session };
           if (payload.session !== undefined) {
@@ -249,6 +257,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
       void refreshProviders();
     } else if (ch === "a") {
       void openAccounts();
+    } else if (ch === "e") {
+      setDialog({ kind: "agents" });
     } else if (ch === "s") setView("sessions");
     else if (ch === "g") setView("gallery");
     else if (ch === "o") setView("settings");
@@ -286,7 +296,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
       </Box>
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {dialog !== null && providers !== null ? (
+        {dialog !== null && dialog.kind !== "agents" && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and
           // surface the engagement refetch as a hint — the dialog state
           // survives and the list updates in place when the fetch lands.
@@ -304,7 +314,11 @@ export function App({ client, version }: { client: BaiClient; version: string })
             />
           </Box>
         ) : dialog !== null ? (
-          <Text dimColor>loading providers…</Text>
+          dialog.kind === "agents" ? (
+            <AgentManager client={client} active={active} catalogTick={catalogTick} onDone={closeDialog} />
+          ) : (
+            <Text dimColor>loading providers…</Text>
+          )
         ) : (
           <>
             {view === "chat" && (
@@ -357,7 +371,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
         )}
         <Text dimColor>
           {mode === "normal"
-            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
+            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+e agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
             : "enter send · esc normal · ctrl+j/k newline · ctrl+w word"}
         </Text>
       </Box>

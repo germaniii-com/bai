@@ -11,11 +11,13 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
 `bai/` repository; same architecture, same roadmap). It runs on **Bun**, uses
 **Hono** for the API, **React Ink** for the TUI, and **React + Vite** for web.
 
-- **Status:** scaffold phase (docs + config). Implementation follows the
-  phased roadmap in §16.
+- **Status:** implemented through the code-workbench phase (§16): chat, sync,
+  agents, file tools, interactive permissions, token discipline + compaction
+  ship today. MCP (§11), media adapters, and desktop are next.
 - **Packages:** npm scope `@bai/*` under `src/packages/`.
-- **Companion docs:** [README.md](README.md) and one README per package under
-  `src/packages/`.
+- **Companion docs:** [README.md](README.md),
+  [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
+  per package under `src/packages/`.
 
 ---
 
@@ -137,7 +139,11 @@ core/src/
 ├── event/        live bus + durable seq-cursor log
 ├── config/       layered configuration
 ├── provider/     LLM providers behind one interface
-├── mcp/          MCP client manager (+ server exposure wiring used by api)
+├── agent/        file-defined agents: scan, watch, hot-reload
+├── tools/        tool registry, built-in fs tools, custom-tool loader
+├── context/      token discipline (pruning/stubbing) + compaction
+├── permissions/  rule engine + interactive gate
+├── mcp/          MCP client manager (planned, Phase 4)
 └── workbench/    modality registry
     ├── chat/
     ├── code/
@@ -172,12 +178,42 @@ shared      ─► (nothing)
 - tsconfigs are per-package (extending the root base) because Bun does not
   support TypeScript project references.
 
+### 5.1 Code map — where the important things live
+
+The guided tour for anyone reading the implementation. Paths are relative to
+`src/packages/`.
+
+| What | Where | Notes |
+| --- | --- | --- |
+| **The agentic loop** | `core/src/run.ts` → `RunCoordinator.drainOnce()` | One drain per session (`wake`/`startDrain`); per turn: history → compaction slice → token discipline → `renderOutbound` → `provider.stream` → tool calls → permission gate → execute → loop. `consumeStream` persists text/thinking/tool-call parts; `executeCalls` runs the gate + tools; `MAX_STEPS` (50) caps iterations; `stopReason === "length"` fails truncated tool calls. |
+| **History → provider messages** | `core/src/run/history.ts` → `renderOutbound()` | Parts → neutral `ContentBlock[]`; tool results move to a synthetic following user message; dangling calls closed with error results. |
+| **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints (system / last tool / last message). OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Model resolution + credentials: `core/src/provider/registry.ts`. |
+| **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
+| **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from TUI (ctrl+e) or web Agents page via `PUT /api/tool/:name`. |
+| **Agents** | stored in `~/.config/bai/agents/*.md`; registry `core/src/agent/registry.ts` | Markdown + YAML frontmatter (`description`, `model?`, `tools` allow-list), body = system prompt, name = filename stem. `AgentRegistry` scans + `fs.watch`-es the directory (debounced rescan → live `agents.updated` event) — no restarts, ever. Schema + built-in `build` agent: `shared/src/agents.ts`. Created three ways: drop a file on disk, `PUT /api/agent/:name` (writes the markdown), or TUI ctrl+e / web Agents page. |
+| **Permissions** | `core/src/permissions/engine.ts` (pure rule match) + `core/src/permissions/ask.ts` (`PermissionGate`) | Layers: `fs.read/list/glob` allow-by-default < `config.permissions` < session approvals ("always" → `session.meta.approvals`). The gate blocks tool execution on a durable `permission.asked` event until `Service.replyPermission` resolves it — first reply wins across devices. |
+| **Token discipline + compaction** | `core/src/context/discipline.ts`, `core/src/context/compact.ts` | Render-time transforms (transcript untouched): identical-result stubbing, old-result pruning. Compaction triggers at 75% of the context window from provider-reported usage; the summary persists as a message and `session.meta.compactionMessageId` slices history from then on. |
+| **Sessions/parts/events persistence** | `core/src/store/*` (repos) + `core/src/event/{bus,log}.ts` | `parts` rows carry tool_call/tool_result payloads; the event log is the durable replay buffer behind the SSE streams. |
+| **HTTP boundary** | `api/src/server/app.ts` (`buildApi` — one chained Hono expression for typed RPC) | Agent/tool routes live here; SSE in `server/sse.ts`. Typed client: `api/src/client/index.ts`. |
+| **Composition root (boot)** | `cli/src/boot.ts` | Constructs store, registries, agents, tool loader, gate, service, app — and stops them all on shutdown. |
+
+### 5.2 User-owned files (outside the repo)
+
+| Path | Contents |
+| --- | --- |
+| `~/.config/bai/config.json` | layered config (§12) |
+| `~/.config/bai/agents/*.md` | agent definitions — hot-reloaded (§9) |
+| `~/.config/bai/tools/*.ts` | custom tool files — hot-imported |
+| `~/.local/share/bai/` | `bai.db` (SQLite, WAL), `assets/`, `tmp/` |
+| `~/.local/state/bai/server.json` | url/pid/token for local discovery |
+
 ## 6. Domain model
 
 | Concept               | Meaning                                                                                                                                                |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Session**           | A named conversation scoped to a workbench (`chat`, `code`, …). Durable. Has an inbox, message history, and an event log.                              |
-| **Message**           | One turn participant entry (`user`, `assistant`, `system`). Composed of ordered **Parts** (text, file ref, image ref, tool call, tool result).         |
+| **Agent**             | A persona + tool allow-list (+ optional model override) defined as a markdown file (`~/.config/bai/agents/*.md`) or built-in (`build`). Selected per session via `session.meta.agent`; hot-reloaded. |
+| **Message**           | One turn participant entry (`user`, `assistant`, `system`). Composed of ordered **Parts** (text, thinking, file ref, image ref, tool call, tool result). |
 | **Input / admission** | A submitted prompt is first persisted as an inbox row (durable), then _promoted_ into history when the runner picks it up. Crash-safe by construction. |
 | **Run (drain)**       | One process-local execution span: promote eligible inputs → loop provider turns + tool calls until idle. Never two concurrent runs per session.        |
 | **Steer vs queue**    | A prompt arriving mid-run _steers_ (promotes at the next safe boundary); one marked `queue` waits until idle.                                          |
@@ -242,7 +278,10 @@ table. All timestamps UTC RFC3339. Queries stay explicit — no ORM.
 Event types (initial set): `session.created|updated`, `input.admitted`,
 `message.created`, `message.part.updated`, `message.part.delta`,
 `run.started|finished`, `permission.asked|replied`, `job.updated`,
-`asset.created`, `config.updated`, `server.hello`.
+`asset.created`, `config.updated`, `provider.updated`, `agents.updated`,
+`tools.updated`, `server.hello`. Live-only events (`config.updated`,
+`provider.updated`, `agents.updated`, `tools.updated`, `server.hello`) use
+seq 0 and are best-effort; everything session-scoped is durable.
 
 **Client sync algorithm** (identical shape in TUI and web):
 
@@ -272,27 +311,49 @@ also sidesteps the fact that Hono's typed RPC client has no native SSE support
 
 ## 9. Agent execution
 
+*(Implementation: `core/src/run.ts` — see the code map, §5.1.)*
+
 ```
 submit(prompt) ──► inputs row (durable) ──► wake coordinator
 coordinator(session): if idle → start drain:
+   resolve agent (session.meta.agent → registry; stale selection → default) + tools
    promote input(s) → append user message
-   loop:
-     render request (history + system context + tool defs)
-     stream provider turn → emit deltas as events
-     for each tool call: check permission → execute → append result part
-   until: no continuation, or interrupted
+   loop (≤ 50 turns):
+      history → compaction-pointer slice → token discipline → renderOutbound
+      stream provider turn → persist parts, emit deltas as events
+      for each tool call: parse args → unknown-tool check → permission gate
+                          → execute → append tool_result part
+      continue while tool calls resolved (state-based, not finish-reason based)
+   until: no continuation, steps capped, all calls denied, or interrupted
 interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs stay queued
 ```
 
 - **One drain per session** (process-global `Map` keyed by session ID);
   different sessions run concurrently. Joins/coalesces wakes.
-- **Tool registry** merges builtin + workbench + MCP tools; enforces output
-  size limits (truncate head+tail, spill full output to a managed temp file).
-- **Permissions:** rules `{ "<tool-pattern>": "allow|ask|deny" }`,
-  last-match-wins, sources merged: defaults < global config < project config <
-  session-scoped approvals ("always"). Headless (`--one-shot`) auto-rejects
-  unless `--auto` (replies approve-once). Interactive asks broadcast to all
-  surfaces; first reply wins; `always` persists for the session.
+- **Agents** resolve at drain start and are snapshotted for the whole run —
+  file edits mid-run apply next run. Tool defs = registry ∩ the agent's
+  allow-list (`"*"` = everything), order-stable for prompt caching. The
+  agent's `model` is a default; an explicit per-session model wins.
+- **Tool registry** merges builtin + workbench + custom-file tools; enforces
+  output size limits (truncate head+tail, spill full output to a managed
+  temp file).
+- **Permissions:** layers `fs.read/list/glob: allow` < `config.permissions`
+  (`{ "<tool-pattern>": "allow|ask|deny" }`, last-match-wins) < session
+  approvals ("always" → `session.meta.approvals`). Unmatched defaults to
+  `ask`; unknown tools error out before the gate (an unmatched tool would
+  otherwise stall the run on an ask nobody can answer). Interactive asks
+  broadcast to all surfaces; first reply wins; `always` persists for the
+  session. A batch where every call was denied ends the run.
+- **Token discipline** (render-time, transcript untouched): identical tool
+  results collapse to one-line stubs; results outside the newest-10 window
+  prune to summaries; errors always stay verbatim.
+- **Compaction:** when provider-reported input tokens cross 75% of the
+  model's window (80K floor), the small-model path summarizes the transcript
+  into a structured summary (Goal/Progress/Decisions/Next Steps/Critical
+  Context + read/modified-files appendix); `session.meta.compactionMessageId`
+  points at it and later drains slice history from that pointer.
+- **Length guard:** `stopReason === "length"` fails every pending tool call
+  (streamed JSON arguments may be truncated) and ends the run.
 
 ## 10. Providers & models
 
@@ -310,10 +371,14 @@ interface Stream extends AsyncIterable<StreamEvent> {
 }
 ```
 
-Adapters: `openai` (v7), `@anthropic-ai/sdk`, `@google/genai`, plus one
-**OpenAI-compatible catch-all adapter** (custom base URL) covering OpenRouter,
-Groq, Ollama, llama.cpp, LM Studio, etc. Vendor types stay isolated inside
-adapter files so SDK majors never leak into `core`.
+Adapters implemented today: **Anthropic** (`@anthropic-ai/sdk`) and one
+**OpenAI-compatible catch-all** (`openai` SDK, custom base URL) covering
+api.openai.com, OpenRouter, Groq, Ollama, llama.cpp, LM Studio, DeepSeek,
+etc. Both speak tools: Anthropic uses `tool_use`/`tool_result` content
+blocks with `input_json_delta` streaming; OpenAI uses `tool_calls`
+accumulation and `role:"tool"` messages. A Gemini adapter is planned.
+Vendor types stay isolated inside adapter files so SDK majors never leak
+into `core`.
 
 Model catalog = models.dev (via `@opencode-ai/models`: live fetch ⊕ bundled
 offline snapshot ≤24 h behind) ⊕ user config overrides. Auth via env vars and
@@ -380,6 +445,13 @@ Runs under Bun directly — no build step.
 - Root component + view-state enum (`chat`, `sessions`, `gallery`, `jobs`,
   `settings`) + focus-state routing; components are sub-components; overlay
   dialogs intercept keys before global bindings.
+- **ctrl+e agent/tool manager** (`views/agent-manager.tsx`): agents|tools
+  tabs; create (writes via API), edit (`$EDITOR` on the underlying file —
+  the server's watcher hot-reloads on save), delete, "use in session";
+  refreshes live from `agents.updated`/`tools.updated`.
+- Tool calls render as compact status lines (`✓ fs.read src/x.ts`) next to
+  the collapsible thinking panel (`views/chat.tsx` + `state/sync.ts`,
+  kind-aware delta reducer).
 - `render(<App/>, { alternateScreen: true })` — full-screen alt-buffer like
   vim/less, restored on exit (supported since Ink v7).
 - Key handling via `useInput` (+ `usePaste` for bracketed paste); focus via
@@ -403,8 +475,13 @@ React 19.2 + Vite 8 (Rolldown bundler) + `@vitejs/plugin-react` (Oxc-based) +
 TypeScript. React Compiler enabled from day one. Serves desktop browsers
 _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 
-- Views: sessions sidebar, chat, code (file tree + diffs), image gallery,
-  video gallery, jobs queue, settings (config editor), pairing screen.
+- Views: sessions sidebar, chat, **Agents page** (form editor for agent
+  markdown, code editor for custom tools, use-in-session — `agents-page.tsx`),
+  code (file tree + diffs), image gallery, video gallery, jobs queue,
+  settings (config editor), pairing screen.
+- Tool calls render as collapsible nodes beside the thinking panel
+  (`chat-pane.tsx` + `state.ts` — the same kind-aware reducer semantics as
+  the TUI).
 - Sync engine mirroring the TUI's semantics (§8).
 - State: small stores + reducers over events (no heavyweight state library
   unless Phase 1 proves the need).
@@ -473,15 +550,19 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 
 ## 16. Roadmap
 
-| Phase                     | Deliverable                                                                                                                | Success criteria                                                           |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| **0 — Skeleton**          | workspaces, mode dispatch, config layers, store+migrations, hello-world API, web shell, TUI shell, compile pipeline        | `bai` opens TUI; `bai --web` serves SPA; `bai --one-shot hi` prints NDJSON |
-| **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         |
-| **2 — Sync hardening**    | Durable event log + cursor resume, pairing QR, config editing from web, `config.updated` propagation                       | Kill/resume mid-stream loses nothing; phone pairs in <30 s                 |
-| **3 — Code workbench**    | fs/grep/bash/edit tools (PTY via `Bun.spawn`), permission engine, diff viewer, workspace rooting                           | Guided multi-file edit with approvals from either surface                  |
-| **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      |
-| **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               |
-| **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    |
+| Phase                     | Deliverable                                                                                                                | Success criteria                                                           | Status |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------ |
+| **0 — Skeleton**          | workspaces, mode dispatch, config layers, store+migrations, hello-world API, web shell, TUI shell, compile pipeline        | `bai` opens TUI; `bai --web` serves SPA; `bai --one-shot hi` prints NDJSON | ✅ shipped |
+| **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         | ✅ shipped |
+| **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
+| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | 🔨 in progress — agents + fs tools + interactive permissions + discipline/compaction shipped; bash/grep tools pending |
+| **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
+| **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               | ⏳ pending (structured stubs live — see FEATURES.md) |
+| **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |
+
+(The agents + custom-tools feature set was built as part of Phase 3's
+execution; its plan and research notes live in `~/thoughts/plans/` and
+`~/thoughts/research/`.)
 
 ## 17. Decision log
 
@@ -510,6 +591,9 @@ TypeScript-specific decisions (D13+):
 | D18 | models.dev catalog w/ offline snapshot          | Free curated metadata; local-first fallback                                   | Hand-maintained catalog only                 |
 | D19 | bun:test as sole runner                         | Jest-compatible, parallel, zero config                                        | vitest/jest double stack                     |
 | D20 | Per-package tsconfigs, no project references    | Bun does not support references (#4774)                                       | TS project references                        |
+| D21 | File-defined agents, hot-reloaded               | Markdown + minimal frontmatter beats config blobs; `fs.watch` + debounced rescan beats opencode's restart-to-apply | opencode.json agent blocks; forever-caches |
+| D22 | Render-time token discipline, transcript sacred | Idempotent transforms = cache-stable prefixes; the event-sourced transcript is the recovery store | Mutating history in place; stateful rearm counters |
+| D23 | Custom tools as TS files, dynamically imported  | Bun imports TS natively (no jiti); files stay the source of truth; CRUD UX writes files via the API | Declarative config tools; sandboxed workers (v1) |
 
 ## 18. Glossary
 

@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import {
   systemClock,
   type Clock,
@@ -14,15 +16,22 @@ import {
   type Session,
   type SessionId,
   type WorkbenchName,
+  type AgentInfo,
+  type PutAgentBody,
+  type ToolListEntry,
+  isValidToolName,
 } from "@bai/shared";
+import type { AgentRegistry } from "./agent/registry";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
+import { PermissionGate } from "./permissions/ask";
 import type { ProviderRegistry } from "./provider/registry";
 import { RunCoordinator } from "./run";
 import { defaultTitle } from "./title";
 import type { Store } from "./store/store";
-import type { ToolRegistry } from "./tools/registry";
+import type { ToolLoader } from "./tools/loader";
+import type { Tool, ToolRegistry } from "./tools/registry";
 import type { Workbench } from "./workbench/types";
 
 export interface ServiceDeps {
@@ -34,6 +43,8 @@ export interface ServiceDeps {
   tools: ToolRegistry;
   workbenches: Workbench[];
   jobs: JobQueue;
+  agents: AgentRegistry;
+  toolLoader: ToolLoader;
   config(): Config;
   version: string;
 }
@@ -46,11 +57,19 @@ export interface ServiceDeps {
 export class Service {
   readonly coordinator: RunCoordinator;
   readonly workbenches: Workbench[];
+  readonly permissions: PermissionGate;
   private readonly clock: Clock;
 
   constructor(private deps: ServiceDeps) {
     this.clock = deps.clock ?? systemClock;
     this.workbenches = deps.workbenches;
+    this.permissions = new PermissionGate({
+      store: deps.store,
+      bus: deps.bus,
+      log: deps.log,
+      clock: this.clock,
+      config: deps.config,
+    });
     this.coordinator = new RunCoordinator({
       store: deps.store,
       bus: deps.bus,
@@ -58,6 +77,8 @@ export class Service {
       clock: this.clock,
       providers: deps.providers,
       tools: deps.tools,
+      agents: deps.agents,
+      permissions: this.permissions,
       defaultModel: () => deps.config().models.default ?? "stub/echo",
       titleModel: () => deps.config().models.title,
     });
@@ -163,18 +184,111 @@ export class Service {
 
   // --- permissions ---
 
-  replyPermission(id: string, status: PermissionStatus): PermissionRequest | undefined {
-    const request = this.deps.store.permissions.reply(id, status);
-    if (request) {
-      const evt = this.deps.log.append(
-        request.sessionId ?? id,
-        "permission.replied",
-        { requestId: request.id, status: request.status },
-        this.clock.iso(),
-      );
-      this.deps.bus.publish(evt);
+  /**
+   * First reply wins (SQL `WHERE status='pending'`): the row flips once,
+   * the awaiting tool call resolves, and "always" approvals persist to
+   * session meta via the gate.
+   */
+  replyPermission(id: string, status: PermissionStatus, scope: "once" | "always" = "once"): PermissionRequest | undefined {
+    const request = this.deps.store.permissions.get(id);
+    if (request === undefined) return undefined;
+    if (request.status !== "pending") return request; // already answered
+    const updated = this.deps.store.permissions.reply(id, status);
+    if (updated === undefined) return undefined;
+    this.permissions.reply(id, status as "approved" | "rejected", scope);
+    const evt = this.deps.log.append(
+      updated.sessionId ?? id,
+      "permission.replied",
+      { requestId: updated.id, status: updated.status },
+      this.clock.iso(),
+    );
+    this.deps.bus.publish(evt);
+    return updated;
+  }
+
+  // --- agents ---
+
+  listAgents(): AgentInfo[] {
+    return this.deps.agents.list();
+  }
+
+  getAgent(name: string): AgentInfo | undefined {
+    return this.deps.agents.get(name);
+  }
+
+  /** Create or replace an agent file (surfaces write files through here). */
+  putAgent(name: string, body: PutAgentBody): AgentInfo {
+    return this.deps.agents.put(name, body);
+  }
+
+  deleteAgent(name: string): boolean {
+    return this.deps.agents.remove(name);
+  }
+
+  /** Agent file path for surface-side editing (e.g. $EDITOR in the TUI). */
+  agentFile(name: string): string {
+    return this.deps.agents.fileFor(name);
+  }
+
+  // --- custom tools ---
+
+  /** Registered tools projected for surfaces (schemas included, no code). */
+  listTools(): ToolListEntry[] {
+    return this.deps.tools.names().map((name) => {
+      const tool = this.deps.tools.get(name) as Tool;
+      const isFile = tool.origin === "file";
+      return {
+        name,
+        description: tool.description,
+        origin: tool.origin ?? "builtin",
+        schema: tool.schema,
+        ...(isFile ? { path: path.join(this.toolLoaderDir(), `${name}.ts`) } : {}),
+      };
+    });
+  }
+
+  /** Write a custom tool file; hot-registers via the loader. */
+  async putTool(name: string, code: string): Promise<{ name: string; registered: boolean }> {
+    if (!isValidToolName(name)) throw new Error(`Invalid tool name: ${name}`);
+    if (this.deps.tools.has(name) && this.deps.tools.get(name)?.origin === "builtin") {
+      throw new Error(`"${name}" is a built-in tool and cannot be overwritten`);
     }
-    return request;
+    const file = path.join(this.toolLoaderDir(), `${name}.ts`);
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, code);
+    renameSync(tmp, file);
+    await this.deps.toolLoader.rescan();
+    return { name, registered: this.deps.tools.has(name) };
+  }
+
+  async deleteTool(name: string): Promise<boolean> {
+    const file = path.join(this.toolLoaderDir(), `${name}.ts`);
+    const jsFile = path.join(this.toolLoaderDir(), `${name}.js`);
+    const target = existsSync(file) ? file : existsSync(jsFile) ? jsFile : undefined;
+    if (target === undefined) return false;
+    rmSync(target);
+    await this.deps.toolLoader.rescan();
+    return true;
+  }
+
+  /** Custom-tool file path for surface-side editing. */
+  toolFile(name: string): string {
+    return path.join(this.toolLoaderDir(), `${name}.ts`);
+  }
+
+  /** Current source of a custom tool file (surfaces read it back for editing). */
+  getToolCode(name: string): string {
+    const tsFile = path.join(this.toolLoaderDir(), `${name}.ts`);
+    const jsFile = path.join(this.toolLoaderDir(), `${name}.js`);
+    const file = existsSync(tsFile) ? tsFile : existsSync(jsFile) ? jsFile : undefined;
+    if (file === undefined) throw new Error(`No tool file for "${name}" (built-in tools have no editable source)`);
+    return readFileSync(file, "utf8");
+  }
+
+  private toolLoaderDir(): string {
+    // The loader owns the directory; expose it for file writes via a getter
+    // stored at construction time.
+    return this.deps.toolLoader.dir();
   }
 
   // --- jobs ---
@@ -221,6 +335,31 @@ export class Service {
       if (body.model !== undefined) meta.model = body.model;
       if (body.account !== undefined) meta.account = body.account;
     }
+    const session = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
+    if (session) this.emitDurable(id, "session.updated", { session });
+    return session;
+  }
+
+  /**
+   * Set (or clear) the per-session agent. Stored in `session.meta` (no
+   * migration); unknown names are rejected so surfaces get immediate
+   * feedback. The next drain resolves the agent fresh (hot-reload aware).
+   */
+  setSessionAgent(id: SessionId, body: { agent?: string; clear?: boolean }): Session | undefined {
+    const existing = this.deps.store.sessions.get(id);
+    if (existing === undefined) return undefined;
+    if (body.clear === true) {
+      const meta = { ...(existing.meta as Record<string, unknown>) };
+      delete meta.agent;
+      const session = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
+      if (session) this.emitDurable(id, "session.updated", { session });
+      return session;
+    }
+    const name = body.agent ?? "";
+    if (this.deps.agents.get(name) === undefined) {
+      throw new Error(`Unknown agent: ${name}`);
+    }
+    const meta = { ...(existing.meta as Record<string, unknown>), agent: name };
     const session = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
     if (session) this.emitDurable(id, "session.updated", { session });
     return session;

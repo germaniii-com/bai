@@ -21,6 +21,8 @@ export interface ResolvedModel {
   model: string;
   /** Model emits reasoning tokens — the run enables thinking for it. */
   reasoning: boolean;
+  /** Catalog context window (tokens) when known — compaction triggers key on it. */
+  contextWindow?: number;
 }
 
 export interface ResolvedCredentials {
@@ -100,8 +102,15 @@ export class ProviderRegistry {
     }
     const model = idx >= 0 ? modelId.slice(idx + 1) : modelId;
     const entry = await this.deps.catalog.get(providerId);
-    const reasoning = entry?.models.find((m) => m.id === model)?.reasoning === true;
-    return { provider, providerId, model, reasoning };
+    const info = entry?.models.find((m) => m.id === model);
+    const reasoning = info?.reasoning === true;
+    return {
+      provider,
+      providerId,
+      model,
+      reasoning,
+      ...(info?.contextWindow !== undefined ? { contextWindow: info.contextWindow } : {}),
+    };
   }
 
   /** Stored accounts ⊕ the env pseudo-account when the provider's env var is set. */

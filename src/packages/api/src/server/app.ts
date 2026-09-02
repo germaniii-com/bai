@@ -10,7 +10,10 @@ import {
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
+  putAgentSchema,
+  putToolSchema,
   renameSessionSchema,
+  setSessionAgentSchema,
   setSessionModelSchema,
   type SessionId,
 } from "@bai/shared";
@@ -110,6 +113,64 @@ function buildApi(deps: ApiDeps) {
       return c.json({ config });
     })
 
+    // --- agents (file-defined, hot-reloaded; routes write the .md files) ---
+    .get("/agent", (c) => c.json({ agents: deps.core.listAgents() }))
+    .get("/agent/:name", (c) => {
+      const agent = deps.core.getAgent(c.req.param("name"));
+      if (agent === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ agent });
+    })
+    .put("/agent/:name", zValidator("json", putAgentSchema), (c) => {
+      const name = c.req.param("name");
+      try {
+        const agent = deps.core.putAgent(name, c.req.valid("json"));
+        deps.core.emitLive("agents.updated", {});
+        return c.json({ agent }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/agent/:name", (c) => {
+      const name = c.req.param("name");
+      try {
+        if (!deps.core.deleteAgent(name)) return c.json({ error: "not_found" }, 404);
+        deps.core.emitLive("agents.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+
+    // --- tools (built-ins + hot-reloaded custom tool files) ---
+    .get("/tool", (c) => c.json({ tools: deps.core.listTools() }))
+    .get("/tool/:name", (c) => {
+      try {
+        return c.json({ code: deps.core.getToolCode(c.req.param("name")) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+      }
+    })
+    .put("/tool/:name", zValidator("json", putToolSchema), async (c) => {
+      const name = c.req.param("name");
+      try {
+        const result = await deps.core.putTool(name, c.req.valid("json").code);
+        deps.core.emitLive("tools.updated", {});
+        return c.json(result, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/tool/:name", async (c) => {
+      const name = c.req.param("name");
+      try {
+        if (!(await deps.core.deleteTool(name))) return c.json({ error: "not_found" }, 404);
+        deps.core.emitLive("tools.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+
     // --- filesystem (read-only; powers the web file tree) ---
     // Listing is scoped to REGISTERED workspaces (config.workspaces): the
     // tree can browse workspaces, never arbitrary machine paths. One flat
@@ -194,6 +255,19 @@ function buildApi(deps: ApiDeps) {
       const session = deps.core.setSessionModel(id, body);
       if (session === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ session });
+    })
+
+    // --- session agent selection (mirrors the model override) ---
+    .put("/session/:id/agent", zValidator("json", setSessionAgentSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      const body = c.req.valid("json");
+      try {
+        const session = deps.core.setSessionAgent(id, body);
+        if (session === undefined) return c.json({ error: "not_found" }, 404);
+        return c.json({ session });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
     })
 
     // --- session title (manual rename; auto-titles ride session.updated) ---

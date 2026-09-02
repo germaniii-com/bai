@@ -43,7 +43,10 @@ class ScriptedTitleProvider implements Provider {
 
   async stream(req: LlmRequest): Promise<ProviderStream> {
     this.requests.push(req);
-    const isTitleCall = req.messages[0]?.role === "system";
+    // The title call leads with the title-generator persona (drain calls
+    // may also carry a system prompt — the agent persona — so matching on
+    // "any system role" would misfire).
+    const isTitleCall = req.messages[0]?.role === "system" && (req.messages[0] as { content: string }).content.startsWith("You are a title generator");
     const title = this.title;
     const gate = this.gate;
     async function* generate(): AsyncGenerator<StreamEvent> {
@@ -184,7 +187,7 @@ describe("service + run coordinator", () => {
     expect(title).toBe("Crafted Title");
 
     // The title call rode the small model with the shared system prompt.
-    const titleCall = provider.requests.find((r) => r.messages[0]?.role === "system");
+    const titleCall = provider.requests.find((r) => r.messages[0]?.role === "system" && (r.messages[0] as { content: string }).content.startsWith("You are a title generator"));
     expect(titleCall).toBeDefined();
     expect(titleCall?.model).toBe("title-mini");
     expect(titleCall?.messages[0]?.content).toBe(TITLE_SYSTEM_PROMPT);
@@ -207,7 +210,7 @@ describe("service + run coordinator", () => {
       await sleep(10);
     }
     expect(title).toBe("Configured Title");
-    const titleCall = provider.requests.find((r) => r.messages[0]?.role === "system");
+    const titleCall = provider.requests.find((r) => r.messages[0]?.role === "system" && (r.messages[0] as { content: string }).content.startsWith("You are a title generator"));
     expect(titleCall?.model).toBe("title-nano");
   });
 

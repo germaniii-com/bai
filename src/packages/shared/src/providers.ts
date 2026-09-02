@@ -68,5 +68,16 @@ export const setSessionModelSchema = z.object({
   account: z.string().min(1).max(100).optional(),
 });
 
+/** PUT /api/session/:id/agent body — select or clear the session's agent. */
+export const setSessionAgentSchema = z
+  .object({
+    agent: z.string().min(1).max(100).optional(),
+    clear: z.boolean().optional(),
+  })
+  .refine((v) => v.clear === true || (v.agent !== undefined && v.agent.length > 0), {
+    message: "agent is required unless clear is true",
+  });
+
 export type PutAccountBody = z.infer<typeof putAccountSchema>;
 export type SetSessionModelBody = z.infer<typeof setSessionModelSchema>;
+export type SetSessionAgentBody = z.infer<typeof setSessionAgentSchema>;

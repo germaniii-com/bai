@@ -10,7 +10,8 @@
     "@anthropic-ai/sdk": "^0.122.0",
     "@bai/shared": "workspace:*",
     "@opencode-ai/models": "^0.0.56",
-    "openai": "^7.8.0"
+    "openai": "^7.8.0",
+    "yaml": "^2"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

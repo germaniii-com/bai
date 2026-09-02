@@ -38,6 +38,23 @@ export const enqueueJobSchema = z.object({
   input: z.unknown(),
 });
 
+/** PUT /api/agent/:name — create or replace an agent markdown file. */
+export const putAgentSchema = z.object({
+  description: z.string().max(2000).optional(),
+  model: z.string().max(200).optional(),
+  tools: z.array(z.string().min(1).max(100)).max(50).optional(),
+  prompt: z.string().min(1).max(100_000),
+});
+
+export type PutAgentBody = z.infer<typeof putAgentSchema>;
+
+/** PUT /api/tool/:name — create or replace a custom tool file. */
+export const putToolSchema = z.object({
+  code: z.string().min(1).max(500_000),
+});
+
+export type PutToolBody = z.infer<typeof putToolSchema>;
+
 export type CreateSessionBody = z.infer<typeof createSessionSchema>;
 export type PromptPayloadBody = z.infer<typeof promptPayloadSchema>;
 export type PermissionReplyBody = z.infer<typeof permissionReplySchema>;

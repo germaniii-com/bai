@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AgentRegistry,
   AuthStore,
   Bus,
   CatalogService,
@@ -11,6 +12,7 @@ import {
   ProviderRegistry,
   Service,
   Store,
+  ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
 } from "@bai/core";
@@ -49,6 +51,8 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     executors: Object.assign({}, ...workbenches.map((wb) => wb.jobExecutors())),
   });
   const tools = new ToolRegistry({ spillDir: join(dir, "tmp") });
+  const toolLoader = new ToolLoader({ dir: join(dir, "tools"), registry: tools, debounceMs: 40 });
+  const agents = new AgentRegistry({ dir: join(dir, "agents"), debounceMs: 50 });
   const core = new Service({
     store,
     bus,
@@ -57,6 +61,8 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     tools,
     workbenches,
     jobs,
+    agents,
+    toolLoader,
     config: () => config,
     version: "test",
   });
@@ -84,6 +90,8 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     core,
     deps,
     cleanup: () => {
+      agents.stop();
+      toolLoader.stop();
       store.close();
       rmSync(dir, { recursive: true, force: true });
     },

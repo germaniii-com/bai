@@ -1,0 +1,222 @@
+import { Box, Text, useInput } from "ink";
+import { useCallback, useEffect, useState } from "react";
+import { spawnSync } from "node:child_process";
+import type { BaiClient } from "@bai/api/client";
+import type { AgentInfo, Session, ToolListEntry } from "@bai/shared";
+
+type Tab = "agents" | "tools";
+
+/**
+ * Agent & tool manager (ctrl+e): list, create, edit ($EDITOR), delete, and
+ * apply-to-session. All mutations write files through the API — the server
+ * hot-reloads them, so a save in $EDITOR is live everywhere immediately.
+ * `catalogTick` bumps whenever agents.updated/tools.updated arrive on the
+ * firehose, keeping the list fresh while the dialog is open.
+ */
+export function AgentManager({
+  client,
+  active,
+  catalogTick,
+  onDone,
+}: {
+  client: BaiClient;
+  active: Session | null;
+  catalogTick: number;
+  onDone: () => void;
+}) {
+  const [tab, setTab] = useState<Tab>("agents");
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [tools, setTools] = useState<ToolListEntry[]>([]);
+  const [index, setIndex] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setAgents(await client.listAgents());
+      setTools(await client.listTools());
+      setNotice(null);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh, catalogTick]);
+
+  const items = tab === "agents" ? agents : tools;
+
+  // Keep the cursor in bounds as the list changes.
+  useEffect(() => {
+    setIndex((i) => Math.min(i, Math.max(0, items.length - 1)));
+  }, [items.length]);
+
+  const openEditor = useCallback((path: string | undefined) => {
+    if (path === undefined) return;
+    const editor = process.env.EDITOR ?? process.env.VISUAL ?? "vi";
+    // Inherit stdio so the editor owns the terminal; the watcher reloads on save.
+    const result = spawnSync(editor, [path], { stdio: "inherit" });
+    if (result.status !== 0) setNotice(`editor exited with ${result.status ?? "signal"}`);
+  }, []);
+
+  const createItem = useCallback(async () => {
+    if (tab === "agents") {
+      const name = `agent-${Date.now().toString(36)}`;
+      try {
+        await client.putAgent(name, {
+          description: "What this agent is for.",
+          prompt: `You are ${name}, an agent inside bai.\n\nDescribe the agent's role, tone, and workflow here. The body is the system prompt.`,
+          tools: ["fs.read", "fs.list"],
+        });
+        const created = await client.getAgent(name);
+        openEditor(created?.path);
+        void refresh();
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : String(err));
+      }
+    } else {
+      const name = `tool_${Date.now().toString(36)}`;
+      try {
+        const result = await client.putTool(name, toolTemplateCode(name));
+        if (!result.registered) setNotice("file written, but the tool failed to register (check the code)");
+        const list = await client.listTools();
+        openEditor(list.find((t) => t.name === name)?.path);
+        void refresh();
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }, [tab, client, openEditor, refresh]);
+
+  const editItem = useCallback(
+    (name: string) => {
+      const path = tab === "agents" ? agents.find((a) => a.name === name)?.path : tools.find((t) => t.name === name)?.path;
+      if (path === undefined) {
+        setNotice(tab === "agents" ? "built-in agents have no file — create a new one instead" : "built-in tools have no file — create a new one instead");
+        return;
+      }
+      openEditor(path);
+      void refresh();
+    },
+    [tab, agents, tools, openEditor, refresh],
+  );
+
+  const deleteItem = useCallback(
+    async (name: string) => {
+      try {
+        if (tab === "agents") await client.deleteAgent(name);
+        else await client.deleteTool(name);
+        setNotice(null);
+        void refresh();
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [tab, client, refresh],
+  );
+
+  const useAgent = useCallback(
+    async (name: string) => {
+      if (active === null) {
+        setNotice("no active session — open one first (ctrl+s)");
+        return;
+      }
+      try {
+        await client.setSessionAgent(active.id, { agent: name });
+        setNotice(`session uses "${name}" (applies next prompt)`);
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [active, client],
+  );
+
+  useInput((ch, key) => {
+    if (confirmDelete !== null) {
+      if (ch === "y") {
+        const name = confirmDelete;
+        setConfirmDelete(null);
+        void deleteItem(name);
+      } else if (ch === "n" || key.escape) {
+        setConfirmDelete(null);
+      }
+      return;
+    }
+    if (key.escape || (key.ctrl && ch === "e")) {
+      onDone();
+      return;
+    }
+    if (ch === "t") {
+      setTab((prev) => (prev === "agents" ? "tools" : "agents"));
+      setIndex(0);
+      setNotice(null);
+      return;
+    }
+    if (key.upArrow || ch === "k") setIndex((i) => Math.max(0, i - 1));
+    else if (key.downArrow || ch === "j") setIndex((i) => Math.min(items.length - 1, i + 1));
+    else if (ch === "n") void createItem();
+    else if (ch === "e" && items[index] !== undefined) editItem(items[index].name);
+    else if (ch === "d" && items[index] !== undefined) {
+      if (tab === "agents" && items[index]?.name === "build") setNotice("the build agent is built-in");
+      else setConfirmDelete(items[index]?.name ?? null);
+    } else if (ch === "u" && tab === "agents" && items[index] !== undefined) {
+      void useAgent(items[index]?.name ?? "");
+    }
+  });
+
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Text bold>
+        agents &amp; tools <Text dimColor>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
+      </Text>
+      {tab === "agents" ? (
+        agents.map((a, i) => (
+          <Text key={a.name} color={i === index ? "cyan" : undefined}>
+            {i === index ? "❯ " : "  "}
+            {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
+          </Text>
+        ))
+      ) : (
+        tools.map((t, i) => (
+          <Text key={t.name} color={i === index ? "cyan" : undefined}>
+            {i === index ? "❯ " : "  "}
+            {t.name} <Text dimColor>({t.origin})</Text>
+          </Text>
+        ))
+      )}
+      {items.length === 0 && <Text dimColor>  (empty — n to create)</Text>}
+      <Text dimColor> </Text>
+      <Text dimColor>
+        n new · e edit ($EDITOR) · d delete · {tab === "agents" ? "u use in session · " : ""}j/k move · t tab · esc close
+      </Text>
+      {confirmDelete !== null && <Text color="yellow">delete "{confirmDelete}"? y/n</Text>}
+      {notice !== null && <Text color="yellow">{notice}</Text>}
+    </Box>
+  );
+}
+
+/** Starter code for a new custom tool (mirrors core's toolTemplate). */
+function toolTemplateCode(name: string): string {
+  return `// Custom bai tool: ${name}
+// The filename stem is the tool's name. Rely on Bun/node builtins —
+// npm imports resolve from the config directory, not your workspace.
+// After saving, the tool is hot-registered (no restart).
+
+export default {
+  description: "What ${name} does, phrased for the model.",
+  schema: {
+    type: "object",
+    properties: {
+      input: { type: "string", description: "Describe this argument for the model." },
+    },
+    required: ["input"],
+  },
+  async execute(args, ctx) {
+    const { input } = args as { input: string };
+    // ctx: { sessionId, cwd?, signal, emitLive }
+    return { content: \`you said: \${input}\` };
+  },
+};
+`;
+}

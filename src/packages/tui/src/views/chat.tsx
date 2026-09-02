@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import type { Mode } from "../app";
-import { messageText, thinkingText } from "../state/sync";
+import { messageText, thinkingText, toolCalls } from "../state/sync";
 import { Spinner } from "../components/spinner";
 import {
   backspace,
@@ -48,6 +48,10 @@ function estimateRows(m: Message, columns: number, expanded: boolean): number {
     for (const seg of text.split("\n"))
       lines += Math.max(1, Math.ceil(seg.length / width));
   }
+  // Tool calls render one collapsed line each (args digest + status glyph),
+  // with a gap row before the first one.
+  const calls = toolCalls(m);
+  if (calls.length > 0 && m.role !== "user") lines += calls.length + 1;
   // Thinking nodes count toward the budget: expanded = header + reasoning
   // lines + gap; collapsed = summary line + gap before the reply.
   const thinking = thinkingText(m);
@@ -561,10 +565,13 @@ export function ChatView({
           const thinkingLineCount =
             thinking.length > 0 ? thinking.split("\n").length : 0;
           const expanded = expandedThinking.has(m.id);
+          const calls = toolCalls(m);
           // Focus marker: an inline cyan ❯ on the block's first rendered
           // line — no extra rows, so estimateRows and click hit-testing stay
           // exact (the 2-column prefix lives inside the estimation slack).
           const marker = focused ? <Text color="cyan">❯ </Text> : null;
+          const firstRowIsThinking = thinkingLineCount > 0;
+          const firstRowIsTool = firstRowIsThinking === false && calls.length > 0;
           return (
             <Box key={m.id} {...assistantInset} flexDirection="column" gap={1}>
               {thinkingLineCount > 0 &&
@@ -585,11 +592,31 @@ export function ChatView({
                     {thinkingLineCount === 1 ? "" : "s"})
                   </Text>
                 ))}
+              {calls.length > 0 && (
+                <Box flexDirection="column">
+                  {calls.map((c, i) => {
+                    const lineMarker = i === 0 && firstRowIsTool ? marker : null;
+                    const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+                    const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+                    return (
+                      <Text key={c.callId} wrap="wrap">
+                        {lineMarker}
+                        <Text color={color}>{glyph} </Text>
+                        <Text dimColor>{c.name}</Text>
+                        {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                        {c.result !== undefined && c.result.isError && (
+                          <Text color="red"> · denied/failed</Text>
+                        )}
+                      </Text>
+                    );
+                  })}
+                </Box>
+              )}
               <Text
                 wrap="wrap"
                 color={m.role === "assistant" ? undefined : "yellow"}
               >
-                {thinkingLineCount === 0 ? marker : null}
+                {thinkingLineCount === 0 && calls.length === 0 ? marker : null}
                 {text}
               </Text>
             </Box>

@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type {
+  AgentInfo,
   Config,
   ConfigPatch,
   CreateSessionBody,
@@ -7,7 +8,9 @@ import type {
   Event,
   Job,
   Message,
+  PutAgentBody,
   Session,
+  ToolListEntry,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody } from "@bai/shared";
 import type { ApiType } from "../server/app";
@@ -196,6 +199,85 @@ export class BaiClient {
     return (await res.json()).config;
   }
 
+  // --- agents ---
+
+  async listAgents(): Promise<AgentInfo[]> {
+    const res = await this.rpc().agent.$get();
+    if (!res.ok) throw new Error(`list agents failed: ${res.status}`);
+    return (await res.json()).agents;
+  }
+
+  async getAgent(name: string): Promise<AgentInfo | undefined> {
+    const res = await this.rpc().agent[":name"].$get({ param: { name: encodeURIComponent(name) } });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`get agent failed: ${res.status}`);
+    return (await res.json()).agent;
+  }
+
+  /** Create or replace an agent (server writes the markdown file; hot-reload does the rest). */
+  async putAgent(name: string, body: PutAgentBody): Promise<AgentInfo> {
+    const res = await this.rpc().agent[":name"].$put({
+      param: { name: encodeURIComponent(name) },
+      json: body,
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `put agent failed: ${res.status}`);
+    }
+    return (await res.json()).agent;
+  }
+
+  async deleteAgent(name: string): Promise<boolean> {
+    const res = await this.rpc().agent[":name"].$delete({ param: { name: encodeURIComponent(name) } });
+    if (res.status === 404) return false;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `delete agent failed: ${res.status}`);
+    }
+    return true;
+  }
+
+  // --- tools ---
+
+  async listTools(): Promise<ToolListEntry[]> {
+    const res = await this.rpc().tool.$get();
+    if (!res.ok) throw new Error(`list tools failed: ${res.status}`);
+    return (await res.json()).tools;
+  }
+
+  /** Current source of a custom tool file (404 for built-ins). */
+  async getToolCode(name: string): Promise<string> {
+    const res = await this.rpc().tool[":name"].$get({ param: { name: encodeURIComponent(name) } });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `get tool failed: ${res.status}`);
+    }
+    return (await res.json()).code;
+  }
+
+  /** Create or replace a custom tool file (hot-registers on save). */
+  async putTool(name: string, code: string): Promise<{ name: string; registered: boolean }> {
+    const res = await this.rpc().tool[":name"].$put({
+      param: { name: encodeURIComponent(name) },
+      json: { code },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `put tool failed: ${res.status}`);
+    }
+    return (await res.json());
+  }
+
+  async deleteTool(name: string): Promise<boolean> {
+    const res = await this.rpc().tool[":name"].$delete({ param: { name: encodeURIComponent(name) } });
+    if (res.status === 404) return false;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `delete tool failed: ${res.status}`);
+    }
+    return true;
+  }
+
   async providers(): Promise<ProviderListResponse> {
     const res = await this.rpc().provider.$get();
     if (!res.ok) throw new Error(`providers failed: ${res.status}`);
@@ -225,6 +307,18 @@ export class BaiClient {
       json: body,
     });
     if (!res.ok) throw new Error(`set session model failed: ${res.status}`);
+  }
+
+  /** Select (or clear) the session's agent — applies next prompt. */
+  async setSessionAgent(id: string, body: { agent?: string; clear?: boolean }): Promise<void> {
+    const res = await this.rpc().session[":id"].agent.$put({
+      param: { id: encodeURIComponent(id) },
+      json: body,
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `set session agent failed: ${res.status}`);
+    }
   }
 
   /** Rename a session (manual rename; auto-titles arrive via session.updated). */
