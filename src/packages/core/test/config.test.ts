@@ -70,6 +70,20 @@ describe("loadConfig layering", () => {
     }
   });
 
+  test("agents section: absent defaults to empty; present parses", () => {
+    const dir = tempDir();
+    try {
+      const globalPath = join(dir, "config.json");
+      const { config } = loadConfig({ cwd: dir, globalPath, env: {} });
+      expect(config.agents).toEqual({});
+      writeFileSync(globalPath, JSON.stringify({ agents: { default: "reviewer" } }));
+      const loaded = loadConfig({ cwd: dir, globalPath, env: {} });
+      expect(loaded.config.agents.default).toBe("reviewer");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("findProjectConfig walks up", () => {
     const dir = tempDir();
     try {
@@ -108,6 +122,14 @@ describe("ConfigStore write-back", () => {
       const final = store.get();
       expect(final.models.default).toBe("stub/echo");
       expect(final.permissions["fs.read"]).toBe("allow");
+
+      // agents.default merges the same way — later unrelated writes keep it.
+      store.update({ agents: { default: "reviewer" } });
+      expect(store.get().agents.default).toBe("reviewer");
+      store.update({ models: { title: "small/model" } });
+      expect(store.get().agents.default).toBe("reviewer");
+      const onDiskAgents = JSON.parse(readFileSync(globalPath, "utf8"));
+      expect(onDiskAgents.agents.default).toBe("reviewer");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

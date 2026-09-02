@@ -26,7 +26,11 @@ export interface TestCore {
   providers: ProviderRegistry;
   accounts: AuthStore;
   /** Mutable config state — tests mutate, the stack reads live. */
-  config: { models: { default?: string; title?: string }; permissions: Record<string, "allow" | "ask" | "deny"> };
+  config: {
+    models: { default?: string; title?: string };
+    agents: { default?: string };
+    permissions: Record<string, "allow" | "ask" | "deny">;
+  };
   tools: ToolRegistry;
   toolLoader: ToolLoader;
   agents: AgentRegistry;
@@ -38,8 +42,13 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: TestCore["config"] = { models: { default: "stub/echo" }, permissions: {} };
-  const testConfig = () => ({ ...DEFAULT_CONFIG, models: { ...config.models }, permissions: { ...config.permissions } });
+  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, permissions: {} };
+  const testConfig = () => ({
+    ...DEFAULT_CONFIG,
+    models: { ...config.models },
+    agents: { ...config.agents },
+    permissions: { ...config.permissions },
+  });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
     cachePath: join(dir, "models-cache.json"),

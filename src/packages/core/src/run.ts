@@ -38,6 +38,8 @@ export interface RunCoordinatorDeps {
   permissions: PermissionGate;
   /** Resolves the effective default model id, e.g. "stub/echo". */
   defaultModel(): string;
+  /** Configured default agent name (config agents.default), when set. */
+  defaultAgent(): string | undefined;
   /** Configured title-call model (config models.title), when set. */
   titleModel(): string | undefined;
 }
@@ -135,13 +137,21 @@ export class RunCoordinator {
     const session = this.deps.store.sessions.get(sessionId);
     if (!session) return;
     const meta = session.meta as { model?: unknown; account?: unknown; oneshot?: unknown; agent?: unknown };
-    // Agent resolution: session meta selection → registry; unknown names fall
-    // back to the default with a console warning (surfaces can refetch agents
-    // via agents.updated, so a stale selection degrades gracefully).
+    // Agent resolution tiers: session meta selection → config default agent
+    // (agents.default) → the built-in build agent. Unknown names at any tier
+    // fall back with a console warning (surfaces can refetch agents via
+    // agents.updated, so a stale selection degrades gracefully).
     const requestedAgent = typeof meta.agent === "string" && meta.agent.length > 0 ? meta.agent : undefined;
     let agent: AgentInfo | undefined = requestedAgent !== undefined ? this.deps.agents.get(requestedAgent) : undefined;
     if (requestedAgent !== undefined && agent === undefined) {
       console.warn(`[bai] session ${sessionId} selected unknown agent "${requestedAgent}"; using default`);
+    }
+    const defaultAgentName = this.deps.defaultAgent();
+    if (agent === undefined && typeof defaultAgentName === "string" && defaultAgentName.length > 0) {
+      agent = this.deps.agents.get(defaultAgentName);
+      if (agent === undefined) {
+        console.warn(`[bai] config default agent "${defaultAgentName}" not found; using default`);
+      }
     }
     agent = agent ?? this.deps.agents.default();
 

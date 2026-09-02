@@ -27,6 +27,15 @@ export interface ModelsConfig {
   defaultAccount?: Record<string, string>;
 }
 
+export interface AgentsConfig {
+  /**
+   * Default agent for sessions that select none (new sessions, surfaces that
+   * never picked one). Resolution order at drain: session meta → this → the
+   * built-in `build` agent. Unknown names fall back to `build` with a warning.
+   */
+  default?: string;
+}
+
 export interface MCPServerConfig {
   command?: string;
   args?: string[];
@@ -42,6 +51,7 @@ export interface ServerConfig {
 export interface Config {
   providers: Record<string, ProviderConfig>;
   models: ModelsConfig;
+  agents: AgentsConfig;
   permissions: Record<string, PermissionAction>;
   mcp: Record<string, MCPServerConfig>;
   workbenches: Record<string, Record<string, unknown>>;
@@ -54,6 +64,7 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   providers: {},
   models: {},
+  agents: {},
   permissions: {},
   mcp: {},
   workbenches: {},
@@ -77,6 +88,10 @@ const mcpServerSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
+const agentsSchema = z.object({
+  default: z.string().max(100).optional(),
+});
+
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
   models: z
@@ -86,6 +101,7 @@ export const configSchema = z.object({
       defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
     })
     .default({}),
+  agents: agentsSchema.default({}),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).default({}),
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
@@ -108,6 +124,7 @@ export const configPatchSchema = z.object({
       defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
     })
     .optional(),
+  agents: agentsSchema.optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),

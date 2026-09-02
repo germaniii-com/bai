@@ -8,7 +8,7 @@ import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent } from "./state/sync";
-import { currentModelLabel, currentProviderId, needsSetup } from "./state/providers";
+import { currentModelLabel, needsSetup } from "./state/providers";
 
 export type UiState = "chat" | "sessions" | "gallery" | "jobs" | "settings";
 
@@ -22,12 +22,11 @@ export type Mode = "normal" | "input";
 
 /**
  * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
- * ctrl+p → full wizard, ctrl+a → current provider's accounts, ctrl+l → flat
- * model list across connected providers.
+ * ctrl+p → full wizard (provider → account → model), ctrl+a → the agent/tool
+ * switcher, ctrl+l → flat model list across connected providers.
  */
 type DialogOpen =
   | { kind: "providers" }
-  | { kind: "accounts"; providerId: string }
   | { kind: "all-models" }
   | { kind: "agents" };
 
@@ -49,6 +48,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [providers, setProviders] = useState<ProviderListResponse | null>(null);
   const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
+  const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
   // Agent/tool catalog version — bumped by live events so the manager
@@ -63,8 +63,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // first press arms, second interrupts a running drain or quits.
   const [quitArmed, setQuitArmed] = useState(false);
   const quitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // On-demand provider list: fetched on first ctrl+p/ctrl+l/ctrl+a, kept
-  // fresh afterwards.
+  // On-demand provider list: fetched on first ctrl+p/ctrl+l, kept fresh
+  // afterwards.
   const providersLoadedRef = useRef(false);
   providersLoadedRef.current = providers !== null;
 
@@ -88,12 +88,15 @@ export function App({ client, version }: { client: BaiClient; version: string })
     }
   }, [client]);
 
-  // Tiny startup fetch: the header's default-model label comes from config
-  // (no catalog touch, no models.dev refresh). The full provider list —
-  // 200+ providers, thousands of models — loads only when ctrl+p needs it.
+  // Tiny startup fetch: the header's default-model/agent labels come from
+  // config (no catalog touch, no models.dev refresh). The full provider
+  // list — 200+ providers, thousands of models — loads only when ctrl+p
+  // needs it.
   const refreshConfig = useCallback(async () => {
     try {
-      setConfigDefault((await client.getConfig()).models.default);
+      const config = await client.getConfig();
+      setConfigDefault(config.models.default);
+      setConfigAgentDefault(config.agents?.default);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
@@ -114,24 +117,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
     }
   }, []);
   useEffect(() => disarmQuit, [disarmQuit]); // unmount
-
-  // ctrl+a: accounts of the provider backing the current model. Needs the
-  // provider list (on-demand, like ctrl+p); an unknown/stub provider falls
-  // back to the full wizard.
-  const openAccounts = useCallback(async () => {
-    try {
-      const list = providers ?? (await client.providers());
-      setProviders(list);
-      const providerId = currentProviderId(active, list, configDefault);
-      setDialog(
-        list.providers.some((p) => p.id === providerId)
-          ? { kind: "accounts", providerId }
-          : { kind: "providers" },
-      );
-    } catch {
-      // Advisory; the footer hint covers the empty case.
-    }
-  }, [providers, client, active, configDefault]);
 
   // Live refresh: account/config changes from ANY surface (TUI, web, phone)
   // update this one within a heartbeat — no restart, no manual refresh.
@@ -256,8 +241,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
       setDialog({ kind: "all-models" });
       void refreshProviders();
     } else if (ch === "a") {
-      void openAccounts();
-    } else if (ch === "e") {
       setDialog({ kind: "agents" });
     } else if (ch === "s") setView("sessions");
     else if (ch === "g") setView("gallery");
@@ -271,13 +254,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [refreshProviders, refreshSessions]);
 
   const modelLabel = currentModelLabel(active, providers, configDefault);
-  // The active agent: the session's selection, else the default build agent
-  // (what the drain actually resolves). Live — agent switches ride
-  // session.updated from any surface.
+  // The effective agent: the session's selection, else the config default
+  // (agents.default), else the built-in build agent — the same tiers the
+  // drain resolves. Live — switches ride session.updated / config.updated
+  // from any surface.
   const activeAgent =
     active !== null && typeof (active.meta as Record<string, unknown>).agent === "string"
       ? ((active.meta as Record<string, unknown>).agent as string)
-      : "build";
+      : (configAgentDefault ?? "build");
   const setupHint = needsSetup(providers);
   // Exact footer line count — ChatView needs it to compute the thinking
   // spinner's terminal row for click-to-toggle hit testing.
@@ -324,7 +308,13 @@ export function App({ client, version }: { client: BaiClient; version: string })
           </Box>
         ) : dialog !== null ? (
           dialog.kind === "agents" ? (
-            <AgentManager client={client} active={active} catalogTick={catalogTick} onDone={closeDialog} />
+            <AgentManager
+              client={client}
+              active={active}
+              defaultAgent={configAgentDefault}
+              catalogTick={catalogTick}
+              onDone={closeDialog}
+            />
           ) : (
             <Text dimColor>loading providers…</Text>
           )
@@ -380,7 +370,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
         )}
         <Text dimColor>
           {mode === "normal"
-            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a accounts · ctrl+e agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
+            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
             : "enter send · esc normal · ctrl+j/k newline · ctrl+w word"}
         </Text>
       </Box>

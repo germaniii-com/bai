@@ -80,6 +80,7 @@ export class Service {
       agents: deps.agents,
       permissions: this.permissions,
       defaultModel: () => deps.config().models.default ?? "stub/echo",
+      defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
     });
     for (const wb of deps.workbenches) {

@@ -1109,6 +1109,30 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* --- agent picker modal: single-column agent list (narrower than the
+   model modal; reuses .model-modal / .model-row chrome) --- */
+
+.agent-modal {
+  width: min(520px, 100%);
+}
+
+.agent-modal-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px 10px;
+}
+
+.agent-modal-list .agent-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .hint {
   color: #e3b341;
   font-size: 12px;

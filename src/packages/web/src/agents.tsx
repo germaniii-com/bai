@@ -228,15 +228,21 @@ function AgentForm({
   };
 
   const useInSession = async (): Promise<void> => {
-    if (activeSessionId === null) {
-      onNotice("no active session — open one first");
-      return;
-    }
+    setBusy(true);
     try {
-      await client.setSessionAgent(activeSessionId, { agent: agent.name });
-      onNotice(`session uses "${agent.name}" (applies next prompt)`);
+      if (activeSessionId === null) {
+        // No session open: the explicit gesture persists the config default
+        // agent (what sessions without a selection resolve at drain time).
+        await client.putConfig({ agents: { default: agent.name } });
+        onNotice(`default agent set to "${agent.name}" (sessions without a selection use it)`);
+      } else {
+        await client.setSessionAgent(activeSessionId, { agent: agent.name });
+        onNotice(`session uses "${agent.name}" (applies next prompt)`);
+      }
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -272,7 +278,7 @@ function AgentForm({
           save
         </button>
         <button type="button" disabled={busy} onClick={() => void useInSession()}>
-          use in session
+          {activeSessionId === null ? "set as default" : "use in session"}
         </button>
         {agent.source === "file" && (
           <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>

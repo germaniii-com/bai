@@ -194,6 +194,17 @@ describe("api contract", () => {
     });
     expect(put.status).toBe(200);
 
+    // agents.default round-trips through the same boundary (the agent
+    // existence check happens at drain, not at config-write time).
+    const putAgent = await app.request("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({ agents: { default: "build" } }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(putAgent.status).toBe(200);
+    const { config: withAgent } = (await putAgent.json()) as { config: { agents: { default?: string } } };
+    expect(withAgent.agents.default).toBe("build");
+
     const bad = await app.request("/api/config", {
       method: "PUT",
       body: JSON.stringify({ server: { port: -5 } }),

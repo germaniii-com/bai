@@ -48,10 +48,12 @@ export function App() {
   const [sentPending, setSentPending] = useState(false);
   const streamCtrl = useRef<AbortController | null>(null);
   const { list, refresh: refreshProviders, fetching: providersFetching } = useProviders(client);
-  // Default model + workspace list from config — a tiny startup fetch so
-  // the header's model button shows the real default before the (heavy,
-  // on-demand) provider list ever loads. Same pattern as the TUI's header.
+  // Default model + agent + workspace list from config — a tiny startup
+  // fetch so the header's picker buttons show the real defaults before the
+  // (heavy, on-demand) provider list ever loads. Same pattern as the TUI's
+  // header.
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
+  const [configDefaultAgent, setConfigDefaultAgent] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   // Independent catalogs: agents and tools each own their fetch/refresh —
   // updated by firehose events (agents.updated / tools.updated), section
@@ -71,6 +73,7 @@ export function App() {
     try {
       const config = await client.getConfig();
       setConfigDefault(config.models.default);
+      setConfigDefaultAgent(config.agents?.default);
       setWorkspaces(config.workspaces ?? []);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
@@ -512,6 +515,9 @@ export function App() {
             list={list}
             active={active}
             configDefault={configDefault}
+            configDefaultAgent={configDefaultAgent}
+            agents={agents}
+            refreshAgents={refreshAgents}
             refreshProviders={refreshProviders}
             providersFetching={providersFetching}
             messages={messages}

@@ -1,20 +1,24 @@
 import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import type { Message, ProviderListResponse, Session } from "@bai/shared";
+import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { ModelPicker } from "./model-picker";
+import { AgentPicker } from "./agent-picker";
 
 /**
  * The chat surface, shared by the Chat section and the Workspace section
  * (a workspace session is an ordinary session — same streaming transcript,
- * model picker, stop button). Presentational: all state lives in App so a
- * section switch keeps one source of truth.
+ * model picker, agent picker, stop button). Presentational: all state lives
+ * in App so a section switch keeps one source of truth.
  */
 export function ChatPane({
   client,
   list,
   active,
   configDefault,
+  configDefaultAgent,
+  agents,
+  refreshAgents,
   refreshProviders,
   providersFetching,
   messages,
@@ -32,6 +36,11 @@ export function ChatPane({
   active: Session | null;
   /** Default model from GET /api/config — keeps the picker label truthful. */
   configDefault?: string;
+  /** Default agent (config agents.default) — keeps the agent label truthful. */
+  configDefaultAgent?: string;
+  /** Live agent catalog (App-owned; refreshed via agents.updated). */
+  agents: AgentInfo[];
+  refreshAgents: () => Promise<void>;
   refreshProviders: () => Promise<void>;
   providersFetching: boolean;
   messages: Message[];
@@ -53,6 +62,13 @@ export function ChatPane({
           active={active}
           configDefault={configDefault}
           refreshProviders={refreshProviders}
+        />
+        <AgentPicker
+          client={client}
+          agents={agents}
+          active={active}
+          configDefaultAgent={configDefaultAgent}
+          refreshAgents={refreshAgents}
         />
         {providersFetching && <span className="dim">updating…</span>}
         {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (

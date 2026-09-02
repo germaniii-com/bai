@@ -3,7 +3,6 @@ import {
   accountOptions,
   allModelOptions,
   currentModelLabel,
-  currentProviderId,
   modelOptions,
   needsSetup,
   providerOptions,
@@ -105,14 +104,6 @@ describe("provider picker logic", () => {
       provider({ id: "stub", connected: true, models: [{ id: "stub/echo", provider: "stub", label: "Echo" }] }),
     ]);
     expect(opts.map((o) => o.value)).toEqual(["__custom__"]);
-  });
-
-  test("currentProviderId: session meta > list default > config default > stub", () => {
-    const session = { id: "ses_x", meta: { model: "zeta/m9" } } as unknown as Session;
-    expect(currentProviderId(session, LIST, "openai/g")).toBe("zeta");
-    expect(currentProviderId(null, LIST, "openai/g")).toBe("alpha");
-    expect(currentProviderId(null, null, "openai/g")).toBe("openai");
-    expect(currentProviderId(null, null, undefined)).toBe("stub");
   });
 
   test("applyTarget: session when active, global otherwise", () => {

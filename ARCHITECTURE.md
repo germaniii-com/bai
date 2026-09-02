@@ -189,8 +189,8 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **History → provider messages** | `core/src/run/history.ts` → `renderOutbound()` | Parts → neutral `ContentBlock[]`; tool results move to a synthetic following user message; dangling calls closed with error results. |
 | **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints (system / last tool / last message). OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Model resolution + credentials: `core/src/provider/registry.ts`. |
 | **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
-| **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from TUI (ctrl+e) or web Agents page via `PUT /api/tool/:name`. |
-| **Agents** | stored in `~/.config/bai/agents/*.md`; registry `core/src/agent/registry.ts` | Markdown + YAML frontmatter (`description`, `model?`, `tools` allow-list), body = system prompt, name = filename stem. `AgentRegistry` scans + `fs.watch`-es the directory (debounced rescan → live `agents.updated` event) — no restarts, ever. Schema + built-in `build` agent: `shared/src/agents.ts`. Created three ways: drop a file on disk, `PUT /api/agent/:name` (writes the markdown), or TUI ctrl+e / web Agents page. |
+| **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from TUI (ctrl+a) or web Agents page via `PUT /api/tool/:name`. |
+| **Agents** | stored in `~/.config/bai/agents/*.md`; registry `core/src/agent/registry.ts` | Markdown + YAML frontmatter (`description`, `model?`, `tools` allow-list), body = system prompt, name = filename stem. `AgentRegistry` scans + `fs.watch`-es the directory (debounced rescan → live `agents.updated` event) — no restarts, ever. Schema + built-in `build` agent: `shared/src/agents.ts`. Selected per session (TUI ctrl+a switcher, web chat-header picker) or defaulted via config `agents.default`. Created three ways: drop a file on disk, `PUT /api/agent/:name` (writes the markdown), or TUI ctrl+a / web Agents page. |
 | **Permissions** | `core/src/permissions/engine.ts` (pure rule match) + `core/src/permissions/ask.ts` (`PermissionGate`) | Layers: `fs.read/list/glob` allow-by-default < `config.permissions` < session approvals ("always" → `session.meta.approvals`). The gate blocks tool execution on a durable `permission.asked` event until `Service.replyPermission` resolves it — first reply wins across devices. |
 | **Token discipline + compaction** | `core/src/context/discipline.ts`, `core/src/context/compact.ts` | Render-time transforms (transcript untouched): identical-result stubbing, old-result pruning. Compaction triggers at 75% of the context window from provider-reported usage; the summary persists as a message and `session.meta.compactionMessageId` slices history from then on. |
 | **Sessions/parts/events persistence** | `core/src/store/*` (repos) + `core/src/event/{bus,log}.ts` | `parts` rows carry tool_call/tool_result payloads; the event log is the durable replay buffer behind the SSE streams. |
@@ -316,7 +316,7 @@ also sidesteps the fact that Hono's typed RPC client has no native SSE support
 ```
 submit(prompt) ──► inputs row (durable) ──► wake coordinator
 coordinator(session): if idle → start drain:
-   resolve agent (session.meta.agent → registry; stale selection → default) + tools
+   resolve agent (session.meta.agent → config agents.default → built-in default) + tools
    promote input(s) → append user message
    loop (≤ 50 turns):
       history → compaction-pointer slice → token discipline → renderOutbound
@@ -333,7 +333,9 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
 - **Agents** resolve at drain start and are snapshotted for the whole run —
   file edits mid-run apply next run. Tool defs = registry ∩ the agent's
   allow-list (`"*"` = everything), order-stable for prompt caching. The
-  agent's `model` is a default; an explicit per-session model wins.
+  agent's `model` is a default; an explicit per-session model wins. Agent
+  selection resolves session meta → config `agents.default` → built-in
+  `build`; unknown names at any tier warn and fall back.
 - **Tool registry** merges builtin + workbench + custom-file tools; enforces
   output size limits (truncate head+tail, spill full output to a managed
   temp file).
@@ -428,6 +430,7 @@ Example:
 {
   "providers": { "openrouter": { "base_url": "https://openrouter.ai/api/v1" } },
   "models": { "default": "anthropic/claude-sonnet-4-5", "title": "anthropic/claude-haiku-4-5" },
+  "agents": { "default": "reviewer" },
   "permissions": { "bash.*": "ask", "fs.read": "allow" },
   "mcp": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } },
   "workbenches": { "image": { "adapter": "fal", "model": "flux-2" } }
@@ -445,10 +448,13 @@ Runs under Bun directly — no build step.
 - Root component + view-state enum (`chat`, `sessions`, `gallery`, `jobs`,
   `settings`) + focus-state routing; components are sub-components; overlay
   dialogs intercept keys before global bindings.
-- **ctrl+e agent/tool manager** (`views/agent-manager.tsx`): agents|tools
-  tabs; create (writes via API), edit (`$EDITOR` on the underlying file —
-  the server's watcher hot-reloads on save), delete, "use in session";
-  refreshes live from `agents.updated`/`tools.updated`.
+- **ctrl+a agent/tool switcher** (`views/agent-manager.tsx`): agents|tools
+  tabs; enter (or u) applies the highlighted agent — per-session when a
+  session is open, otherwise as the config default (`agents.default`); create
+  (writes via API), edit (`$EDITOR` on the underlying file — the server's
+  watcher hot-reloads on save), delete; refreshes live from
+  `agents.updated`/`tools.updated`. The web chat header mirrors this with an
+  agent picker button (same session/default duality as its model picker).
 - Tool calls render as compact status lines (`✓ fs.read src/x.ts`) next to
   the collapsible thinking panel (`views/chat.tsx` + `state/sync.ts`,
   kind-aware delta reducer).

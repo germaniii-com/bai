@@ -7,20 +7,26 @@ import type { AgentInfo, Session, ToolListEntry } from "@bai/shared";
 type Tab = "agents" | "tools";
 
 /**
- * Agent & tool manager (ctrl+e): list, create, edit ($EDITOR), delete, and
- * apply-to-session. All mutations write files through the API — the server
- * hot-reloads them, so a save in $EDITOR is live everywhere immediately.
+ * Agent & tool switcher/manager (ctrl+a): list, create, edit ($EDITOR),
+ * delete, and apply. Enter (or u) applies the highlighted agent — to the
+ * active session when one is open, otherwise as the config default agent
+ * (`agents.default`, what sessions without a selection resolve). All
+ * mutations write files/config through the API — the server hot-reloads
+ * them, so a save in $EDITOR is live everywhere immediately.
  * `catalogTick` bumps whenever agents.updated/tools.updated arrive on the
  * firehose, keeping the list fresh while the dialog is open.
  */
 export function AgentManager({
   client,
   active,
+  defaultAgent,
   catalogTick,
   onDone,
 }: {
   client: BaiClient;
   active: Session | null;
+  /** Current config default agent (agents.default), when set. */
+  defaultAgent?: string;
   catalogTick: number;
   onDone: () => void;
 }) {
@@ -116,20 +122,32 @@ export function AgentManager({
     [tab, client, refresh],
   );
 
-  const useAgent = useCallback(
-    async (name: string) => {
-      if (active === null) {
-        setNotice("no active session — open one first (ctrl+s)");
-        return;
-      }
+  /**
+   * Apply the highlighted agent: per-session when a session is open,
+   * otherwise the config default (sessions without a selection resolve it).
+   * Resolves true when the apply succeeded (enter closes on success).
+   */
+  const applyAgent = useCallback(
+    async (name: string): Promise<boolean> => {
       try {
-        await client.setSessionAgent(active.id, { agent: name });
-        setNotice(`session uses "${name}" (applies next prompt)`);
+        if (active === null) {
+          if (defaultAgent === name) {
+            setNotice(`"${name}" is already the default agent`);
+            return true;
+          }
+          await client.putConfig({ agents: { default: name } });
+          setNotice(`default agent set to "${name}" (sessions without a selection use it)`);
+        } else {
+          await client.setSessionAgent(active.id, { agent: name });
+          setNotice(`session uses "${name}" (applies next prompt)`);
+        }
+        return true;
       } catch (err) {
         setNotice(err instanceof Error ? err.message : String(err));
+        return false;
       }
     },
-    [active, client],
+    [active, client, defaultAgent],
   );
 
   useInput((ch, key) => {
@@ -143,7 +161,7 @@ export function AgentManager({
       }
       return;
     }
-    if (key.escape || (key.ctrl && ch === "e")) {
+    if (key.escape || (key.ctrl && ch === "a")) {
       onDone();
       return;
     }
@@ -160,8 +178,11 @@ export function AgentManager({
     else if (ch === "d" && items[index] !== undefined) {
       if (tab === "agents" && items[index]?.name === "build") setNotice("the build agent is built-in");
       else setConfirmDelete(items[index]?.name ?? null);
-    } else if (ch === "u" && tab === "agents" && items[index] !== undefined) {
-      void useAgent(items[index]?.name ?? "");
+    } else if (tab === "agents" && items[index] !== undefined) {
+      // Apply the highlighted agent: u stays in the dialog, enter closes.
+      const name = items[index]?.name ?? "";
+      if (ch === "u") void applyAgent(name);
+      else if (key.return) void applyAgent(name).then((ok) => ok && onDone());
     }
   });
 
@@ -171,12 +192,20 @@ export function AgentManager({
         agents &amp; tools <Text dimColor>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
       </Text>
       {tab === "agents" ? (
-        agents.map((a, i) => (
-          <Text key={a.name} color={i === index ? "cyan" : undefined}>
-            {i === index ? "❯ " : "  "}
-            {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
-          </Text>
-        ))
+        agents.map((a, i) => {
+          const sessionAgent =
+            active !== null ? (active.meta as Record<string, unknown>).agent : undefined;
+          const marks: string[] = [];
+          if (sessionAgent === a.name) marks.push("session");
+          if (defaultAgent === a.name) marks.push("default");
+          return (
+            <Text key={a.name} color={i === index ? "cyan" : undefined}>
+              {i === index ? "❯ " : "  "}
+              {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
+              {marks.length > 0 && <Text color="green"> · {marks.join(" · ")}</Text>}
+            </Text>
+          );
+        })
       ) : (
         tools.map((t, i) => (
           <Text key={t.name} color={i === index ? "cyan" : undefined}>
@@ -188,7 +217,10 @@ export function AgentManager({
       {items.length === 0 && <Text dimColor>  (empty — n to create)</Text>}
       <Text dimColor> </Text>
       <Text dimColor>
-        n new · e edit ($EDITOR) · d delete · {tab === "agents" ? "u use in session · " : ""}j/k move · t tab · esc close
+        n new · e edit ($EDITOR) · d delete ·{" "}
+        {tab === "agents"
+          ? `enter/u ${active !== null ? "use in session" : "set as default"} · `
+          : ""}j/k move · t tab · esc close
       </Text>
       {confirmDelete !== null && <Text color="yellow">delete "{confirmDelete}"? y/n</Text>}
       {notice !== null && <Text color="yellow">{notice}</Text>}

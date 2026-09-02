@@ -9,7 +9,7 @@ registered against the same core contract (`core/src/workbench/types.ts`).
 They all share one server, one event log, one store, and the same surfaces.
 The web nav groups them accordingly: **Chat, Workspace, Image, Video** (the
 workbenches) above the divider, **Agents, Tools** (the agent machinery)
-below it — and the same split lives in the TUI under `ctrl+e`.
+below it — and the same split lives in the TUI under `ctrl+a`.
 
 ---
 
@@ -90,8 +90,9 @@ agents that can actually touch the files.
 
 ## 🤖 Agents — shipped
 
-First-class citizens with their own nav section (web) and manager dialog
-(`ctrl+e`, TUI): the personas that drive the workspace.
+First-class citizens with their own nav section (web), chat-header picker
+(web), and switcher dialog (`ctrl+a`, TUI): the personas that drive the
+workspace.
 
 **What you can do today**
 
@@ -101,11 +102,16 @@ First-class citizens with their own nav section (web) and manager dialog
 - **Hot-reloaded**: drop a file on disk, save from the web form, or edit via
   `$EDITOR` in the TUI — it's live everywhere in ~150 ms, no restart (the
   thing opencode makes you restart for)
-- Create, edit, delete, and "use in session" from the web Agents section or
-  the TUI manager; the built-in `build` agent always exists and can't be
+- Create, edit, delete, and "use in session" from the web Agents section,
+  switch or set the default from the chat-header picker (web) or the TUI
+  switcher (`ctrl+a`); the built-in `build` agent always exists and can't be
   shadowed
 - Optional per-agent model override; sessions fall back gracefully if a
   selected agent is deleted before the next prompt
+- Default agent (`agents.default` in config): applying an agent with no
+  session open — TUI switcher or web picker — persists it for every session
+  that selects none; resolution order is session choice → config default →
+  built-in `build`
 
 **Under the hood**
 

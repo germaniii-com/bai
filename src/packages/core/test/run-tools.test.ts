@@ -208,6 +208,59 @@ describe("tool-call loop", () => {
     expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
   });
 
+  test("config default agent (agents.default) applies when the session selects none", async () => {
+    t.config.models.default = "scripted/main";
+    t.agents.put("reader", { description: "read only", prompt: "READER PERSONA", tools: ["fs.read"] });
+    t.config.agents.default = "reader";
+    const provider = new ScriptedToolProvider([[{ type: "text_delta", delta: "hi" }, { type: "done", stopReason: "end_turn" }]]);
+    t.providers.register(provider);
+
+    // No setSessionAgent — the config default resolves at drain.
+    const session = t.core.createSession({ workbench: "code" });
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "hello" });
+    await finished;
+
+    // The default agent's persona and tool allow-list rode the request.
+    const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
+    expect((first.messages[0] as { content: string }).content).toContain("READER PERSONA");
+    expect(first.tools?.map((d) => d.name)).toEqual(["fs.read"]);
+  });
+
+  test("an explicit session selection beats the config default agent", async () => {
+    t.config.models.default = "scripted/main";
+    t.agents.put("reader", { description: "read only", prompt: "READER PERSONA", tools: ["fs.read"] });
+    t.config.agents.default = "reader";
+    const provider = new ScriptedToolProvider([[{ type: "text_delta", delta: "hi" }, { type: "done", stopReason: "end_turn" }]]);
+    t.providers.register(provider);
+
+    const session = t.core.createSession({ workbench: "code" });
+    await t.core.setSessionAgent(session.id, { agent: "build" });
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "hello" });
+    await finished;
+
+    const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
+    expect((first.messages[0] as { content: string }).content).not.toContain("READER PERSONA");
+    expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
+  });
+
+  test("unknown config default agent falls back to the built-in build agent", async () => {
+    t.config.models.default = "scripted/main";
+    t.config.agents.default = "ghost";
+    const provider = new ScriptedToolProvider([[{ type: "text_delta", delta: "hi" }, { type: "done", stopReason: "end_turn" }]]);
+    t.providers.register(provider);
+
+    const session = t.core.createSession({ workbench: "code" });
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "hello" });
+    await finished;
+
+    const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
+    expect((first.messages[0] as { content: string }).content).not.toContain("GHOST");
+    expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
+  });
+
   test("custom file-defined agent restricts offered tools", async () => {
     t.config.models.default = "scripted/main";
     t.agents.put("reader", { description: "read only", prompt: "You only read.", tools: ["fs.read"] });

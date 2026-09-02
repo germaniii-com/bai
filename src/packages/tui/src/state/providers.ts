@@ -85,20 +85,6 @@ export function allModelOptions(providers: ProviderInfo[]): PickerOption[] {
   return out;
 }
 
-/** Provider id of the current model: session meta → list default → config default → stub. */
-export function currentProviderId(
-  active: Session | null,
-  list: ProviderListResponse | null,
-  configDefault?: string,
-): string {
-  const meta = active?.meta as { model?: unknown } | undefined;
-  const model =
-    typeof meta?.model === "string"
-      ? meta.model
-      : (list?.default.model ?? configDefault ?? "stub/echo");
-  return model.split("/")[0] ?? model;
-}
-
 /** Where a model pick applies: the active session, or the global default. */
 export function applyTarget(active: Session | null): "session" | "global" {
   return active !== null ? "session" : "global";
