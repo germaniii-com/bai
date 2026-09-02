@@ -1,5 +1,6 @@
 import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
+import wrapAnsi from "wrap-ansi";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import type { Mode } from "../app";
@@ -32,21 +33,41 @@ const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
 
 /**
- * Estimated rendered rows for a message at the given terminal width. User
- * messages render in a rounded box (+2 border rows, wrap width narrowed by
- * borders and paddingX → columns - 4); assistant messages are inset by
- * paddingLeft 2 + paddingRight 3 → columns - 5, one em narrower than the
- * user box's text width.
+ * Number of rendered rows wrap-ansi produces for `text` at `width` — the
+ * EXACT same wrapping Ink's `Text wrap="wrap"` applies (default
+ * `wordWrap: true`: long words break, short ones wrap at word boundaries).
+ * The whole string is passed through (like Ink's dom.js wrapText), so
+ * embedded blank lines and trailing newlines count exactly as rendered.
+ * Counting rows this way instead of `ceil(len/width)` closes the gap that
+ * accumulated while streaming and made the transcript taller than the
+ * viewport (overflow into the composer / garbled text).
+ */
+function wrappedRows(text: string, width: number): number {
+  if (text.length === 0) return 0;
+  return wrapAnsi(text, Math.max(1, width), { trim: false, hard: true }).split("\n").length;
+}
+
+/**
+ * Estimated rendered rows for a message at the given terminal width.
+ *
+ * Width math mirrors the JSX nesting exactly:
+ *   - the app body wraps the viewport in `<Box paddingX={1}>`, so the
+ *     viewport content is `columns - 2`;
+ *   - user messages: that minus the round border (2) minus `paddingX={1}`
+ *     on each side (2)      → `columns - 6`;
+ *   - assistant messages: that minus `assistantInset` (paddingLeft 2 +
+ *     paddingRight 3 = 5)  → `columns - 7`.
+ * (The estimator previously used `columns - 4 / - 5`, two columns too WIDE,
+ * so it wrapped fewer lines than Ink and undercounted rows.)
  */
 function estimateRows(m: Message, columns: number, expanded: boolean): number {
   const text = messageText(m);
-  const width = Math.max(8, columns - (m.role === "user" ? 4 : 5));
+  const width = Math.max(8, columns - (m.role === "user" ? 6 : 7));
   // Empty text (thinking-only phase, before the first answer delta) renders
   // zero rows — don't count a line for it.
   let lines = 0;
   if (text.length > 0) {
-    for (const seg of text.split("\n"))
-      lines += Math.max(1, Math.ceil(seg.length / width));
+    lines += wrappedRows(text, width);
   }
   // Tool calls render one collapsed line each (args digest + status glyph),
   // with a gap row before the first one.
@@ -58,14 +79,18 @@ function estimateRows(m: Message, columns: number, expanded: boolean): number {
   if (thinking.length > 0 && m.role !== "user") {
     if (expanded) {
       lines += 2; // header + gap
-      for (const seg of thinking.split("\n"))
-        lines += Math.max(1, Math.ceil(seg.length / width));
+      lines += wrappedRows(thinking, width);
     } else {
       lines += 2; // summary line + gap
     }
   }
   return m.role === "user" ? lines + 2 : Math.max(lines, 1);
 }
+
+// Exported for unit tests (the estimator must stay in lockstep with Ink's
+// wrap-ansi rendering — overestimating steals rows, underestimating overflows).
+export const __estimateRows = estimateRows;
+export const __wrappedRows = wrappedRows;
 
 /**
  * Chat view: scrollable message history + inline composer. The composer is a
@@ -464,7 +489,7 @@ export function ChatView({
     1 /* list marginBottom */ +
     2 /* error line + estimation slack */ +
     (clamped > 0 ? 2 : 0); /* scroll indicator */
-  const budget = Math.max(1, rows - chrome);
+  const budget = Math.max(1, rows - chrome - (waiting ? 2 : 0));
   const end = len - clamped;
 
   // Terminal row (1-based) of the viewport's last content row: the viewport
@@ -523,11 +548,15 @@ export function ChatView({
     <Box flexDirection="column" flexGrow={1}>
       {/* Viewport: flexBasis 0 + flexGrow 1 pins this box to exactly the
           leftover rows between header and composer; flex-end keeps messages
-          hugging the composer. Overflow (estimation error) escapes upward,
-          never into the composer. User messages get a bordered box; assistant
-          messages render plain — role is conveyed by shape, not labels.
-          Reasoning renders as a transcript node (opencode parity): collapsed
-          to a summary line, expanded to the full chain of thought. */}
+          hugging the composer. overflowY hidden is the DETERMINISTIC guard:
+          whatever the estimate misses, the box clips at its own bounds —
+          content can never bleed into the composer or the thinking area.
+          Message boxes carry flexShrink 0 so Yoga never compresses them to
+          "fit" (which would re-introduce overlap); the clip handles the
+          rest. User messages get a bordered box; assistant messages render
+          plain — role is conveyed by shape, not labels. Reasoning renders
+          as a transcript node (opencode parity): collapsed to a summary
+          line, expanded to the full chain of thought. */}
       <Box
         flexDirection="column"
         gap={1}
@@ -536,6 +565,7 @@ export function ChatView({
         flexShrink={1}
         flexBasis={0}
         justifyContent="flex-end"
+        overflowY="hidden"
       >
         {visible.length === 0 && !waiting && (
           <Box {...assistantInset}>
@@ -554,6 +584,7 @@ export function ChatView({
                 // for the focus highlight so it stands out.
                 borderColor={focused ? "cyan" : "white"}
                 paddingX={1}
+                flexShrink={0}
               >
                 <Text wrap="wrap" bold={focused}>
                   {text}
@@ -573,7 +604,7 @@ export function ChatView({
           const firstRowIsThinking = thinkingLineCount > 0;
           const firstRowIsTool = firstRowIsThinking === false && calls.length > 0;
           return (
-            <Box key={m.id} {...assistantInset} flexDirection="column" gap={1}>
+            <Box key={m.id} {...assistantInset} flexDirection="column" gap={1} flexShrink={0}>
               {thinkingLineCount > 0 &&
                 (expanded ? (
                   <Box flexDirection="column">
