@@ -475,10 +475,11 @@ React 19.2 + Vite 8 (Rolldown bundler) + `@vitejs/plugin-react` (Oxc-based) +
 TypeScript. React Compiler enabled from day one. Serves desktop browsers
 _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 
-- Views: sessions sidebar, chat, **Agents page** (form editor for agent
-  markdown, code editor for custom tools, use-in-session — `agents-page.tsx`),
-  code (file tree + diffs), image gallery, video gallery, jobs queue,
-  settings (config editor), pairing screen.
+- Views: sessions sidebar, chat, **Agents section** (nested sidebar list +
+  form editor for agent markdown — `agents.tsx`), **Tools section** (nested
+  sidebar list + code editor for custom tools — `tools.tsx`, separate nav
+  items), code (file tree + diffs), image gallery, video gallery, jobs
+  queue, settings (config editor), pairing screen.
 - Tool calls render as collapsible nodes beside the thinking panel
   (`chat-pane.tsx` + `state.ts` — the same kind-aware reducer semantics as
   the TUI).

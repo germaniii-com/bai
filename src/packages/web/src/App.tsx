@@ -3,18 +3,21 @@ import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import { applyEvent, messageText } from "./state";
 import { useProviders } from "./use-providers";
+import { useAgents } from "./use-agents";
+import { useTools } from "./use-tools";
 import { SettingsNav, SettingsPane } from "./settings";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
-import { AgentsPage } from "./agents-page";
+import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
+import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "image" | "video" | "settings";
+type Section = "chat" | "workspace" | "agents" | "tools" | "image" | "video" | "settings";
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
@@ -49,10 +52,20 @@ export function App() {
   // the header's model button shows the real default before the (heavy,
   // on-demand) provider list ever loads. Same pattern as the TUI's header.
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
-  // Agent/tool catalog version — bumped by live events so the Agents page
-  // refetches while open (file edits from any surface, TUI included).
-  const [catalogTick, setCatalogTick] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  // Independent catalogs: agents and tools each own their fetch/refresh —
+  // updated by firehose events (agents.updated / tools.updated), section
+  // engagement, and reconnect healing.
+  const { agents, refresh: refreshAgents } = useAgents(client);
+  const { tools, refresh: refreshTools } = useTools(client);
+  // Selections per section; stale ids (deleted elsewhere) resolve to null
+  // against the live lists — the settings pattern.
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [selectedTool, setSelectedTool] = useState<string | null>(null);
+  // Creation flows: true while the create form (pre-filled, editable name)
+  // is open in the main pane — no file is written until the form submits.
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [creatingTool, setCreatingTool] = useState(false);
 
   const refreshConfig = useCallback(async () => {
     try {
@@ -121,6 +134,8 @@ export function App() {
           void refreshSessions();
           void refreshWorkspaceSessions();
           void refreshConfig();
+          void refreshAgents();
+          void refreshTools();
         }
         if (evt.type === "session.updated") {
           const payload = evt.payload as { session?: Session };
@@ -145,14 +160,17 @@ export function App() {
           void refreshConfig();
         }
         // Agent/tool files changed anywhere (TUI manager, disk, web editor):
-        // bump the tick so the Agents page refetches while open.
-        if (evt.type === "agents.updated" || evt.type === "tools.updated") {
-          setCatalogTick((t) => t + 1);
+        // each catalog refreshes independently.
+        if (evt.type === "agents.updated") {
+          void refreshAgents();
+        }
+        if (evt.type === "tools.updated") {
+          void refreshTools();
         }
       },
     });
     return () => ctrl.abort();
-  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions]);
+  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools]);
 
   useEffect(() => {
     streamCtrl.current?.abort();
@@ -207,6 +225,8 @@ export function App() {
   const effectiveSettingsId = providerExists ? settingsProviderId : null;
   const effectiveWorkspacePath =
     workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
+  const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
+  const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
 
   const navigate = (next: Section): void => {
     if (next === "settings") {
@@ -217,6 +237,16 @@ export function App() {
     if (next === "workspace") {
       // Engagement refetch: fresh session list for the selected workspace.
       void refreshWorkspaceSessions();
+    }
+    if (next === "agents") {
+      // Engagement refetch: agents changed anywhere → fresh list.
+      setCreatingAgent(false);
+      void refreshAgents();
+    }
+    if (next === "tools") {
+      // Engagement refetch: tools changed anywhere → fresh list.
+      setCreatingTool(false);
+      void refreshTools();
     }
     // Keep the open session coherent with the section — a chat session in
     // the workspace view (or vice versa) would read as a context mixup.
@@ -241,6 +271,26 @@ export function App() {
     await refreshConfig();
     // Select the freshly added workspace — the user added it to work in it.
     setWorkspacePath(path);
+  };
+
+  /** Write a starter agent file for the (form-validated) name, then select it. */
+  const createAgent = async (name: string): Promise<void> => {
+    await client.putAgent(name, {
+      description: "What this agent is for.",
+      prompt: `You are ${name}, an agent inside bai.\n\nDescribe the agent's role, tone, and workflow here. The body is the system prompt.`,
+      tools: ["fs.read", "fs.list"],
+    });
+    setCreatingAgent(false);
+    setSelectedAgent(name);
+    await refreshAgents();
+  };
+
+  /** Write a starter tool file for the (form-validated) name, then select it. */
+  const createTool = async (name: string): Promise<void> => {
+    await client.putTool(name, toolTemplateCode(name));
+    setCreatingTool(false);
+    setSelectedTool(name);
+    await refreshTools();
   };
 
   const submit = async (): Promise<void> => {
@@ -281,7 +331,9 @@ export function App() {
               ? "Workspace"
               : section === "agents"
                 ? "Agents"
-                : "Chat"}
+                : section === "tools"
+                  ? "Tools"
+                  : "Chat"}
         </div>
         {section === "chat" && (
           <>
@@ -361,6 +413,36 @@ export function App() {
             onSelect={setSettingsProviderId}
           />
         )}
+        {section === "agents" && (
+          <AgentsNav
+            agents={agents}
+            selected={effectiveAgentId}
+            onSelect={(name) => {
+              setCreatingAgent(false);
+              setSelectedAgent(name);
+            }}
+            onCreate={() => {
+              setSelectedAgent(null);
+              setCreatingAgent(true);
+            }}
+            busy={false}
+          />
+        )}
+        {section === "tools" && (
+          <ToolsNav
+            tools={tools}
+            selected={effectiveToolId}
+            onSelect={(name) => {
+              setCreatingTool(false);
+              setSelectedTool(name);
+            }}
+            onCreate={() => {
+              setSelectedTool(null);
+              setCreatingTool(true);
+            }}
+            busy={false}
+          />
+        )}
       </aside>
 
       {section === "settings" ? (
@@ -379,7 +461,45 @@ export function App() {
               {notice}
             </div>
           )}
-          <AgentsPage client={client} tick={catalogTick} activeSessionId={active?.id ?? null} onNotice={setNotice} />
+          {creatingAgent ? (
+            <AgentCreateForm
+              existing={agents.map((a) => a.name)}
+              onSubmit={createAgent}
+              onCancel={() => setCreatingAgent(false)}
+            />
+          ) : (
+            <AgentsPane
+              client={client}
+              agents={agents}
+              selectedId={effectiveAgentId}
+              activeSessionId={active?.id ?? null}
+              refresh={refreshAgents}
+              onNotice={setNotice}
+            />
+          )}
+        </main>
+      ) : section === "tools" ? (
+        <main className="agents-pane">
+          {notice !== null && (
+            <div className="notice" role="status" onClick={() => setNotice(null)}>
+              {notice}
+            </div>
+          )}
+          {creatingTool ? (
+            <ToolCreateForm
+              existing={tools.map((t) => t.name)}
+              onSubmit={createTool}
+              onCancel={() => setCreatingTool(false)}
+            />
+          ) : (
+            <ToolsPane
+              client={client}
+              tools={tools}
+              selectedId={effectiveToolId}
+              refresh={refreshTools}
+              onNotice={setNotice}
+            />
+          )}
         </main>
       ) : section === "workspace" && effectiveWorkspacePath === null ? (
         <main className="chat">
@@ -435,6 +555,21 @@ function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: 
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </Icon>
         </MasterItem>
+        <MasterItem section="image" label="Image Gen" disabled onNavigate={onNavigate}>
+          <Icon>
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </Icon>
+        </MasterItem>
+        <MasterItem section="video" label="Video Gen" disabled onNavigate={onNavigate}>
+          <Icon>
+            <path d="M23 7l-7 5 7 5V7z" />
+            <rect x="1" y="5" width="15" height="14" rx="2" />
+          </Icon>
+        </MasterItem>
+        {/* Workbenches above the line, agent machinery below it. */}
+        <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
         <MasterItem section="agents" label="Agents" active={section === "agents"} onNavigate={onNavigate}>
           <Icon>
             <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -449,17 +584,9 @@ function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: 
             <line x1="1" y1="14" x2="4" y2="14" />
           </Icon>
         </MasterItem>
-        <MasterItem section="image" label="Image Gen" disabled onNavigate={onNavigate}>
+        <MasterItem section="tools" label="Tools" active={section === "tools"} onNavigate={onNavigate}>
           <Icon>
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </Icon>
-        </MasterItem>
-        <MasterItem section="video" label="Video Gen" disabled onNavigate={onNavigate}>
-          <Icon>
-            <path d="M23 7l-7 5 7 5V7z" />
-            <rect x="1" y="5" width="15" height="14" rx="2" />
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
           </Icon>
         </MasterItem>
       </div>

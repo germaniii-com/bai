@@ -271,6 +271,13 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [refreshProviders, refreshSessions]);
 
   const modelLabel = currentModelLabel(active, providers, configDefault);
+  // The active agent: the session's selection, else the default build agent
+  // (what the drain actually resolves). Live — agent switches ride
+  // session.updated from any surface.
+  const activeAgent =
+    active !== null && typeof (active.meta as Record<string, unknown>).agent === "string"
+      ? ((active.meta as Record<string, unknown>).agent as string)
+      : "build";
   const setupHint = needsSetup(providers);
   // Exact footer line count — ChatView needs it to compute the thinking
   // spinner's terminal row for click-to-toggle hit testing.
@@ -289,6 +296,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
         <Text dimColor> · {active ? active.title || active.id : "no session"}</Text>
         <Text dimColor> · </Text>
         <Text color="magenta">{modelLabel}</Text>
+        <Text dimColor> · </Text>
+        <Text color="yellow">@{activeAgent}</Text>
         <Text dimColor> · </Text>
         <Text bold color={mode === "normal" ? "cyan" : "green"}>
           {mode === "normal" ? "NORMAL" : "INPUT"}

@@ -1,11 +1,15 @@
 # bai — Features
 
-What each workbench does, honestly: what ships today, how it works under the
-hood, and what's next. Statuses mirror [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
+What each part of bai does, honestly: what ships today, how it works under
+the hood, and what's next. Statuses mirror
+[ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
 
 Workbenches are bai's modalities — chat, code/workspace, image, video — each
 registered against the same core contract (`core/src/workbench/types.ts`).
 They all share one server, one event log, one store, and the same surfaces.
+The web nav groups them accordingly: **Chat, Workspace, Image, Video** (the
+workbenches) above the divider, **Agents, Tools** (the agent machinery)
+below it — and the same split lives in the TUI under `ctrl+e`.
 
 ---
 
@@ -52,11 +56,8 @@ agents that can actually touch the files.
 
 - Register workspaces (folders) in the web UI or config; workspace sessions
   root there and render a read-only file tree beside the chat
-- **Agents**: markdown-defined personas with a tool allow-list and optional
-  model override, stored in `~/.config/bai/agents/*.md` and **hot-reloaded**
-  — drop a file on disk, save from the TUI manager (`ctrl+e`), or edit in
-  the web Agents page; it's live everywhere in ~150 ms, no restart
-- Built-in `build` agent drives real tools:
+- Pick an agent for the session (see Agents below) — the built-in `build`
+  agent drives real tools:
   - `fs.read` — line-numbered reads with pagination hints and "did you
     mean" suggestions on a miss
   - `fs.list` / `fs.glob` — tree + pattern search with caps and refine hints
@@ -71,9 +72,6 @@ agents that can actually touch the files.
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the
   model's window with a structured summary
-- Custom tools: write a TypeScript file (from the manager UI or disk),
-  export `{ description, schema, execute }` — it's hot-imported and callable
-  by any agent that lists it
 
 **Under the hood**
 
@@ -87,6 +85,71 @@ agents that can actually touch the files.
 
 - `bash` tool (Bun's native PTY), grep/search tools, diff viewer with
   revert, subagent spawning (`task` tool)
+
+---
+
+## 🤖 Agents — shipped
+
+First-class citizens with their own nav section (web) and manager dialog
+(`ctrl+e`, TUI): the personas that drive the workspace.
+
+**What you can do today**
+
+- Markdown-defined agents: YAML frontmatter (`description`, optional model
+  override, tool allow-list) + the system prompt as the body, stored in
+  `~/.config/bai/agents/*.md` — name = filename stem
+- **Hot-reloaded**: drop a file on disk, save from the web form, or edit via
+  `$EDITOR` in the TUI — it's live everywhere in ~150 ms, no restart (the
+  thing opencode makes you restart for)
+- Create, edit, delete, and "use in session" from the web Agents section or
+  the TUI manager; the built-in `build` agent always exists and can't be
+  shadowed
+- Optional per-agent model override; sessions fall back gracefully if a
+  selected agent is deleted before the next prompt
+
+**Under the hood**
+
+- `core/src/agent/registry.ts` scans + `fs.watch`-es the directory
+  (debounced rescan → live `agents.updated` event); schema in
+  `shared/src/agents.ts`
+
+**Coming next**
+
+- Per-agent permission overrides beyond the tool allow-list · agent
+  variables (temperature, top-p) · subagent spawning
+
+---
+
+## 🔧 Tools — shipped
+
+The tool system, with its own nav section (web) and manager dialog (TUI):
+built-in file tools plus user-written TypeScript tools.
+
+**What you can do today**
+
+- Built-ins: `fs.read`, `fs.list`, `fs.glob`, `fs.write`, `fs.edit` —
+  described in Workspace above
+- **Custom tools as TypeScript files**: create from the web Tools section or
+  the TUI manager, write a default export
+  `{ description, schema, execute(args, ctx) }`, save — the file lands in
+  `~/.config/bai/tools/` and is **hot-imported** (no restart); registration
+  failures are reported instead of silently swallowed
+- Built-ins are listed for reference but view-only — their source lives in
+  bai itself, and custom files can never shadow them
+- Tool allow-lists per agent decide who can call what; the permission gate
+  covers every tool, builtin or user-written
+
+**Under the hood**
+
+- `core/src/tools/loader.ts` scans, validates, and dynamically imports tool
+  files (Bun ignores query-param cache busting, so changed files are
+  re-imported through versioned temp copies); `tools.updated` events keep
+  surfaces live
+
+**Coming next**
+
+- `bash` and grep tools as built-ins · MCP tools (`mcp/<server>/<tool>`)
+  merged into the same registry
 
 ---
 
@@ -139,9 +202,6 @@ Identical shape to image, second in line.
 - **Sync** — every feature streams through the same durable per-session
   event log; snapshot-then-stream clients (TUI, web, one-shot) resume from
   a cursor with zero replay duplication
-- **Agents & tools** — not a workbench of their own but the engine of the
-  workspace: file-defined, hot-reloaded, permission-gated (§9 of the
-  architecture doc)
 - **Permissions** — one fail-closed engine for every tool, builtin or
   user-written; unknown tools can never execute, unmatched actions ask
 - **Surfaces are thin** — nothing in the TUI or web app owns state; work

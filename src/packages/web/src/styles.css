@@ -60,6 +60,16 @@ body {
   gap: 4px;
 }
 
+/* Group separator in the master rail: workbenches above, agent machinery
+   below. Renders horizontal in the desktop rail, vertical in the mobile
+   icon row (see the media query at the bottom of this file). */
+.nav-divider {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
 .master-item {
   display: flex;
   flex-direction: column;
@@ -771,91 +781,8 @@ body {
   cursor: pointer;
 }
 
-.agents-layout {
-  display: flex;
-  gap: 14px;
-  flex: 1;
-  min-height: 0;
-}
-
-.agents-list {
-  display: flex;
-  flex-direction: column;
-  width: 240px;
-  flex-shrink: 0;
-}
-
-.agents-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.agents-tab {
-  flex: 1;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--dim);
-  font: inherit;
-  padding: 4px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.agents-tab.active {
-  color: var(--text);
-  border-color: var(--text);
-}
-
-.agents-items {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  overflow-y: auto;
-}
-
-.agents-item {
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-}
-
-.agents-item:hover {
-  background: var(--border);
-}
-
-.agents-item.active {
-  background: var(--border);
-}
-
-.agents-create {
-  margin-top: 8px;
-  border: 1px dashed var(--border);
-  background: transparent;
-  color: var(--dim);
-  font: inherit;
-  padding: 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.agents-create:hover {
-  color: var(--text);
-}
-
-.agents-editor {
-  flex: 1;
-  min-width: 0;
-}
-
+/* Agents & tools editors (main pane; the lists render in the nested
+   sidebar using the shared settings-nav/provider-item styles). */
 .agent-form {
   display: flex;
   flex-direction: column;
@@ -1394,6 +1321,13 @@ body {
 
   .master-spacer {
     display: none;
+  }
+
+  .nav-divider {
+    width: 1px;
+    height: auto;
+    align-self: stretch;
+    margin: 4px 6px;
   }
 
   /* Nested panel becomes a horizontal scroll strip beneath the rail. */
