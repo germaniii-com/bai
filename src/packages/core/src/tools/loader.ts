@@ -37,6 +37,9 @@ export interface ToolLoaderOpts {
   dir: string;
   registry: ToolRegistry;
   debounceMs?: number;
+  /** Polling safety-net interval (fs.watch misses events under load / on
+   * some FSEvents setups). 0 disables. Default 2000ms. */
+  pollMs?: number;
   onChange?: () => void;
 }
 
@@ -53,6 +56,7 @@ export class ToolLoader {
   private readonly entries = new Map<string, Entry>();
   private watcher: ReturnType<typeof watch> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private poller: ReturnType<typeof setInterval> | undefined;
   private cacheDir: string;
   private loading: Promise<boolean> = Promise.resolve(false);
 
@@ -61,6 +65,17 @@ export class ToolLoader {
     this.cacheDir = mkdtempSync(path.join(tmpdir(), "bai-tools-"));
     void this.rescan();
     this.watchDir();
+    // Safety net: fs.watch can miss events under load (FSEvents latency) —
+    // a slow rescan loop guarantees eventual hot-reload either way.
+    const pollMs = opts.pollMs ?? 2000;
+    if (pollMs > 0) {
+      this.poller = setInterval(() => {
+        void this.rescan().then((changed) => {
+          if (changed && this.opts.onChange !== undefined) this.opts.onChange();
+        });
+      }, pollMs);
+      this.poller.unref?.();
+    }
   }
 
   /** Re-import new/changed files and unregister removed ones. Resolves when imports settle. */
@@ -133,6 +148,7 @@ export class ToolLoader {
 
   stop(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.poller !== undefined) clearInterval(this.poller);
     this.watcher?.close();
     this.watcher = undefined;
     rmSync(this.cacheDir, { recursive: true, force: true });

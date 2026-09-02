@@ -48,6 +48,14 @@ export interface ServerConfig {
   token?: string;
 }
 
+export interface ToolsConfig {
+  /** Web search provider selection (default: ddgs — keyless DuckDuckGo). */
+  webSearch?: {
+    /** "ddgs" (keyless, default) or "exa" (needs EXA_API_KEY). */
+    provider?: "ddgs" | "exa";
+  };
+}
+
 export interface Config {
   providers: Record<string, ProviderConfig>;
   models: ModelsConfig;
@@ -59,6 +67,7 @@ export interface Config {
    * groups cwd-rooted sessions by these. Edited via PUT /api/config. */
   workspaces: string[];
   server: ServerConfig;
+  tools: ToolsConfig;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -70,6 +79,7 @@ export const DEFAULT_CONFIG: Config = {
   workbenches: {},
   workspaces: [],
   server: {},
+  tools: {},
 };
 
 const providerSchema = z.object({
@@ -92,6 +102,14 @@ const agentsSchema = z.object({
   default: z.string().max(100).optional(),
 });
 
+const toolsSchema = z.object({
+  webSearch: z
+    .object({
+      provider: z.enum(["ddgs", "exa"]).optional(),
+    })
+    .optional(),
+});
+
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
   models: z
@@ -112,6 +130,7 @@ export const configSchema = z.object({
       token: z.string().min(16).optional(),
     })
     .default({}),
+  tools: toolsSchema.default({}),
 });
 
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
@@ -135,6 +154,7 @@ export const configPatchSchema = z.object({
       token: z.string().min(16).optional(),
     })
     .optional(),
+  tools: toolsSchema.optional(),
 });
 
 export type ConfigPatch = z.infer<typeof configPatchSchema>;

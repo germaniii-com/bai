@@ -1,13 +1,15 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { Message, ProviderListResponse, Session } from "@bai/shared";
+import type { Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
+import { PermissionDialog } from "./views/permission-dialog";
+import { QuestionDialog } from "./views/question-dialog";
 import { ProviderFlow } from "./components/provider-flow";
-import { applyEvent } from "./state/sync";
+import { applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
 import { currentModelLabel, needsSetup } from "./state/providers";
 
 export type UiState = "chat" | "sessions" | "gallery" | "jobs" | "settings";
@@ -51,6 +53,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
+  // Pending permission asks for the active session (queue — normally one).
+  // Set by permission.asked events / the snapshot's pendingPermissions;
+  // cleared by permission.replied. Rendered as a modal dialog that owns the
+  // keyboard until answered (first reply wins across devices — a loser's
+  // dialog clears via permission.replied).
+  const [pendingAsks, setPendingAsks] = useState<PermissionRequest[]>([]);
+  // Pending agent→user question blocks (the `question` tool) — same pattern.
+  const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
   // Agent/tool catalog version — bumped by live events so the manager
   // dialog refetches while open (file edits from any surface).
   const [catalogTick, setCatalogTick] = useState(0);
@@ -58,7 +68,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // ctrl bindings; ChatView switches it via onEnterInput/onExitInput.
   const [mode, setMode] = useState<Mode>("normal");
   const dialogOpenRef = useRef(false);
-  dialogOpenRef.current = dialog !== null;
+  dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingQuestions.length > 0;
   // ctrl+c double-press arming (mirrors the chat composer's esc arming):
   // first press arms, second interrupts a running drain or quits.
   const [quitArmed, setQuitArmed] = useState(false);
@@ -170,6 +180,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
     const ctrl = new AbortController();
     setMessages([]);
     setRunActive(false); // a mid-run switch can't see the earlier run.started
+    setPendingAsks([]); // session switch: the new session's asks arrive below
+    setPendingQuestions([]);
     void (async () => {
       try {
         // Snapshot first, then follow the durable stream from its frontier.
@@ -182,6 +194,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
         // taken right after our own submit) — its run.started predates the
         // cursor, so the snapshot is the only reliable signal.
         setRunActive(snap.runActive === true);
+        // Asks/questions raised before this surface connected (snapshot is
+        // the authoritative answer; replayed events would double-add).
+        setPendingAsks(snap.pendingPermissions ?? []);
+        setPendingQuestions(snap.pendingQuestions ?? []);
         await followSession(client, active.id, {
           from: snap.afterSeq,
           signal: ctrl.signal,
@@ -193,6 +209,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
             else if (evt.type === "run.finished") {
               setRunActive(false);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
+            } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
+              setPendingAsks((list) => applyPermissionEvent(list, evt));
+            } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
+              setPendingQuestions((list) => applyQuestionEvent(list, evt));
             }
           },
           onDrop: () => {}, // silent reconnect; the cursor guarantees no gaps
@@ -273,23 +293,42 @@ export function App({ client, version }: { client: BaiClient; version: string })
     // composer/footer stay pinned to the bottom regardless of content size.
     <Box flexDirection="column" height={rows > 0 ? rows : undefined}>
       <Box borderStyle="round" paddingX={1}>
-        <Text bold color="cyan">
-          bai
-        </Text>
-        <Text dimColor> v{version}</Text>
-        <Text dimColor> · {active ? active.title || active.id : "no session"}</Text>
-        <Text dimColor> · </Text>
-        <Text color="magenta">{modelLabel}</Text>
-        <Text dimColor> · </Text>
-        <Text color="yellow">@{activeAgent}</Text>
-        <Text dimColor> · </Text>
-        <Text bold color={mode === "normal" ? "cyan" : "green"}>
-          {mode === "normal" ? "NORMAL" : "INPUT"}
+        {/* One truncating line: long model ids / default titles must never
+            wrap inside the border (the garbled two-line header bug). */}
+        <Text wrap="truncate">
+          <Text bold color="cyan">
+            bai
+          </Text>
+          <Text dimColor> v{version}</Text>
+          <Text dimColor> · {active ? active.title || active.id : "no session"}</Text>
+          <Text dimColor> · </Text>
+          <Text color="magenta">{modelLabel}</Text>
+          <Text dimColor> · </Text>
+          <Text color="yellow">@{activeAgent}</Text>
+          <Text dimColor> · </Text>
+          <Text bold color={mode === "normal" ? "cyan" : "green"}>
+            {mode === "normal" ? "NORMAL" : "INPUT"}
+          </Text>
         </Text>
       </Box>
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {dialog !== null && dialog.kind !== "agents" && providers !== null ? (
+        {pendingAsks.length > 0 ? (
+          // A permission ask is pending: it owns the body (and, via
+          // dialogOpenRef, every other key path) until answered. The
+          // composer is unmounted — typing can't race the reply.
+          <PermissionDialog
+            client={client}
+            request={pendingAsks[0] as PermissionRequest}
+            onDone={() => setPendingAsks((list) => list.slice(1))}
+          />
+        ) : pendingQuestions.length > 0 ? (
+          <QuestionDialog
+            client={client}
+            request={pendingQuestions[0] as QuestionRequest}
+            onDone={() => setPendingQuestions((list) => list.slice(1))}
+          />
+        ) : dialog !== null && dialog.kind !== "agents" && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and
           // surface the engagement refetch as a hint — the dialog state
           // survives and the list updates in place when the fetch lands.

@@ -7,6 +7,8 @@ import type {
   PermissionAction,
   PermissionStatus,
   Role,
+  TodoPriority,
+  TodoStatus,
   WorkbenchName,
 } from "./enums";
 import type {
@@ -16,6 +18,7 @@ import type {
   MessageId,
   PartId,
   PermissionRequestId,
+  QuestionRequestId,
   SessionId,
 } from "./ids";
 
@@ -63,6 +66,20 @@ export interface Input {
   createdAt: string;
 }
 
+/**
+ * Renderable context attached to a permission ask so surfaces can show more
+ * than a tool name — for fs.write/fs.edit this is a unified diff of the
+ * proposed change (opencode embeds diffs in its asks the same way).
+ */
+export interface AskDetail {
+  /** Human-facing one-liner, e.g. "create src/new.ts (1.2 KB)". */
+  summary?: string;
+  /** Unified diff (jsdiff format) for file mutations. */
+  diff?: string;
+  /** Primary file path the ask touches. */
+  path?: string;
+}
+
 export interface PermissionRequest {
   id: PermissionRequestId;
   sessionId?: SessionId;
@@ -70,7 +87,44 @@ export interface PermissionRequest {
   argsDigest: string;
   status: PermissionStatus;
   rule?: string;
+  /** Ask-detail (summary/diff) computed by the tool-facing enricher, when any. */
+  detail?: AskDetail;
   createdAt: string;
+}
+
+// --- questions (the agent asking the USER mid-run; opencode's question tool) ---
+
+/** One selectable answer, shown with its explanation. */
+export interface QuestionOption {
+  /** Display text (1-5 words, concise). */
+  label: string;
+  /** Explanation of the choice. */
+  description: string;
+}
+
+/** A single question posed to the user mid-run. */
+export interface QuestionPrompt {
+  question: string;
+  /** Very short label (max ~30 chars). */
+  header: string;
+  options: QuestionOption[];
+  /** Allow selecting multiple options (default: single-select). */
+  multiple?: boolean;
+}
+
+/** A pending question block awaiting user answers. */
+export interface QuestionRequest {
+  id: QuestionRequestId;
+  sessionId?: SessionId;
+  questions: QuestionPrompt[];
+}
+
+// --- todos (the agent's tracked task list for the session) ---
+
+export interface TodoItem {
+  content: string;
+  status: TodoStatus;
+  priority: TodoPriority;
 }
 
 export interface Job {

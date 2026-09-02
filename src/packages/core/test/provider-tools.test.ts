@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderOutbound, type ToolCallPayload, type ToolResultPayload } from "../src/run/history";
 import { toAnthropicMessages, toAnthropicTools } from "../src/provider/adapters/anthropic";
-import { toOpenAiMessages, toOpenAiTools } from "../src/provider/adapters/openai";
+import { toOpenAiMessages, toOpenAiTools, OpenAiToolCallAccumulator } from "../src/provider/adapters/openai";
 import type { Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
 
 function part(ord: number, kind: Part["kind"], payload: unknown): Part {
@@ -152,5 +152,75 @@ describe("openai adapter mapping", () => {
   test("tools map to function descriptors", () => {
     const tools = toOpenAiTools([{ name: "t", description: "d", schema: { type: "object" } }]);
     expect(tools).toEqual([{ type: "function", function: { name: "t", description: "d", parameters: { type: "object" } } }]);
+  });
+});
+
+describe("OpenAiToolCallAccumulator (streaming tool-call grouping)", () => {
+  test("proper server: stable index, id/name only on the first chunk", () => {
+    const acc = new OpenAiToolCallAccumulator();
+    const events = [
+      ...acc.map([{ index: 0, id: "call_x", function: { name: "question", arguments: "" } }]),
+      ...acc.map([{ index: 0, function: { arguments: "{" } }]),
+      ...acc.map([{ index: 0, function: { arguments: '"questions"' } }]),
+      ...acc.map([{ index: 0, function: { arguments: "}" } }]),
+    ];
+    expect(events).toEqual([
+      { id: "call_x", name: "question", argsDelta: "" },
+      { id: "call_x", name: "question", argsDelta: "{" },
+      { id: "call_x", name: "question", argsDelta: '"questions"' },
+      { id: "call_x", name: "question", argsDelta: "}" },
+    ]);
+  });
+
+  test("broken server: index bumps per fragment, no id/name after the first", () => {
+    // The GLM-gateway pattern that produced "✗ unknown <json fragment>" spam.
+    const acc = new OpenAiToolCallAccumulator();
+    const events = [
+      ...acc.map([{ index: 0, id: "call_x", function: { name: "question", arguments: "{" } }]),
+      ...acc.map([{ index: 1, function: { arguments: '"questions"' } }]),
+      ...acc.map([{ index: 2, function: { arguments: ":" } }]),
+      ...acc.map([{ index: 3, function: { arguments: "[" } }]),
+      ...acc.map([{ index: 4, function: { arguments: "}" } }]),
+    ];
+    // All fragments collapse into ONE call with the real name.
+    expect(events).toEqual([
+      { id: "call_x", name: "question", argsDelta: "{" },
+      { id: "call_x", name: "question", argsDelta: '"questions"' },
+      { id: "call_x", name: "question", argsDelta: ":" },
+      { id: "call_x", name: "question", argsDelta: "[" },
+      { id: "call_x", name: "question", argsDelta: "}" },
+    ]);
+  });
+
+  test("proper server with parallel tool calls stays separate", () => {
+    const acc = new OpenAiToolCallAccumulator();
+    const events = [
+      ...acc.map([{ index: 0, id: "a", function: { name: "web.search", arguments: "" } }]),
+      ...acc.map([{ index: 1, id: "b", function: { name: "web.fetch", arguments: "" } }]),
+      ...acc.map([{ index: 0, function: { arguments: '{"q":"x"}' } }]),
+      ...acc.map([{ index: 1, function: { arguments: '{"url":"y"}' } }]),
+    ];
+    expect(events.map((e) => e.id)).toEqual(["a", "b", "a", "b"]);
+    expect(events[2]).toEqual({ id: "a", name: "web.search", argsDelta: '{"q":"x"}' });
+    expect(events[3]).toEqual({ id: "b", name: "web.fetch", argsDelta: '{"url":"y"}' });
+  });
+
+  test("no index at all: fragments merge into the last call", () => {
+    const acc = new OpenAiToolCallAccumulator();
+    const events = [
+      ...acc.map([{ id: "c1", function: { name: "todo", arguments: "" } }]),
+      ...acc.map([{ function: { arguments: "{" } }]),
+      ...acc.map([{ function: { arguments: "}" } }]),
+    ];
+    expect(events).toEqual([
+      { id: "c1", name: "todo", argsDelta: "" },
+      { id: "c1", name: "todo", argsDelta: "{" },
+      { id: "c1", name: "todo", argsDelta: "}" },
+    ]);
+  });
+
+  test("empty fragments are dropped", () => {
+    const acc = new OpenAiToolCallAccumulator();
+    expect(acc.map([{ index: 0, function: { arguments: "" } }])).toEqual([]);
   });
 });

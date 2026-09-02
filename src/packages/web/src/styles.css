@@ -1013,6 +1013,146 @@ body {
   padding: 0 4px;
 }
 
+/* --- permission modal: allow once / allow always / reject --- */
+
+.perm-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(720px, 100%);
+  max-height: min(560px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.perm-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.perm-tool {
+  margin: 0;
+}
+
+.perm-summary {
+  margin: 0;
+  color: var(--dim);
+}
+
+.perm-diff {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 260px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.diff-add { color: #4ec96a; }
+.diff-del { color: #f0705f; }
+.diff-hunk { color: var(--dim); }
+.diff-ctx { color: var(--dim); opacity: 0.75; }
+
+.perm-reject {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perm-reject textarea {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+.perm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.perm-actions button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.perm-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.perm-actions .perm-primary {
+  border-color: #2f7d4f;
+  color: #4ec96a;
+}
+
+.perm-actions .perm-danger {
+  border-color: #b0483c;
+  color: #f0705f;
+}
+
+.perm-actions .perm-ghost {
+  color: var(--dim);
+}
+
+/* --- question modal: agent → user asks --- */
+
+.question-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.question-header {
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.question-text {
+  margin: 0;
+}
+
+.question-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.question-option input {
+  accent-color: #4ec96a;
+}
+
+.question-custom {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 10px;
+  font: inherit;
+}
+
 .modal-close:hover {
   color: var(--text);
 }

@@ -599,7 +599,7 @@ export function ChatView({
                     const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
                     const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
                     return (
-                      <Text key={c.callId} wrap="wrap">
+                      <Text key={c.callId} wrap="truncate">
                         {lineMarker}
                         <Text color={color}>{glyph} </Text>
                         <Text dimColor>{c.name}</Text>

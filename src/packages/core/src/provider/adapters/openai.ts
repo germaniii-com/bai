@@ -74,6 +74,71 @@ export function toOpenAiTools(tools: ToolDef[]): { type: "function"; function: {
   }));
 }
 
+/** One streaming tool-call fragment as the SDK delivers it. */
+export interface OpenAiToolCallDelta {
+  index?: number;
+  id?: string;
+  function?: { name?: string; arguments?: string };
+}
+
+/** A grouped tool call: stable id + accumulated name, fed by fragments. */
+export interface GroupedToolCall {
+  id: string;
+  name: string;
+  argsDelta: string;
+}
+
+/**
+ * Groups streaming `delta.tool_calls` fragments into stable tool calls.
+ *
+ * The OpenAI wire contract identifies a tool call by `index` across chunks;
+ * `id` and `name` usually arrive only on that index's first chunk. Some
+ * OpenAI-compatible servers (GLM gateways, etc.) instead bump `index` per
+ * fragment and omit id/name on later chunks — without grouping, every JSON
+ * fragment of the arguments becomes a separate "unknown" tool call.
+ *
+ * Resolution rule per fragment:
+ *   - has id/name            → (re)open the call at its index, record identity
+ *   - index already seen     → continuation of that call (proper servers)
+ *   - new index, no identity → continuation of the most recent call
+ *                              (broken servers that bump index per fragment)
+ */
+export class OpenAiToolCallAccumulator {
+  private byIndex = new Map<number, { id: string; name: string }>();
+  private last: { id: string; name: string } | undefined;
+  private nextIndex = 0;
+
+  map(deltas: OpenAiToolCallDelta[]): GroupedToolCall[] {
+    const out: GroupedToolCall[] = [];
+    for (const call of deltas) {
+      const index = call.index ?? this.nextIndex++;
+      const id = typeof call.id === "string" ? call.id : "";
+      const name = typeof call.function?.name === "string" ? call.function.name : "";
+      const hasIdentity = id.length > 0 || name.length > 0;
+
+      let acc: { id: string; name: string };
+      if (hasIdentity) {
+        acc = this.byIndex.get(index) ?? { id: "", name: "" };
+        this.byIndex.set(index, acc);
+        if (id.length > 0) acc.id = id;
+        if (name.length > 0) acc.name = name;
+      } else if (this.byIndex.has(index)) {
+        acc = this.byIndex.get(index) as { id: string; name: string }; // proper server: same index continues
+      } else {
+        acc = this.last ?? { id: "", name: "" }; // broken server: new index, no identity → keep going
+        this.byIndex.set(index, acc);
+      }
+      this.last = acc;
+
+      const argsDelta = call.function?.arguments ?? "";
+      if (acc.id.length > 0 || acc.name.length > 0 || argsDelta.length > 0) {
+        out.push({ id: acc.id.length > 0 ? acc.id : `__idx_${index}`, name: acc.name, argsDelta });
+      }
+    }
+    return out;
+  }
+}
+
 export class OpenAiCompatProvider implements Provider {
   constructor(private providerId: string) {}
 
@@ -118,6 +183,10 @@ export class OpenAiCompatProvider implements Provider {
 
     async function* generate(): AsyncGenerator<StreamEvent> {
       let stopReason = "end_turn";
+      // Groups tool-call fragments by index (see OpenAiToolCallAccumulator) —
+      // without this, servers that omit id/name on later chunks would turn
+      // every JSON fragment into a separate "unknown" tool call.
+      const toolAccum = new OpenAiToolCallAccumulator();
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
         const delta = choice?.delta;
@@ -132,13 +201,8 @@ export class OpenAiCompatProvider implements Provider {
           yield { type: "text_delta", delta: delta.content };
         }
         if (delta?.tool_calls !== undefined) {
-          for (const call of delta.tool_calls) {
-            const id = call.id ?? "";
-            const name = call.function?.name ?? "";
-            const argsDelta = call.function?.arguments ?? "";
-            if (id.length > 0 || name.length > 0 || argsDelta.length > 0) {
-              yield { type: "tool_call_delta", id, name, argsDelta };
-            }
+          for (const grouped of toolAccum.map(delta.tool_calls as OpenAiToolCallDelta[])) {
+            yield { type: "tool_call_delta", id: grouped.id, name: grouped.name, argsDelta: grouped.argsDelta };
           }
         }
         if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {

@@ -137,6 +137,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     toolLoader,
     config: () => configStore.get(),
     version: VERSION,
+    plansDir: path.join(configDir(), "plans"),
   });
 
   const token = resolveToken(args, config);
@@ -164,6 +165,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
     ...(token !== undefined ? { token } : {}),
     stop: async () => {
       core.coordinator.interruptAll();
+      // Fail pending agent→user questions so no tool promise hangs.
+      core.questions.stop();
       agents.stop();
       toolLoader.stop();
       store.close();

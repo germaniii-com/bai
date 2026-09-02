@@ -11,9 +11,11 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
 `bai/` repository; same architecture, same roadmap). It runs on **Bun**, uses
 **Hono** for the API, **React Ink** for the TUI, and **React + Vite** for web.
 
-- **Status:** implemented through the code-workbench phase (§16): chat, sync,
-  agents, file tools, interactive permissions, token discipline + compaction
-  ship today. MCP (§11), media adapters, and desktop are next.
+- **Status:** implemented through the code-workbench phase (§16): chat,
+  sync, agents (`build`/`plan`/`chat` built-ins + hot-reloaded files), file
+  tools + bash/grep, interactive permissions (diff-rendered asks, reject
+  feedback, TUI+web dialogs), question/todo/web tools, token discipline +
+  compaction ship today. MCP (§11), media adapters, and desktop are next.
 - **Packages:** npm scope `@bai/*` under `src/packages/`.
 - **Companion docs:** [README.md](README.md),
   [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
@@ -562,7 +564,7 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 | **0 — Skeleton**          | workspaces, mode dispatch, config layers, store+migrations, hello-world API, web shell, TUI shell, compile pipeline        | `bai` opens TUI; `bai --web` serves SPA; `bai --one-shot hi` prints NDJSON | ✅ shipped |
 | **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         | ✅ shipped |
 | **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
-| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | 🔨 in progress — agents + fs tools + interactive permissions + discipline/compaction shipped; bash/grep tools pending |
+| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | ✅ shipped (diff viewer with revert pending) |
 | **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
 | **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               | ⏳ pending (structured stubs live — see FEATURES.md) |
 | **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |

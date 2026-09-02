@@ -4,11 +4,20 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   agentFrontmatterSchema,
   BUILTIN_BUILD_AGENT,
+  BUILTIN_CHAT_AGENT,
+  BUILTIN_PLAN_AGENT,
   isValidAgentName,
   type AgentFrontmatter,
   type AgentInfo,
   type PutAgentBody,
 } from "@bai/shared";
+
+/** Built-ins beyond `build` — always present, never file-shadowable. */
+const BUILTIN_AGENTS = [BUILTIN_BUILD_AGENT, BUILTIN_CHAT_AGENT, BUILTIN_PLAN_AGENT];
+
+function builtinFor(name: string): AgentInfo | undefined {
+  return BUILTIN_AGENTS.find((a) => a.name === name);
+}
 
 /**
  * Frontmatter delimiter plan for one agent markdown file:
@@ -75,6 +84,9 @@ export interface AgentRegistryOpts {
   dir: string;
   /** Watcher debounce; tests lower this. Default 150ms. */
   debounceMs?: number;
+  /** Polling safety-net interval (fs.watch misses events under load / on
+   * some FSEvents setups). 0 disables. Default 2000ms. */
+  pollMs?: number;
   /** Fired after a rescan actually changed the agent set (watcher or CRUD). */
   onChange?: () => void;
 }
@@ -92,6 +104,7 @@ export class AgentRegistry {
   private agents = new Map<string, AgentInfo>();
   private watcher: ReturnType<typeof watch> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private poller: ReturnType<typeof setInterval> | undefined;
   private signature = "";
   private readonly debounceMs: number;
 
@@ -100,6 +113,15 @@ export class AgentRegistry {
     mkdirSync(opts.dir, { recursive: true });
     this.scan();
     this.watchDir();
+    // Safety net: fs.watch (FSEvents) can miss or delay events under load;
+    // a slow rescan loop guarantees eventual hot-reload either way.
+    const pollMs = opts.pollMs ?? 2000;
+    if (pollMs > 0) {
+      this.poller = setInterval(() => {
+        if (this.scan() && this.opts.onChange) this.opts.onChange();
+      }, pollMs);
+      this.poller.unref?.();
+    }
   }
 
   /** Rescan the directory; returns true when the agent set changed. */
@@ -113,7 +135,7 @@ export class AgentRegistry {
     }
     for (const file of entries) {
       const name = file.slice(0, -3);
-      if (name === BUILTIN_BUILD_AGENT.name) continue; // build is built-in, never file-defined
+      if (builtinFor(name) !== undefined) continue; // built-ins are never file-defined
       if (!isValidAgentName(name)) {
         console.warn(`[bai] agent file ignored, invalid name: ${file}`);
         continue;
@@ -137,13 +159,13 @@ export class AgentRegistry {
   }
 
   get(name: string): AgentInfo | undefined {
-    if (name === BUILTIN_BUILD_AGENT.name) return BUILTIN_BUILD_AGENT;
-    return this.agents.get(name);
+    return builtinFor(name) ?? this.agents.get(name);
   }
 
-  /** build first, then file agents alphabetically. */
+  /** build first, then built-ins, then file agents alphabetically. */
   list(): AgentInfo[] {
-    return [BUILTIN_BUILD_AGENT, ...[...this.agents.values()].sort((a, b) => a.name.localeCompare(b.name))];
+    const fileAgents = [...this.agents.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...BUILTIN_AGENTS, ...fileAgents];
   }
 
   /** The default agent for sessions (always present). */
@@ -159,7 +181,7 @@ export class AgentRegistry {
   /** Create or replace an agent file; the watcher/scan picks it up immediately. */
   put(name: string, input: PutAgentBody): AgentInfo {
     if (!isValidAgentName(name)) throw new Error(`Invalid agent name: ${name}`);
-    if (name === BUILTIN_BUILD_AGENT.name) throw new Error(`"${name}" is built-in and cannot be overwritten`);
+    if (builtinFor(name) !== undefined) throw new Error(`"${name}" is built-in and cannot be overwritten`);
     const tmp = `${this.fileFor(name)}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(tmp, serializeAgentMarkdown(input));
     renameSync(tmp, this.fileFor(name));
@@ -168,7 +190,7 @@ export class AgentRegistry {
   }
 
   remove(name: string): boolean {
-    if (name === BUILTIN_BUILD_AGENT.name) throw new Error(`"${name}" is built-in and cannot be deleted`);
+    if (builtinFor(name) !== undefined) throw new Error(`"${name}" is built-in and cannot be deleted`);
     const file = this.fileFor(name);
     if (!existsSync(file)) return false;
     rmSync(file);
@@ -178,6 +200,7 @@ export class AgentRegistry {
 
   stop(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.poller !== undefined) clearInterval(this.poller);
     this.watcher?.close();
     this.watcher = undefined;
   }

@@ -8,7 +8,9 @@ import type {
   Event,
   Job,
   Message,
+  PermissionRequest,
   PutAgentBody,
+  QuestionRequest,
   Session,
   ToolListEntry,
 } from "@bai/shared";
@@ -89,9 +91,18 @@ export class BaiClient {
   /**
    * Snapshot-then-stream bootstrap: full history plus the event-log cursor to
    * pass as `after` when opening the session stream (no replay duplicates).
-   * `runActive` reports a run already in flight at snapshot time.
+   * `runActive` reports a run already in flight at snapshot time;
+   * `pendingPermissions` carries asks raised before this surface connected.
    */
-  async historySnapshot(id: string): Promise<{ messages: Message[]; afterSeq: number; runActive: boolean }> {
+  async historySnapshot(
+    id: string,
+  ): Promise<{
+    messages: Message[];
+    afterSeq: number;
+    runActive: boolean;
+    pendingPermissions: PermissionRequest[];
+    pendingQuestions: QuestionRequest[];
+  }> {
     const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);
     return res.json();
@@ -112,13 +123,31 @@ export class BaiClient {
 
   async replyPermission(
     id: string,
-    body: { status: "approved" | "rejected"; scope?: "once" | "always" },
+    body: { status: "approved" | "rejected"; scope?: "once" | "always"; message?: string },
   ): Promise<void> {
     const res = await this.rpc().permission[":id"].reply.$post({
       param: { id: encodeURIComponent(id) },
       json: body,
     });
     if (!res.ok) throw new Error(`permission reply failed: ${res.status}`);
+  }
+
+  /** Answer a pending question block (one label-array per question, in order). */
+  async replyQuestion(id: string, answers: string[][]): Promise<void> {
+    const res = await this.rpc().question[":id"].reply.$post({
+      param: { id: encodeURIComponent(id) },
+      json: { answers },
+    });
+    if (!res.ok) throw new Error(`question reply failed: ${res.status}`);
+  }
+
+  /** Dismiss a pending question block; the optional message is context for the model. */
+  async rejectQuestion(id: string, message?: string): Promise<void> {
+    const res = await this.rpc().question[":id"].reject.$post({
+      param: { id: encodeURIComponent(id) },
+      json: { ...(message !== undefined ? { message } : {}) },
+    });
+    if (!res.ok) throw new Error(`question reject failed: ${res.status}`);
   }
 
   async getConfig(): Promise<Config> {

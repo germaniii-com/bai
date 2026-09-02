@@ -65,6 +65,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     toolLoader,
     config: () => config,
     version: "test",
+    plansDir: join(dir, "plans"),
   });
   const deps: ApiDeps = {
     core,

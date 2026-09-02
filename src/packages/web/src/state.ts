@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Event, Message, Part, SessionId } from "@bai/shared";
+import type { Event, Message, Part, PermissionRequest, QuestionRequest, SessionId } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list (mirrors the TUI's semantics). */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -81,6 +81,40 @@ export function messageText(message: Message): string {
   return message.parts
     .map((p) => (p.kind === "text" ? ((p.payload as { text?: string } | null)?.text ?? "") : ""))
     .join("");
+}
+
+/**
+ * Pure reducer for the pending-permission queue over session-stream events
+ * (mirrors the TUI's helper): asked → append (dedup — replay may redeliver),
+ * replied → drop, anything else passes through.
+ */
+export function applyPermissionEvent(list: PermissionRequest[], evt: Event): PermissionRequest[] {
+  if (evt.type === "permission.asked") {
+    const request = (evt.payload as { request: PermissionRequest }).request;
+    return list.some((r) => r.id === request.id) ? list : [...list, request];
+  }
+  if (evt.type === "permission.replied") {
+    const requestId = (evt.payload as { requestId: PermissionRequest["id"] }).requestId;
+    return list.filter((r) => r.id !== requestId);
+  }
+  return list;
+}
+
+/**
+ * Pure reducer for the pending-question queue over session-stream events
+ * (mirrors the TUI's helper): asked → append (dedup), replied/rejected →
+ * drop, anything else passes through.
+ */
+export function applyQuestionEvent(list: QuestionRequest[], evt: Event): QuestionRequest[] {
+  if (evt.type === "question.asked") {
+    const request = (evt.payload as { request: QuestionRequest }).request;
+    return list.some((r) => r.id === request.id) ? list : [...list, request];
+  }
+  if (evt.type === "question.replied" || evt.type === "question.rejected") {
+    const requestId = (evt.payload as { requestId: QuestionRequest["id"] }).requestId;
+    return list.filter((r) => r.id !== requestId);
+  }
+  return list;
 }
 
 /** Flatten a message's reasoning (thinking) parts — shown behind the reveal panel. */

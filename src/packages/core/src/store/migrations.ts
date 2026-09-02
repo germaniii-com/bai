@@ -89,4 +89,6 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
   CREATE INDEX IF NOT EXISTS idx_assets_job ON assets(job_id);
   `,
+  // 002 — permission asks carry renderable detail (summary/diff, see AskDetail)
+  `ALTER TABLE permissions ADD COLUMN detail TEXT;`,
 ];

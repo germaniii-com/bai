@@ -1,5 +1,5 @@
-import type { AssetId, InputId, JobId, MessageId, PartId, PermissionRequestId, SessionId } from "./ids";
-import type { Asset, Job, Message, PermissionRequest, Session } from "./domain";
+import type { AssetId, InputId, JobId, MessageId, PartId, PermissionRequestId, QuestionRequestId, SessionId } from "./ids";
+import type { Asset, Job, Message, PermissionRequest, QuestionRequest, Session, TodoItem } from "./domain";
 
 /** Modality names — the workbench registry keys. */
 export type WorkbenchName = "chat" | "code" | "image" | "video";
@@ -20,8 +20,12 @@ export type AssetKind = "image" | "video" | "audio" | "file";
 
 export type PermissionStatus = "pending" | "approved" | "rejected";
 
+export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export type TodoPriority = "high" | "medium" | "low";
+
 // Re-exported domain shapes live in domain.ts; these aliases keep imports tidy.
-export type { Asset, Job, Message, PermissionRequest, Session };
+export type { Asset, Job, Message, PermissionRequest, Session, TodoItem };
 
 /** Typed event names → payload shapes. The wire contract between server and every surface. */
 export interface EventPayloads {
@@ -35,6 +39,12 @@ export interface EventPayloads {
   "run.finished": { aborted?: boolean; error?: string };
   "permission.asked": { request: PermissionRequest };
   "permission.replied": { requestId: PermissionRequestId; status: PermissionRequest["status"] };
+  /** The agent asks the user questions mid-run (the `question` tool). */
+  "question.asked": { request: QuestionRequest };
+  "question.replied": { requestId: QuestionRequestId; answers: string[][] };
+  "question.rejected": { requestId: QuestionRequestId; message?: string };
+  /** The session todo list changed (the `todo` tool; list lives in session.meta). */
+  "todos.updated": { todos: TodoItem[] };
   "job.updated": { job: Job };
   "asset.created": { asset: Asset };
   "config.updated": Record<string, never>;
@@ -60,6 +70,10 @@ export const EVENT_TYPES = Object.keys({
   "run.finished": 1,
   "permission.asked": 1,
   "permission.replied": 1,
+  "question.asked": 1,
+  "question.replied": 1,
+  "question.rejected": 1,
+  "todos.updated": 1,
   "job.updated": 1,
   "asset.created": 1,
   "config.updated": 1,

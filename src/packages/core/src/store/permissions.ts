@@ -9,10 +9,19 @@ interface PermissionRow {
   args_digest: string;
   status: string;
   rule: string | null;
+  detail: string | null;
   created_at: string;
 }
 
 function toRequest(row: PermissionRow): PermissionRequest {
+  let detail: PermissionRequest["detail"];
+  if (row.detail !== null && row.detail.length > 0) {
+    try {
+      detail = JSON.parse(row.detail) as PermissionRequest["detail"];
+    } catch {
+      detail = undefined;
+    }
+  }
   return {
     id: row.id as PermissionRequestId,
     ...(row.session_id !== null ? { sessionId: row.session_id as SessionId } : {}),
@@ -20,6 +29,7 @@ function toRequest(row: PermissionRow): PermissionRequest {
     argsDigest: row.args_digest,
     status: row.status as PermissionStatus,
     ...(row.rule !== null ? { rule: row.rule } : {}),
+    ...(detail !== undefined ? { detail } : {}),
     createdAt: row.created_at,
   };
 }
@@ -32,12 +42,14 @@ export class PermissionsRepo {
     tool: string;
     argsDigest: string;
     rule?: string;
+    /** Renderable ask context (AskDetail) persisted so snapshots replay it. */
+    detail?: unknown;
     now: string;
   }): PermissionRequest {
     const id = newId.permissionRequest();
     this.db
-      .query("INSERT INTO permissions (id, session_id, tool, args_digest, status, rule, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
-      .run(id, opts.sessionId ?? null, opts.tool, opts.argsDigest, opts.rule ?? null, opts.now);
+      .query("INSERT INTO permissions (id, session_id, tool, args_digest, status, rule, detail, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)")
+      .run(id, opts.sessionId ?? null, opts.tool, opts.argsDigest, opts.rule ?? null, opts.detail !== undefined ? JSON.stringify(opts.detail) : null, opts.now);
     return this.get(id) as PermissionRequest;
   }
 

@@ -29,6 +29,21 @@ export const permissionReplySchema = z.object({
   status: z.enum(["approved", "rejected"]),
   /** "once" (default) or "always" (persists for the session). */
   scope: z.enum(["once", "always"]).default("once"),
+  /**
+   * Optional user feedback carried on rejection (opencode's CorrectedError):
+   * the denied tool result tells the model WHY it was refused.
+   */
+  message: z.string().max(2000).optional(),
+});
+
+/** POST /api/question/:id/reply — one answer array per question, in order. */
+export const questionReplySchema = z.object({
+  answers: z.array(z.array(z.string().min(1)).max(20)).min(1).max(20),
+});
+
+/** POST /api/question/:id/reject — dismiss the whole question block. */
+export const questionRejectSchema = z.object({
+  message: z.string().max(2000).optional(),
 });
 
 /** POST /api/job */

@@ -10,6 +10,7 @@ import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry"
 import type { Provider, StreamEvent, ToolDef } from "./provider/types";
 import type { Store } from "./store/store";
 import type { ToolContext, ToolRegistry } from "./tools/registry";
+import { askDetailFor } from "./tools/ask-detail";
 import { isDefaultTitle, sanitizeGeneratedTitle, TITLE_SYSTEM_PROMPT } from "./title";
 
 interface ActiveRun {
@@ -50,6 +51,19 @@ interface ParsedCall {
   name: string;
   args: string;
   partId: PartId;
+}
+
+/** One turn's wiring — agent, model, credentials, tool defs (see resolveRunContext). */
+interface RunContext {
+  agent: AgentInfo;
+  provider: Provider;
+  providerId: string;
+  model: string;
+  reasoning: boolean | undefined;
+  contextWindow: number | undefined;
+  credentials: ResolvedCredentials;
+  toolDefs: ToolDef[];
+  auth: { apiKey?: string; baseUrl?: string };
 }
 
 /**
@@ -137,23 +151,6 @@ export class RunCoordinator {
     const session = this.deps.store.sessions.get(sessionId);
     if (!session) return;
     const meta = session.meta as { model?: unknown; account?: unknown; oneshot?: unknown; agent?: unknown };
-    // Agent resolution tiers: session meta selection → config default agent
-    // (agents.default) → the built-in build agent. Unknown names at any tier
-    // fall back with a console warning (surfaces can refetch agents via
-    // agents.updated, so a stale selection degrades gracefully).
-    const requestedAgent = typeof meta.agent === "string" && meta.agent.length > 0 ? meta.agent : undefined;
-    let agent: AgentInfo | undefined = requestedAgent !== undefined ? this.deps.agents.get(requestedAgent) : undefined;
-    if (requestedAgent !== undefined && agent === undefined) {
-      console.warn(`[bai] session ${sessionId} selected unknown agent "${requestedAgent}"; using default`);
-    }
-    const defaultAgentName = this.deps.defaultAgent();
-    if (agent === undefined && typeof defaultAgentName === "string" && defaultAgentName.length > 0) {
-      agent = this.deps.agents.get(defaultAgentName);
-      if (agent === undefined) {
-        console.warn(`[bai] config default agent "${defaultAgentName}" not found; using default`);
-      }
-    }
-    agent = agent ?? this.deps.agents.default();
 
     // Session titling: untitled sessions are created as "New Chat Session -
     // <timestamp>"; the first prompt of a default-titled session kicks off a
@@ -162,18 +159,13 @@ export class RunCoordinator {
     const firstPrompt = promoted[0]?.payload.text ?? "";
     const refineTitle = isDefaultTitle(session.title) && meta.oneshot !== true && firstPrompt.length > 0;
 
-    // Model precedence: explicit per-session choice > agent default > global.
-    const modelId =
-      typeof meta.model === "string" && meta.model.length > 0
-        ? meta.model
-        : (agent.model ?? this.deps.defaultModel());
-    const { provider, providerId, model, reasoning, contextWindow } = await this.deps.providers.resolveModel(modelId);
-    const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
-    const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
-    const credentials = await this.deps.providers.resolveCredentials(providerId, account);
+    // Everything a turn needs — agent, model wiring, tool defs — in one
+    // re-resolvable snapshot. Re-resolved mid-run when the session's agent
+    // changes (plan.exit's mid-run switch to build).
+    let run = await this.resolveRunContext(sessionId);
 
-    if (refineTitle && providerId !== "stub") {
-      const title = await this.resolveTitleModel(providerId, { provider, model, credentials });
+    if (refineTitle && run.providerId !== "stub") {
+      const title = await this.resolveTitleModel(run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials });
       this.refineSessionTitle({
         sessionId,
         provider: title.provider,
@@ -184,18 +176,11 @@ export class RunCoordinator {
       });
     }
 
-    // Tool defs for THIS run: registry ∩ agent allow-list ("*" = everything).
-    const baseTools = this.toolDefsFor(agent);
-    const auth = {
-      ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
-      ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
-    };
-
     for (let step = 1; ; step++) {
       const finalStep = step >= MAX_STEPS;
-      const toolDefs = finalStep ? [] : baseTools;
+      const toolDefs = finalStep ? [] : run.toolDefs;
       const system = [
-        ...(agent.prompt.trim().length > 0 ? [agent.prompt] : []),
+        ...(run.agent.prompt.trim().length > 0 ? [run.agent.prompt] : []),
         ...(finalStep ? [STEPS_NOTICE] : []),
       ];
 
@@ -211,14 +196,14 @@ export class RunCoordinator {
       applyDiscipline(history);
       const outbound = renderOutbound(history, { system });
 
-      const stream = await provider.stream({
-        model,
+      const stream = await run.provider.stream({
+        model: run.model,
         messages: outbound,
         ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
-        auth,
+        auth: run.auth,
         // Reasoning models: enable extended thinking so reasoning tokens flow
         // (chat turns; adapters skip thinking on agentic turns themselves).
-        ...(reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
+        ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
         signal,
       });
 
@@ -247,7 +232,7 @@ export class RunCoordinator {
       if (calls.length === 0 || signal.aborted) {
         // End-of-run compaction check: the recorded usage decides whether
         // the next prompt starts from a summary pointer.
-        await this.maybeCompact(sessionId, usage, contextWindow, providerId, { provider, model, credentials }, signal);
+        await this.maybeCompact(sessionId, usage, run.contextWindow, run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials }, signal);
         break;
       }
 
@@ -263,10 +248,80 @@ export class RunCoordinator {
 
       const outcomes = await this.executeCalls(sessionId, assistant.id, calls, signal);
 
+      // Mid-run agent switch (plan.exit → build): the session's meta.agent
+      // changed while executing — re-resolve agent, model, and tool defs so
+      // the next step continues with the new agent (opencode's plan→build).
+      const switched = await this.refreshAgentIfSwitched(sessionId, run.agent.name);
+      if (switched !== undefined) run = switched;
+
       if (finalStep) break;
       // Fail-closed: if every call was denied, end the run instead of
       // letting the model retry into the same wall.
       if (outcomes.length > 0 && outcomes.every((o) => o === "denied")) break;
+    }
+  }
+
+  /**
+   * One turn's wiring: agent (meta → config default → built-in), model
+   * (session choice → agent default → global), credentials, and the tool
+   * defs (registry ∩ agent allow-list, order-stable for prompt caching).
+   */
+  private async resolveRunContext(sessionId: SessionId): Promise<RunContext> {
+    const meta = this.readMeta(sessionId) as { model?: unknown; account?: unknown; agent?: unknown };
+    const requestedAgent = typeof meta.agent === "string" && meta.agent.length > 0 ? meta.agent : undefined;
+    let agent: AgentInfo | undefined = requestedAgent !== undefined ? this.deps.agents.get(requestedAgent) : undefined;
+    if (requestedAgent !== undefined && agent === undefined) {
+      console.warn(`[bai] session ${sessionId} selected unknown agent "${requestedAgent}"; using default`);
+    }
+    const defaultAgentName = this.deps.defaultAgent();
+    if (agent === undefined && typeof defaultAgentName === "string" && defaultAgentName.length > 0) {
+      agent = this.deps.agents.get(defaultAgentName);
+      if (agent === undefined) {
+        console.warn(`[bai] config default agent "${defaultAgentName}" not found; using default`);
+      }
+    }
+    agent = agent ?? this.deps.agents.default();
+
+    // Model precedence: explicit per-session choice > agent default > global.
+    const modelId =
+      typeof meta.model === "string" && meta.model.length > 0
+        ? meta.model
+        : (agent.model ?? this.deps.defaultModel());
+    const { provider, providerId, model, reasoning, contextWindow } = await this.deps.providers.resolveModel(modelId);
+    const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
+    const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
+    const credentials = await this.deps.providers.resolveCredentials(providerId, account);
+
+    return {
+      agent,
+      provider,
+      providerId,
+      model,
+      reasoning,
+      contextWindow,
+      credentials,
+      toolDefs: this.toolDefsFor(agent),
+      auth: {
+        ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
+        ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
+      },
+    };
+  }
+
+  /**
+   * When the session's agent selection changed during the last executeCalls
+   * (plan.exit's switchAgent), re-resolve the run context. Returns undefined
+   * when nothing changed or re-resolution failed (the current context stays).
+   */
+  private async refreshAgentIfSwitched(sessionId: SessionId, currentAgent: string): Promise<RunContext | undefined> {
+    const selected = this.readMeta(sessionId).agent;
+    if (typeof selected !== "string" || selected.length === 0 || selected === currentAgent) return undefined;
+    if (this.deps.agents.get(selected) === undefined) return undefined; // unknown name — keep current
+    try {
+      return await this.resolveRunContext(sessionId);
+    } catch (err) {
+      console.warn(`[bai] agent switch to "${selected}" failed to resolve; continuing as ${currentAgent}: ${err instanceof Error ? err.message : err}`);
+      return undefined;
     }
   }
 
@@ -499,6 +554,18 @@ export class RunCoordinator {
       signal,
       emitLive: (type: EventType, payload: unknown) => this.emitLive(type, payload),
       ask: async (tool, metadata) => this.deps.permissions.authorize({ tool, sessionId, metadata }),
+      // plan.exit's mid-run switch: flip session.meta.agent + broadcast; the
+      // drain loop re-resolves the run context after this batch.
+      switchAgent: async (name) => {
+        const target = this.deps.agents.get(name);
+        if (target === undefined) return false;
+        const current = this.deps.store.sessions.get(sessionId);
+        if (current === undefined) return false;
+        const meta = { ...(current.meta as Record<string, unknown>), agent: name };
+        const updated = this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
+        if (updated !== undefined) this.emitDurable(sessionId, "session.updated", { session: updated });
+        return true;
+      },
     };
 
     for (const call of calls) {
@@ -533,10 +600,20 @@ export class RunCoordinator {
       }
 
       // Central fail-closed check (config deny works even for tools that
-      // never call ctx.ask). Read-only tools default to allow.
-      const allowed = await this.deps.permissions.authorize({ tool: call.name, sessionId, metadata: args as Record<string, unknown> });
-      if (!allowed) {
-        this.persistToolResult(sessionId, assistantId, call, `Permission denied for tool: ${call.name}. Ask the user to allow it, or use a different approach.`, true);
+      // never call ctx.ask). Read-only tools default to allow. Write/edit
+      // asks carry a computed diff so surfaces can preview the change; a
+      // rejection may carry the user's feedback, which becomes the reason
+      // the model sees (opencode's CorrectedError pattern).
+      const detail = askDetailFor(call.name, args, session?.cwd);
+      const verdict = await this.deps.permissions.authorize({
+        tool: call.name,
+        sessionId,
+        metadata: args as Record<string, unknown>,
+        ...(detail !== undefined ? { detail } : {}),
+      });
+      if (!verdict.allowed) {
+        const feedback = verdict.feedback !== undefined ? ` User feedback: "${verdict.feedback}".` : "";
+        this.persistToolResult(sessionId, assistantId, call, `Permission denied for tool: ${call.name}.${feedback} Ask the user to allow it, or use a different approach.`, true);
         outcomes.push("denied");
         continue;
       }

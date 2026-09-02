@@ -14,6 +14,7 @@ export type PartId = Brand<string, "part">;
 export type InputId = Brand<string, "inp">;
 export type RunId = Brand<string, "run">;
 export type PermissionRequestId = Brand<string, "perm">;
+export type QuestionRequestId = Brand<string, "que">;
 export type JobId = Brand<string, "job">;
 export type AssetId = Brand<string, "ast">;
 
@@ -84,6 +85,9 @@ export const newId = {
   },
   permissionRequest(): PermissionRequestId {
     return `perm_${ulid()}` as PermissionRequestId;
+  },
+  questionRequest(): QuestionRequestId {
+    return `que_${ulid()}` as QuestionRequestId;
   },
   job(): JobId {
     return `job_${ulid()}` as JobId;

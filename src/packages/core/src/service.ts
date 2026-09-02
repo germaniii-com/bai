@@ -13,6 +13,7 @@ import {
   type PermissionStatus,
   type PromptPayload,
   type ProviderListResponse,
+  type QuestionRequest,
   type Session,
   type SessionId,
   type WorkbenchName,
@@ -26,10 +27,19 @@ import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
 import { PermissionGate } from "./permissions/ask";
+import { QuestionService } from "./question/service";
 import type { ProviderRegistry } from "./provider/registry";
 import { RunCoordinator } from "./run";
 import { defaultTitle } from "./title";
 import type { Store } from "./store/store";
+import { questionTool } from "./tools/question";
+import { todoTool } from "./tools/todo";
+import { webFetchTool } from "./tools/web-fetch";
+import { webSearchTool } from "./tools/web-search";
+import { bashTool } from "./tools/bash";
+import { fsGrepTool } from "./tools/fs-grep";
+import { planWriteTool } from "./tools/plan-write";
+import { planExitTool } from "./tools/plan-exit";
 import type { ToolLoader } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { Workbench } from "./workbench/types";
@@ -47,6 +57,11 @@ export interface ServiceDeps {
   toolLoader: ToolLoader;
   config(): Config;
   version: string;
+  /**
+   * Directory the plan agent writes plan files into
+   * (~/.config/bai/plans in production; a temp dir in tests).
+   */
+  plansDir: string;
 }
 
 /**
@@ -58,6 +73,7 @@ export class Service {
   readonly coordinator: RunCoordinator;
   readonly workbenches: Workbench[];
   readonly permissions: PermissionGate;
+  readonly questions: QuestionService;
   private readonly clock: Clock;
 
   constructor(private deps: ServiceDeps) {
@@ -70,6 +86,7 @@ export class Service {
       clock: this.clock,
       config: deps.config,
     });
+    this.questions = new QuestionService({ bus: deps.bus, log: deps.log, clock: this.clock });
     this.coordinator = new RunCoordinator({
       store: deps.store,
       bus: deps.bus,
@@ -86,7 +103,20 @@ export class Service {
     for (const wb of deps.workbenches) {
       deps.tools.registerAll(wb.tools());
     }
-  }
+    // Agent-facing interactive tools — auto-allowed (see DEFAULT_PERMISSIONS)
+    // since they ARE the agent talking to the user, not touching their system.
+    // Web tools stay fail-closed (unmatched → ask); agents opt in via
+    // allow-lists and users opt in via the permission dialog.
+    deps.tools.registerAll([
+      questionTool(this.questions),
+      todoTool({ store: deps.store, bus: deps.bus, log: deps.log, clock: this.clock }),
+      webFetchTool(),
+      webSearchTool({ config: deps.config }),
+      bashTool(),
+      fsGrepTool(),
+      planWriteTool(deps.plansDir),
+      planExitTool(this.questions),
+    ]);  }
 
   // --- sessions ---
 
@@ -175,11 +205,22 @@ export class Service {
    * replay never duplicates what the snapshot already contains. `runActive`
    * covers runs that started before the cursor (a mid-run switch or a
    * just-submitted first prompt) — live events alone can't signal those.
+   * `pendingPermissions` lets a surface opened mid-ask render the dialog
+   * immediately (the replayed `permission.asked` covers the same case; this
+   * is the cheap authoritative answer).
    */
-  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number; runActive: boolean } {
+  sessionSnapshot(sessionId: SessionId): {
+    messages: Message[];
+    afterSeq: number;
+    runActive: boolean;
+    pendingPermissions: PermissionRequest[];
+    pendingQuestions: QuestionRequest[];
+  } {
     return {
       ...this.deps.store.sessionSnapshot(sessionId),
       runActive: this.coordinator.isActive(sessionId),
+      pendingPermissions: this.deps.store.permissions.pendingBySession(sessionId),
+      pendingQuestions: this.questions.pendingBySession(sessionId),
     };
   }
 
@@ -188,15 +229,21 @@ export class Service {
   /**
    * First reply wins (SQL `WHERE status='pending'`): the row flips once,
    * the awaiting tool call resolves, and "always" approvals persist to
-   * session meta via the gate.
+   * session meta via the gate. A rejection may carry `message` — the
+   * user's feedback, forwarded into the denied tool result.
    */
-  replyPermission(id: string, status: PermissionStatus, scope: "once" | "always" = "once"): PermissionRequest | undefined {
+  replyPermission(
+    id: string,
+    status: PermissionStatus,
+    scope: "once" | "always" = "once",
+    message?: string,
+  ): PermissionRequest | undefined {
     const request = this.deps.store.permissions.get(id);
     if (request === undefined) return undefined;
     if (request.status !== "pending") return request; // already answered
     const updated = this.deps.store.permissions.reply(id, status);
     if (updated === undefined) return undefined;
-    this.permissions.reply(id, status as "approved" | "rejected", scope);
+    this.permissions.reply(id, status as "approved" | "rejected", scope, message);
     const evt = this.deps.log.append(
       updated.sessionId ?? id,
       "permission.replied",
@@ -205,6 +252,26 @@ export class Service {
     );
     this.deps.bus.publish(evt);
     return updated;
+  }
+
+  // --- questions (agent → user asks) ---
+
+  /**
+   * Answer a pending question block (first reply wins; later replies are
+   * no-ops returning false). `answers` is one label-array per question.
+   */
+  replyQuestion(id: string, answers: string[][]): boolean {
+    return this.questions.reply(id, answers);
+  }
+
+  /** Dismiss a pending question block; optional user context for the model. */
+  rejectQuestion(id: string, message?: string): boolean {
+    return this.questions.reject(id, message);
+  }
+
+  /** Pending question requests for a session (also rides the snapshot). */
+  pendingQuestions(sessionId: SessionId): QuestionRequest[] {
+    return this.questions.pendingBySession(sessionId);
   }
 
   // --- agents ---

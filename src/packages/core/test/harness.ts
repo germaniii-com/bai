@@ -79,6 +79,7 @@ export function makeCore(): TestCore {
     toolLoader,
     config: testConfig,
     version: "test",
+    plansDir: join(dir, "plans"),
   });
   return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents };
 }

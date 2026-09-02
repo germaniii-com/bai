@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ulid, type EventType, type SessionId } from "@bai/shared";
+import type { AuthorizeResult } from "../permissions/ask";
 
 /** Context handed to tools at execution time. */
 export interface ToolContext {
@@ -12,10 +13,17 @@ export interface ToolContext {
   /**
    * Raise an interactive permission ask for this tool call (write/edit use
    * it implicitly via the central gate; custom tools may call it directly).
-   * Resolves true when approved. `metadata` (e.g. a diff) rides the
-   * permission.asked event to surfaces.
+   * Resolves with the gate verdict (a denial may carry user feedback).
+   * `metadata` (e.g. a diff) rides the permission.asked event to surfaces.
    */
-  ask?(tool: string, metadata?: Record<string, unknown>): Promise<boolean>;
+  ask?(tool: string, metadata?: Record<string, unknown>): Promise<AuthorizeResult>;
+  /**
+   * Switch the session's agent mid-run (plan.exit → build). Sets
+   * session.meta.agent and broadcasts session.updated; the drain loop
+   * re-resolves agent/model/tools before the next step. Resolves false when
+   * the target agent is unknown or the session is gone.
+   */
+  switchAgent?(name: string): Promise<boolean>;
 }
 
 export interface ToolResult {

@@ -12,6 +12,8 @@ import {
   putAccountSchema,
   putAgentSchema,
   putToolSchema,
+  questionRejectSchema,
+  questionReplySchema,
   renameSessionSchema,
   setSessionAgentSchema,
   setSessionModelSchema,
@@ -99,9 +101,27 @@ function buildApi(deps: ApiDeps) {
     // --- permissions ---
     .post("/permission/:id/reply", zValidator("json", permissionReplySchema), (c) => {
       const body = c.req.valid("json");
-      const request = deps.core.replyPermission(c.req.param("id"), body.status);
+      // scope + message MUST reach core: "always" persists the session
+      // approval, message is the user's reject feedback to the model.
+      const request = deps.core.replyPermission(c.req.param("id"), body.status, body.scope, body.message);
       if (request === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ request });
+    })
+
+    // --- questions (agent → user asks; first reply wins) ---
+    .post("/question/:id/reply", zValidator("json", questionReplySchema), (c) => {
+      const body = c.req.valid("json");
+      if (!deps.core.replyQuestion(c.req.param("id"), body.answers)) {
+        return c.json({ error: "not_found" }, 404);
+      }
+      return c.json({ ok: true });
+    })
+    .post("/question/:id/reject", zValidator("json", questionRejectSchema), (c) => {
+      const body = c.req.valid("json");
+      if (!deps.core.rejectQuestion(c.req.param("id"), body.message)) {
+        return c.json({ error: "not_found" }, 404);
+      }
+      return c.json({ ok: true });
     })
 
     // --- config ---

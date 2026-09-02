@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
-import type { Message, Session } from "@bai/shared";
-import { applyEvent, messageText } from "./state";
+import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
+import { applyEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
@@ -11,6 +11,8 @@ import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
+import { PermissionModal } from "./permission-modal";
+import { QuestionModal } from "./question-modal";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -46,6 +48,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [runActive, setRunActive] = useState(false);
   const [sentPending, setSentPending] = useState(false);
+  // Pending permission asks for the active session (queue — normally one).
+  // Seeded from the snapshot (asks raised before connect) and kept live by
+  // permission.asked / permission.replied. First reply wins across devices.
+  const [pendingAsks, setPendingAsks] = useState<PermissionRequest[]>([]);
+  // Pending agent→user question blocks (the `question` tool) — same pattern.
+  const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
   const streamCtrl = useRef<AbortController | null>(null);
   const { list, refresh: refreshProviders, fetching: providersFetching } = useProviders(client);
   // Default model + agent + workspace list from config — a tiny startup
@@ -187,6 +195,8 @@ export function App() {
     setMessages([]); // switching sessions: drop the old transcript immediately
     setRunActive(false); // a mid-run switch can't see the earlier run.started
     setSentPending(false);
+    setPendingAsks([]); // session switch: the new session's asks arrive below
+    setPendingQuestions([]);
     void (async () => {
       try {
         // Snapshot first, then follow the durable stream from its frontier.
@@ -199,6 +209,10 @@ export function App() {
         // taken right after our own submit) — its run.started predates the
         // cursor, so the snapshot is the only reliable signal.
         setRunActive(snap.runActive === true);
+        // Asks/questions raised before this surface connected (snapshot is
+        // the authoritative answer; replayed events would double-add).
+        setPendingAsks(snap.pendingPermissions ?? []);
+        setPendingQuestions(snap.pendingQuestions ?? []);
         await followSession(client, active.id, {
           from: snap.afterSeq,
           signal: ctrl.signal,
@@ -210,6 +224,10 @@ export function App() {
             else if (evt.type === "run.finished") {
               setRunActive(false);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
+            } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
+              setPendingAsks((list) => applyPermissionEvent(list, evt));
+            } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
+              setPendingQuestions((list) => applyQuestionEvent(list, evt));
             }
           },
           onDrop: () => {}, // silent reconnect; the cursor guarantees no gaps
@@ -324,6 +342,23 @@ export function App() {
 
   return (
     <div className="app">
+      {/* App-global modals: permission asks and agent questions arrive as
+          events regardless of the section being browsed; runs block on the
+          replies (first reply wins). */}
+      {pendingAsks.length > 0 && (
+        <PermissionModal
+          client={client}
+          request={pendingAsks[0] as PermissionRequest}
+          onDone={() => setPendingAsks((list) => list.slice(1))}
+        />
+      )}
+      {pendingAsks.length === 0 && pendingQuestions.length > 0 && (
+        <QuestionModal
+          client={client}
+          request={pendingQuestions[0] as QuestionRequest}
+          onDone={() => setPendingQuestions((list) => list.slice(1))}
+        />
+      )}
       <MasterNav section={section} onNavigate={navigate} />
 
       <aside className="nested-panel">

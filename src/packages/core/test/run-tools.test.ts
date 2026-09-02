@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { PermissionRequestId } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
 import type { Provider, ProviderStream, StreamEvent, ToolDef, LlmRequest } from "../src/provider/types";
 import type { ModelInfo } from "@bai/shared";
@@ -185,6 +186,87 @@ describe("tool-call loop", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
+  test("reject with feedback: the user's message rides the denied tool result", async () => {
+    t.config.models.default = "scripted/main";
+    const provider = new ScriptedToolProvider([
+      toolCall("w1", "fs.write", JSON.stringify({ path: "nope.txt", content: "x" })),
+    ]);
+    t.providers.register(provider);
+    const session = t.core.createSession({ workbench: "code", cwd: dir });
+    await t.core.setSessionAgent(session.id, { agent: "build" });
+
+    const askReader = (async () => {
+      const evt = await waitForEvent(t.bus, "permission.asked", { timeoutMs: 3000 });
+      await t.core.replyPermission((evt.payload as { request: { id: string } }).request.id, "rejected", "once", "use a different filename please");
+    })();
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "write" });
+    await finished;
+    await askReader.catch(() => {});
+
+    const assistant = t.core.history(session.id).find((m) => m.role === "assistant");
+    const result = (assistant?.parts.find((p) => p.kind === "tool_result")?.payload ?? {}) as { content: string; isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Permission denied for tool: fs.write");
+    expect(result.content).toContain('User feedback: "use a different filename please".');
+  });
+
+  test("fs.write asks carry a computed diff; fs.read never asks", async () => {
+    t.config.models.default = "scripted/main";
+    writeFileSync(join(dir, "existing.txt"), "original content\n");
+    const provider = new ScriptedToolProvider([
+      toolCall("w1", "fs.write", JSON.stringify({ path: "existing.txt", content: "replaced content\n" })),
+      [{ type: "text_delta", delta: "ok" }, { type: "done", stopReason: "end_turn" }],
+    ]);
+    t.providers.register(provider);
+    const session = t.core.createSession({ workbench: "code", cwd: dir });
+    await t.core.setSessionAgent(session.id, { agent: "build" });
+
+    const askReader = (async () => {
+      const evt = await waitForEvent(t.bus, "permission.asked", { timeoutMs: 3000 });
+      const request = (evt.payload as { request: { id: string; detail?: { summary?: string; diff?: string; path?: string } } }).request;
+      expect(request.detail?.summary).toContain("overwrite");
+      expect(request.detail?.path).toBe(join(dir, "existing.txt"));
+      expect(request.detail?.diff).toContain("-original content");
+      expect(request.detail?.diff).toContain("+replaced content");
+      await t.core.replyPermission(request.id, "approved", "once");
+    })();
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "write" });
+    await finished;
+    await askReader.catch(() => {});
+  });
+
+  test("snapshot exposes pending permission asks (surface opened mid-ask)", async () => {
+    t.config.models.default = "scripted/main";
+    const provider = new ScriptedToolProvider([
+      toolCall("w1", "fs.write", JSON.stringify({ path: "pending.txt", content: "x" })),
+      [{ type: "text_delta", delta: "resume" }, { type: "done", stopReason: "end_turn" }],
+    ]);
+    t.providers.register(provider);
+    const session = t.core.createSession({ workbench: "code", cwd: dir });
+    await t.core.setSessionAgent(session.id, { agent: "build" });
+
+    let requestId: PermissionRequestId | undefined;
+    const askReader = (async () => {
+      const evt = await waitForEvent(t.bus, "permission.asked", { timeoutMs: 3000 });
+      requestId = (evt.payload as { request: { id: PermissionRequestId } }).request.id;
+      // While the ask is pending, the snapshot must report it — with detail.
+      const snap = t.core.sessionSnapshot(session.id);
+      expect(snap.pendingPermissions).toHaveLength(1);
+      expect(snap.pendingPermissions[0]?.id).toBe(requestId);
+      expect(snap.pendingPermissions[0]?.detail?.summary).toContain("create");
+      await t.core.replyPermission(requestId as string, "approved", "once");
+    })();
+    const finished = waitForEvent(t.bus, "run.finished");
+    t.core.submitPrompt(session.id, { text: "write" });
+    await finished;
+    await askReader.catch(() => {});
+
+    // After the reply the snapshot is clean again.
+    expect(t.core.sessionSnapshot(session.id).pendingPermissions).toHaveLength(0);
+  });
+
   test("unknown agent selections are rejected at the API; deleted agents fall back at drain", async () => {
     t.config.models.default = "scripted/main";
     const provider = new ScriptedToolProvider([[{ type: "text_delta", delta: "hi" }, { type: "done", stopReason: "end_turn" }]]);
@@ -205,7 +287,7 @@ describe("tool-call loop", () => {
     // Fallback: the build persona led the request, with the build tool set.
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("EPHEMERAL PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
   });
 
   test("config default agent (agents.default) applies when the session selects none", async () => {
@@ -242,7 +324,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("READER PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
   });
 
   test("unknown config default agent falls back to the built-in build agent", async () => {
@@ -258,7 +340,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("GHOST");
-    expect(first.tools?.map((d) => d.name)).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
   });
 
   test("custom file-defined agent restricts offered tools", async () => {
@@ -292,22 +374,47 @@ describe("tool-call loop", () => {
     expect(result.content).toContain("Invalid arguments");
   });
 
-  test("unknown tool name becomes an error result and the loop continues", async () => {
+  test("streamed tool-call fragments collapse into ONE call (regression: openai-compat servers that omit id/name on later chunks)", async () => {
     t.config.models.default = "scripted/main";
+    const fullArgs = JSON.stringify({ questions: [{ question: "Do you like Marvel?", header: "hero", options: [{ label: "Iron Man", description: "genius" }] }] });
+    // Simulate the adapter output for a broken GLM-style stream: a stable
+    // call id, but the arguments arrive as many small fragments. Each
+    // fragment must append to the SAME call, not spawn an "unknown" one.
     const provider = new ScriptedToolProvider([
-      toolCall("u1", "nonexistent_tool", "{}"),
-      [{ type: "text_delta", delta: "ok" }, { type: "done", stopReason: "end_turn" }],
+      [
+        { type: "tool_call_delta", id: "q1", name: "question", argsDelta: "" },
+        { type: "tool_call_delta", id: "q1", name: "", argsDelta: fullArgs.slice(0, 12) },
+        { type: "tool_call_delta", id: "q1", name: "", argsDelta: fullArgs.slice(12, 40) },
+        { type: "tool_call_delta", id: "q1", name: "", argsDelta: fullArgs.slice(40) },
+        { type: "done", stopReason: "tool_use" },
+      ],
+      [{ type: "text_delta", delta: "all good" }, { type: "done", stopReason: "end_turn" }],
     ]);
     t.providers.register(provider);
-    const session = t.core.createSession({ workbench: "code", cwd: dir });
-    await t.core.setSessionAgent(session.id, { agent: "build" });
+    const session = t.core.createSession({ workbench: "chat" });
+    await t.core.setSessionAgent(session.id, { agent: "chat" });
+
+    const answerer = (async () => {
+      const evt = await waitForEvent(t.bus, "question.asked", { timeoutMs: 3000 });
+      const request = (evt.payload as { request: { id: string } }).request;
+      t.core.replyQuestion(request.id, [["Iron Man"]]);
+    })();
     const finished = waitForEvent(t.bus, "run.finished");
-    t.core.submitPrompt(session.id, { text: "go" });
+    t.core.submitPrompt(session.id, { text: "ask me" });
     await finished;
+    await answerer.catch(() => {});
+
+    // Exactly ONE tool_call part, named correctly, with the FULL args.
     const assistant = t.core.history(session.id).find((m) => m.role === "assistant");
-    const result = (assistant?.parts.find((p) => p.kind === "tool_result")?.payload ?? {}) as { content: string; isError?: boolean };
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("nonexistent_tool");
+    const calls = (assistant?.parts ?? []).filter((p) => p.kind === "tool_call");
+    expect(calls).toHaveLength(1);
+    const payload = calls[0]?.payload as { name?: string; args?: string };
+    expect(payload.name).toBe("question");
+    expect(payload.args).toBe(fullArgs);
+
+    // And the tool actually ran: the result echoed the user's answer.
+    const result = (assistant?.parts ?? []).find((p) => p.kind === "tool_result");
+    expect((result?.payload as { content: string }).content).toContain('"Iron Man"');
   });
 });
 

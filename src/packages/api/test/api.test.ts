@@ -557,4 +557,39 @@ describe("api contract", () => {
       rmSync(fakeHome, { recursive: true, force: true });
     }
   });
+
+  test("POST /api/permission/:id/reply carries scope and message (always persists; feedback recorded)", async () => {
+    const session = stack.core.createSession({ workbench: "code" });
+    // Raise an ask directly through the gate (unmatched tool → "ask").
+    const pending = stack.core.permissions.authorize({ tool: "custom.danger", sessionId: session.id, metadata: {} });
+    // Snapshot exposes it before any reply.
+    const snap = stack.core.sessionSnapshot(session.id);
+    expect(snap.pendingPermissions).toHaveLength(1);
+    const requestId = snap.pendingPermissions[0]!.id as string;
+
+    const res = await app.request(`/api/permission/${requestId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ status: "approved", scope: "always" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(200);
+    expect(await pending).toEqual({ allowed: true });
+    // scope=always persisted into session meta (regression: the route used to drop scope).
+    const meta = stack.core.getSession(session.id)?.meta as { approvals?: Record<string, string> };
+    expect(meta.approvals?.["custom.danger"]).toBe("allow");
+
+    // Rejection with feedback: the message must survive the HTTP boundary.
+    const pending2 = stack.core.permissions.authorize({ tool: "custom.other", sessionId: session.id, metadata: {} });
+    const snap2 = stack.core.sessionSnapshot(session.id);
+    const id2 = snap2.pendingPermissions[0]!.id as string;
+    const res2 = await app.request(`/api/permission/${id2}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ status: "rejected", scope: "once", message: "no thanks" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res2.status).toBe(200);
+    const verdict = await pending2;
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.feedback).toBe("no thanks");
+  });
 });

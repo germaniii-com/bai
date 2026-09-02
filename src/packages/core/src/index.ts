@@ -8,6 +8,7 @@ export * from "./provider";
 export { ToolRegistry, OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./tools/registry";
 export { evaluatePermission, patternMatches } from "./permissions/engine";
 export { PermissionGate, DEFAULT_PERMISSIONS } from "./permissions/ask";
+export { QuestionService, QuestionRejectedError } from "./question/service";
 export { AgentRegistry, parseAgentMarkdown, serializeAgentMarkdown, agentTemplate } from "./agent/registry";
 export { ToolLoader, toolTemplate } from "./tools/loader";
 export * from "./workbench";
