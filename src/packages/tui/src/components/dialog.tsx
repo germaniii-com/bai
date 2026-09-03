@@ -6,8 +6,23 @@ import { deleteWord } from "../state/composer";
 /** Options rendered around the highlight when the list is longer than this. */
 const WINDOW = 12;
 
+/**
+ * Sliding list window `[start, end)` keeping `index` in view — the listbox
+ * scroll every picker dialog uses (the highlight never leaves the viewport;
+ * short lists render in full). Pure so the math is unit-testable.
+ */
+export function listWindow(index: number, count: number, size: number): { start: number; end: number } {
+  const clampedSize = Math.max(1, Math.min(size, count));
+  const start = Math.max(0, Math.min(index - Math.floor(clampedSize / 2), count - clampedSize));
+  return { start, end: start + clampedSize };
+}
+
 export interface DialogAction {
-  /** Single character triggering the action. Reserved keys (typing/backspace) win. */
+  /**
+   * Ctrl chord triggering the action (e.g. "n" = ctrl+n, "a" = ctrl+a).
+   * Plain letters always type into the filter. Reserved ctrl chords
+   * (w word-delete, j/k navigation) win over same-letter actions.
+   */
   key: string;
   label: string;
   /** Receives the currently highlighted option's value. */
@@ -25,6 +40,8 @@ export function SelectDialog({
   onPick,
   onClose,
   actions = [],
+  initialIndex = 0,
+  emptyHint = "none yet — ctrl+a to add",
 }: {
   title: string;
   options: PickerOption[];
@@ -32,9 +49,13 @@ export function SelectDialog({
   onClose: () => void;
   /** Extra single-key actions applied to the highlighted option. */
   actions?: DialogAction[];
+  /** Cursor seed (e.g. the active session's row). */
+  initialIndex?: number;
+  /** Empty-list hint when there are no options at all (no matches says so). */
+  emptyHint?: string;
 }) {
   const [filter, setFilter] = useState("");
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialIndex);
 
   const query = filter.toLowerCase();
   const visible =
@@ -63,22 +84,31 @@ export function SelectDialog({
       setIndex(0);
       return;
     }
-    if (key.ctrl || key.meta) return;
+    // ctrl+j/ctrl+k: down/up navigation (the chat's focus-traversal chords —
+    // plain j/k type into the filter here). ctrl+j's legacy spelling (lone
+    // "\n", parsed as name:'enter' with ctrl=false) navigates too; "\r"
+    // remains the pick key.
+    if (key.ctrl && ch === "j") return setIndex((i) => Math.min(visible.length - 1, i + 1));
+    if (key.ctrl && ch === "k") return setIndex((i) => Math.max(0, i - 1));
+    if (ch === "\n") return setIndex((i) => Math.min(visible.length - 1, i + 1));
+    // Ctrl-chord actions (ctrl+n new, ctrl+a add, ctrl+d delete…) fire
+    // regardless of the filter — plain letters always type into it. Legacy
+    // ctrl bytes (0x01 = ctrl+a, 0x0E = ctrl+n…) arrive as ch+ctrl, so every
+    // terminal spelling works.
+    if (key.ctrl) {
+      const action = actions.find((a) => a.key === ch);
+      if (action !== undefined) {
+        action.onAction(visible[clamped]?.value ?? "");
+      }
+      return;
+    }
+    if (key.meta) return;
     if (ch !== undefined && ch.length > 0) {
       // Input can arrive batched ("stub\r" in one chunk): an enter at the end
       // means "apply the typed chars, then pick" — one render, two steps.
       const endsWithEnter = /[\r\n]$/.test(ch);
       const body = ch.replace(/[\r\n]/g, "").replace(/[\x00-\x1f\x7f]/g, "");
       if (body.length === 0 && !endsWithEnter) return;
-
-      if (body.length === 1) {
-        const action = actions.find((a) => a.key === body);
-        if (action !== undefined && query.length === 0) {
-          // Actions like "add" must fire even with an empty list — they get "".
-          action.onAction(visible[clamped]?.value ?? "");
-          return;
-        }
-      }
 
       const newQuery = (query + body.toLowerCase()).trim();
       const nextVisible =
@@ -98,13 +128,13 @@ export function SelectDialog({
   });
 
   // Sliding window around the highlight.
-  const start = Math.max(0, Math.min(clamped - Math.floor(WINDOW / 2), visible.length - WINDOW));
-  const windowed = visible.slice(Math.max(0, start), Math.max(0, start) + WINDOW);
+  const { start, end } = listWindow(clamped, visible.length, WINDOW);
+  const windowed = visible.slice(start, end);
 
   const hints = [
-    "↑/↓ navigate",
+    "↑/↓ or ctrl+j/k navigate",
     "enter select",
-    ...actions.map((a) => `${a.key} ${a.label}`),
+    ...actions.map((a) => `ctrl+${a.key} ${a.label}`),
     "esc back",
   ];
 
@@ -118,10 +148,11 @@ export function SelectDialog({
         {visible.length !== options.length ? ` · ${visible.length}/${options.length}` : ""}
       </Text>
       {visible.length === 0 && (
-        <Text dimColor>{options.length === 0 ? " (none yet — a to add)" : " (no matches)"}</Text>
+        <Text dimColor>{options.length === 0 ? ` (${emptyHint})` : " (no matches)"}</Text>
       )}
+      {start > 0 && <Text dimColor>  ↑ {start} more</Text>}
       {windowed.map((opt, i) => {
-        const absolute = Math.max(0, start) + i;
+        const absolute = start + i;
         return (
           <Text key={opt.value} color={absolute === clamped ? "cyan" : undefined}>
             {absolute === clamped ? "❯ " : "  "}
@@ -131,6 +162,9 @@ export function SelectDialog({
           </Text>
         );
       })}
+      {end < visible.length && (
+        <Text dimColor>  ↓ {visible.length - end} more</Text>
+      )}
       <Text dimColor>{hints.join(" · ")}</Text>
     </Box>
   );

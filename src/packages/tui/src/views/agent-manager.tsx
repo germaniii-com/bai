@@ -3,6 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { spawnSync } from "node:child_process";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session, ToolListEntry } from "@bai/shared";
+import { listWindow } from "../components/dialog";
+
+/** List rows shown around the cursor (SelectDialog parity). */
+const WINDOW = 12;
 
 type Tab = "agents" | "tools";
 
@@ -191,29 +195,45 @@ export function AgentManager({
       <Text bold>
         agents &amp; tools <Text dimColor>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
       </Text>
-      {tab === "agents" ? (
-        agents.map((a, i) => {
-          const sessionAgent =
-            active !== null ? (active.meta as Record<string, unknown>).agent : undefined;
-          const marks: string[] = [];
-          if (sessionAgent === a.name) marks.push("session");
-          if (defaultAgent === a.name) marks.push("default");
-          return (
-            <Text key={a.name} color={i === index ? "cyan" : undefined}>
-              {i === index ? "❯ " : "  "}
-              {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
-              {marks.length > 0 && <Text color="green"> · {marks.join(" · ")}</Text>}
-            </Text>
-          );
-        })
-      ) : (
-        tools.map((t, i) => (
-          <Text key={t.name} color={i === index ? "cyan" : undefined}>
-            {i === index ? "❯ " : "  "}
-            {t.name} <Text dimColor>({t.origin})</Text>
-          </Text>
-        ))
-      )}
+      {/* Sliding window around the cursor — long agent/tool lists scroll
+          instead of overflowing the terminal. */}
+      {(() => {
+        const { start, end } = listWindow(index, items.length, WINDOW);
+        const windowed = items.slice(start, end);
+        return (
+          <>
+            {start > 0 && <Text dimColor>  ↑ {start} more</Text>}
+            {windowed.map((item, i) => {
+              const absolute = start + i;
+              if (tab === "agents") {
+                const a = item as AgentInfo;
+                const sessionAgent =
+                  active !== null ? (active.meta as Record<string, unknown>).agent : undefined;
+                const marks: string[] = [];
+                if (sessionAgent === a.name) marks.push("session");
+                if (defaultAgent === a.name) marks.push("default");
+                return (
+                  <Text key={a.name} color={absolute === index ? "cyan" : undefined}>
+                    {absolute === index ? "❯ " : "  "}
+                    {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
+                    {marks.length > 0 && <Text color="green"> · {marks.join(" · ")}</Text>}
+                  </Text>
+                );
+              }
+              const t = item as ToolListEntry;
+              return (
+                <Text key={t.name} color={absolute === index ? "cyan" : undefined}>
+                  {absolute === index ? "❯ " : "  "}
+                  {t.name} <Text dimColor>({t.origin})</Text>
+                </Text>
+              );
+            })}
+            {end < items.length && (
+              <Text dimColor>  ↓ {items.length - end} more</Text>
+            )}
+          </>
+        );
+      })()}
       {items.length === 0 && <Text dimColor>  (empty — n to create)</Text>}
       <Text dimColor> </Text>
       <Text dimColor>

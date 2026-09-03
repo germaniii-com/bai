@@ -12,7 +12,7 @@ import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
 import { currentModelLabel, needsSetup } from "./state/providers";
 
-export type UiState = "chat" | "sessions" | "gallery" | "jobs" | "settings";
+export type UiState = "chat" | "gallery" | "jobs" | "settings";
 
 /**
  * Input mode, vim-style. NORMAL (default): vim motions over the transcript
@@ -24,13 +24,15 @@ export type Mode = "normal" | "input";
 
 /**
  * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
- * ctrl+p → full wizard (provider → account → model), ctrl+a → the agent/tool
- * switcher, ctrl+l → flat model list across connected providers.
+ * ctrl+p → full wizard (provider → account → model), ctrl+l → flat model list
+ * across connected providers, ctrl+a → the agent/tool switcher, ctrl+s → the
+ * session picker.
  */
 type DialogOpen =
   | { kind: "providers" }
   | { kind: "all-models" }
-  | { kind: "agents" };
+  | { kind: "agents" }
+  | { kind: "sessions" };
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -262,7 +264,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
       void refreshProviders();
     } else if (ch === "a") {
       setDialog({ kind: "agents" });
-    } else if (ch === "s") setView("sessions");
+    } else if (ch === "s") setDialog({ kind: "sessions" });
     else if (ch === "g") setView("gallery");
     else if (ch === "o") setView("settings");
   }, { isActive: mode === "normal" });
@@ -324,6 +326,24 @@ export function App({ client, version }: { client: BaiClient; version: string })
             request={pendingQuestions[0] as QuestionRequest}
             onDone={() => setPendingQuestions((list) => list.slice(1))}
           />
+        ) : dialog !== null && dialog.kind === "sessions" ? (
+          // Session picker dialog (ctrl+s): pick → open the session and
+          // close; n → draft state (no session until the first prompt);
+          // esc → back to the chat underneath.
+          <SessionsView
+            sessions={sessions}
+            activeId={active?.id}
+            onPick={(s) => {
+              setDialog(null);
+              setActive(s);
+            }}
+            onNew={() => {
+              setDialog(null);
+              setActive(null);
+              setMode("input");
+            }}
+            onDone={closeDialog}
+          />
         ) : dialog !== null && dialog.kind !== "agents" && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and
           // surface the engagement refetch as a hint — the dialog state
@@ -367,23 +387,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 onSessionCreated={(s) => {
                   setActive(s);
                   void refreshSessions();
-                }}
-              />
-            )}
-            {view === "sessions" && (
-              <SessionsView
-                sessions={sessions}
-                onPick={(s) => {
-                  setActive(s);
-                  setView("chat");
-                }}
-                onNew={() => {
-                  // Draft state (opencode parity): no session row exists
-                  // until the first prompt is submitted — land in the chat
-                  // composer ready to type.
-                  setActive(null);
-                  setView("chat");
-                  setMode("input");
                 }}
               />
             )}
