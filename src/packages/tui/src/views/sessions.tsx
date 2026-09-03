@@ -30,7 +30,7 @@ export function SessionsView({
   const options = sessions.map((s) => ({
     value: s.id,
     label: s.title.length > 0 ? s.title : "(untitled)",
-    hint: `${s.meta.parent !== undefined ? "subagent · " : ""}${s.workbench} · ${s.id}`,
+    hint: `${s.workbench} · ${s.id}`,
     ...(s.id === activeId ? { gutter: "✓" } : {}),
   }));
   // Seed the cursor on the active session (findIndex → -1 with no active

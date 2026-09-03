@@ -54,6 +54,7 @@ function ChatHarness({ messages: msgs }: { messages: Message[] }) {
           onEnterInput={() => {}}
           onExitInput={() => {}}
           onSessionCreated={() => {}}
+          onOpenSubagent={() => {}}
         />
       </Box>
       <Box paddingX={1}>

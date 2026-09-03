@@ -388,9 +388,11 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
   `task` calls run concurrently — independent sessions by contract; results
   persist in call order either way. Surfaces: the TUI renders a live
   subagent inspector bar (children of the active session, fed from the
-  firehose — `tui/src/state/subagents.ts`) and expandable task nodes
-  showing the child's final output; the web unwraps task bodies and links
-  to the child session.
+  firehose — `tui/src/state/subagents.ts`) and thought-style task nodes
+  that open the **subagent dialog** (`tui/src/views/subagent-dialog.tsx`):
+  the child's live transcript with ←/→ cycling and inline permission-ask
+  review; subagent sessions are deliberately kept out of the session
+  lists. The web unwraps task bodies and links to the child session.
 
 ## 10. Providers & models
 

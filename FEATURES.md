@@ -127,18 +127,22 @@ workspace.
   linked via `meta.parent`, titled `"<task> (@<agent> subagent)"` — that
   runs a full agentic loop with its own step budget, compaction, and tool
   allow-list, and returns its final message to the caller wrapped in a
-  `<task>` block. Child sessions appear in every session list (badged
-  "sub") and are fully inspectable live from any surface. The **TUI** shows
-  a live subagent inspector above the footer (agent, current tool or
-  streaming text tail, "⚠ needs approval — ctrl+s to review"), and task
-  nodes in the transcript expand (enter on a focused message, ctrl+t for
-  all) to the child's final output; the web expands to it too. Guards:
-  nesting is capped by `agents.subagentDepth` (default 1 — subagents can't
-  spawn subagents), children are never offered/allowed `task`, `question`,
-  or `plan.exit` (they run autonomously), each spawn asks fail-closed (the
-  dialog names the agent + task), and child permission asks are approved
-  from the child session's view. Multiple `task` calls in one message run
-  concurrently; results land in call order.
+  `<task>` block. In the **TUI**, task nodes render inline like thoughts
+  (`▸ task <task> (@<agent>)`); clicking one (or enter on a focused
+  message) opens the **subagent dialog** — the child's full transcript,
+  live-refreshing while it works, with ←/→ cycling between multiple
+  subagents and ↑ (at top) or esc to exit; a child's pending permission
+  ask is reviewed right inside the dialog. A live inspector bar above the
+  footer shows each subagent's status at a glance. Subagent sessions stay
+  out of the session lists on every surface — the dialog is the way in.
+  The web shows an `↗ agent` chip on task nodes linking to the child
+  session. Guards: nesting is capped by `agents.subagentDepth` (default
+  1 — subagents can't spawn subagents), children are never
+  offered/allowed `task`, `question`, or `plan.exit` (they run
+  autonomously), each spawn asks fail-closed (the dialog names the agent +
+  task), and child permission asks are approved from the child session's
+  view. Multiple `task` calls in one message run concurrently; results
+  land in call order.
 - **Hot-reloaded**: drop a file on disk, save from the web form, or edit via
   `$EDITOR` in the TUI — it's live everywhere in ~150 ms, no restart (the
   thing opencode makes you restart for); a 2 s polling safety net catches

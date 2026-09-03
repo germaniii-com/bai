@@ -8,11 +8,14 @@ import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
 import { PermissionDialog } from "./views/permission-dialog";
 import { QuestionDialog } from "./views/question-dialog";
+import { SubagentDialog } from "./views/subagent-dialog";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
 import {
   applySubagentEvent,
   emptySubagentState,
+  cycleSubagentIndex,
+  subagentFocusIndex,
   subagentRows,
   trackSubagents,
   type SubagentState,
@@ -39,7 +42,8 @@ type DialogOpen =
   | { kind: "providers" }
   | { kind: "all-models" }
   | { kind: "agents" }
-  | { kind: "sessions" };
+  | { kind: "sessions" }
+  | { kind: "subagents"; index: number };
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -79,6 +83,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // Live subagent tracking for the inspector bar (children of the active
   // session, fed from the firehose — state/subagents.ts).
   const [subagents, setSubagents] = useState<SubagentState>(emptySubagentState);
+  // Latest tracked state readable from stale closures (openSubagentDialog).
+  const subagentsRef = useRef<SubagentState>(emptySubagentState);
+  subagentsRef.current = subagents;
   const dialogOpenRef = useRef(false);
   dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingQuestions.length > 0;
   // Latest active session readable from the firehose handler's stale closure
@@ -305,6 +312,21 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // three (opencode's footer inspector shows a bounded window too).
   const subagentList = view === "chat" && !dialogOpenRef.current ? subagentRows(subagents) : [];
   const subagentsShown = subagentList.slice(0, 3);
+
+  /**
+   * Open the subagent output dialog: at `sessionId` when the task result
+   * links its child, else the first running/asking child, else the first
+   * tracked one. The dialog is also the review surface for a child's
+   * pending permission ask (subagents are not in the session picker).
+   */
+  const openSubagentDialog = useCallback(
+    (sessionId: string | undefined): void => {
+      const index = subagentFocusIndex(subagentRows(subagentsRef.current), sessionId);
+      if (index < 0) return;
+      setDialog({ kind: "subagents", index });
+    },
+    [],
+  );
   // The effective agent: the session's selection, else the config default
   // (agents.default), else the built-in build agent — the same tiers the
   // drain resolves. Live — switches ride session.updated / config.updated
@@ -360,7 +382,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
           // close; n → draft state (no session until the first prompt);
           // esc → back to the chat underneath.
           <SessionsView
-            sessions={sessions}
+            sessions={sessions.filter((s) => s.meta.parent === undefined)}
             activeId={active?.id}
             onPick={(s) => {
               setDialog(null);
@@ -372,6 +394,19 @@ export function App({ client, version }: { client: BaiClient; version: string })
               setMode("input");
             }}
             onDone={closeDialog}
+          />
+        ) : dialog !== null && dialog.kind === "subagents" ? (
+          // Subagent output dialog (click a task node / enter on a focused
+          // message): the child's live transcript; ←/→ cycles subagents,
+          // ↑ (at top) or esc exits, a pending ask reviews inline.
+          <SubagentDialog
+            client={client}
+            children={subagentRows(subagents)}
+            index={dialog.index}
+            onNavigate={(delta) =>
+              setDialog({ kind: "subagents", index: cycleSubagentIndex(dialog.index, delta, subagentRows(subagents).length) })
+            }
+            onExit={() => setDialog(null)}
           />
         ) : dialog !== null && dialog.kind !== "agents" && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and
@@ -417,6 +452,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
                   setActive(s);
                   void refreshSessions();
                 }}
+                onOpenSubagent={openSubagentDialog}
               />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}
@@ -438,7 +474,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
             {r.running && r.tool === undefined && r.textTail !== undefined && (
               <Text dimColor> · {r.textTail.replaceAll("\n", " ").trimEnd()}</Text>
             )}
-            {r.needsApproval && <Text color="red"> · needs approval — ctrl+s to review</Text>}
+            {r.needsApproval && <Text color="red"> · needs approval — enter on the task to review</Text>}
           </Text>
         ))}
         {subagentList.length > subagentsShown.length && (

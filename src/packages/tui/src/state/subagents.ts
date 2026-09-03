@@ -160,3 +160,22 @@ export function subagentRows(state: SubagentState): SubagentActivity[] {
     (a, b) => rank(a) - rank(b) || a.sessionId.localeCompare(b.sessionId),
   );
 }
+
+/**
+ * Which tracked child the subagent dialog focuses when opened: the given
+ * session when known, else the first asking/running child, else the first
+ * row. -1 is never returned for a non-empty list.
+ */
+export function subagentFocusIndex(rows: SubagentActivity[], sessionId: string | undefined): number {
+  if (rows.length === 0) return -1;
+  const byId = sessionId !== undefined ? rows.findIndex((r) => r.sessionId === sessionId) : -1;
+  if (byId >= 0) return byId;
+  const active = rows.findIndex((r) => r.needsApproval || r.running);
+  return active >= 0 ? active : 0;
+}
+
+/** Wrap-around ←/→ cycling for the dialog (clamps when there is one row). */
+export function cycleSubagentIndex(index: number, delta: number, count: number): number {
+  if (count <= 0) return 0;
+  return (index + delta + count) % count;
+}

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { Event, Session, SessionId } from "@bai/shared";
 import {
   applySubagentEvent,
+  cycleSubagentIndex,
   emptySubagentState,
+  subagentFocusIndex,
   subagentRows,
   trackSubagents,
   type SubagentState,
@@ -118,5 +120,33 @@ describe("subagent tracking (tui inspector)", () => {
     expect(rows[1]?.sessionId).toBe("ses_c1");
     state = applySubagentEvent(state, evt("permission.replied", "ses_c2", { requestId: "pr1", status: "approved" }), PARENT);
     expect(state.children.get("ses_c2")?.needsApproval).toBe(false);
+  });
+
+  test("subagentFocusIndex: by id → first active → first; -1 when empty", () => {
+    let state = withChild(emptySubagentState, "ses_done");
+    state = withChild(state, "ses_running", "build");
+    state = withChild(state, "ses_asking", "scout");
+    state = applySubagentEvent(state, evt("run.started", "ses_done", {}), PARENT);
+    state = applySubagentEvent(state, evt("run.finished", "ses_done", {}), PARENT);
+    state = applySubagentEvent(state, evt("run.started", "ses_asking", {}), PARENT);
+    state = applySubagentEvent(state, evt("permission.asked", "ses_asking", { request: { id: "pr" } }), PARENT);
+    const rows = subagentRows(state); // asking first; done tier sorted by id
+    expect(rows.map((r) => r.sessionId)).toEqual(["ses_asking", "ses_done", "ses_running"]);
+    expect(subagentFocusIndex(rows, "ses_done")).toBe(1); // known id wins
+    expect(subagentFocusIndex(rows, "ses_ghost")).toBe(0); // unknown → first active (asking)
+    expect(subagentFocusIndex(rows, undefined)).toBe(0);
+    // All idle → first row.
+    const idle = rows.map((r) => ({ ...r, running: false, needsApproval: false }));
+    expect(subagentFocusIndex(idle, undefined)).toBe(0);
+    expect(subagentFocusIndex([], "ses_x")).toBe(-1);
+  });
+
+  test("cycleSubagentIndex wraps around and clamps", () => {
+    expect(cycleSubagentIndex(0, 1, 3)).toBe(1);
+    expect(cycleSubagentIndex(2, 1, 3)).toBe(0); // wrap forward
+    expect(cycleSubagentIndex(0, -1, 3)).toBe(2); // wrap backward
+    expect(cycleSubagentIndex(1, -1, 3)).toBe(0);
+    expect(cycleSubagentIndex(0, 1, 1)).toBe(0); // single row
+    expect(cycleSubagentIndex(0, 1, 0)).toBe(0); // empty guard
   });
 });

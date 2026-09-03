@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
-import { unwrapTaskOutput } from "@bai/shared";
 import type { Mode } from "../app";
 import { messageText, thinkingText, toolCalls } from "../state/sync";
 import { Spinner } from "../components/spinner";
@@ -60,6 +59,7 @@ export function ChatView({
   onEnterInput,
   onExitInput,
   onSessionCreated,
+  onOpenSubagent,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -73,6 +73,12 @@ export function ChatView({
   /** Back to NORMAL (esc in INPUT). */
   onExitInput: () => void;
   onSessionCreated: (session: Session) => void;
+  /**
+   * Open the subagent output dialog — `sessionId` when the task result
+   * already links its child session, undefined for a still-running task
+   * (App then focuses the first running/asking child).
+   */
+  onOpenSubagent: (sessionId: string | undefined) => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
@@ -100,12 +106,6 @@ export function ChatView({
   const [expandedThinking, setExpandedThinking] = useState<Set<string>>(
     new Set(),
   );
-
-  // Task nodes (subagent spawning): the same collapsible treatment for the
-  // `task` tool — expanded shows the child agent's final output (unwrapped
-  // from its <task> envelope). Keyed `${messageId}:${callId}`; toggled by
-  // Enter/Space on a focused message and folded into ctrl+t.
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
   // NORMAL-mode transcript focus: index into `messages`, null = no focus
   // (plain browsing). ctrl+j/ctrl+k move it; the focused message renders
@@ -327,10 +327,17 @@ export function ChatView({
       // TOP, so wheel-up (toward older content) is a negative delta.
       if (button === WHEEL_UP) return scrollBy(-WHEEL_ROWS);
       if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
-      // Left press (release ignored — one click, one toggle) on a thinking
-      // node's row toggles that node individually.
+      // Left press (release ignored — one click, one action) on a thinking
+      // node's row toggles that node; on a task node's row it opens the
+      // subagent dialog. A click inside a block whose tasks have no exact
+      // row (expanded thinking above) opens that block's first task.
       if (button === 0 && mouse[4] === "M") {
         const row = Number(mouse[3]);
+        const taskHit = taskRows.get(row);
+        if (taskHit !== undefined) {
+          onOpenSubagent(taskChildId(messages[taskHit.messageIndex], taskHit.callId));
+          return;
+        }
         for (const [id, nodeRow] of nodeRows) {
           if (nodeRow === row) {
             setExpandedThinking((prev) => {
@@ -339,7 +346,24 @@ export function ChatView({
               else next.add(id);
               return next;
             });
-            break;
+            return;
+          }
+        }
+        // Block-level fallback: find the message whose measured block
+        // contains the clicked row and open its first task (if any).
+        for (let i = 0; i < messages.length; i++) {
+          const m = messages[i];
+          if (m === undefined || m.role !== "assistant") continue;
+          const pos = scrollRef.current?.getItemPosition(i);
+          if (pos === null || pos === undefined) continue;
+          const gap = i === 0 ? 0 : 1;
+          const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
+          if (row >= top && row < top + Math.max(1, pos.height - gap)) {
+            const firstTask = toolCalls(m).find((c) => c.name === "task");
+            if (firstTask !== undefined) {
+              onOpenSubagent(taskChildId(m, firstTask.callId));
+            }
+            return;
           }
         }
       }
@@ -385,24 +409,16 @@ export function ChatView({
         // steps message-by-message and scrolls by rows to reveal the target.
         if (ch === "j") return stepFocus(true);
         if (ch === "k") return stepFocus(false);
-        // ctrl+t toggles ALL reasoning nodes AND task nodes: expand all
-        // when any is collapsed, collapse all otherwise.
+        // ctrl+t toggles ALL reasoning nodes: expand all when any is
+        // collapsed, collapse all otherwise.
         if (ch === "t") {
           const thinkingIds = messages
             .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
             .map((m) => m.id);
-          const taskIds = messages.flatMap((m) =>
-            m.role === "assistant"
-              ? toolCalls(m)
-                  .filter((c) => c.name === "task" && c.result !== undefined)
-                  .map((c) => `${m.id}:${c.callId}`)
-              : [],
-          );
-          const allOpen =
-            (thinkingIds.length === 0 || thinkingIds.every((id) => expandedThinking.has(id))) &&
-            (taskIds.length === 0 || taskIds.every((id) => expandedTasks.has(id)));
-          setExpandedThinking(allOpen ? new Set() : new Set(thinkingIds));
-          setExpandedTasks(allOpen ? new Set() : new Set(taskIds));
+          const allExpanded =
+            thinkingIds.length > 0 &&
+            thinkingIds.every((id) => expandedThinking.has(id));
+          setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
           return;
         }
         // Editing chords stay live in both modes (the draft persists).
@@ -415,9 +431,9 @@ export function ChatView({
       // unambiguously ctrl+j → focus traversal down.
       if (ch === "\n") return stepFocus(true);
       if (ch === "i" || ch === "a") return onEnterInput();
-      // Enter/Space toggle the focused thought's visibility; task nodes
-      // toggle the same way (thoughts take precedence); Enter falls through
-      // to INPUT mode when the focus isn't on either.
+      // Enter/Space toggle the focused thought's visibility; on a message
+      // with task nodes they open the subagent dialog instead (thoughts
+      // take precedence); Enter falls through to INPUT mode otherwise.
       if (key.return || ch === " ") {
         const focusedMessage = focus !== null ? messages[focus] : undefined;
         if (
@@ -433,19 +449,9 @@ export function ChatView({
           return;
         }
         if (focusedMessage !== undefined) {
-          const taskIds = toolCalls(focusedMessage)
-            .filter((c) => c.name === "task" && c.result !== undefined)
-            .map((c) => `${focusedMessage.id}:${c.callId}`);
-          if (taskIds.length > 0) {
-            setExpandedTasks((prev) => {
-              const next = new Set(prev);
-              const allOpen = taskIds.every((id) => next.has(id));
-              for (const id of taskIds) {
-                if (allOpen) next.delete(id);
-                else next.add(id);
-              }
-              return next;
-            });
+          const firstTask = toolCalls(focusedMessage).find((c) => c.name === "task");
+          if (firstTask !== undefined) {
+            onOpenSubagent(taskChildId(focusedMessage, firstTask.callId));
             return;
           }
         }
@@ -553,18 +559,36 @@ export function ChatView({
   // per-item gap margin (i > 0) lives inside the measured item, above that
   // row. Content row c maps to terminal row VIEWPORT_TOP_ROW + c − shownOffset.
   const nodeRows = new Map<string, number>();
+  // Same for task nodes: single-row lines whose positions are exact while
+  // the thinking above them is collapsed/absent (expanded thinking wraps,
+  // so rows shift — those blocks fall back to "click opens the first task").
+  const taskRows = new Map<number, { messageIndex: number; callId: string }>();
   if (len > 0 && contentHeight > 0) {
     const vh = Math.max(1, viewportHeight);
     for (let i = 0; i < len; i++) {
       const m = messages[i];
-      if (m === undefined || m.role !== "assistant" || thinkingText(m).length === 0) {
-        continue;
-      }
+      if (m === undefined || m.role !== "assistant") continue;
       const pos = scrollRef.current?.getItemPosition(i);
       if (pos === null || pos === undefined) continue;
-      const row = VIEWPORT_TOP_ROW + pos.top + (i === 0 ? 0 : 1) - shownOffset;
-      if (row >= VIEWPORT_TOP_ROW && row < VIEWPORT_TOP_ROW + vh) {
-        nodeRows.set(m.id, row);
+      const gap = i === 0 ? 0 : 1;
+      const thinking = thinkingText(m);
+      const thinkingRows =
+        thinking.length > 0 ? (expandedThinking.has(m.id) ? thinking.split("\n").length : 1) : 0;
+      const blockTop = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
+      if (thinkingRows > 0 && blockTop >= VIEWPORT_TOP_ROW && blockTop < VIEWPORT_TOP_ROW + vh) {
+        nodeRows.set(m.id, blockTop);
+      }
+      if (thinkingRows <= 1) {
+        // Exact rows: task lines follow the (1-row) thinking node in order.
+        let taskIndex = 0;
+        for (const c of toolCalls(m)) {
+          if (c.name !== "task") continue;
+          const row = blockTop + thinkingRows + taskIndex;
+          if (row >= VIEWPORT_TOP_ROW && row < VIEWPORT_TOP_ROW + vh) {
+            taskRows.set(row, { messageIndex: i, callId: c.callId });
+          }
+          taskIndex++;
+        }
       }
     }
   }
@@ -660,38 +684,36 @@ export function ChatView({
                       const lineMarker = ci === 0 && firstRowIsTool ? marker : null;
                       const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
                       const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
-                      // task: a collapsible node — expanded shows the child
-                      // agent's final output (opencode2 parity).
-                      const isTask = c.name === "task" && c.result !== undefined;
-                      const taskKey = `${m.id}:${c.callId}`;
-                      const taskOpen = isTask && expandedTasks.has(taskKey);
-                      const taskOutput = isTask ? unwrapTaskOutput(c.result?.content ?? "") : undefined;
-                      return (
-                        <Box key={c.callId} flexDirection="column">
-                          <Text wrap="truncate">
+                      // task: a thought-style node — the dialog (click, or
+                      // enter on a focused message) shows the child's live
+                      // transcript, so the inline line stays one row.
+                      if (c.name === "task") {
+                        const openable = c.result !== undefined;
+                        return (
+                          <Text key={c.callId} wrap="truncate">
                             {lineMarker}
-                            <Text color={color}>{glyph} </Text>
-                            <Text dimColor>{c.name}</Text>
-                            {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                            {c.result !== undefined && c.result.isError && (
-                              <Text color="red"> · denied/failed</Text>
-                            )}
-                            {isTask && focused && (
-                              <Text dimColor> · enter to {taskOpen ? "hide" : "view"} output</Text>
-                            )}
+                            <Text color={color}>
+                              {c.status === "done" ? "▸" : `${glyph} `}
+                            </Text>
+                            <Text dimColor={c.status === "done"} color={c.status === "running" ? "yellow" : c.status === "error" ? "red" : undefined}>
+                              task {c.argsPreview}
+                            </Text>
+                            {c.status === "running" && <Text dimColor> · working…</Text>}
+                            {c.status === "error" && <Text color="red"> · failed</Text>}
+                            {openable && focused && <Text dimColor> · enter to view</Text>}
                           </Text>
-                          {taskOpen && (
-                            <Box flexDirection="column" paddingLeft={2}>
-                              {(taskOutput?.text ?? c.result?.content ?? "")
-                                .split("\n")
-                                .map((line, li) => (
-                                  <Text key={li} dimColor wrap="wrap">
-                                    {line.length > 0 ? line : " "}
-                                  </Text>
-                                ))}
-                            </Box>
+                        );
+                      }
+                      return (
+                        <Text key={c.callId} wrap="truncate">
+                          {lineMarker}
+                          <Text color={color}>{glyph} </Text>
+                          <Text dimColor>{c.name}</Text>
+                          {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                          {c.result !== undefined && c.result.isError && (
+                            <Text color="red"> · denied/failed</Text>
                           )}
-                        </Box>
+                        </Text>
                       );
                     })}
                   </Box>
@@ -757,4 +779,22 @@ export function ChatView({
       </Box>
     </Box>
   );
+}
+
+/**
+ * The child session a task call produced — from its paired tool_result
+ * payload's `subagent` link (core persists it on completion). Undefined
+ * while the task is still running; the dialog then focuses the first
+ * running/asking child instead.
+ */
+function taskChildId(message: Message | undefined, callId: string): string | undefined {
+  if (message === undefined) return undefined;
+  for (const p of message.parts) {
+    if (p.kind !== "tool_result") continue;
+    const payload = p.payload as { callId?: string; subagent?: { sessionId?: unknown } } | null;
+    if (payload?.callId !== callId) continue;
+    const sessionId = payload.subagent?.sessionId;
+    return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined;
+  }
+  return undefined;
 }

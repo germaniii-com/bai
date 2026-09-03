@@ -775,17 +775,6 @@ body {
   color: var(--text);
 }
 
-/* Session-list marker for subagent sessions (meta.parent set). */
-.subagent-chip {
-  font-size: 10px;
-  color: var(--dim);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0 4px;
-  margin-left: 6px;
-  flex: none;
-}
-
 /* Agents & tools management pane: two-tab list + form/code editor. */
 .agents-pane {
   display: flex;

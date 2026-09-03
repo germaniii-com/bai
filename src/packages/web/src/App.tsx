@@ -401,14 +401,13 @@ export function App() {
               + new session
             </button>
             <nav className="session-list">
-              {sessions.map((s) => (
+              {sessions.filter((s) => s.meta.parent === undefined).map((s) => (
                 <button
                   key={s.id}
                   className={active?.id === s.id ? "session active" : "session"}
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
-                  {s.meta.parent !== undefined && <span className="subagent-chip">sub</span>}
                   <span className="dim">{s.workbench}</span>
                 </button>
               ))}
@@ -452,14 +451,13 @@ export function App() {
               {workspaceSessions.length === 0 && (
                 <p className="dim">No sessions in this workspace yet.</p>
               )}
-              {workspaceSessions.map((s) => (
+              {workspaceSessions.filter((s) => s.meta.parent === undefined).map((s) => (
                 <button
                   key={s.id}
                   className={active?.id === s.id ? "session active" : "session"}
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
-                  {s.meta.parent !== undefined && <span className="subagent-chip">sub</span>}
                 </button>
               ))}
             </nav>
