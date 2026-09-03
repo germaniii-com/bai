@@ -14,6 +14,7 @@
     "wrap-ansi": "^10.0.1"
   },
   "devDependencies": {
+    "@bai/core": "workspace:*",
     "@types/react": "^19.2.0",
     "ink-testing-library": "^4.0.0"
   },

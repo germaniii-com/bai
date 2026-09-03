@@ -108,6 +108,19 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* Pending-ask count on the Chat nav item (visible when the user is in
+   another section — the inline panel carries the ask inside chat). */
+.nav-badge {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  padding: 0 5px;
+  border-radius: 7px;
+  color: #e3b341;
+  border: 1px solid #e3b341;
+  background: rgba(227, 179, 65, 0.12);
+}
+
 .soon {
   font-size: 8px;
   text-transform: uppercase;
@@ -1026,6 +1039,51 @@ body {
 }
 
 /* --- permission modal: allow once / allow always / reject --- */
+
+/* Inline ask panel: the non-blocking successor of the ask modals — a normal
+   layout child between the transcript and the composer (no overlay, no
+   dim). Reuses the .perm-* / .question-* families below. */
+.ask-panel {
+  margin: 0 16px 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #d9a038;
+  border-radius: 10px;
+  background: var(--panel);
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.ask-panel.question {
+  border-left-color: var(--accent);
+}
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.ask-warn {
+  color: #e3b341;
+}
+
+.ask-queued {
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.perm-context {
+  margin: 0;
+  color: #c678dd;
+}
 
 .perm-modal {
   background: var(--panel);

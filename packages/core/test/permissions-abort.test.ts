@@ -62,3 +62,51 @@ describe("permission gate abort", () => {
     t.store.close();
   });
 });
+
+describe("pendingAll / pendingAsks (global ask index seed)", () => {
+  test("returns every pending ask across sessions; answered rows drop out", async () => {
+    const t = makeCore();
+    const a = t.core.createSession({ workbench: "code" });
+    const b = t.core.createSession({ workbench: "code" });
+
+    // Subscribe FIRST: ask events publish synchronously inside authorize().
+    const sub = t.bus.subscribe();
+    // Two asks in session a, one in b — the authorize promises park until
+    // replied (that's the point; we only need the rows).
+    const parked = [
+      t.core.permissions.authorize({ tool: "bash", sessionId: a.id }),
+      t.core.permissions.authorize({ tool: "bash", sessionId: a.id }),
+      t.core.permissions.authorize({ tool: "bash", sessionId: b.id }),
+    ];
+    const asked = sub
+      .take()
+      .filter((e) => e.type === "permission.asked")
+      .map((e) => (e.payload as { request: { id: string } }).request.id);
+    expect(asked).toHaveLength(3);
+    expect(t.core.pendingAsks().pendingPermissions).toHaveLength(3);
+
+    // A parked question block counts too (memory-only, same index).
+    const questionParking = t.core.questions.ask({
+      sessionId: a.id,
+      questions: [{ question: "Proceed?", header: "go", options: [{ label: "Yes", description: "y" }] }],
+    });
+    expect(t.core.pendingAsks().pendingQuestions).toHaveLength(1);
+
+    // Answer one of a's permission asks: the index drops to 2 and keeps
+    // both sessions.
+    t.core.replyPermission(asked[0]!, "approved", "once");
+    const remaining = t.core.pendingAsks().pendingPermissions;
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((r) => r.sessionId)).toContain(a.id);
+    expect(remaining.map((r) => r.sessionId)).toContain(b.id);
+
+    // Settle everything: deny the rest, answer the question.
+    t.core.replyPermission(asked[1]!, "rejected", "once");
+    t.core.replyPermission(asked[2]!, "rejected", "once");
+    t.core.questions.reply((t.core.pendingAsks().pendingQuestions[0] as { id: string }).id, [["Yes"]]);
+    await Promise.allSettled([...parked, questionParking]);
+    expect(t.core.pendingAsks().pendingPermissions).toHaveLength(0);
+    expect(t.core.pendingAsks().pendingQuestions).toHaveLength(0);
+    t.store.close();
+  });
+});

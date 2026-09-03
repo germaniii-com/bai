@@ -132,6 +132,17 @@ export class BaiClient {
     if (!res.ok) throw new Error(`permission reply failed: ${res.status}`);
   }
 
+  /**
+   * Every pending ask across ALL sessions — the global indicator seed
+   * (TUI sessions list, web nav badge). Re-seed on connect/reconnect:
+   * the firehose is live-only, so events missed during drops heal here.
+   */
+  async pendingAsks(): Promise<{ pendingPermissions: PermissionRequest[]; pendingQuestions: QuestionRequest[] }> {
+    const res = await this.rpc().permission.$get();
+    if (!res.ok) throw new Error(`pending asks failed: ${res.status}`);
+    return res.json();
+  }
+
   /** Answer a pending question block (one label-array per question, in order). */
   async replyQuestion(id: string, answers: string[][]): Promise<void> {
     const res = await this.rpc().question[":id"].reply.$post({

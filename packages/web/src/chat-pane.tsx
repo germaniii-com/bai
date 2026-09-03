@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, thinkingText, toolCalls, type ToolCallView } from "./state";
+import { AskPanel, type PendingAsk } from "./ask-panel";
 import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
 
@@ -29,6 +30,9 @@ export function ChatPane({
   waiting,
   error,
   onOpenSubagent,
+  pendingAsk,
+  askQueued = 0,
+  onAskDone,
   startPlaceholder = "Start a chat…",
 }: {
   client: BaiClient;
@@ -55,6 +59,13 @@ export function ChatPane({
   startPlaceholder?: string;
   /** Open a subagent session from a task tool node (undefined → no chip). */
   onOpenSubagent?: (sessionId: string) => void;
+  // ---- inline ask panel (non-blocking; replaces the modal era) ----------
+  /** The merged, prioritized pending ask (undefined → no panel). */
+  pendingAsk?: PendingAsk;
+  /** Asks waiting behind the head one (queue indicator). */
+  askQueued?: number;
+  /** Pop the head ask off its queue after a reply. */
+  onAskDone: () => void;
 }) {
   return (
     <main className="chat">
@@ -101,6 +112,13 @@ export function ChatPane({
         )}
       </div>
       {error !== null && <div className="error">{error}</div>}
+      {pendingAsk !== undefined && (
+        // The inline ask panel (opencode's above-the-input placement): a
+        // normal layout child between transcript and composer — no overlay,
+        // no dim. The transcript keeps scrolling; the composer stays put
+        // below; the rest of the app stays navigable.
+        <AskPanel client={client} ask={pendingAsk} queued={askQueued} onDone={onAskDone} />
+      )}
       <form
         className="composer"
         onSubmit={(e) => {

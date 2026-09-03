@@ -70,6 +70,18 @@ export class PermissionsRepo {
       .all(sessionId)
       .map(toRequest);
   }
+
+  /**
+   * Every pending ask across ALL sessions, oldest first — the surfaces'
+   * global indicator seed (TUI sessions list, web badge). Session-less
+   * asks (session_id NULL) are included; callers attribute them as they
+   * see fit.
+   */
+  pendingAll(): PermissionRequest[] {
+    return q<PermissionRow>(this.db, "SELECT * FROM permissions WHERE status = 'pending' ORDER BY created_at")
+      .all()
+      .map(toRequest);
+  }
 }
 
 export type { PermissionAction };

@@ -99,6 +99,12 @@ function buildApi(deps: ApiDeps) {
     )
 
     // --- permissions ---
+    // Global pending-ask index (any session): the surfaces' indicator seed
+    // (TUI sessions list, web nav badge). Live updates ride the firehose
+    // (permission.asked/replied, question.asked/replied/rejected); this is
+    // the authoritative re-seed on connect/reconnect (the firehose is
+    // live-only, so events missed during drops heal here).
+    .get("/permission", (c) => c.json(deps.core.pendingAsks()))
     .post("/permission/:id/reply", zValidator("json", permissionReplySchema), (c) => {
       const body = c.req.valid("json");
       // scope + message MUST reach core: "always" persists the session

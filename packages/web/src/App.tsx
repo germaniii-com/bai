@@ -11,8 +11,7 @@ import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
-import { PermissionModal } from "./permission-modal";
-import { QuestionModal } from "./question-modal";
+import { AskPanel, type PendingAsk } from "./ask-panel";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -63,6 +62,30 @@ export function App() {
   activeRef.current = active;
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  // The merged, prioritized pending ask (parent permission > subagent
+  // permission > question — the modal era's ordering), rendered INLINE in
+  // the chat pane between the transcript and the composer. First reply
+  // wins across devices; a loser's panel clears via the replied event.
+  const headPermission = pendingAsks[0] ?? pendingChildAsks[0];
+  const headFromChild = pendingAsks.length === 0 && headPermission !== undefined;
+  const headQuestion = headPermission === undefined ? pendingQuestions[0] : undefined;
+  const askTotal = pendingAsks.length + pendingChildAsks.length + pendingQuestions.length;
+  const pendingAsk: PendingAsk | undefined =
+    headPermission !== undefined
+      ? {
+          kind: "permission",
+          request: headPermission,
+          ...(headFromChild
+            ? {
+                context: `subagent @${knownSessionsRef.current.find(
+                  (s) => s.id === headPermission.sessionId && typeof s.meta.agent === "string",
+                )?.meta.agent ?? "subagent"}`,
+              }
+            : {}),
+        }
+      : headQuestion !== undefined
+        ? { kind: "question", request: headQuestion }
+        : undefined;
   const streamCtrl = useRef<AbortController | null>(null);
   const { list, refresh: refreshProviders, fetching: providersFetching } = useProviders(client);
   // Default model + agent + workspace list from config — a tiny startup
@@ -380,34 +403,21 @@ export function App() {
     }
   };
 
+  // The ask panel lives inside ChatPane — visible in the chat section and
+  // in an engaged workspace; everywhere else the nav badge carries the
+  // count so a blocked run is never invisible.
+  const askPanelVisible = section === "chat" || (section === "workspace" && effectiveWorkspacePath !== null);
+
   return (
     <div className="app">
-      {/* App-global modals: permission asks and agent questions arrive as
-          events regardless of the section being browsed; runs block on the
-          replies (first reply wins). */}
-      {pendingAsks.length > 0 && (
-        <PermissionModal
-          client={client}
-          request={pendingAsks[0] as PermissionRequest}
-          onDone={() => setPendingAsks((list) => list.slice(1))}
-        />
-      )}
-      {pendingAsks.length === 0 && pendingChildAsks.length > 0 && (
-        <PermissionModal
-          client={client}
-          request={pendingChildAsks[0] as PermissionRequest}
-          context={`subagent @${knownSessionsRef.current.find((s) => s.id === pendingChildAsks[0]?.sessionId && typeof s.meta.agent === "string")?.meta.agent ?? "subagent"}`}
-          onDone={() => setPendingChildAsks((list) => list.slice(1))}
-        />
-      )}
-      {pendingAsks.length === 0 && pendingChildAsks.length === 0 && pendingQuestions.length > 0 && (
-        <QuestionModal
-          client={client}
-          request={pendingQuestions[0] as QuestionRequest}
-          onDone={() => setPendingQuestions((list) => list.slice(1))}
-        />
-      )}
-      <MasterNav section={section} onNavigate={navigate} />
+      {/* Pending asks render INLINE inside the chat pane (no overlay, no
+          dim) — the app stays fully navigable while a run is blocked. The
+          Chat nav item carries a count badge when the user is elsewhere. */}
+      <MasterNav
+        section={section}
+        onNavigate={navigate}
+        askBadge={askPanelVisible ? 0 : askTotal}
+      />
 
       <aside className="nested-panel">
         <div className="nested-title">
@@ -611,6 +621,15 @@ export function App() {
             waiting={waiting}
             error={error}
             onOpenSubagent={openSubagentSession}
+            pendingAsk={pendingAsk}
+            askQueued={Math.max(0, askTotal - 1)}
+            onAskDone={
+              headFromChild
+                ? () => setPendingChildAsks((list) => list.slice(1))
+                : headPermission !== undefined
+                  ? () => setPendingAsks((list) => list.slice(1))
+                  : () => setPendingQuestions((list) => list.slice(1))
+            }
             startPlaceholder={
               section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
             }
@@ -629,13 +648,22 @@ export function App() {
  * their phases land), Settings pinned at the bottom.
  * Icons are inline SVG — no icon dependency.
  */
-function MasterNav({ section, onNavigate }: { section: Section; onNavigate: (s: Section) => void }) {
+function MasterNav({
+  section,
+  onNavigate,
+  askBadge = 0,
+}: {
+  section: Section;
+  onNavigate: (s: Section) => void;
+  /** Pending-ask count for the Chat badge (0 = hidden). */
+  askBadge?: number;
+}) {
   return (
       <nav className="master-nav" aria-label="Primary">
         {/* Same asset as the favicon (public/icon.svg) — one logo, one truth. */}
         <img src="/icon.svg" alt="bai" className="brand-mark" />
       <div className="master-items">
-        <MasterItem section="chat" label="Chat" active={section === "chat"} onNavigate={onNavigate}>
+        <MasterItem section="chat" label="Chat" active={section === "chat"} onNavigate={onNavigate} badge={askBadge}>
           <Icon>
             <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
           </Icon>
@@ -704,6 +732,7 @@ function MasterItem({
   active = false,
   disabled = false,
   onNavigate,
+  badge = 0,
   children,
 }: {
   section: Section;
@@ -711,6 +740,8 @@ function MasterItem({
   active?: boolean;
   disabled?: boolean;
   onNavigate: (s: Section) => void;
+  /** Pending-ask count badge (Chat only; 0 = hidden). */
+  badge?: number;
   children: ReactNode;
 }) {
   const className = disabled ? "master-item" : active ? "master-item active" : "master-item";
@@ -734,6 +765,11 @@ function MasterItem({
     >
       {children}
       <span className="nav-label">{label}</span>
+      {badge > 0 && (
+        <span className="nav-badge" aria-label={`${badge} pending ask${badge === 1 ? "" : "s"}`}>
+          {badge}
+        </span>
+      )}
     </button>
   );
 }

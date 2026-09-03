@@ -2,11 +2,14 @@ import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import type { BaiClient } from "@bai/api/client";
-import type { Message, Session } from "@bai/shared";
+import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import type { Mode } from "../app";
 import { buildTranscriptItems, messageText, thinkingText, type TranscriptItem } from "../state/sync";
 import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
+import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
+import { PermissionPrompt } from "./permission-prompt";
+import { QuestionPrompt } from "./question-prompt";
 import {
   backspace,
   deleteForward,
@@ -62,6 +65,14 @@ export function ChatView({
   onSessionCreated,
   onOpenSubagent,
   subagents = emptySubagentState,
+  pendingAsks = [],
+  pendingChildAsks = [],
+  pendingQuestions = [],
+  askUi,
+  setAskUi,
+  onPermissionDone,
+  onChildAskDone,
+  onQuestionDone,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -83,11 +94,49 @@ export function ChatView({
   onOpenSubagent: (sessionId: string | undefined) => void;
   /** Tracked subagents of this session — live status for task nodes. */
   subagents?: SubagentState;
+  // ---- inline ask prompts (opencode's above-the-editor placement) ------
+  /** Pending permission asks for the active session (App-owned queue). */
+  pendingAsks?: PermissionRequest[];
+  /** Pending asks from the active session's subagents (firehose-fed). */
+  pendingChildAsks?: PermissionRequest[];
+  /** Pending agent→user question blocks (the `question` tool). */
+  pendingQuestions?: QuestionRequest[];
+  /** App-hoisted prompt UI state (survives prompt unmounts — state/asks.ts). */
+  askUi?: AskUiState;
+  /** Update the hoisted prompt state. */
+  setAskUi?: (update: (prev: AskUiState) => AskUiState) => void;
+  /** Pop the head ask off its queue after a reply (App applies the slice). */
+  onPermissionDone?: () => void;
+  onChildAskDone?: () => void;
+  onQuestionDone?: () => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const [escArmed, setEscArmed] = useState(false);
+
+  // ---- inline ask prompts (opencode's above-the-editor placement) ------
+  // The head pending ask (priority: parent permission > subagent
+  // permission > question — the modal era's ordering). While one is
+  // pending it takes the composer's slot and owns plain keys; the
+  // transcript (mouse wheel, paging, ctrl+u/d), ctrl-chords, view
+  // switching, and session switching all stay live.
+  const headPermission = pendingAsks[0] ?? pendingChildAsks[0];
+  const headFromChild = pendingAsks.length === 0 && headPermission !== undefined;
+  const headQuestion = headPermission === undefined ? pendingQuestions[0] : undefined;
+  const askPending = headPermission !== undefined || headQuestion !== undefined;
+  const askQueued = Math.max(0, pendingAsks.length + pendingChildAsks.length + pendingQuestions.length - 1);
+  // Origin line for a subagent's ask (who is asking).
+  const childContext =
+    headFromChild && headPermission !== undefined
+      ? `subagent @${subagents.children.get(headPermission.sessionId ?? "")?.agent ?? "subagent"}`
+      : undefined;
+  // esc routing while an ask is pending: questions (two-stage dismiss) and
+  // the permission reject stage own esc; the permission choose stage leaves
+  // it to the chat (focus clear, then interrupt arming — the abandon hatch).
+  const escOwnedByPrompt =
+    headQuestion !== undefined ||
+    (headPermission !== undefined && (askUi?.stage ?? "choose") === "reject");
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
   // the assistant's first text lands. Stops on errors too — run.finished
@@ -352,6 +401,7 @@ export function ChatView({
   // Paste implies typing intent: NORMAL mode switches to INPUT first
   // (idempotent when already there), so pasted content is always editable.
   usePaste((pasted) => {
+    if (askPending) return; // the prompt owns typing while it's up
     onEnterInput();
     setEditor((e) => insert(e, sanitize(pasted)));
   });
@@ -402,6 +452,37 @@ export function ChatView({
     const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
     if (key.pageUp) return scrollBy(-pageRows);
     if (key.pageDown) return scrollBy(pageRows);
+
+    // An ask is pending: the inline prompt (its own useInput) owns plain
+    // keys, arrows, enter/space, and — for questions and the permission
+    // reject stage — esc. The chat keeps mouse (above), paging, and
+    // ctrl+u/d scroll; other ctrl chords fall through to App's globals
+    // (session switching stays live mid-ask — the point of going inline).
+    if (askPending) {
+      if (key.escape && !escOwnedByPrompt) {
+        // The chat's esc semantics: clear transcript focus first, then the
+        // double-press interrupt (abandoning the blocked run answers the
+        // ask the hard way — core fails the pending ask on stop).
+        if (focus !== null) {
+          setFocus(null);
+          return;
+        }
+        if (runActive && session !== null) {
+          if (escArmed) {
+            disarmEsc();
+            void client.interrupt(session.id);
+          } else {
+            setEscArmed(true);
+            if (escTimer.current !== null) clearTimeout(escTimer.current);
+            escTimer.current = setTimeout(disarmEsc, 2500);
+          }
+        }
+        return;
+      }
+      if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
+      if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
+      return;
+    }
 
     // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
     // then interrupts the running drain (double-press: first arms, second
@@ -772,27 +853,51 @@ export function ChatView({
           block at the cursor position (multi-line drafts render their
           embedded newlines; ←/→/Home/End move the cursor). NORMAL dims the
           box and swaps the prompt to vim's ex-mode `:` — typing is off
-          there. */}
-      <Box
-        borderStyle="round"
-        borderColor={mode === "input" ? "green" : "gray"}
-        paddingX={1}
-      >
-        <Text color="magenta">{mode === "input" ? "› " : ": "}</Text>
-        <Text>
-          {editor.text.slice(0, editor.cursor)}
-          {mode === "input" && <Text dimColor>▌</Text>}
-          {editor.text.slice(editor.cursor)}
-        </Text>
-        {busy && <Text dimColor> (working…)</Text>}
-        {mode === "input" && <Text dimColor> · esc normal</Text>}
-        {mode === "normal" && runActive && !escArmed && (
-          <Text dimColor> · esc to stop</Text>
-        )}
-        {mode === "normal" && escArmed && (
-          <Text color="yellow"> · esc again to stop</Text>
-        )}
-      </Box>
+          there. While an ask is pending the composer is REPLACED by the
+          inline prompt (opencode's placement): the prompt takes this slot,
+          the transcript keeps scrolling, and typing is inert — the App
+          forces NORMAL so no stale INPUT state lingers. */}
+      {headPermission !== undefined ? (
+        <PermissionPrompt
+          client={client}
+          request={headPermission}
+          context={childContext}
+          ui={askUi ?? emptyAskUi()}
+          onUi={setAskUi ?? (() => {})}
+          queued={askQueued}
+          onDone={headFromChild ? (onChildAskDone ?? (() => {})) : (onPermissionDone ?? (() => {}))}
+        />
+      ) : headQuestion !== undefined ? (
+        <QuestionPrompt
+          client={client}
+          request={headQuestion}
+          ui={askUi ?? emptyAskUi()}
+          onUi={setAskUi ?? (() => {})}
+          queued={askQueued}
+          onDone={onQuestionDone ?? (() => {})}
+        />
+      ) : (
+        <Box
+          borderStyle="round"
+          borderColor={mode === "input" ? "green" : "gray"}
+          paddingX={1}
+        >
+          <Text color="magenta">{mode === "input" ? "› " : ": "}</Text>
+          <Text>
+            {editor.text.slice(0, editor.cursor)}
+            {mode === "input" && <Text dimColor>▌</Text>}
+            {editor.text.slice(editor.cursor)}
+          </Text>
+          {busy && <Text dimColor> (working…)</Text>}
+          {mode === "input" && <Text dimColor> · esc normal</Text>}
+          {mode === "normal" && runActive && !escArmed && (
+            <Text dimColor> · esc to stop</Text>
+          )}
+          {mode === "normal" && escArmed && (
+            <Text color="yellow"> · esc again to stop</Text>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }

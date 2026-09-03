@@ -154,10 +154,11 @@ export function SelectDialog({
       {windowed.map((opt, i) => {
         const absolute = start + i;
         return (
-          <Text key={opt.value} color={absolute === clamped ? "cyan" : undefined}>
+          <Text key={opt.value} color={absolute === clamped ? "cyan" : undefined} wrap="truncate">
             {absolute === clamped ? "❯ " : "  "}
             {opt.gutter !== undefined ? <Text color="green">{opt.gutter} </Text> : null}
             {opt.label}
+            {opt.badge !== undefined && <Text color="yellow"> {opt.badge}</Text>}
             {opt.hint !== undefined && <Text dimColor> {opt.hint}</Text>}
           </Text>
         );

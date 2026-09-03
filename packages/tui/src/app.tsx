@@ -6,9 +6,8 @@ import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
-import { PermissionDialog } from "./views/permission-dialog";
-import { QuestionDialog } from "./views/question-dialog";
 import { SubagentDialog } from "./views/subagent-dialog";
+import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
 import {
@@ -68,15 +67,49 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const [runActive, setRunActive] = useState(false);
   // Pending permission asks for the active session (queue — normally one).
   // Set by permission.asked events / the snapshot's pendingPermissions;
-  // cleared by permission.replied. Rendered as a modal dialog that owns the
-  // keyboard until answered (first reply wins across devices — a loser's
-  // dialog clears via permission.replied).
+  // cleared by permission.replied. Rendered INLINE in the chat view (the
+  // prompt takes the composer's slot — opencode's placement); first reply
+  // wins across devices (a loser's prompt clears via permission.replied).
   const [pendingAsks, setPendingAsks] = useState<PermissionRequest[]>([]);
   // Pending permission asks from the active session's SUBAGENTS (fed from
-  // the firehose) — they pop the same modal, tagged with the child's name.
+  // the firehose) — they render in the same inline slot, tagged with the
+  // child's name.
   const [pendingChildAsks, setPendingChildAsks] = useState<PermissionRequest[]>([]);
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  // Inline prompt UI state (stage, typed buffers, question progress) —
+  // hoisted here and reset when the head ask's id changes, so opening a
+  // ctrl-chord dialog (which unmounts the chat view) never loses
+  // mid-answer progress. React's adjust-state-during-render pattern: the
+  // id change IS the reset.
+  const headAsk = pendingAsks[0] ?? pendingChildAsks[0] ?? pendingQuestions[0];
+  const headAskId = headAsk !== undefined ? (headAsk.id as string) : undefined;
+  const [askUiState, setAskUiState] = useState<{ id: string | undefined; ui: AskUiState }>(() => ({
+    id: undefined,
+    ui: emptyAskUi(),
+  }));
+  if (askUiState.id !== headAskId) {
+    setAskUiState({ id: headAskId, ui: headAsk !== undefined ? askUiFor(headAsk) : emptyAskUi() });
+  }
+  const setAskUi = useCallback((update: (prev: AskUiState) => AskUiState) => {
+    setAskUiState((t) => ({ ...t, ui: update(t.ui) }));
+  }, []);
+  // Any pending ask for the active session — drives the footer counter and
+  // the composer swap in the chat view.
+  const askPending = pendingAsks.length > 0 || pendingChildAsks.length > 0 || pendingQuestions.length > 0;
+  const askTotal = pendingAsks.length + pendingChildAsks.length + pendingQuestions.length;
+  // Global ask index (session → pending count, ALL sessions) — the ctrl+s
+  // sessions-list indicator. Seeded from GET /api/permission on mount and
+  // on every server.hello (the firehose is live-only; drops heal there),
+  // kept live by the firehose's ask/reply events (state/asks.ts).
+  const [askIndex, setAskIndex] = useState<AskIndex>(new Map());
+  const refreshAskIndex = useCallback(async () => {
+    try {
+      setAskIndex(askIndexFrom(await client.pendingAsks()));
+    } catch {
+      // Advisory; the next server.hello re-seeds.
+    }
+  }, [client]);
   // Agent/tool catalog version — bumped by live events so the manager
   // dialog refetches while open (file edits from any surface).
   const [catalogTick, setCatalogTick] = useState(0);
@@ -90,7 +123,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const subagentsRef = useRef<SubagentState>(emptySubagentState);
   subagentsRef.current = subagents;
   const dialogOpenRef = useRef(false);
-  dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingChildAsks.length > 0 || pendingQuestions.length > 0;
+  // Only real ctrl-chord dialogs gate the globals now — pending asks do
+  // NOT: the inline prompt leaves the transcript, ctrl-chords, view
+  // switching, and esc-back fully usable (the whole point of going inline).
+  dialogOpenRef.current = dialog !== null;
   // Latest active session readable from the firehose handler's stale closure
   // (the firehose subscribes once and must not resubscribe on every switch).
   const activeRef = useRef<Session | null>(null);
@@ -141,7 +177,8 @@ export function App({ client, version }: { client: BaiClient; version: string })
   useEffect(() => {
     void refreshSessions();
     void refreshConfig();
-  }, [refreshSessions, refreshConfig]);
+    void refreshAskIndex();
+  }, [refreshSessions, refreshConfig, refreshAskIndex]);
 
   // ctrl+c arming expires like the composer's esc arming — a stale press
   // must never quit (or interrupt) a later session of events.
@@ -153,6 +190,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
     }
   }, []);
   useEffect(() => disarmQuit, [disarmQuit]); // unmount
+
+  // The inline prompt replaces the composer while an ask is pending
+  // (opencode's placement): typing is inert then — force NORMAL so the
+  // header indicator and the key routing agree. The draft survives: the
+  // chat view stays mounted, its editor state untouched.
+  useEffect(() => {
+    if (askPending) setMode("normal");
+  }, [askPending]);
 
   // Live refresh: account/config changes from ANY surface (TUI, web, phone)
   // update this one within a heartbeat — no restart, no manual refresh.
@@ -169,6 +214,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
         if (evt.type === "server.hello") {
           void refreshSessions();
           void refreshConfig();
+          void refreshAskIndex();
           if (providersLoadedRef.current) void refreshProviders();
         }
         if (evt.type === "provider.updated") {
@@ -195,17 +241,21 @@ export function App({ client, version }: { client: BaiClient; version: string })
         // Subagent inspector: children of the active session stream their
         // activity through the firehose (state/subagents.ts).
         setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
-        // A subagent's permission ask pops the same modal a parent ask
-        // gets — otherwise the child would sit blocked with no dialog.
+        // A subagent's permission ask feeds the same inline prompt a
+        // parent ask gets — otherwise the child would sit blocked with
+        // no visible way to answer.
         if (evt.type === "permission.asked" || evt.type === "permission.replied") {
           setPendingChildAsks((list) =>
             applyChildAskEvent(list, evt, (id) => subagentsRef.current.children.has(id)),
           );
         }
+        // Global ask index (sessions-list indicator): every ask/reply
+        // event, any session.
+        setAskIndex((prev) => applyAskIndexEvent(prev, evt));
       },
     });
     return () => ctrl.abort();
-  }, [client, refreshProviders, refreshSessions, refreshConfig]);
+  }, [client, refreshProviders, refreshSessions, refreshConfig, refreshAskIndex]);
 
   // Rebuild the tracked child set whenever the active session or the
   // session list changes (switch, refresh, archive) — live activity for
@@ -369,37 +419,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
       </Box>
 
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {pendingAsks.length > 0 ? (
-          // A permission ask is pending: it owns the body (and, via
-          // dialogOpenRef, every other key path) until answered. The
-          // composer is unmounted — typing can't race the reply.
-          <PermissionDialog
-            client={client}
-            request={pendingAsks[0] as PermissionRequest}
-            onDone={() => setPendingAsks((list) => list.slice(1))}
-          />
-        ) : pendingChildAsks.length > 0 ? (
-          // A subagent's tool ask: same modal, tagged with the child's
-          // agent name so the user knows who is asking.
-          <PermissionDialog
-            client={client}
-            request={pendingChildAsks[0] as PermissionRequest}
-            context={`subagent @${subagentsRef.current.children.get(pendingChildAsks[0]?.sessionId ?? "")?.agent ?? "subagent"}`}
-            onDone={() => setPendingChildAsks((list) => list.slice(1))}
-          />
-        ) : pendingQuestions.length > 0 ? (
-          <QuestionDialog
-            client={client}
-            request={pendingQuestions[0] as QuestionRequest}
-            onDone={() => setPendingQuestions((list) => list.slice(1))}
-          />
-        ) : dialog !== null && dialog.kind === "sessions" ? (
+        {dialog !== null && dialog.kind === "sessions" ? (
           // Session picker dialog (ctrl+s): pick → open the session and
           // close; n → draft state (no session until the first prompt);
           // esc → back to the chat underneath.
           <SessionsView
             sessions={sessions.filter((s) => s.meta.parent === undefined)}
             activeId={active?.id}
+            askIndex={askIndex}
             onPick={(s) => {
               setDialog(null);
               setActive(s);
@@ -470,6 +497,11 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 }}
                 onOpenSubagent={openSubagentDialog}
                 subagents={subagents}
+                pendingAsks={pendingAsks}
+                pendingChildAsks={pendingChildAsks}
+                pendingQuestions={pendingQuestions}
+                askUi={askUiState.ui}
+                setAskUi={setAskUi}
               />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}
@@ -482,6 +514,14 @@ export function App({ client, version }: { client: BaiClient; version: string })
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
+        {askPending && (
+          // opencode's footer counter: asks block their session's run, so
+          // the count stays visible from ANY view (the prompt itself lives
+          // in the chat view).
+          <Text color="yellow">
+            △ {askTotal} pending ask{askTotal === 1 ? "" : "s"}
+          </Text>
+        )}
         {quitArmed && (
           <Text color="yellow">
             {runActive ? "ctrl+c again to interrupt" : "ctrl+c again to quit"}

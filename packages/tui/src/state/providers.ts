@@ -11,6 +11,8 @@ export interface PickerOption {
   hint?: string;
   /** Left-gutter mark (✓ for connected providers, · for accounts). */
   gutter?: string;
+  /** Right-side warning badge (e.g. "△ 1" — a session's pending asks). */
+  badge?: string;
 }
 
 /** Provider list: connected first (both stable), stub last. */

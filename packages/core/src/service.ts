@@ -321,6 +321,20 @@ export class Service {
     return this.questions.pendingBySession(sessionId);
   }
 
+  /**
+   * Every pending ask across ALL sessions — the global indicator seed for
+   * surfaces that list sessions (TUI ctrl+s, web nav badge). Permissions
+   * come from the durable store (survive restarts); questions are
+   * memory-only (meaningless after one). Session-less asks are included;
+   * callers attribute them as they see fit.
+   */
+  pendingAsks(): { pendingPermissions: PermissionRequest[]; pendingQuestions: QuestionRequest[] } {
+    return {
+      pendingPermissions: this.deps.store.permissions.pendingAll(),
+      pendingQuestions: this.questions.list(),
+    };
+  }
+
   // --- agents ---
 
   listAgents(): AgentInfo[] {
