@@ -17,10 +17,10 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
   feedback, TUI+web dialogs), question/todo/web tools, subagent spawning
   (`task` tool), token discipline + compaction ship today. MCP (§11),
   media adapters, and desktop are next.
-- **Packages:** npm scope `@bai/*` under `src/packages/`.
+- **Packages:** npm scope `@bai/*` under `packages/`.
 - **Companion docs:** [README.md](README.md),
   [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
-  per package under `src/packages/`.
+  per package under `packages/`.
 
 ---
 
@@ -121,18 +121,18 @@ than a feature bolted on later.
 ## 5. Repository layout & dependency rules
 
 Bun workspaces monorepo; composition root in `@bai/cli`; everything else under
-`src/packages/`. The Go sketch (`packages/{cli,web,core,api,shared,tui,desktop}`)
+`packages/`. The Go sketch (`packages/{cli,web,core,api,shared,tui,desktop}`)
 is realized literally:
 
 | Package       | Path                 | Notes                                                            |
 | ------------- | -------------------- | ---------------------------------------------------------------- |
-| `shared`      | `src/packages/shared`  | Domain types, IDs, contracts. Imports nothing.                 |
-| `core`        | `src/packages/core`    | Sessions, runs, tools, permissions + supporting submodules     |
-| `api`         | `src/packages/api`     | Typed HTTP boundary, both sides (Hono app + typed client)      |
-| `cli`         | `src/packages/cli`     | Flags, wiring, mode dispatch (composition root)                |
-| `tui`         | `src/packages/tui`     | Ink surface                                                    |
-| `web`         | `src/packages/web`     | React SPA source; built `dist/` served by api                  |
-| `desktop`     | `src/packages/desktop` | Stub until Phase 6                                             |
+| `shared`      | `packages/shared`  | Domain types, IDs, contracts. Imports nothing.                 |
+| `core`        | `packages/core`    | Sessions, runs, tools, permissions + supporting submodules     |
+| `api`         | `packages/api`     | Typed HTTP boundary, both sides (Hono app + typed client)      |
+| `cli`         | `packages/cli`     | Flags, wiring, mode dispatch (composition root)                |
+| `tui`         | `packages/tui`     | Ink surface                                                    |
+| `web`         | `packages/web`     | React SPA source; built `dist/` served by api                  |
+| `desktop`     | `packages/desktop` | Stub until Phase 6                                             |
 
 Supporting modules live as submodules inside `core/src/`:
 
@@ -184,7 +184,7 @@ shared      ─► (nothing)
 ### 5.1 Code map — where the important things live
 
 The guided tour for anyone reading the implementation. Paths are relative to
-`src/packages/`.
+`packages/`.
 
 | What | Where | Notes |
 | --- | --- | --- |
@@ -541,7 +541,7 @@ Serving contract (owned by `@bai/api`):
   blank 404 when dist is missing.
 - Cache headers: immutable for hashed `/assets/*`, `no-cache` for index.html.
 - Dev mode: Vite dev server proxies `/api` + `/mcp` to a running bai
-  (see `src/packages/web/vite.config.ts`); alternatively the server proxies
+  (see `packages/web/vite.config.ts`); alternatively the server proxies
   non-API routes to Vite HMR when `BAI_DEV_URL` is set.
 
 ### 13.3 Desktop (`@bai/desktop` — stub, Phase 6)
@@ -616,7 +616,7 @@ TypeScript-specific decisions (D13+):
 | #   | Decision                                        | Rationale                                                                     | Alternatives rejected                        |
 | --- | ----------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- |
 | D1  | Server-first core, thin surfaces                | Continuity across devices becomes structural                                  | Fat clients syncing P2P                      |
-| D2  | Single Bun workspace + `src/packages/*`         | User-mandated layout; simplest builds; hoisted installs                       | Turborepo/Nx (no need yet), nested src dirs  |
+| D2  | Single Bun workspace + `packages/*`         | User-mandated layout; simplest builds; hoisted installs                       | Turborepo/Nx (no need yet), nested src dirs  |
 | D3  | Ink 7 TUI                                       | React model, alternate-screen support, Claude Code/Gemini CLI pedigree        | OpenTUI/SolidJS (younger ecosystem), Textual |
 | D4  | `bun:sqlite`                                    | Built-in, sync API, WAL, zero native deps                                     | better-sqlite3 (node-gyp), drizzle ORM layer |
 | D5  | MCP-only extensibility in v1                    | Industry standard; official TS SDK v2 w/ Hono adapter                         | Plugin hook DSL first                        |

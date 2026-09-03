@@ -51,7 +51,7 @@ exit 1 on errors.
 with the web bundle embedded:
 
 ```sh
-bun build --compile src/packages/cli/src/index.ts --outfile dist/bai
+bun build --compile packages/cli/src/index.ts --outfile dist/bai
 # cross targets: --target=bun-linux-x64 | bun-darwin-arm64 | bun-windows-x64 | …
 ```
 

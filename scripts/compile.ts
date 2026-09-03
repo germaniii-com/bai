@@ -7,7 +7,7 @@
  *
  * - BAI_VERSION is stamped into the binary via `define` (the analog of Go's
  *   `-ldflags -X …version=$(VERSION)`); defaults to "dev".
- * - The built web SPA (src/packages/web/dist) is embedded via compile assets
+ * - The built web SPA (packages/web/dist) is embedded via compile assets
  *   when present — the analog of `//go:embed all:dist` — and served by
  *   `@bai/api` through the same relative path at runtime.
  * - react-devtools-core is stubbed: ink's reconciler calls
@@ -20,9 +20,9 @@ import type { BunPlugin } from "bun";
 const version = process.env.BAI_VERSION ?? "dev";
 const release = process.argv.includes("--release");
 
-const entrypoint = new URL("../src/packages/cli/src/index.ts", import.meta.url).pathname;
+const entrypoint = new URL("../packages/cli/src/index.ts", import.meta.url).pathname;
 const distDir = new URL("../dist/", import.meta.url).pathname;
-const webDist = new URL("../src/packages/web/dist", import.meta.url).pathname;
+const webDist = new URL("../packages/web/dist", import.meta.url).pathname;
 
 /** All 8 cross-compile targets (bun build --compile matrix). */
 const RELEASE_TARGETS = [
@@ -75,7 +75,7 @@ async function compileOne(target: string | undefined): Promise<void> {
     compile: {
       ...(target !== undefined ? { target } : {}),
       outfile,
-      ...(hasWebAssets ? { assets: ["src/packages/web/dist"] } : {}),
+      ...(hasWebAssets ? { assets: ["packages/web/dist"] } : {}),
     },
   });
 

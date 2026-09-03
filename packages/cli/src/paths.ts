@@ -40,7 +40,7 @@ export const serverStatePath = (): string => path.join(stateDir(), "server.json"
  * Built web SPA resolution order:
  *   1. BAI_WEB_DIST env (explicit override)
  *   2. source-tree layout: import.meta.dir/../../web/dist
- *   3. embedded compile assets (bun ≥ 1.4): import.meta.dir/src/packages/web/dist
+ *   3. embedded compile assets (bun ≥ 1.4): import.meta.dir/packages/web/dist
  *   4. sibling of the executable (make build copies dist/web for bun 1.3.x,
  *      whose --compile ignores the assets option)
  * undefined → @bai/api renders the "build the web app" hint page.

@@ -5,8 +5,8 @@ VERSION ?= dev
 
 build: ## build the bai single executable (bun --compile, SPA embedded)
 	BAI_VERSION=$(VERSION) bun run scripts/compile.ts
-	@if [ -f src/packages/web/dist/index.html ]; then \
-		rm -rf dist/web && cp -R src/packages/web/dist dist/web; \
+	@if [ -f packages/web/dist/index.html ]; then \
+		rm -rf dist/web && cp -R packages/web/dist dist/web; \
 		echo "web SPA staged → dist/web (served by the binary on bun < 1.4)"; \
 	fi
 
@@ -25,7 +25,7 @@ tidy: ## install/refresh workspace dependencies
 clean: ## remove build artifacts
 	rm -rf dist
 
-web-build: ## build the React SPA into src/packages/web/dist (embedded at compile time)
+web-build: ## build the React SPA into packages/web/dist (embedded at compile time)
 	bun run --filter '@bai/web' build
 
 release: ## cross-compile release binaries for all 8 targets into dist/

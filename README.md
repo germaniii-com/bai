@@ -89,7 +89,7 @@ The full research notes live in
 bai-ts/
 ├── ARCHITECTURE.md            ← design, code map, decisions, roadmap
 ├── FEATURES.md                ← what each workbench does today
-├── src/packages/
+├── packages/
 │   ├── shared/                domain types & contracts (leaf)        @bai/shared
 │   ├── core/                  sessions, runs, agents, tools, perms   @bai/core
 │   │   └── src/                 store · event · config · provider · agent/
@@ -115,7 +115,7 @@ make run          # build and start the TUI
 make test         # bun test across workspaces
 make vet          # tsc --noEmit per package
 make tidy         # bun install
-make web-build    # vite build → src/packages/web/dist
+make web-build    # vite build → packages/web/dist
 make release      # cross-compile all 8 targets → dist/
 make clean        # remove dist/
 ```

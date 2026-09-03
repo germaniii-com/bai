@@ -17,6 +17,6 @@ export interface ApiDeps {
   token?: string;
   /** True when bound to 127.0.0.1 — loopback requests bypass auth. */
   loopbackBind: boolean;
-  /** Built web SPA directory (src/packages/web/dist); hint page when missing. */
+  /** Built web SPA directory (packages/web/dist); hint page when missing. */
   webDist?: string;
 }

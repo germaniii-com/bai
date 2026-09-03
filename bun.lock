@@ -9,7 +9,7 @@
         "typescript": "^5.9.0",
       },
     },
-    "src/packages/api": {
+    "packages/api": {
       "name": "@bai/api",
       "version": "0.1.0",
       "dependencies": {
@@ -21,7 +21,7 @@
         "zod": "^4.0.0",
       },
     },
-    "src/packages/cli": {
+    "packages/cli": {
       "name": "@bai/cli",
       "version": "0.1.0",
       "dependencies": {
@@ -31,7 +31,7 @@
         "@bai/tui": "workspace:*",
       },
     },
-    "src/packages/core": {
+    "packages/core": {
       "name": "@bai/core",
       "version": "0.1.0",
       "dependencies": {
@@ -50,14 +50,14 @@
         "@types/turndown": "^5.0.5",
       },
     },
-    "src/packages/shared": {
+    "packages/shared": {
       "name": "@bai/shared",
       "version": "0.1.0",
       "dependencies": {
         "zod": "^4.0.0",
       },
     },
-    "src/packages/tui": {
+    "packages/tui": {
       "name": "@bai/tui",
       "version": "0.1.0",
       "dependencies": {
@@ -72,7 +72,7 @@
         "ink-testing-library": "^4.0.0",
       },
     },
-    "src/packages/web": {
+    "packages/web": {
       "name": "@bai/web",
       "version": "0.1.0",
       "dependencies": {
@@ -280,17 +280,17 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@bai/api": ["@bai/api@workspace:src/packages/api"],
+    "@bai/api": ["@bai/api@workspace:packages/api"],
 
-    "@bai/cli": ["@bai/cli@workspace:src/packages/cli"],
+    "@bai/cli": ["@bai/cli@workspace:packages/cli"],
 
-    "@bai/core": ["@bai/core@workspace:src/packages/core"],
+    "@bai/core": ["@bai/core@workspace:packages/core"],
 
-    "@bai/shared": ["@bai/shared@workspace:src/packages/shared"],
+    "@bai/shared": ["@bai/shared@workspace:packages/shared"],
 
-    "@bai/tui": ["@bai/tui@workspace:src/packages/tui"],
+    "@bai/tui": ["@bai/tui@workspace:packages/tui"],
 
-    "@bai/web": ["@bai/web@workspace:src/packages/web"],
+    "@bai/web": ["@bai/web@workspace:packages/web"],
 
     "@hono/zod-validator": ["@hono/zod-validator@0.9.0", "", { "peerDependencies": { "hono": ">=4.11.2", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-n0ZSXmCiHVIp4Y5wlOOyZCeTd/rsawA/qW1cipB8QOYKZ9N8Tk0nZUZCXho9cu374AN4JpDNKioNKBJ/W+LBug=="],
 
