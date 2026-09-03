@@ -14,8 +14,9 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
 - **Status:** implemented through the code-workbench phase (§16): chat,
   sync, agents (`build`/`plan`/`chat` built-ins + hot-reloaded files), file
   tools + bash/grep, interactive permissions (diff-rendered asks, reject
-  feedback, TUI+web dialogs), question/todo/web tools, token discipline +
-  compaction ship today. MCP (§11), media adapters, and desktop are next.
+  feedback, TUI+web dialogs), question/todo/web tools, subagent spawning
+  (`task` tool), token discipline + compaction ship today. MCP (§11),
+  media adapters, and desktop are next.
 - **Packages:** npm scope `@bai/*` under `src/packages/`.
 - **Companion docs:** [README.md](README.md),
   [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
@@ -191,6 +192,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **History → provider messages** | `core/src/run/history.ts` → `renderOutbound()` | Parts → neutral `ContentBlock[]`; tool results move to a synthetic following user message; dangling calls closed with error results. |
 | **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints (system / last tool / last message). OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Model resolution + credentials: `core/src/provider/registry.ts`. |
 | **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
+| **Subagent spawning** | `core/src/tools/task.ts` | The `task` tool: spawns a real child session (`meta: {parent, agent}`) running any agent to completion via `RunCoordinator.drainNow`, returns the child's final text in a `<task>` XML block. Depth-capped (`agents.subagentDepth`, default 1); children never offered/allowed `task`/`question`/`plan.exit`; batched task calls run concurrently (executeCalls stage 2); the result payload carries `subagent: {sessionId, agent}` for surface links. |
 | **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from TUI (ctrl+a) or web Agents page via `PUT /api/tool/:name`. |
 | **Agents** | stored in `~/.config/bai/agents/*.md`; registry `core/src/agent/registry.ts` | Markdown + YAML frontmatter (`description`, `model?`, `tools` allow-list), body = system prompt, name = filename stem. `AgentRegistry` scans + `fs.watch`-es the directory (debounced rescan → live `agents.updated` event) — no restarts, ever. Schema + built-in `build` agent: `shared/src/agents.ts`. Selected per session (TUI ctrl+a switcher, web chat-header picker) or defaulted via config `agents.default`. Created three ways: drop a file on disk, `PUT /api/agent/:name` (writes the markdown), or TUI ctrl+a / web Agents page. |
 | **Permissions** | `core/src/permissions/engine.ts` (pure rule match) + `core/src/permissions/ask.ts` (`PermissionGate`) | Layers: `fs.read/list/glob` allow-by-default < `config.permissions` < session approvals ("always" → `session.meta.approvals`). The gate blocks tool execution on a durable `permission.asked` event until `Service.replyPermission` resolves it — first reply wins across devices. |
@@ -341,13 +343,20 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
 - **Tool registry** merges builtin + workbench + custom-file tools; enforces
   output size limits (truncate head+tail, spill full output to a managed
   temp file).
-- **Permissions:** layers `fs.read/list/glob: allow` < `config.permissions`
+- **Permissions:** layers `fs.read/list/glob: allow` + **cwd-relative fs
+  default** (an fs tool targeting a path inside the session's working
+  directory is allowed without an ask — `fsPathInsideCwd`; bash/web and
+  anything outside the cwd keep asking) < `config.permissions`
   (`{ "<tool-pattern>": "allow|ask|deny" }`, last-match-wins) < session
   approvals ("always" → `session.meta.approvals`). Unmatched defaults to
   `ask`; unknown tools error out before the gate (an unmatched tool would
   otherwise stall the run on an ask nobody can answer). Interactive asks
   broadcast to all surfaces; first reply wins; `always` persists for the
-  session. A batch where every call was denied ends the run.
+  session. A batch where every call was denied ends the run. Interrupted
+  runs unblock pending asks: the gate wires the drain's AbortSignal into
+  the wait — abort flips the row to rejected, broadcasts
+  `permission.replied`, and resolves the call as a cancelled denial
+  (QuestionService's abort handling is the precedent).
 - **Token discipline** (render-time, transcript untouched): identical tool
   results collapse to one-line stubs; results outside the newest-10 window
   prune to summaries; errors always stay verbatim.
@@ -358,6 +367,30 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
   points at it and later drains slice history from that pointer.
 - **Length guard:** `stopReason === "length"` fails every pending tool call
   (streamed JSON arguments may be truncated) and ends the run.
+- **Env block:** every turn's system prompt is persona + `<env>` — working
+  directory (fs paths resolve relative to it; bash runs there), workbench,
+  agent, the agent's available tools, platform, and date
+  (`core/src/run/env.ts`). Subagents inherit their parent's cwd through
+  their own session row, so the whole session tree knows where it is.
+- **Subagents (the `task` tool):** a call spawns a real child session
+  (`meta: {parent, agent}`, title `"<task> (@<agent> subagent)"`, inherited
+  workbench/cwd) and blocks on a new awaitable drain
+  (`RunCoordinator.drainNow` — the `ActiveRun` now carries a settle-able
+  `done` promise; `wake` semantics unchanged). Model precedence: the
+  subagent's own `model` wins; otherwise the parent's explicit
+  `meta.model` is copied down. Children get their own `MAX_STEPS` budget,
+  compaction, discipline, and permission gate (config rules apply globally;
+  asks surface on the child session, approved there). Guards: depth cap
+  (`agents.subagentDepth`, default 1), interaction/recursion tools
+  (`task`, `question`, `plan.exit`) stripped from both the offered defs
+  (`toolDefsFor`) and execution (`executeCalls` backstop), and the spawn
+  itself fails closed (`task` unmatched → ask). Batches made entirely of
+  `task` calls run concurrently — independent sessions by contract; results
+  persist in call order either way. Surfaces: the TUI renders a live
+  subagent inspector bar (children of the active session, fed from the
+  firehose — `tui/src/state/subagents.ts`) and expandable task nodes
+  showing the child's final output; the web unwraps task bodies and links
+  to the child session.
 
 ## 10. Providers & models
 
@@ -564,7 +597,7 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 | **0 — Skeleton**          | workspaces, mode dispatch, config layers, store+migrations, hello-world API, web shell, TUI shell, compile pipeline        | `bai` opens TUI; `bai --web` serves SPA; `bai --one-shot hi` prints NDJSON | ✅ shipped |
 | **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         | ✅ shipped |
 | **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
-| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | ✅ shipped (diff viewer with revert pending) |
+| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), subagents (`task` tool), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | ✅ shipped (diff viewer with revert pending) |
 | **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
 | **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               | ⏳ pending (structured stubs live — see FEATURES.md) |
 | **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |
@@ -603,6 +636,7 @@ TypeScript-specific decisions (D13+):
 | D21 | File-defined agents, hot-reloaded               | Markdown + minimal frontmatter beats config blobs; `fs.watch` + debounced rescan beats opencode's restart-to-apply | opencode.json agent blocks; forever-caches |
 | D22 | Render-time token discipline, transcript sacred | Idempotent transforms = cache-stable prefixes; the event-sourced transcript is the recovery store | Mutating history in place; stateful rearm counters |
 | D23 | Custom tools as TS files, dynamically imported  | Bun imports TS natively (no jiti); files stay the source of truth; CRUD UX writes files via the API | Declarative config tools; sandboxed workers (v1) |
+| D24 | Subagents as durable child sessions (`task` tool) | Event-sourcing + multi-device inspection for free: the child is a real session with its own history, compaction, and permission gate, watchable from any surface — not a hidden in-memory transcript | pi-style child processes (no shared store/events), hermes-style thread pools (opaque to surfaces), synthetic in-memory subagents (no resume, no audit) |
 
 ## 18. Glossary
 

@@ -70,8 +70,8 @@ Guidelines:
 export const BUILTIN_BUILD_AGENT: AgentInfo = {
   name: "build",
   description:
-    "The default agent. Executes tools (fs.read/write/edit/list/glob, bash, fs.grep) based on configured permissions.",
-  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash"],
+    "The default agent. Executes tools (fs.read/write/edit/list/glob, bash, fs.grep) and delegates research or parallel work to subagents via the task tool.",
+  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash", "task"],
   prompt: BUILD_AGENT_PROMPT,
   source: "builtin",
 };

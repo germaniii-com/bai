@@ -5,6 +5,7 @@ import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import { renderOutbound, isToolCallPayload } from "./run/history";
+import { buildEnvBlock } from "./run/env";
 import type { PermissionGate } from "./permissions/ask";
 import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry";
 import type { Provider, StreamEvent, ToolDef } from "./provider/types";
@@ -15,6 +16,8 @@ import { isDefaultTitle, sanitizeGeneratedTitle, TITLE_SYSTEM_PROMPT } from "./t
 
 interface ActiveRun {
   controller: AbortController;
+  /** Settles when the drain (including coalesced wakes) finishes. */
+  done: Promise<void>;
 }
 
 /** The detached title refine's hard budget — a hung provider must not leak. */
@@ -25,6 +28,14 @@ const TITLE_PROMPT_CHARS = 2000;
 const MAX_STEPS = 50;
 /** Told to the model on its final tool-less turn when the step cap trips. */
 const STEPS_NOTICE = "Maximum tool-calling steps reached. Stop calling tools and respond with a final text answer now.";
+/**
+ * Tools subagent sessions are never offered or allowed: no recursion, no
+ * mid-run user questions, no plan hand-off — children run autonomously and
+ * return one final message (opencode's default task/todowrite denies,
+ * adapted to bai's toolset). Enforced in toolDefsFor (offering) AND
+ * executeCalls (gate-side backstop).
+ */
+const SUBAGENT_STRIPPED = new Set(["task", "question", "plan.exit"]);
 /** The compaction summarizer's hard budget — a hung provider must not leak. */
 const COMPACT_TIMEOUT_MS = 60_000;
 
@@ -51,6 +62,15 @@ interface ParsedCall {
   name: string;
   args: string;
   partId: PartId;
+}
+
+/** One call after gating: ready to execute, or already carrying its error text. */
+interface GatedCall {
+  call: ParsedCall;
+  args?: unknown;
+  error?: string;
+  /** True when the error came from the permission gate (ends an all-denied run). */
+  denied?: boolean;
 }
 
 /** One turn's wiring — agent, model, credentials, tool defs (see resolveRunContext). */
@@ -90,13 +110,24 @@ export class RunCoordinator {
       this.pendingWake.add(sessionId);
       return;
     }
-    void this.startDrain(sessionId).catch((err: unknown) => {
+    this.ensureDrain(sessionId).catch((err: unknown) => {
       // Drain errors still terminate the run cleanly.
       this.active.delete(sessionId);
       this.emitDurable(sessionId, "run.finished", {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+  }
+
+  /**
+   * Drain the session now and resolve when it goes idle — the awaitable face
+   * of `wake`, used by the task tool to run a child session to completion.
+   * A drain already in flight (plus its coalesced wakes) is awaited, never
+   * duplicated. Errors resolve instead of rejecting — callers inspect the
+   * transcript; the {error} emission still happens via wake's handler.
+   */
+  drainNow(sessionId: SessionId): Promise<void> {
+    return this.ensureDrain(sessionId).catch(() => {});
   }
 
   interrupt(sessionId: SessionId): void {
@@ -107,19 +138,40 @@ export class RunCoordinator {
     for (const run of this.active.values()) run.controller.abort();
   }
 
-  private async startDrain(sessionId: SessionId): Promise<void> {
+  /**
+   * The single drain entry: returns the active run's done promise, or starts
+   * a drain and returns its promise. The done promise rejects on drain
+   * errors — `wake` turns that into a durable run.finished {error}; on the
+   * happy path it resolves when the drain goes idle. Cleanup (active.delete
+   * + the {aborted} run.finished emission) always runs first, so the
+   * two-emission error path surfaces already handle is preserved in order.
+   */
+  private ensureDrain(sessionId: SessionId): Promise<void> {
+    const existing = this.active.get(sessionId);
+    if (existing !== undefined) return existing.done;
     const controller = new AbortController();
-    this.active.set(sessionId, { controller });
+    let settleDone!: () => void;
+    let settleError!: (err: unknown) => void;
+    const done = new Promise<void>((resolve, reject) => {
+      settleDone = resolve;
+      settleError = reject;
+    });
+    this.active.set(sessionId, { controller, done });
     this.emitDurable(sessionId, "run.started", {});
-    try {
+    const run = (async () => {
       do {
         this.pendingWake.delete(sessionId);
         await this.drainOnce(sessionId, controller.signal);
       } while (this.pendingWake.has(sessionId) && !controller.signal.aborted);
-    } finally {
-      this.active.delete(sessionId);
-      this.emitDurable(sessionId, "run.finished", { aborted: controller.signal.aborted });
-    }
+    })();
+    void run
+      .catch(() => {})
+      .finally(() => {
+        this.active.delete(sessionId);
+        this.emitDurable(sessionId, "run.finished", { aborted: controller.signal.aborted });
+      });
+    void run.then(settleDone, settleError);
+    return done;
   }
 
   /**
@@ -179,8 +231,19 @@ export class RunCoordinator {
     for (let step = 1; ; step++) {
       const finalStep = step >= MAX_STEPS;
       const toolDefs = finalStep ? [] : run.toolDefs;
+      // The agent persona + a session-metadata block (cwd, workbench,
+      // available tools, platform, date) — subagents inherit their parent's
+      // cwd via their own session row, so the whole tree knows where it is.
       const system = [
         ...(run.agent.prompt.trim().length > 0 ? [run.agent.prompt] : []),
+        buildEnvBlock({
+          ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
+          workbench: session?.workbench ?? "chat",
+          title: session?.title ?? "",
+          agent: run.agent.name,
+          tools: run.toolDefs.map((d) => d.name),
+          now: this.deps.clock.iso(),
+        }),
         ...(finalStep ? [STEPS_NOTICE] : []),
       ];
 
@@ -267,7 +330,7 @@ export class RunCoordinator {
    * defs (registry ∩ agent allow-list, order-stable for prompt caching).
    */
   private async resolveRunContext(sessionId: SessionId): Promise<RunContext> {
-    const meta = this.readMeta(sessionId) as { model?: unknown; account?: unknown; agent?: unknown };
+    const meta = this.readMeta(sessionId) as { model?: unknown; account?: unknown; agent?: unknown; parent?: unknown };
     const requestedAgent = typeof meta.agent === "string" && meta.agent.length > 0 ? meta.agent : undefined;
     let agent: AgentInfo | undefined = requestedAgent !== undefined ? this.deps.agents.get(requestedAgent) : undefined;
     if (requestedAgent !== undefined && agent === undefined) {
@@ -300,7 +363,7 @@ export class RunCoordinator {
       reasoning,
       contextWindow,
       credentials,
-      toolDefs: this.toolDefsFor(agent),
+      toolDefs: this.toolDefsFor(agent, typeof meta.parent === "string" && meta.parent.length > 0),
       auth: {
         ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
         ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
@@ -326,11 +389,12 @@ export class RunCoordinator {
   }
 
   /** Tool allow-list → registered ToolDefs (order-stable for prompt caching). */
-  private toolDefsFor(agent: AgentInfo): ToolDef[] {
+  private toolDefsFor(agent: AgentInfo, isSubagent: boolean): ToolDef[] {
     const wanted = agent.tools.includes("*") ? null : new Set(agent.tools);
     const defs: ToolDef[] = [];
     for (const name of this.deps.tools.names()) {
       if (wanted !== null && !wanted.has(name)) continue;
+      if (isSubagent && SUBAGENT_STRIPPED.has(name)) continue;
       const tool = this.deps.tools.get(name);
       if (tool === undefined) continue;
       defs.push({ name, description: tool.description, schema: tool.schema });
@@ -535,10 +599,13 @@ export class RunCoordinator {
   }
 
   /**
-   * Execute completed tool calls in order: parse args → central permission
-   * check (deny = error result) → tool (interactive asks ride ctx.ask) →
-   * persist a tool_result part. Throws become error results (errors-as-
-   * results convention: only infra failures kill the turn).
+   * Execute completed tool calls: gate every call in order (parse →
+   * unknown-tool → subagent strip → central permission check), run the
+   * tools, then persist results in original call order. A batch made
+   * entirely of `task` calls runs concurrently (independent child sessions
+   * by contract); every other composition stays sequential. Throws become
+   * error results (errors-as-results convention: only infra failures kill
+   * the turn).
    */
   private async executeCalls(
     sessionId: SessionId,
@@ -546,14 +613,14 @@ export class RunCoordinator {
     calls: ParsedCall[],
     signal: AbortSignal,
   ): Promise<Array<"executed" | "denied">> {
-    const outcomes: Array<"executed" | "denied"> = [];
     const session = this.deps.store.sessions.get(sessionId);
     const ctx: ToolContext = {
       sessionId,
       ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
       signal,
       emitLive: (type: EventType, payload: unknown) => this.emitLive(type, payload),
-      ask: async (tool, metadata) => this.deps.permissions.authorize({ tool, sessionId, metadata }),
+      ask: async (tool, metadata) =>
+        this.deps.permissions.authorize({ tool, sessionId, metadata, signal, ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}) }),
       // plan.exit's mid-run switch: flip session.meta.agent + broadcast; the
       // drain loop re-resolves the run context after this batch.
       switchAgent: async (name) => {
@@ -568,34 +635,40 @@ export class RunCoordinator {
       },
     };
 
+    // --- stage 1: gate every call, in order ---
+    const isSubagent = typeof session?.meta.parent === "string" && (session.meta.parent as string).length > 0;
+    const gated: GatedCall[] = [];
     for (const call of calls) {
       // Parse the streamed JSON args; malformed → error result for the model.
       let args: unknown;
       try {
         args = call.args.trim().length === 0 ? {} : JSON.parse(call.args);
       } catch {
-        this.persistToolResult(
-          sessionId,
-          assistantId,
+        gated.push({
           call,
-          `Invalid arguments: the JSON was malformed (${call.args.slice(0, 200)}). Rewrite the arguments as valid JSON.`,
-          true,
-        );
-        outcomes.push("executed");
+          error: `Invalid arguments: the JSON was malformed (${call.args.slice(0, 200)}). Rewrite the arguments as valid JSON.`,
+        });
         continue;
       }
 
       // Unknown tools never reach the permission gate (an unmatched tool
       // would default to "ask" and stall the run waiting on a human).
       if (!this.deps.tools.has(call.name)) {
-        this.persistToolResult(
-          sessionId,
-          assistantId,
+        gated.push({
           call,
-          `Unknown tool: ${call.name}. Available tools: ${this.deps.tools.names().join(", ") || "(none)"}.`,
-          true,
-        );
-        outcomes.push("executed");
+          error: `Unknown tool: ${call.name}. Available tools: ${this.deps.tools.names().join(", ") || "(none)"}.`,
+        });
+        continue;
+      }
+
+      // Subagent backstop: interaction/recursion tools are never offered to
+      // child sessions (toolDefsFor), and a hallucinated call errors here
+      // instead of stalling the run on an ask nobody should answer.
+      if (isSubagent && SUBAGENT_STRIPPED.has(call.name)) {
+        gated.push({
+          call,
+          error: `Tool ${call.name} is not available to subagents. Continue autonomously and respond with a final message.`,
+        });
         continue;
       }
 
@@ -610,21 +683,69 @@ export class RunCoordinator {
         sessionId,
         metadata: args as Record<string, unknown>,
         ...(detail !== undefined ? { detail } : {}),
+        // An interrupted run must not park on an unanswered ask (the task
+        // tool's child sessions made this reachable mid-drain).
+        signal,
+        // cwd-relative defaults: fs tools inside the session's working
+        // directory are allowed without an ask (config/approvals still win).
+        ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
       });
       if (!verdict.allowed) {
         const feedback = verdict.feedback !== undefined ? ` User feedback: "${verdict.feedback}".` : "";
-        this.persistToolResult(sessionId, assistantId, call, `Permission denied for tool: ${call.name}.${feedback} Ask the user to allow it, or use a different approach.`, true);
-        outcomes.push("denied");
+        gated.push({
+          call,
+          error: `Permission denied for tool: ${call.name}.${feedback} Ask the user to allow it, or use a different approach.`,
+          denied: true,
+        });
         continue;
       }
+      gated.push({ call, args });
+    }
 
+    // --- stage 2: execute the ready calls ---
+    const readyIdx = gated.flatMap((entry, i) => (entry.error === undefined ? [i] : []));
+    const parallel = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
+    const executed: Array<{ content: string; isError: boolean; title?: string; subagent?: { sessionId: string; agent: string } } | undefined> =
+      new Array(gated.length).fill(undefined);
+    const runOne = async (i: number): Promise<void> => {
+      const entry = gated[i];
+      if (entry === undefined || entry.args === undefined) return;
       try {
-        const result = await this.deps.tools.execute(call.name, args, ctx);
-        this.persistToolResult(sessionId, assistantId, call, result.content, false, typeof result.meta?.title === "string" ? (result.meta.title as string) : undefined);
-        outcomes.push("executed");
+        const result = await this.deps.tools.execute(entry.call.name, entry.args, ctx);
+        executed[i] = {
+          content: result.content,
+          isError: false,
+          ...(typeof result.meta?.title === "string" ? { title: result.meta.title as string } : {}),
+          ...readSubagentMeta(result.meta?.subagent),
+        };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.persistToolResult(sessionId, assistantId, call, `Error: ${message}`, true);
+        executed[i] = { content: `Error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+      }
+    };
+    if (parallel) await Promise.all(readyIdx.map((i) => runOne(i)));
+    else for (const i of readyIdx) await runOne(i);
+
+    // --- stage 3: persist in original call order (deterministic ords) ---
+    const outcomes: Array<"executed" | "denied"> = [];
+    for (let i = 0; i < gated.length; i++) {
+      const entry = gated[i];
+      if (entry === undefined) continue;
+      const outcome = executed[i];
+      if (entry.error !== undefined || outcome === undefined) {
+        // Gate-stage errors are error results like any other (isError true);
+        // `denied` only drives the outcomes array (all-denied ends the run).
+        this.persistToolResult(sessionId, assistantId, entry.call, entry.error ?? "Tool execution failed.", true);
+        outcomes.push(entry.denied === true ? "denied" : "executed");
+      } else {
+        this.persistToolResult(
+          sessionId,
+          assistantId,
+          entry.call,
+          outcome.content,
+          outcome.isError,
+          outcome.title,
+          outcome.subagent,
+        );
         outcomes.push("executed");
       }
     }
@@ -639,6 +760,7 @@ export class RunCoordinator {
     content: string,
     isError: boolean,
     title?: string,
+    subagent?: { sessionId: string; agent: string },
   ): void {
     // Final args snapshot lands in the tool_call part (deltas may have raced).
     const callPart = this.deps.store.parts.get(call.partId);
@@ -650,6 +772,7 @@ export class RunCoordinator {
       content,
       ...(isError ? { isError: true } : {}),
       ...(title !== undefined ? { title } : {}),
+      ...(subagent !== undefined ? { subagent } : {}),
     });
     this.emitDurable(sessionId, "message.part.updated", {
       messageId: assistantId,
@@ -763,6 +886,18 @@ export class RunCoordinator {
       payload,
     } as never);
   }
+}
+
+/**
+ * Validate a tool result's `subagent` metadata (the task tool's child-session
+ * link) — malformed shapes are dropped rather than trusted.
+ */
+function readSubagentMeta(value: unknown): { subagent?: { sessionId: string; agent: string } } {
+  if (value === null || typeof value !== "object") return {};
+  const candidate = value as { sessionId?: unknown; agent?: unknown };
+  if (typeof candidate.sessionId !== "string" || candidate.sessionId.length === 0) return {};
+  if (typeof candidate.agent !== "string" || candidate.agent.length === 0) return {};
+  return { subagent: { sessionId: candidate.sessionId, agent: candidate.agent } };
 }
 
 /**

@@ -67,12 +67,16 @@ agents that can actually touch the files.
     read-before-edit staleness guard (never clobbers a file changed on
     disk), per-path mutation queue
 - **Fail-closed interactive permissions, fully surfaced**: reads are allowed
-  by default; writes/edits/bash raise `permission.asked` to every connected
-  surface — **TUI dialog** (a allow once · s allow always · d reject with
-  optional feedback) and **web modal** (Allow once / Allow always / Reject)
-  render the computed diff for file changes; reject feedback flows back to
-  the model; first reply wins across devices; "always" persists for the
-  session; asks raised before a surface connects arrive via the snapshot
+  by default; writes/edits **inside the session's working directory** are
+  allowed silently (the agent is working where you pointed it); writes
+  outside the cwd, bash, and web tools raise `permission.asked` to every
+  connected surface — **TUI dialog** (a allow once · s allow always · d
+  reject with optional feedback) and **web modal** (Allow once / Allow
+  always / Reject) render the computed diff for file changes; reject
+  feedback flows back to the model; first reply wins across devices;
+  "always" persists for the session; asks raised before a surface connects
+  arrive via the snapshot; config rules and session approvals always
+  override the cwd default
 - **Token discipline** keeps long agentic sessions affordable: identical
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the
@@ -82,13 +86,17 @@ agents that can actually touch the files.
 
 - The agentic loop lives in `core/src/run.ts` (`RunCoordinator.drainOnce`);
   the full code map is [ARCHITECTURE.md §5.1](ARCHITECTURE.md#51-code-map--where-the-important-things-live)
+- Every run's system prompt carries an `<env>` block — working directory,
+  workbench, agent, available tools, platform, date — so agents and
+  subagents always know where they are (`core/src/run/env.ts`); subagents
+  inherit their parent's cwd through their own session row
 - History → provider messages: `core/src/run/history.ts`; the permission
   gate: `core/src/permissions/ask.ts`; discipline + compaction:
   `core/src/context/`
 
 **Coming next**
 
-- Diff viewer with revert on the file tree · subagent spawning (`task` tool)
+- Diff viewer with revert on the file tree
 
 ---
 
@@ -104,7 +112,8 @@ workspace.
   override, tool allow-list) + the system prompt as the body, stored in
   `~/.config/bai/agents/*.md` — name = filename stem
 - **Three built-ins** (never shadowable by files):
-  - `build` — the default worker: fs tools + bash + grep, permission-gated
+  - `build` — the default worker: fs tools + bash + grep, permission-gated;
+    can delegate work via the `task` tool
   - `plan` — planning mode: read-only exploration (`fs.read/list/glob/grep`),
     clarifying questions, todo tracking, and `plan.write` (plans land in
     `~/.config/bai/plans/<name>.md` — the only write surface it has).
@@ -112,6 +121,24 @@ workspace.
     switches to `build` **mid-run** and keeps going
   - `chat` — general-purpose conversationalist with live web access
     (`web.search` + `web.fetch`)
+- **Subagent spawning**: any agent can be launched as a subagent via the
+  `task` tool (`build` has it in its allow-list; file agents opt in by
+  adding `task` to theirs). Each call spawns a **real child session** —
+  linked via `meta.parent`, titled `"<task> (@<agent> subagent)"` — that
+  runs a full agentic loop with its own step budget, compaction, and tool
+  allow-list, and returns its final message to the caller wrapped in a
+  `<task>` block. Child sessions appear in every session list (badged
+  "sub") and are fully inspectable live from any surface. The **TUI** shows
+  a live subagent inspector above the footer (agent, current tool or
+  streaming text tail, "⚠ needs approval — ctrl+s to review"), and task
+  nodes in the transcript expand (enter on a focused message, ctrl+t for
+  all) to the child's final output; the web expands to it too. Guards:
+  nesting is capped by `agents.subagentDepth` (default 1 — subagents can't
+  spawn subagents), children are never offered/allowed `task`, `question`,
+  or `plan.exit` (they run autonomously), each spawn asks fail-closed (the
+  dialog names the agent + task), and child permission asks are approved
+  from the child session's view. Multiple `task` calls in one message run
+  concurrently; results land in call order.
 - **Hot-reloaded**: drop a file on disk, save from the web form, or edit via
   `$EDITOR` in the TUI — it's live everywhere in ~150 ms, no restart (the
   thing opencode makes you restart for); a 2 s polling safety net catches
@@ -134,7 +161,8 @@ workspace.
 **Coming next**
 
 - Per-agent permission overrides beyond the tool allow-list · agent
-  variables (temperature, top-p) · subagent spawning
+  variables (temperature, top-p) · resuming a previous subagent session
+  (`task_id`)
 
 ---
 
@@ -146,7 +174,8 @@ built-in file tools plus user-written TypeScript tools.
 **What you can do today**
 
 - Built-ins: `fs.read`, `fs.list`, `fs.glob`, `fs.grep`, `fs.write`,
-  `fs.edit`, `bash`, plus the interaction tools:
+  `fs.edit`, `bash`, `task` (subagent spawning — see Agents), plus the
+  interaction tools:
   - `question` — the agent asks the user 1–5 multiple-choice questions
     mid-run; the run blocks until someone answers on any surface (TUI
     dialog or web modal; custom free-text always available); dismissal
@@ -158,9 +187,12 @@ built-in file tools plus user-written TypeScript tools.
   - `web.search` — pluggable providers; **DDGS keyless default**
     (DuckDuckGo, no API key) with automatic Exa fallback when
     `EXA_API_KEY` is set; pin via `tools.webSearch.provider` in config
+  - `task` — **subagent spawning**: launches another agent in its own
+    durable child session and returns its final message (see Agents below);
+    batched `task` calls in one turn run concurrently
 - **Permission defaults**: `question`/`todo`/`plan.write`/`plan.exit`
   auto-allow (they ARE the user interaction); `web.fetch`, `web.search`,
-  `bash` default to **ask** — fail-closed like everything unmatched
+  `bash`, `task` default to **ask** — fail-closed like everything unmatched
 - **Custom tools as TypeScript files**: create from the web Tools section or
   the TUI manager, write a default export
   `{ description, schema, execute(args, ctx) }`, save — the file lands in
@@ -176,7 +208,9 @@ built-in file tools plus user-written TypeScript tools.
 - `core/src/tools/loader.ts` scans, validates, and dynamically imports tool
   files (Bun ignores query-param cache busting, so changed files are
   re-imported through versioned temp copies); `tools.updated` events keep
-  surfaces live
+  surfaces live. The `task` tool lives in `core/src/tools/task.ts` and
+  re-registers itself whenever the agent catalog changes so its description
+  always lists the current agents.
 
 **Coming next**
 
@@ -238,7 +272,8 @@ Identical shape to image, second in line.
 - **Permissions** — one fail-closed engine for every tool, builtin or
   user-written; unknown tools can never execute, unmatched actions ask;
   asks carry computed diffs; rejections carry user feedback back to the
-  model
+  model; an interrupted run cancels its pending asks (the run can never
+  hang on a dialog nobody answers — esc/ctrl+c always get you out)
 - **Surfaces are thin** — nothing in the TUI or web app owns state; work
   started on one device continues on another because the server is the only
   truth

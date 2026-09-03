@@ -128,6 +128,8 @@ describe("tool-call loop", () => {
 
   test("interactive ask: blocks, reply approved-once executes; always skips the next ask", async () => {
     t.config.models.default = "scripted/main";
+    // Force the ask: the cwd default would silently allow in-workspace writes.
+    t.config.permissions = { "fs.write": "ask" };
     const provider = new ScriptedToolProvider([
       toolCall("w1", "fs.write", JSON.stringify({ path: "out.txt", content: "one" })),
       toolCall("w2", "fs.write", JSON.stringify({ path: "out.txt", content: "two" })),
@@ -163,6 +165,7 @@ describe("tool-call loop", () => {
 
   test("rejected ask feeds an error result and stops the run", async () => {
     t.config.models.default = "scripted/main";
+    t.config.permissions = { "fs.write": "ask" }; // force the ask (cwd default would allow)
     const provider = new ScriptedToolProvider([
       toolCall("w1", "fs.write", JSON.stringify({ path: "nope.txt", content: "x" })),
     ]);
@@ -188,6 +191,7 @@ describe("tool-call loop", () => {
 
   test("reject with feedback: the user's message rides the denied tool result", async () => {
     t.config.models.default = "scripted/main";
+    t.config.permissions = { "fs.write": "ask" }; // force the ask (cwd default would silently allow)
     const provider = new ScriptedToolProvider([
       toolCall("w1", "fs.write", JSON.stringify({ path: "nope.txt", content: "x" })),
     ]);
@@ -213,6 +217,7 @@ describe("tool-call loop", () => {
 
   test("fs.write asks carry a computed diff; fs.read never asks", async () => {
     t.config.models.default = "scripted/main";
+    t.config.permissions = { "fs.write": "ask" }; // force the ask (cwd default would silently allow)
     writeFileSync(join(dir, "existing.txt"), "original content\n");
     const provider = new ScriptedToolProvider([
       toolCall("w1", "fs.write", JSON.stringify({ path: "existing.txt", content: "replaced content\n" })),
@@ -239,6 +244,7 @@ describe("tool-call loop", () => {
 
   test("snapshot exposes pending permission asks (surface opened mid-ask)", async () => {
     t.config.models.default = "scripted/main";
+    t.config.permissions = { "fs.write": "ask" }; // force the ask (cwd default would silently allow)
     const provider = new ScriptedToolProvider([
       toolCall("w1", "fs.write", JSON.stringify({ path: "pending.txt", content: "x" })),
       [{ type: "text_delta", delta: "resume" }, { type: "done", stopReason: "end_turn" }],
@@ -287,7 +293,7 @@ describe("tool-call loop", () => {
     // Fallback: the build persona led the request, with the build tool set.
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("EPHEMERAL PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "task"]);
   });
 
   test("config default agent (agents.default) applies when the session selects none", async () => {
@@ -324,7 +330,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("READER PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "task"]);
   });
 
   test("unknown config default agent falls back to the built-in build agent", async () => {
@@ -340,7 +346,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("GHOST");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "task"]);
   });
 
   test("custom file-defined agent restricts offered tools", async () => {

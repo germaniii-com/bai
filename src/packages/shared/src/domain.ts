@@ -39,7 +39,8 @@ export interface Part {
   kind: PartKind;
   /**
    * Shape depends on `kind`: text/thinking → {text}; tool_call →
-   * {callId, name, args}; tool_result → {callId, content, isError?, title?}.
+   * {callId, name, args}; tool_result → {callId, content, isError?, title?,
+   * subagent?} where `subagent` links a `task` result to its child session.
    */
   payload: unknown;
 }

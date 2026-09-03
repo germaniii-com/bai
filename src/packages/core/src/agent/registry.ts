@@ -178,14 +178,16 @@ export class AgentRegistry {
     return path.join(this.opts.dir, `${name}.md`);
   }
 
-  /** Create or replace an agent file; the watcher/scan picks it up immediately. */
+  /** Create or replace an agent file; surfaces are notified live. */
   put(name: string, input: PutAgentBody): AgentInfo {
     if (!isValidAgentName(name)) throw new Error(`Invalid agent name: ${name}`);
     if (builtinFor(name) !== undefined) throw new Error(`"${name}" is built-in and cannot be overwritten`);
     const tmp = `${this.fileFor(name)}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(tmp, serializeAgentMarkdown(input));
     renameSync(tmp, this.fileFor(name));
-    this.scan();
+    // put's own scan records the change before the watcher fires, so the
+    // watcher's later scan sees no diff — CRUD must broadcast itself.
+    if (this.scan() && this.opts.onChange) this.opts.onChange();
     return this.get(name) as AgentInfo;
   }
 
@@ -194,7 +196,7 @@ export class AgentRegistry {
     const file = this.fileFor(name);
     if (!existsSync(file)) return false;
     rmSync(file);
-    this.scan();
+    if (this.scan() && this.opts.onChange) this.opts.onChange();
     return true;
   }
 

@@ -282,6 +282,26 @@ export function App() {
     setActive((current) => (path !== null && current?.cwd === path ? current : null));
   };
 
+  /**
+   * Open a subagent session from a task tool node: it is an ordinary
+   * session (inheriting workbench + cwd), so "open" = select it and make
+   * sure the right section shows it.
+   */
+  const openSubagentSession = (sessionId: string): void => {
+    const child = [...sessions, ...workspaceSessions].find((s) => s.id === sessionId);
+    if (child === undefined) return;
+    if (child.workbench === "chat") {
+      setActive(child);
+      navigate("chat");
+      return;
+    }
+    if (child.cwd !== undefined) {
+      setActive(child);
+      selectWorkspace(child.cwd);
+      navigate("workspace");
+    }
+  };
+
   /** Validate-then-persist happened in the nav; here: append + save config. */
   const addWorkspace = async (path: string): Promise<void> => {
     if (!workspaces.includes(path)) {
@@ -388,6 +408,7 @@ export function App() {
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
+                  {s.meta.parent !== undefined && <span className="subagent-chip">sub</span>}
                   <span className="dim">{s.workbench}</span>
                 </button>
               ))}
@@ -438,6 +459,7 @@ export function App() {
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
+                  {s.meta.parent !== undefined && <span className="subagent-chip">sub</span>}
                 </button>
               ))}
             </nav>
@@ -562,6 +584,7 @@ export function App() {
             runActive={runActive}
             waiting={waiting}
             error={error}
+            onOpenSubagent={openSubagentSession}
             startPlaceholder={
               section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
             }

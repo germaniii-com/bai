@@ -136,3 +136,10 @@ registry.set("fs.edit", (args, cwd) => {
   const diff = updated !== undefined && updated !== original ? elide(createPatch(rel, original, updated)) : undefined;
   return { path: abs, summary, ...(diff !== undefined ? { diff } : {}) };
 });
+
+/** task — a human-readable summary of the subagent spawn being requested. */
+registry.set("task", (args) => {
+  const description = typeof args.description === "string" ? args.description.trim() : "";
+  const agent = typeof args.subagent_type === "string" ? args.subagent_type : "?";
+  return { summary: `spawn subagent "${description}" (agent: ${agent})` };
+});

@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Event, Message, Part, PermissionRequest, QuestionRequest, SessionId } from "@bai/shared";
+import { unwrapTaskOutput } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list (mirrors the TUI's semantics). */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -131,16 +132,32 @@ export interface ToolCallView {
   argsPreview: string;
   status: "running" | "done" | "error";
   result?: { content: string; isError: boolean };
+  /** For `task` calls: the child session this result came from. */
+  subagent?: { sessionId: string; agent: string };
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
 export function toolCalls(message: Message): ToolCallView[] {
-  const results = new Map<string, { content: string; isError: boolean }>();
+  const results = new Map<string, { content: string; isError: boolean; subagent?: { sessionId: string; agent: string } }>();
   for (const p of message.parts) {
     if (p.kind !== "tool_result") continue;
-    const payload = p.payload as { callId?: string; content?: string; isError?: boolean } | null;
+    const payload = p.payload as { callId?: string; content?: string; isError?: boolean; subagent?: { sessionId?: unknown; agent?: unknown } } | null;
     if (payload?.callId === undefined) continue;
-    results.set(payload.callId, { content: payload.content ?? "", isError: payload.isError === true });
+    const subagent =
+      payload.subagent !== undefined &&
+      typeof payload.subagent === "object" &&
+      typeof payload.subagent.sessionId === "string" &&
+      typeof payload.subagent.agent === "string"
+        ? { sessionId: payload.subagent.sessionId, agent: payload.subagent.agent }
+        : undefined;
+    // Task results carry a <task> envelope — show the child's actual output.
+    const rawContent = payload.content ?? "";
+    const content = subagent !== undefined ? (unwrapTaskOutput(rawContent)?.text ?? rawContent) : rawContent;
+    results.set(payload.callId, {
+      content,
+      isError: payload.isError === true,
+      ...(subagent !== undefined ? { subagent } : {}),
+    });
   }
   const views: ToolCallView[] = [];
   for (const p of message.parts) {
@@ -153,7 +170,12 @@ export function toolCalls(message: Message): ToolCallView[] {
       name: payload.name,
       argsPreview: argsDigest(payload.name, payload.args ?? ""),
       status: result === undefined ? "running" : result.isError ? "error" : "done",
-      ...(result !== undefined ? { result } : {}),
+      ...(result !== undefined
+        ? {
+            result: { content: result.content, isError: result.isError },
+            ...(result.subagent !== undefined ? { subagent: result.subagent } : {}),
+          }
+        : {}),
     });
   }
   return views;

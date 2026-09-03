@@ -28,7 +28,7 @@ export interface TestCore {
   /** Mutable config state — tests mutate, the stack reads live. */
   config: {
     models: { default?: string; title?: string };
-    agents: { default?: string };
+    agents: { default?: string; subagentDepth?: number };
     permissions: Record<string, "allow" | "ask" | "deny">;
   };
   tools: ToolRegistry;
@@ -66,7 +66,15 @@ export function makeCore(): TestCore {
   });
   const tools = new ToolRegistry({ spillDir: join(dir, "tmp") });
   const toolLoader = new ToolLoader({ dir: join(dir, "tools"), registry: tools, debounceMs: 40 });
-  const agents = new AgentRegistry({ dir: join(dir, "agents"), debounceMs: 50 });
+  const agents = new AgentRegistry({
+    dir: join(dir, "agents"),
+    debounceMs: 50,
+    // Mirror boot.ts: agent-set changes broadcast live (the task tool keys
+    // its description refresh off this event).
+    onChange: () => {
+      bus.publish({ seq: 0, type: "agents.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
   const core = new Service({
     store,
     bus,

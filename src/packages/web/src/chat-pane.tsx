@@ -28,6 +28,7 @@ export function ChatPane({
   runActive,
   waiting,
   error,
+  onOpenSubagent,
   startPlaceholder = "Start a chat…",
 }: {
   client: BaiClient;
@@ -52,6 +53,8 @@ export function ChatPane({
   error: string | null;
   /** Composer placeholder while no session is open. */
   startPlaceholder?: string;
+  /** Open a subagent session from a task tool node (undefined → no chip). */
+  onOpenSubagent?: (sessionId: string) => void;
 }) {
   return (
     <main className="chat">
@@ -80,7 +83,9 @@ export function ChatPane({
         {messages.map((m) => (
           <div key={m.id} className={`message ${m.role}`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
-            {m.role === "assistant" && toolCalls(m).length > 0 && <ToolNodes calls={toolCalls(m)} />}
+            {m.role === "assistant" && toolCalls(m).length > 0 && (
+              <ToolNodes calls={toolCalls(m)} onOpenSubagent={onOpenSubagent} />
+            )}
             <p>{messageText(m)}</p>
           </div>
         ))}
@@ -157,9 +162,10 @@ function ThinkingNode({ text }: { text: string }) {
 /**
  * Tool-call transcript nodes: one collapsible line per call (tool name +
  * args digest + status), expanding to the result content. Mirrors the
- * ThinkingNode pattern — collapsible, independent, history-backed.
+ * ThinkingNode pattern — collapsible, independent, history-backed. Task
+ * calls render an "open subagent" chip linking to the child session.
  */
-function ToolNodes({ calls }: { calls: ToolCallView[] }) {
+function ToolNodes({ calls, onOpenSubagent }: { calls: ToolCallView[]; onOpenSubagent?: (sessionId: string) => void }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const toggle = (callId: string) => {
     setOpenIds((prev) => {
@@ -184,6 +190,26 @@ function ToolNodes({ calls }: { calls: ToolCallView[] }) {
             >
               <span className={`tool-glyph tool-glyph-${c.status}`}>{glyph}</span> {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
+              {c.subagent !== undefined && onOpenSubagent !== undefined && (
+                <span
+                  className="subagent-link"
+                  role="button"
+                  tabIndex={0}
+                  title={`open the ${c.subagent.agent} subagent session`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenSubagent(c.subagent?.sessionId ?? "");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.stopPropagation();
+                      onOpenSubagent(c.subagent?.sessionId ?? "");
+                    }
+                  }}
+                >
+                  ↗ {c.subagent.agent}
+                </span>
+              )}
             </button>
             {open && c.result !== undefined && (
               <div className={`tool-body ${c.result.isError ? "tool-body-error" : ""}`}>{c.result.content}</div>

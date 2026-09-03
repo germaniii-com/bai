@@ -34,6 +34,11 @@ export interface AgentsConfig {
    * built-in `build` agent. Unknown names fall back to `build` with a warning.
    */
   default?: string;
+  /**
+   * Maximum subagent nesting depth (the `task` tool). Default 1 — subagents
+   * cannot spawn their own subagents. 0 disables spawning entirely.
+   */
+  subagentDepth?: number;
 }
 
 export interface MCPServerConfig {
@@ -100,6 +105,7 @@ const mcpServerSchema = z.object({
 
 const agentsSchema = z.object({
   default: z.string().max(100).optional(),
+  subagentDepth: z.number().int().min(0).max(10).optional(),
 });
 
 const toolsSchema = z.object({

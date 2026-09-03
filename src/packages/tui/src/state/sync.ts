@@ -167,9 +167,16 @@ export function toolCalls(message: Message): ToolCallView[] {
 }
 
 /** One-line args digest: first string-ish field (path/pattern/input). */
-function argsDigest(name: string, args: string): string {
+export function argsDigest(name: string, args: string): string {
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
+    // task: the description + which agent runs (opencode's task card).
+    if (name === "task") {
+      const description = typeof parsed.description === "string" ? parsed.description : "";
+      const agent = typeof parsed.subagent_type === "string" ? parsed.subagent_type : "?";
+      const digest = `${description} (@${agent})`.trim();
+      return digest.length > 60 ? `${digest.slice(0, 60)}…` : digest;
+    }
     const interesting = parsed.path ?? parsed.pattern ?? parsed.input ?? parsed.command;
     if (typeof interesting === "string" && interesting.length > 0) {
       return interesting.length > 60 ? `${interesting.slice(0, 60)}…` : interesting;

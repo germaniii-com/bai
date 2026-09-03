@@ -10,6 +10,13 @@ import { PermissionDialog } from "./views/permission-dialog";
 import { QuestionDialog } from "./views/question-dialog";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
+import {
+  applySubagentEvent,
+  emptySubagentState,
+  subagentRows,
+  trackSubagents,
+  type SubagentState,
+} from "./state/subagents";
 import { currentModelLabel, needsSetup } from "./state/providers";
 
 export type UiState = "chat" | "gallery" | "jobs" | "settings";
@@ -69,8 +76,15 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // Input mode (NORMAL default). App owns it because it gates the global
   // ctrl bindings; ChatView switches it via onEnterInput/onExitInput.
   const [mode, setMode] = useState<Mode>("normal");
+  // Live subagent tracking for the inspector bar (children of the active
+  // session, fed from the firehose — state/subagents.ts).
+  const [subagents, setSubagents] = useState<SubagentState>(emptySubagentState);
   const dialogOpenRef = useRef(false);
   dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingQuestions.length > 0;
+  // Latest active session readable from the firehose handler's stale closure
+  // (the firehose subscribes once and must not resubscribe on every switch).
+  const activeRef = useRef<Session | null>(null);
+  activeRef.current = active;
   // ctrl+c double-press arming (mirrors the chat composer's esc arming):
   // first press arms, second interrupts a running drain or quits.
   const [quitArmed, setQuitArmed] = useState(false);
@@ -168,10 +182,21 @@ export function App({ client, version }: { client: BaiClient; version: string })
             setSessions((list) => list.map((s) => (s.id === updated.id ? updated : s)));
           }
         }
+        // Subagent inspector: children of the active session stream their
+        // activity through the firehose (state/subagents.ts).
+        setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
       },
     });
     return () => ctrl.abort();
   }, [client, refreshProviders, refreshSessions, refreshConfig]);
+
+  // Rebuild the tracked child set whenever the active session or the
+  // session list changes (switch, refresh, archive) — live activity for
+  // children already tracked survives the rebuild.
+  const activeId = active?.id;
+  useEffect(() => {
+    setSubagents((prev) => trackSubagents(prev, sessions, activeId));
+  }, [activeId, sessions]);
 
   // Open the durable session stream whenever a session becomes active.
   useEffect(() => {
@@ -276,6 +301,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [refreshProviders, refreshSessions]);
 
   const modelLabel = currentModelLabel(active, providers, configDefault);
+  // Inspector rows: hidden while a dialog/ask owns the body, capped at
+  // three (opencode's footer inspector shows a bounded window too).
+  const subagentList = view === "chat" && !dialogOpenRef.current ? subagentRows(subagents) : [];
+  const subagentsShown = subagentList.slice(0, 3);
   // The effective agent: the session's selection, else the config default
   // (agents.default), else the built-in build agent — the same tiers the
   // drain resolves. Live — switches ride session.updated / config.updated
@@ -398,6 +427,23 @@ export function App({ client, version }: { client: BaiClient; version: string })
       </Box>
 
       <Box paddingX={1} flexDirection="column">
+        {subagentsShown.map((r) => (
+          <Text key={r.sessionId} wrap="truncate">
+            <Text color={r.needsApproval ? "red" : r.running ? "yellow" : "green"}>
+              {r.needsApproval ? "⚠" : r.running ? "◐" : "✓"}{" "}
+            </Text>
+            <Text dimColor>subagent</Text>
+            <Text color="yellow"> @{r.agent}</Text>
+            {r.tool !== undefined && <Text dimColor> · {r.tool}</Text>}
+            {r.running && r.tool === undefined && r.textTail !== undefined && (
+              <Text dimColor> · {r.textTail.replaceAll("\n", " ").trimEnd()}</Text>
+            )}
+            {r.needsApproval && <Text color="red"> · needs approval — ctrl+s to review</Text>}
+          </Text>
+        ))}
+        {subagentList.length > subagentsShown.length && (
+          <Text dimColor> +{subagentList.length - subagentsShown.length} more subagents</Text>
+        )}
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
         {quitArmed && (

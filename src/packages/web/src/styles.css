@@ -763,6 +763,29 @@ body {
   border-left-color: #c4443f;
 }
 
+/* task tool node: link chip to the subagent's own session. */
+.subagent-link {
+  color: var(--dim);
+  text-decoration: underline dotted;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.subagent-link:hover {
+  color: var(--text);
+}
+
+/* Session-list marker for subagent sessions (meta.parent set). */
+.subagent-chip {
+  font-size: 10px;
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  flex: none;
+}
+
 /* Agents & tools management pane: two-tab list + form/code editor. */
 .agents-pane {
   display: flex;

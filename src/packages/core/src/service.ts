@@ -40,6 +40,7 @@ import { bashTool } from "./tools/bash";
 import { fsGrepTool } from "./tools/fs-grep";
 import { planWriteTool } from "./tools/plan-write";
 import { planExitTool } from "./tools/plan-exit";
+import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import type { ToolLoader } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { Workbench } from "./workbench/types";
@@ -116,7 +117,30 @@ export class Service {
       fsGrepTool(),
       planWriteTool(deps.plansDir),
       planExitTool(this.questions),
-    ]);  }
+    ]);
+    // The task tool spawns subagent sessions (tools/task.ts). Registered last
+    // so it can close over the coordinator; its description embeds the agent
+    // catalog, so agent-file hot-reloads re-register it with a fresh list.
+    const taskDeps: TaskToolDeps = {
+      agents: deps.agents,
+      config: deps.config,
+      getSession: (id) => this.getSession(id),
+      createSession: (opts) => this.createSession(opts),
+      submitPrompt: (id, payload) => this.submitPrompt(id, payload),
+      drainNow: (id) => this.drainNow(id),
+      interrupt: (id) => this.coordinator.interrupt(id),
+      history: (id) => this.history(id),
+    };
+    deps.tools.register(taskTool(taskDeps, taskDescription(deps.agents)));
+    const taskRefresh = deps.bus.subscribe({
+      onNotify: () => {
+        if (taskRefresh.take().some((evt) => evt.type === "agents.updated")) {
+          deps.tools.replace(taskTool(taskDeps, taskDescription(deps.agents)));
+          this.emitLive("tools.updated", {});
+        }
+      },
+    });
+  }
 
   // --- sessions ---
 
@@ -126,10 +150,19 @@ export class Service {
     cwd?: string;
     /** Ephemeral proxy run — core skips title generation for these. */
     oneshot?: boolean;
+    /** Parent session id — marks this session as its subagent (task tool). */
+    parent?: SessionId;
+    /** Agent for the session (subagent runs); resolves exactly like meta.agent. */
+    agent?: string;
+    /** Explicit model id pinned into meta (the task tool's model rule). */
+    model?: string;
   } = {}): Session {
     const workbench = opts.workbench ?? "chat";
     if (!this.deps.workbenches.some((wb) => wb.name() === workbench)) {
       throw new Error(`Unknown workbench: ${workbench}`);
+    }
+    if (opts.parent !== undefined && this.deps.store.sessions.get(opts.parent) === undefined) {
+      throw new Error(`Unknown parent session: ${opts.parent}`);
     }
     const session = this.deps.store.sessions.insert({
       // Untitled sessions get the "New Chat Session - <timestamp>" default
@@ -138,7 +171,12 @@ export class Service {
       title: opts.title !== undefined && opts.title.length > 0 ? opts.title : defaultTitle(this.clock.iso()),
       workbench,
       ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
-      ...(opts.oneshot === true ? { meta: { oneshot: true } } : {}),
+      meta: {
+        ...(opts.oneshot === true ? { oneshot: true } : {}),
+        ...(opts.parent !== undefined ? { parent: opts.parent } : {}),
+        ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
+      },
       now: this.clock.iso(),
     });
     this.emitDurable(session.id, "session.created", { session });
@@ -194,6 +232,14 @@ export class Service {
 
   interrupt(sessionId: SessionId): void {
     this.coordinator.interrupt(sessionId);
+  }
+
+  /**
+   * Awaitable drain: run the session to idle and resolve (the task tool's
+   * child-session wait). See RunCoordinator.drainNow for semantics.
+   */
+  drainNow(sessionId: SessionId): Promise<void> {
+    return this.coordinator.drainNow(sessionId);
   }
   history(sessionId: SessionId): Message[] {
     return this.deps.store.messages.history(sessionId);

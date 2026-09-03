@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
+import { unwrapTaskOutput } from "@bai/shared";
 import type { Mode } from "../app";
 import { messageText, thinkingText, toolCalls } from "../state/sync";
 import { Spinner } from "../components/spinner";
@@ -99,6 +100,12 @@ export function ChatView({
   const [expandedThinking, setExpandedThinking] = useState<Set<string>>(
     new Set(),
   );
+
+  // Task nodes (subagent spawning): the same collapsible treatment for the
+  // `task` tool — expanded shows the child agent's final output (unwrapped
+  // from its <task> envelope). Keyed `${messageId}:${callId}`; toggled by
+  // Enter/Space on a focused message and folded into ctrl+t.
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
   // NORMAL-mode transcript focus: index into `messages`, null = no focus
   // (plain browsing). ctrl+j/ctrl+k move it; the focused message renders
@@ -378,16 +385,24 @@ export function ChatView({
         // steps message-by-message and scrolls by rows to reveal the target.
         if (ch === "j") return stepFocus(true);
         if (ch === "k") return stepFocus(false);
-        // ctrl+t toggles ALL reasoning nodes: expand all when any is
-        // collapsed, collapse all otherwise.
+        // ctrl+t toggles ALL reasoning nodes AND task nodes: expand all
+        // when any is collapsed, collapse all otherwise.
         if (ch === "t") {
           const thinkingIds = messages
             .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
             .map((m) => m.id);
-          const allExpanded =
-            thinkingIds.length > 0 &&
-            thinkingIds.every((id) => expandedThinking.has(id));
-          setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
+          const taskIds = messages.flatMap((m) =>
+            m.role === "assistant"
+              ? toolCalls(m)
+                  .filter((c) => c.name === "task" && c.result !== undefined)
+                  .map((c) => `${m.id}:${c.callId}`)
+              : [],
+          );
+          const allOpen =
+            (thinkingIds.length === 0 || thinkingIds.every((id) => expandedThinking.has(id))) &&
+            (taskIds.length === 0 || taskIds.every((id) => expandedTasks.has(id)));
+          setExpandedThinking(allOpen ? new Set() : new Set(thinkingIds));
+          setExpandedTasks(allOpen ? new Set() : new Set(taskIds));
           return;
         }
         // Editing chords stay live in both modes (the draft persists).
@@ -400,8 +415,9 @@ export function ChatView({
       // unambiguously ctrl+j → focus traversal down.
       if (ch === "\n") return stepFocus(true);
       if (ch === "i" || ch === "a") return onEnterInput();
-      // Enter/Space toggle the focused thought's visibility; Enter falls
-      // through to INPUT mode when the focus isn't on a thought.
+      // Enter/Space toggle the focused thought's visibility; task nodes
+      // toggle the same way (thoughts take precedence); Enter falls through
+      // to INPUT mode when the focus isn't on either.
       if (key.return || ch === " ") {
         const focusedMessage = focus !== null ? messages[focus] : undefined;
         if (
@@ -416,8 +432,25 @@ export function ChatView({
           });
           return;
         }
+        if (focusedMessage !== undefined) {
+          const taskIds = toolCalls(focusedMessage)
+            .filter((c) => c.name === "task" && c.result !== undefined)
+            .map((c) => `${focusedMessage.id}:${c.callId}`);
+          if (taskIds.length > 0) {
+            setExpandedTasks((prev) => {
+              const next = new Set(prev);
+              const allOpen = taskIds.every((id) => next.has(id));
+              for (const id of taskIds) {
+                if (allOpen) next.delete(id);
+                else next.add(id);
+              }
+              return next;
+            });
+            return;
+          }
+        }
         if (key.return) return onEnterInput();
-        return; // space outside a thought: no-op
+        return; // space outside a thought/task: no-op
       }
       // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
       if (key.upArrow || ch === "k") return scrollBy(-1);
@@ -627,16 +660,38 @@ export function ChatView({
                       const lineMarker = ci === 0 && firstRowIsTool ? marker : null;
                       const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
                       const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+                      // task: a collapsible node — expanded shows the child
+                      // agent's final output (opencode2 parity).
+                      const isTask = c.name === "task" && c.result !== undefined;
+                      const taskKey = `${m.id}:${c.callId}`;
+                      const taskOpen = isTask && expandedTasks.has(taskKey);
+                      const taskOutput = isTask ? unwrapTaskOutput(c.result?.content ?? "") : undefined;
                       return (
-                        <Text key={c.callId} wrap="truncate">
-                          {lineMarker}
-                          <Text color={color}>{glyph} </Text>
-                          <Text dimColor>{c.name}</Text>
-                          {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                          {c.result !== undefined && c.result.isError && (
-                            <Text color="red"> · denied/failed</Text>
+                        <Box key={c.callId} flexDirection="column">
+                          <Text wrap="truncate">
+                            {lineMarker}
+                            <Text color={color}>{glyph} </Text>
+                            <Text dimColor>{c.name}</Text>
+                            {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                            {c.result !== undefined && c.result.isError && (
+                              <Text color="red"> · denied/failed</Text>
+                            )}
+                            {isTask && focused && (
+                              <Text dimColor> · enter to {taskOpen ? "hide" : "view"} output</Text>
+                            )}
+                          </Text>
+                          {taskOpen && (
+                            <Box flexDirection="column" paddingLeft={2}>
+                              {(taskOutput?.text ?? c.result?.content ?? "")
+                                .split("\n")
+                                .map((line, li) => (
+                                  <Text key={li} dimColor wrap="wrap">
+                                    {line.length > 0 ? line : " "}
+                                  </Text>
+                                ))}
+                            </Box>
                           )}
-                        </Text>
+                        </Box>
                       );
                     })}
                   </Box>

@@ -1,4 +1,5 @@
 import { evaluatePermission } from "./engine";
+import path from "node:path";
 import type { AskDetail, PermissionAction, Session } from "@bai/shared";
 import type { Bus } from "../event/bus";
 import type { EventLog } from "../event/log";
@@ -39,6 +40,27 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   "plan.exit": "allow",
 };
 
+/** fs tools whose path argument can be checked against the session cwd. */
+const FS_TOOLS = new Set(["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit"]);
+
+/**
+ * Whether the fs tool's target resolves INSIDE the session working
+ * directory (the cwd-relative default: edits/writes there are silently
+ * allowed; outside it they still ask). Relative paths resolve against cwd
+ * exactly like the fs tools' rooting; fs.list/fs.glob without an explicit
+ * path operate on the cwd itself.
+ */
+export function fsPathInsideCwd(tool: string, metadata: Record<string, unknown> | undefined, cwd: string): boolean {
+  if (!FS_TOOLS.has(tool)) return false;
+  const raw = metadata?.path;
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return tool === "fs.list" || tool === "fs.glob";
+  }
+  const abs = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(cwd, raw);
+  const rel = path.relative(cwd, abs);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
 export interface PermissionDecision {
   action: PermissionAction;
   rule?: string;
@@ -51,6 +73,12 @@ export interface AuthorizeResult {
   allowed: boolean;
   /** Rejection feedback typed by the user; undefined for bare denials. */
   feedback?: string;
+  /**
+   * True when the wait ended because the run was interrupted (not a user
+   * verdict) — the caller treats it as a denial and its drain breaks on the
+   * aborted signal anyway.
+   */
+  cancelled?: boolean;
 }
 
 export interface GateDeps {
@@ -61,12 +89,15 @@ export interface GateDeps {
   config(): { permissions: Record<string, PermissionAction> };
 }
 
-interface Resolver {
-  (result: { approved: boolean; feedback?: string }): void;
+/** An ask awaiting its first reply (or an interrupt). */
+interface PendingAsk {
+  resolve: (result: { approved: boolean; feedback?: string; cancelled?: boolean }) => void;
+  /** Removes the abort listener once the wait ends any other way. */
+  cleanup: () => void;
 }
 
 export class PermissionGate {
-  private resolvers = new Map<string, Resolver>();
+  private resolvers = new Map<string, PendingAsk>();
 
   constructor(private deps: GateDeps) {}
 
@@ -75,17 +106,25 @@ export class PermissionGate {
    * proceed; a denial may carry `feedback` from the user's reject message.
    * `sessionId` scopes asks/approvals; approvals live in session meta.
    * `detail` (summary/diff) rides the `permission.asked` payload for
-   * surface rendering.
+   * surface rendering. `signal` is the drain's AbortSignal: an interrupted
+   * run must never park on an unanswered ask (QuestionService's abort
+   * handling is the precedent) — the row flips to rejected, every surface
+   * is told via `permission.replied`, and the wait resolves cancelled.
+   * `cwd` enables the cwd-relative default: an fs tool targeting a path
+   * inside the session's working directory is allowed by default (config
+   * rules and session approvals still win — they sit above the default
+   * layer), anything outside keeps asking.
    */
   async authorize(input: {
     tool: string;
     sessionId?: string;
     metadata?: Record<string, unknown>;
     detail?: AskDetail;
+    signal?: AbortSignal;
+    cwd?: string;
   }): Promise<AuthorizeResult> {
     const session = input.sessionId !== undefined ? this.deps.store.sessions.get(input.sessionId) : undefined;
-    const layers = this.layers(session);
-    const verdict = evaluatePermission(input.tool, layers);
+    const verdict = evaluatePermission(input.tool, this.layers(session, input));
     if (verdict.action === "allow") return { allowed: true };
     if (verdict.action === "deny") return { allowed: false };
 
@@ -98,10 +137,45 @@ export class PermissionGate {
       now: this.deps.clock.iso(),
     });
     this.emitDurable(input.sessionId, "permission.asked", { request });
-    const result = await new Promise<{ approved: boolean; feedback?: string }>((resolve) => {
-      this.resolvers.set(request.id, resolve);
+    const result = await new Promise<{ approved: boolean; feedback?: string; cancelled?: boolean }>((resolve) => {
+      // One latch for both endings (user verdict vs interrupt): whichever
+      // lands first wins, the loser is a no-op. The pre-aborted branch runs
+      // onAbort before the entry is registered, so liveness can't key on
+      // the resolvers map.
+      let settled = false;
+      const finish = (value: { approved: boolean; feedback?: string; cancelled?: boolean }) => {
+        if (settled) return;
+        settled = true;
+        this.resolvers.delete(request.id);
+        input.signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const onAbort = () => {
+        if (settled) return;
+        this.deps.store.permissions.reply(request.id, "rejected");
+        this.emitDurable(input.sessionId, "permission.replied", {
+          requestId: request.id,
+          status: "rejected",
+        });
+        finish({ approved: false, cancelled: true });
+      };
+      if (input.signal !== undefined) {
+        if (input.signal.aborted) {
+          onAbort();
+          return;
+        }
+        input.signal.addEventListener("abort", onAbort, { once: true });
+      }
+      this.resolvers.set(request.id, {
+        resolve: (value) => finish(value),
+        cleanup: () => input.signal?.removeEventListener("abort", onAbort),
+      });
     });
-    return { allowed: result.approved, ...(result.feedback !== undefined ? { feedback: result.feedback } : {}) };
+    return {
+      allowed: result.approved,
+      ...(result.feedback !== undefined ? { feedback: result.feedback } : {}),
+      ...(result.cancelled === true ? { cancelled: true } : {}),
+    };
   }
 
   /**
@@ -116,11 +190,12 @@ export class PermissionGate {
     scope: "once" | "always",
     message?: string,
   ): { sessionId?: string; tool: string } | undefined {
-    const resolve = this.resolvers.get(id);
+    const entry = this.resolvers.get(id);
     const request = this.deps.store.permissions.get(id);
     this.resolvers.delete(id);
-    if (resolve !== undefined) {
-      resolve({
+    entry?.cleanup();
+    if (entry !== undefined) {
+      entry.resolve({
         approved: status === "approved",
         ...(status === "rejected" && message !== undefined && message.length > 0 ? { feedback: message } : {}),
       });
@@ -139,11 +214,23 @@ export class PermissionGate {
     return { sessionId: request.sessionId ?? undefined, tool: request.tool };
   }
 
-  /** Ordered rule layers: defaults < config < session approvals. */
-  private layers(session: Session | undefined): Array<Record<string, PermissionAction>> {
+  /**
+   * Ordered rule layers: defaults < config < session approvals. The default
+   * layer is arg-aware: an fs tool targeting the session cwd defaults to
+   * allow (fail-closed everywhere else). Config entries and approvals
+   * override it — last matching pattern wins.
+   */
+  private layers(
+    session: Session | undefined,
+    input: { tool: string; metadata?: Record<string, unknown>; cwd?: string },
+  ): Array<Record<string, PermissionAction>> {
+    const defaults: Record<string, PermissionAction> = { ...DEFAULT_PERMISSIONS };
+    if (input.cwd !== undefined && fsPathInsideCwd(input.tool, input.metadata, input.cwd)) {
+      defaults[input.tool] = "allow";
+    }
     const configLayer = this.deps.config().permissions ?? {};
     const approvals = (session?.meta as { approvals?: Record<string, PermissionAction> } | undefined)?.approvals ?? {};
-    return [DEFAULT_PERMISSIONS, configLayer, approvals];
+    return [defaults, configLayer, approvals];
   }
 
   private emitDurable(sessionId: string | undefined, type: Parameters<EventLog["append"]>[1], payload: unknown): void {
