@@ -54,6 +54,8 @@ export interface RunCoordinatorDeps {
   defaultAgent(): string | undefined;
   /** Configured title-call model (config models.title), when set. */
   titleModel(): string | undefined;
+  /** Registered workspace roots — fs-tool agents get them in <env> when the session has no cwd. */
+  workspaceRoots(): string[];
 }
 
 /** One completed tool call streamed by the model, ready to execute. */
@@ -242,6 +244,7 @@ export class RunCoordinator {
           title: session?.title ?? "",
           agent: run.agent.name,
           tools: run.toolDefs.map((d) => d.name),
+          workspaces: this.deps.workspaceRoots(),
           now: this.deps.clock.iso(),
         }),
         ...(finalStep ? [STEPS_NOTICE] : []),

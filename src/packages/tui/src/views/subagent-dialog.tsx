@@ -4,7 +4,8 @@ import type { BaiClient } from "@bai/api/client";
 import type { Message, PermissionRequest } from "@bai/shared";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { PermissionDialog } from "./permission-dialog";
-import { toolCalls } from "../state/sync";
+import { buildTranscriptItems, messageText } from "../state/sync";
+import { moveFocus } from "../state/focus";
 import type { SubagentActivity } from "../state/subagents";
 
 /** Live-refetch cadence while the child session is still running. */
@@ -15,13 +16,14 @@ const WHEEL_DOWN = 65;
 const WHEEL_ROWS = 3;
 
 /**
- * Subagent output dialog (opencode's subagent inspector): the child
- * session's full transcript, live-refreshing while it works. ←/→ cycle
- * between the parent's subagents (wrap-around); ↑ exits when the
- * transcript is scrolled to the top (otherwise it scrolls up, opencode's
- * behavior); esc always exits.
- *
- * Rendered in the app's dialog slot — it owns the keyboard while open.
+ * Subagent output dialog (opencode's subagent inspector): the child's full
+ * transcript as NODES (buildTranscriptItems — same structure as the main
+ * chat view), live-refreshing while the child works. ctrl+j/k traverses the
+ * nodes; space/enter expands a thought or a tool call's output (so failed
+ * tool calls show their error text); ←/→ cycles subagents; ↑ exits at the
+ * top of the scroll; esc always exits. A pending permission ask reviews
+ * inline (the dialog is the review surface — subagents are not in the
+ * session picker).
  */
 export function SubagentDialog({
   client,
@@ -56,8 +58,7 @@ export function SubagentDialog({
         const snap = await client.historySnapshot(current.sessionId);
         if (ctrl.signal.aborted) return;
         setMessages(snap.messages);
-        // The child's pending permission ask rides the snapshot — the
-        // dialog is the review surface (subagents are not in the picker).
+        // The child's pending permission ask rides the snapshot.
         setPendingAsk(snap.pendingPermissions[0] ?? null);
       } catch (err) {
         if (!ctrl.signal.aborted) setLoadError(err instanceof Error ? err.message : String(err));
@@ -71,6 +72,21 @@ export function SubagentDialog({
     const timer = setInterval(() => setTick((t) => t + 1), REFRESH_MS);
     return () => clearInterval(timer);
   }, [current?.sessionId, current?.running]);
+
+  // ---- node-level expansion + focus (main-chat parity) -------------------
+  const items = buildTranscriptItems(messages);
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set());
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
+  const toggleIn = (set: (fn: (prev: Set<string>) => Set<string>) => void, key: string): void => {
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // ---- scrolling (row-continuous, follow-the-bottom while running) ------
   const scrollRef = useRef<ScrollViewRef>(null);
@@ -113,11 +129,42 @@ export function SubagentDialog({
     [scrollTo],
   );
 
-  // Fresh child (←/→ or first open): follow the bottom again.
+  // Fresh child (←/→ or first open): follow the bottom again, focus cleared.
   useEffect(() => {
     followRef.current = true;
     setScrollOffset(0);
+    setFocusIndex(null);
   }, [current?.sessionId]);
+
+  const lastVisibleItem = (): number => {
+    const limit = scrollOffsetRef.current + Math.max(1, viewportHeight);
+    for (let ii = items.length - 1; ii >= 0; ii--) {
+      const pos = scrollRef.current?.getItemPosition(ii);
+      if (pos !== null && pos !== undefined && pos.top < limit) return ii;
+    }
+    return Math.max(0, items.length - 1);
+  };
+
+  const revealItem = (ii: number): void => {
+    const pos = scrollRef.current?.getItemPosition(ii);
+    if (pos === null || pos === undefined) return;
+    const offset = scrollOffsetRef.current;
+    const vh = Math.max(1, viewportHeight);
+    if (pos.top < offset) {
+      scrollTo(pos.top);
+    } else if (pos.top + pos.height > offset + vh) {
+      scrollTo(Math.max(0, pos.top + pos.height - vh));
+    }
+  };
+
+  const stepItem = (down: boolean): void => {
+    if (items.length === 0) return;
+    const base = focusIndex ?? lastVisibleItem();
+    // Clamping traversal — the main chat view's moveFocus semantics.
+    const next = moveFocus(base, items.length, down);
+    setFocusIndex(next);
+    revealItem(next);
+  };
 
   // Mouse wheel (same mechanism as the chat view).
   const { stdout } = useStdout();
@@ -157,8 +204,28 @@ export function SubagentDialog({
     if (key.pageDown) return scrollBy(pageRows);
     if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
     if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
+    // Node traversal + expand (main-chat parity): ctrl+j/k step nodes,
+    // space/enter toggle the focused thought/tool output. ctrl+j's legacy
+    // spelling (lone "\n": ink parses the raw linefeed byte as name:'enter'
+    // with ctrl=false, so it never reaches the ctrl branch above) steps
+    // down too — unambiguous here, nothing types in the dialog.
+    if (key.ctrl && ch === "j") return stepItem(true);
+    if (key.ctrl && ch === "k") return stepItem(false);
+    if (ch === "\n") return stepItem(true);
     if (key.downArrow || ch === "j") return scrollBy(1);
     if (ch === "k") return scrollBy(-1);
+    if (key.return || ch === " ") {
+      const focusedItem = focusIndex !== null ? items[focusIndex] : undefined;
+      if (focusedItem?.kind === "thought") {
+        toggleIn(setExpandedThinking, focusedItem.messageId);
+        return;
+      }
+      if (focusedItem?.kind === "tool") {
+        toggleIn(setExpandedTools, `${focusedItem.messageId}:${focusedItem.call.callId}`);
+        return;
+      }
+      return; // user/text nodes: no-op (esc/↑ exit)
+    }
   });
 
   if (current === undefined) {
@@ -183,9 +250,7 @@ export function SubagentDialog({
         <Text bold color="cyan">subagent </Text>
         <Text color="yellow">@{current.agent}</Text>
         <Text dimColor> — {current.title}</Text>
-        {children.length > 1 && (
-          <Text dimColor>{` [${index + 1}/${children.length}]`}</Text>
-        )}
+        {children.length > 1 && <Text dimColor>{` [${index + 1}/${children.length}]`}</Text>}
         <Text> </Text>
         <Text color={status.color}>{`${status.glyph} ${status.text}`}</Text>
       </Text>
@@ -213,47 +278,100 @@ export function SubagentDialog({
           minHeight={0}
           marginY={1}
         >
-          {messages.map((m) => (
-            <Box key={m.id} flexDirection="column" marginBottom={1} flexShrink={0}>
-              {m.role === "user" ? (
-                <Text wrap="wrap" dimColor>
-                  › {messageTextOf(m)}
+          {items.map((item, ii) => {
+            const focused = focusIndex === ii;
+            const marker = focused ? <Text color="cyan">❯ </Text> : null;
+            const gap = ii === 0 ? 0 : 1;
+            if (item.kind === "user") {
+              return (
+                <Box key={`${item.messageId}:user`} marginTop={gap} marginBottom={1} flexShrink={0}>
+                  <Text wrap="wrap" dimColor>
+                    {marker}› {messageText(messages[item.messageIndex] as Message)}
+                  </Text>
+                </Box>
+              );
+            }
+            if (item.kind === "thought") {
+              const thinking = messageTextOfKind(messages[item.messageIndex], "thinking");
+              const lineCount = thinking.split("\n").length;
+              const expanded = expandedThinking.has(item.messageId);
+              return (
+                <Box key={`${item.messageId}:thought`} marginTop={gap} marginBottom={1} flexShrink={0}>
+                  {expanded ? (
+                    <Box flexDirection="column">
+                      <Text dimColor>{marker}── thought ──</Text>
+                      {thinking.split("\n").map((line, li) => (
+                        <Text key={li} dimColor wrap="wrap">
+                          {line.length > 0 ? line : " "}
+                        </Text>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                      {marker}▸ thought ({lineCount} line{lineCount === 1 ? "" : "s"})
+                    </Text>
+                  )}
+                </Box>
+              );
+            }
+            if (item.kind === "tool") {
+              const c = item.call;
+              const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
+              const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+              const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+              return (
+                <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} marginBottom={expanded ? 1 : 0} flexShrink={0} flexDirection="column">
+                  <Text wrap="truncate">
+                    {marker}
+                    <Text color={focused ? "cyan" : color}>{glyph} </Text>
+                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                      {c.name}
+                    </Text>
+                    {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                    {c.result !== undefined && c.result.isError && <Text color="red"> · failed</Text>}
+                    {c.result !== undefined && focused && (
+                      <Text dimColor> · space to {expanded ? "hide" : "view"} output</Text>
+                    )}
+                  </Text>
+                  {expanded && c.result !== undefined && (
+                    <Box flexDirection="column" paddingLeft={2}>
+                      {c.result.content.split("\n").map((line, li) => (
+                        <Text key={li} dimColor wrap="wrap">
+                          {line.length > 0 ? line : " "}
+                        </Text>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              );
+            }
+            // text: the child's reply body.
+            return (
+              <Box key={`${item.messageId}:text`} marginTop={gap} marginBottom={1} flexShrink={0}>
+                <Text wrap="wrap">
+                  {marker}
+                  {messageText(messages[item.messageIndex] as Message)}
                 </Text>
-              ) : (
-                <>
-                  {toolCalls(m).map((c) => {
-                    const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-                    const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
-                    return (
-                      <Text key={c.callId} wrap="truncate">
-                        <Text color={color}>{glyph} </Text>
-                        <Text dimColor>{c.name}</Text>
-                        {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                      </Text>
-                    );
-                  })}
-                  <Text wrap="wrap">{messageTextOf(m)}</Text>
-                </>
-              )}
-            </Box>
-          ))}
-          {messages.length === 0 && !loadError && (
-            <Text dimColor>waiting for the subagent…</Text>
-          )}
+              </Box>
+            );
+          })}
+          {items.length === 0 && !loadError && <Text dimColor>waiting for the subagent…</Text>}
           {loadError !== null && <Text color="red">{loadError}</Text>}
         </ScrollView>
       )}
 
       <Text dimColor>
-        {children.length > 1 ? "←/→ subagent · " : ""}j/k scroll · ↑ (at top) / esc back
+        {children.length > 1 ? "←/→ subagent · " : ""}ctrl+j/k node · space output · j/k scroll · ↑ (at top) / esc back
       </Text>
     </Box>
   );
 }
 
-/** Flatten a message's text parts (local — keeps the dialog self-contained). */
-function messageTextOf(message: Message): string {
+/** Flatten one message's parts of a kind (text/thinking). */
+function messageTextOfKind(message: Message | undefined, kind: "text" | "thinking"): string {
+  if (message === undefined) return "";
   return message.parts
-    .map((p) => (p.kind === "text" ? ((p.payload as { text?: string } | null)?.text ?? "") : ""))
+    .filter((p) => p.kind === kind)
+    .map((p) => (p.payload as { text?: string } | null)?.text ?? "")
     .join("");
 }

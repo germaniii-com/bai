@@ -100,6 +100,7 @@ export class Service {
       defaultModel: () => deps.config().models.default ?? "stub/echo",
       defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
+      workspaceRoots: () => deps.config().workspaces ?? [],
     });
     for (const wb of deps.workbenches) {
       deps.tools.registerAll(wb.tools());

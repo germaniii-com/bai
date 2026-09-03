@@ -72,6 +72,40 @@ describe("env block (session metadata in the system prompt)", () => {
     expect(block).toContain("Agent: chat");
   });
 
+  test("fs-tool agents get absolute-path guidance; others don't", () => {
+    const now = "2026-09-03T12:00:00.000Z";
+    // With a cwd: prefer absolute paths under it.
+    const withCwd = buildEnvBlock({
+      cwd: "/tmp/proj",
+      workbench: "code",
+      title: "",
+      agent: "build",
+      tools: ["fs.read", "fs.write", "bash"],
+      now,
+    });
+    expect(withCwd).toContain("fs tools: prefer absolute paths under the working directory");
+    // Without a cwd but with registered workspaces: absolute-only, listed.
+    const noCwd = buildEnvBlock({
+      workbench: "chat",
+      title: "",
+      agent: "build",
+      tools: ["fs.read", "fs.list"],
+      workspaces: ["/tmp/ws-a", "/tmp/ws-b"],
+      now,
+    });
+    expect(noCwd).toContain(
+      "No session working directory — fs tools accept ONLY absolute paths inside these registered workspaces: /tmp/ws-a, /tmp/ws-b",
+    );
+    expect(noCwd).toContain("bash runs in the server process working directory:");
+    // Without workspaces either: bash is the fallback.
+    const bare = buildEnvBlock({ workbench: "chat", title: "", agent: "build", tools: ["fs.read"], workspaces: [], now });
+    expect(bare).toContain("fs tool paths cannot be resolved; use bash for filesystem access");
+    // A no-fs agent gets none of the guidance.
+    const noFs = buildEnvBlock({ workbench: "chat", title: "", agent: "chat", tools: ["web.search"], now });
+    expect(noFs).not.toContain("fs tools:");
+    expect(noFs).not.toContain("fs tool paths cannot be resolved");
+  });
+
   test("the drain rides the env block in the system message (cwd + tools for the agent)", async () => {
     let t: TestCore | undefined;
     const dir = mkdtempSync(join(tmpdir(), "bai-env-"));

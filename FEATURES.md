@@ -133,7 +133,10 @@ workspace.
   its output, and a task node (`▸ task <task> (@<agent>)`) opens the
   **subagent dialog** — the child's full transcript, live-refreshing while
   it works, with ←/→ cycling between multiple subagents and ↑ (at top) or
-  esc to exit. A child's pending permission ask **pops the same dialog a
+  esc to exit — with the main chat view's node interaction: ctrl+j/k
+  traverses the child's nodes and space/enter expands a thought or any
+  tool call's output (failed calls show their error text). A child's
+  pending permission ask **pops the same dialog a
   parent ask gets** — tagged with the subagent's name — on every surface
   (TUI modal, web modal), and is also reviewable inside the subagent
   dialog; the run can never sit blocked on a dialog nobody saw. Task nodes

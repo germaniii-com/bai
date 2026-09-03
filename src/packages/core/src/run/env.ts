@@ -15,16 +15,42 @@ export interface EnvBlockInput {
   agent: string;
   /** Tool names the agent may use (registry ∩ allow-list — what this drain can actually call). */
   tools?: string[];
+  /** Registered workspace roots — fs tools accept absolute paths under them when the session has no cwd. */
+  workspaces?: string[];
   /** RFC3339 now (the drain's clock). */
   now: string;
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/** True when the agent's tool set includes the fs file tools. */
+function hasFsTools(tools: string[] | undefined): boolean {
+  return tools?.some((t) => t.startsWith("fs.")) ?? false;
+}
+
 export function buildEnvBlock(input: EnvBlockInput): string {
   const lines: string[] = ["<env>"];
+  const fs = hasFsTools(input.tools);
   if (input.cwd !== undefined && input.cwd.length > 0) {
     lines.push(`Working directory: ${input.cwd} (fs tool paths resolve relative to it; bash runs there)`);
+    if (fs) {
+      // The fs tools root relative paths here, but absolute paths under the
+      // cwd always resolve — models mix the two up far less with this note.
+      lines.push(`fs tools: prefer absolute paths under the working directory (relative paths also resolve against it).`);
+    }
+  } else {
+    if (fs) {
+      if (input.workspaces !== undefined && input.workspaces.length > 0) {
+        lines.push(
+          `No session working directory — fs tools accept ONLY absolute paths inside these registered workspaces: ${input.workspaces.join(", ")}`,
+        );
+      } else {
+        lines.push("No session working directory and no registered workspaces — fs tool paths cannot be resolved; use bash for filesystem access.");
+      }
+    }
+    // bash has no session cwd either: it inherits the server process's cwd —
+    // saying so explains the fs-vs-bash discrepancy to the model.
+    lines.push(`bash runs in the server process working directory: ${process.cwd()}`);
   }
   const title = input.title.length > 0 ? ` — "${input.title}"` : "";
   lines.push(`Workbench: ${input.workbench}${title}`);
