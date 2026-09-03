@@ -4,6 +4,7 @@ import {
   applySubagentEvent,
   cycleSubagentIndex,
   emptySubagentState,
+  findChildForTask,
   subagentFocusIndex,
   subagentRows,
   trackSubagents,
@@ -149,6 +150,20 @@ describe("subagent tracking (tui inspector)", () => {
     expect(cycleSubagentIndex(1, -1, 3)).toBe(0);
     expect(cycleSubagentIndex(0, 1, 1)).toBe(0); // single row
     expect(cycleSubagentIndex(0, 1, 0)).toBe(0); // empty guard
+  });
+
+  test("findChildForTask: result link first, then exact title match for running tasks", () => {
+    const state = withChild(emptySubagentState, "ses_c1", "plan");
+    const child = state.children.get("ses_c1");
+    expect(child?.title).toBe("Task (@plan subagent)");
+    // Result link wins when present.
+    expect(findChildForTask(state.children, '{"description":"Task","subagent_type":"plan"}', "ses_c1")).toBe(child);
+    // No result yet → title match resolves the RUNNING task's child.
+    expect(findChildForTask(state.children, '{"description":"Task","prompt":"p","subagent_type":"plan"}', undefined)).toBe(child);
+    // Different description → no match.
+    expect(findChildForTask(state.children, '{"description":"Other","subagent_type":"plan"}', undefined)).toBeUndefined();
+    // Partial (streaming) args → no match, no throw.
+    expect(findChildForTask(state.children, '{"description":"Ta', undefined)).toBeUndefined();
   });
 
   test("applyChildAskEvent: tracked-child asks queue; others ignored; replied drops", () => {

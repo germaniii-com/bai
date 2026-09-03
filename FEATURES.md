@@ -127,25 +127,26 @@ workspace.
   linked via `meta.parent`, titled `"<task> (@<agent> subagent)"` — that
   runs a full agentic loop with its own step budget, compaction, and tool
   allow-list, and returns its final message to the caller wrapped in a
-  `<task>` block. In the **TUI**, task nodes render inline like thoughts
-  (`▸ task <task> (@<agent>)`); clicking one (or enter on a focused
-  message) opens the **subagent dialog** — the child's full transcript,
-  live-refreshing while it works, with ←/→ cycling between multiple
-  subagents and ↑ (at top) or esc to exit. A child's pending permission
-  ask **pops the same dialog a parent ask gets** — tagged with the
-  subagent's name — on every surface (TUI modal, web modal), and is also
-  reviewable inside the subagent dialog; the run can never sit blocked on
-  a dialog nobody saw. A live inspector bar above the
-  footer shows each subagent's status at a glance. Subagent sessions stay
-  out of the session lists on every surface — the dialog is the way in.
-  The web shows an `↗ agent` chip on task nodes linking to the child
-  session. Guards: nesting is capped by `agents.subagentDepth` (default
-  1 — subagents can't spawn subagents), children are never
-  offered/allowed `task`, `question`, or `plan.exit` (they run
-  autonomously), each spawn asks fail-closed (the dialog names the agent +
-  task), and child permission asks are approved from the child session's
-  view. Multiple `task` calls in one message run concurrently; results
-  land in call order.
+  `<task>` block. In the **TUI** the transcript is a flat list of nodes —
+  thought, **every tool call**, the reply text — each individually
+  highlightable (ctrl+j/k) and clickable: any tool node expands inline to
+  its output, and a task node (`▸ task <task> (@<agent>)`) opens the
+  **subagent dialog** — the child's full transcript, live-refreshing while
+  it works, with ←/→ cycling between multiple subagents and ↑ (at top) or
+  esc to exit. A child's pending permission ask **pops the same dialog a
+  parent ask gets** — tagged with the subagent's name — on every surface
+  (TUI modal, web modal), and is also reviewable inside the subagent
+  dialog; the run can never sit blocked on a dialog nobody saw. Task nodes
+  show the child's live status (working / needs approval) right on the
+  node. Subagent sessions stay out of the session lists on every surface —
+  the dialog is the way in. The web shows an `↗ agent` chip on task nodes
+  linking to the child session. Guards: nesting is capped by
+  `agents.subagentDepth` (default 1 — subagents can't spawn subagents),
+  children are never offered/allowed `task`, `question`, or `plan.exit`
+  (they run autonomously), each spawn asks fail-closed (the dialog names
+  the agent + task), and child permission asks are approved from the child
+  session's view. Multiple `task` calls in one message run concurrently;
+  results land in call order.
 - **Hot-reloaded**: drop a file on disk, save from the web form, or edit via
   `$EDITOR` in the TUI — it's live everywhere in ~150 ms, no restart (the
   thing opencode makes you restart for); a 2 s polling safety net catches

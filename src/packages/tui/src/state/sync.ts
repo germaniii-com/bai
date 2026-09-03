@@ -155,6 +155,53 @@ export function thinkingText(message: Message): string {
     .join("");
 }
 
+// --- transcript items: one focusable/clickable node per renderable piece ---
+
+/**
+ * One focusable transcript node. Every assistant message flattens into up
+ * to three node kinds — its thought, each tool call, and its text — so
+ * ctrl+j/k highlights and clicks target NODES, not whole messages
+ * (thought and task highlight independently; every tool call is its own
+ * expandable node).
+ */
+export type TranscriptItem =
+  | { kind: "user"; messageIndex: number; messageId: string }
+  | { kind: "thought"; messageIndex: number; messageId: string }
+  | { kind: "tool"; messageIndex: number; messageId: string; call: ToolCallView; rawArgs: string }
+  | { kind: "text"; messageIndex: number; messageId: string };
+
+/**
+ * Flatten messages into focusable transcript items, in render order:
+ * user message → one item; assistant message → thought (when present),
+ * one item per tool call, then the text (when non-empty). Messages with
+ * nothing renderable are skipped.
+ */
+export function buildTranscriptItems(messages: Message[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const m = messages[messageIndex];
+    if (m === undefined) continue;
+    if (m.role === "user") {
+      if (messageText(m).trim().length > 0) {
+        items.push({ kind: "user", messageIndex, messageId: m.id });
+      }
+      continue;
+    }
+    if (thinkingText(m).length > 0) {
+      items.push({ kind: "thought", messageIndex, messageId: m.id });
+    }
+    for (const call of toolCalls(m)) {
+      const callPart = m.parts.find((p) => p.kind === "tool_call" && (p.payload as { callId?: string } | null)?.callId === call.callId);
+      const rawArgs = (callPart?.payload as { args?: string } | null)?.args ?? "";
+      items.push({ kind: "tool", messageIndex, messageId: m.id, call, rawArgs });
+    }
+    if (messageText(m).trim().length > 0) {
+      items.push({ kind: "text", messageIndex, messageId: m.id });
+    }
+  }
+  return items;
+}
+
 export interface ToolCallView {
   callId: string;
   name: string;

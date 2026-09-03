@@ -4,7 +4,8 @@ import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import type { Mode } from "../app";
-import { messageText, thinkingText, toolCalls } from "../state/sync";
+import { buildTranscriptItems, messageText, thinkingText, type TranscriptItem } from "../state/sync";
+import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
 import { Spinner } from "../components/spinner";
 import {
   backspace,
@@ -60,6 +61,7 @@ export function ChatView({
   onExitInput,
   onSessionCreated,
   onOpenSubagent,
+  subagents = emptySubagentState,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -74,11 +76,13 @@ export function ChatView({
   onExitInput: () => void;
   onSessionCreated: (session: Session) => void;
   /**
-   * Open the subagent output dialog — `sessionId` when the task result
-   * already links its child session, undefined for a still-running task
-   * (App then focuses the first running/asking child).
+   * Open the subagent output dialog — `sessionId` when the task's child is
+   * resolved (result link or title match), undefined to let App focus the
+   * first running/asking child.
    */
   onOpenSubagent: (sessionId: string | undefined) => void;
+  /** Tracked subagents of this session — live status for task nodes. */
+  subagents?: SubagentState;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
@@ -107,10 +111,21 @@ export function ChatView({
     new Set(),
   );
 
-  // NORMAL-mode transcript focus: index into `messages`, null = no focus
-  // (plain browsing). ctrl+j/ctrl+k move it; the focused message renders
-  // highlighted; Enter/Space toggle a focused thought's visibility.
+  // Tool-output nodes: every tool call is its own transcript node, and
+  // non-task tools expand inline to their result content (task nodes open
+  // the subagent dialog instead). Keyed `${messageId}:${callId}`.
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
+  // NORMAL-mode transcript focus: index into the flattened NODE list
+  // (buildTranscriptItems — thought, each tool call, text, user message),
+  // null = no focus. ctrl+j/ctrl+k step nodes; the focused node renders
+  // highlighted; Enter/Space act on it (toggle thought/tool output, open
+  // the subagent dialog).
   const [focus, setFocus] = useState<number | null>(null);
+
+  // The flattened node list — one focusable/clickable item per renderable
+  // piece. Rebuilt per render (cheap); identities are stable per content.
+  const items = buildTranscriptItems(messages);
 
   // ---- Continuous scroll state (terminal rows from the transcript top) ----
   const scrollRef = useRef<ScrollViewRef>(null);
@@ -252,18 +267,18 @@ export function ChatView({
   );
 
   // ---- NORMAL-mode focus traversal (ctrl+j/ctrl+k) ----
-  // The first press focuses the last visible message (where you're looking);
+  // The first press focuses the last visible node (where you're looking);
   // further steps clamp at the ends and scroll BY ROWS to reveal the target.
-  const lastVisibleMessage = (): number => {
+  const lastVisibleItem = (): number => {
     const limit = scrollOffsetRef.current + Math.max(1, viewportHeight);
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const pos = scrollRef.current?.getItemPosition(i);
-      if (pos !== null && pos !== undefined && pos.top < limit) return i;
+    for (let ii = items.length - 1; ii >= 0; ii--) {
+      const pos = scrollRef.current?.getItemPosition(ii);
+      if (pos !== null && pos !== undefined && pos.top < limit) return ii;
     }
-    return Math.max(0, messages.length - 1);
+    return Math.max(0, items.length - 1);
   };
 
-  const revealMessage = (index: number): void => {
+  const revealItem = (index: number): void => {
     const pos = scrollRef.current?.getItemPosition(index);
     if (pos === null || pos === undefined) return;
     const current = scrollOffsetRef.current;
@@ -276,12 +291,38 @@ export function ChatView({
   };
 
   const stepFocus = (down: boolean): void => {
-    const len = messages.length;
-    if (len === 0) return;
-    const base = focus ?? lastVisibleMessage();
-    const next = moveFocus(base, len, down);
+    if (items.length === 0) return;
+    const base = focus ?? lastVisibleItem();
+    const next = moveFocus(base, items.length, down);
     setFocus(next);
-    revealMessage(next);
+    revealItem(next);
+  };
+
+  /** Toggle one tool node's inline output (non-task tools). */
+  const toggleToolOutput = (key: string): void => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  /** Toggle one message's thought node. */
+  const toggleThought = (messageId: string): void => {
+    setExpandedThinking((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  };
+
+  /** The tracked child a tool item's task spawned (exact via title/link). */
+  const resolveTaskChild = (item: Extract<TranscriptItem, { kind: "tool" }>): SubagentActivity | undefined => {
+    if (item.call.name !== "task") return undefined;
+    const message = messages[item.messageIndex];
+    return findChildForTask(subagents.children, item.rawArgs, taskChildId(message, item.call.callId));
   };
 
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
@@ -327,44 +368,31 @@ export function ChatView({
       // TOP, so wheel-up (toward older content) is a negative delta.
       if (button === WHEEL_UP) return scrollBy(-WHEEL_ROWS);
       if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
-      // Left press (release ignored — one click, one action) on a thinking
-      // node's row toggles that node; on a task node's row it opens the
-      // subagent dialog. A click inside a block whose tasks have no exact
-      // row (expanded thinking above) opens that block's first task.
+      // Left press (release ignored — one click, one action): the item whose
+      // measured block contains the clicked row acts — thought toggles, a
+      // task opens the subagent dialog, any other tool toggles its inline
+      // output. Positions are exact per node (each item is measured).
       if (button === 0 && mouse[4] === "M") {
         const row = Number(mouse[3]);
-        const taskHit = taskRows.get(row);
-        if (taskHit !== undefined) {
-          onOpenSubagent(taskChildId(messages[taskHit.messageIndex], taskHit.callId));
-          return;
-        }
-        for (const [id, nodeRow] of nodeRows) {
-          if (nodeRow === row) {
-            setExpandedThinking((prev) => {
-              const next = new Set(prev);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            });
-            return;
-          }
-        }
-        // Block-level fallback: find the message whose measured block
-        // contains the clicked row and open its first task (if any).
-        for (let i = 0; i < messages.length; i++) {
-          const m = messages[i];
-          if (m === undefined || m.role !== "assistant") continue;
-          const pos = scrollRef.current?.getItemPosition(i);
+        for (let ii = 0; ii < items.length; ii++) {
+          const pos = scrollRef.current?.getItemPosition(ii);
           if (pos === null || pos === undefined) continue;
-          const gap = i === 0 ? 0 : 1;
+          const gap = ii === 0 ? 0 : 1;
           const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
-          if (row >= top && row < top + Math.max(1, pos.height - gap)) {
-            const firstTask = toolCalls(m).find((c) => c.name === "task");
-            if (firstTask !== undefined) {
-              onOpenSubagent(taskChildId(m, firstTask.callId));
+          const bottom = VIEWPORT_TOP_ROW + pos.top + pos.height - shownOffset;
+          if (row < top || row >= bottom) continue;
+          const item = items[ii];
+          if (item === undefined) return;
+          if (item.kind === "thought") {
+            toggleThought(item.messageId);
+          } else if (item.kind === "tool") {
+            if (item.call.name === "task") {
+              onOpenSubagent(resolveTaskChild(item)?.sessionId);
+            } else {
+              toggleToolOutput(`${item.messageId}:${item.call.callId}`);
             }
-            return;
           }
+          return;
         }
       }
       return;
@@ -431,32 +459,27 @@ export function ChatView({
       // unambiguously ctrl+j → focus traversal down.
       if (ch === "\n") return stepFocus(true);
       if (ch === "i" || ch === "a") return onEnterInput();
-      // Enter/Space toggle the focused thought's visibility; on a message
-      // with task nodes they open the subagent dialog instead (thoughts
-      // take precedence); Enter falls through to INPUT mode otherwise.
+      // Enter/Space act on the focused NODE: thought toggles, a task opens
+      // the subagent dialog, any other tool toggles its inline output;
+      // Enter falls through to INPUT mode on user/text nodes.
       if (key.return || ch === " ") {
-        const focusedMessage = focus !== null ? messages[focus] : undefined;
-        if (
-          focusedMessage !== undefined &&
-          thinkingText(focusedMessage).length > 0
-        ) {
-          setExpandedThinking((prev) => {
-            const next = new Set(prev);
-            if (next.has(focusedMessage.id)) next.delete(focusedMessage.id);
-            else next.add(focusedMessage.id);
-            return next;
-          });
-          return;
-        }
-        if (focusedMessage !== undefined) {
-          const firstTask = toolCalls(focusedMessage).find((c) => c.name === "task");
-          if (firstTask !== undefined) {
-            onOpenSubagent(taskChildId(focusedMessage, firstTask.callId));
+        const focusedItem = focus !== null ? items[focus] : undefined;
+        if (focusedItem !== undefined) {
+          if (focusedItem.kind === "thought") {
+            toggleThought(focusedItem.messageId);
+            return;
+          }
+          if (focusedItem.kind === "tool") {
+            if (focusedItem.call.name === "task") {
+              onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
+            } else {
+              toggleToolOutput(`${focusedItem.messageId}:${focusedItem.call.callId}`);
+            }
             return;
           }
         }
         if (key.return) return onEnterInput();
-        return; // space outside a thought/task: no-op
+        return; // space on user/text: no-op
       }
       // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
       if (key.upArrow || ch === "k") return scrollBy(-1);
@@ -535,62 +558,27 @@ export function ChatView({
     }
   });
 
-  const len = messages.length;
+  const len = items.length;
   // Clamp for rendering: the measured content height can lag one commit behind
   // a scroll, and the follow callbacks re-sync the state.
   const shownOffset = Math.min(scrollOffset, bottomOffset);
 
-  // Messages fully above the viewport top — the "↑ N earlier messages" count.
-  // Skipped until the first measurement lands (heights default to 0).
+  // Messages fully above the viewport top — the "↑ N earlier messages"
+  // count (distinct messages among the clipped items). Skipped until the
+  // first measurement lands (heights default to 0).
   let aboveCount = 0;
   if (len > 0 && contentHeight > 0) {
-    for (let i = 0; i < len; i++) {
-      const pos = scrollRef.current?.getItemPosition(i);
-      if (pos !== null && pos !== undefined && pos.top + pos.height <= shownOffset) {
-        aboveCount++;
+    const seen = new Set<number>();
+    for (let ii = 0; ii < items.length; ii++) {
+      const pos = scrollRef.current?.getItemPosition(ii);
+      if (pos === null || pos === undefined) break;
+      if (pos.top + pos.height <= shownOffset) {
+        seen.add(items[ii]!.messageIndex);
       } else {
         break;
       }
     }
-  }
-
-  // Terminal row (1-based) of each visible thinking node — click hit testing.
-  // The thinking header is the message block's first rendered row; the
-  // per-item gap margin (i > 0) lives inside the measured item, above that
-  // row. Content row c maps to terminal row VIEWPORT_TOP_ROW + c − shownOffset.
-  const nodeRows = new Map<string, number>();
-  // Same for task nodes: single-row lines whose positions are exact while
-  // the thinking above them is collapsed/absent (expanded thinking wraps,
-  // so rows shift — those blocks fall back to "click opens the first task").
-  const taskRows = new Map<number, { messageIndex: number; callId: string }>();
-  if (len > 0 && contentHeight > 0) {
-    const vh = Math.max(1, viewportHeight);
-    for (let i = 0; i < len; i++) {
-      const m = messages[i];
-      if (m === undefined || m.role !== "assistant") continue;
-      const pos = scrollRef.current?.getItemPosition(i);
-      if (pos === null || pos === undefined) continue;
-      const gap = i === 0 ? 0 : 1;
-      const thinking = thinkingText(m);
-      const thinkingRows =
-        thinking.length > 0 ? (expandedThinking.has(m.id) ? thinking.split("\n").length : 1) : 0;
-      const blockTop = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
-      if (thinkingRows > 0 && blockTop >= VIEWPORT_TOP_ROW && blockTop < VIEWPORT_TOP_ROW + vh) {
-        nodeRows.set(m.id, blockTop);
-      }
-      if (thinkingRows <= 1) {
-        // Exact rows: task lines follow the (1-row) thinking node in order.
-        let taskIndex = 0;
-        for (const c of toolCalls(m)) {
-          if (c.name !== "task") continue;
-          const row = blockTop + thinkingRows + taskIndex;
-          if (row >= VIEWPORT_TOP_ROW && row < VIEWPORT_TOP_ROW + vh) {
-            taskRows.set(row, { messageIndex: i, callId: c.callId });
-          }
-          taskIndex++;
-        }
-      }
-    }
+    aboveCount = seen.size;
   }
 
   // Non-user content (assistant replies, the empty-state line, the thinking
@@ -605,11 +593,12 @@ export function ChatView({
           at the edges are natural. bottomAlign keeps short transcripts hugging
           the composer. The component's overflow-hidden viewport is the
           deterministic guard: content can never bleed into the composer.
-          Message boxes carry flexShrink 0 so Yoga never compresses them.
-          User messages get a bordered box; assistant messages render plain —
-          role is conveyed by shape, not labels. Reasoning renders as a
-          transcript node (opencode parity): collapsed to a summary line,
-          expanded to the full chain of thought. */}
+          Item boxes carry flexShrink 0 so Yoga never compresses them.
+          The transcript is a flat list of NODES (buildTranscriptItems): a
+          user message, a thought, each tool call, and the reply text are
+          each their own focusable/clickable/measured item — thought and
+          task highlight independently, and every tool call can expand to
+          its output. */}
       <ScrollView
         ref={scrollRef}
         scrollOffset={shownOffset}
@@ -622,15 +611,17 @@ export function ChatView({
         minHeight={0}
         marginBottom={1}
       >
-        {messages.map((m, i) => {
-          const text = messageText(m);
-          const focused = focus === i;
+        {items.map((item, ii) => {
+          const m = messages[item.messageIndex];
+          if (m === undefined) return null;
+          const focused = focus === ii;
           // Per-item gap row (replaces the old container gap): rendered
           // INSIDE the measured item so measured positions stay exact.
-          const gap = i === 0 ? 0 : 1;
-          if (m.role === "user") {
+          const gap = ii === 0 ? 0 : 1;
+          const marker = focused ? <Text color="cyan">❯ </Text> : null;
+          if (item.kind === "user") {
             return (
-              <Box key={m.id} marginTop={gap} flexShrink={0}>
+              <Box key={`${item.messageId}:user`} marginTop={gap} flexShrink={0}>
                 <Box
                   borderStyle="round"
                   // Neutral white outline at rest; the cyan accent is reserved
@@ -640,28 +631,20 @@ export function ChatView({
                   flexShrink={0}
                 >
                   <Text wrap="wrap" bold={focused}>
-                    {text}
+                    {messageText(m)}
                   </Text>
                 </Box>
               </Box>
             );
           }
-          const thinking = thinkingText(m);
-          const thinkingLineCount =
-            thinking.length > 0 ? thinking.split("\n").length : 0;
-          const expanded = expandedThinking.has(m.id);
-          const calls = toolCalls(m);
-          // Focus marker: an inline cyan ❯ on the block's first rendered
-          // line — no extra rows, so measured positions and click
-          // hit-testing stay exact.
-          const marker = focused ? <Text color="cyan">❯ </Text> : null;
-          const firstRowIsThinking = thinkingLineCount > 0;
-          const firstRowIsTool = firstRowIsThinking === false && calls.length > 0;
-          return (
-            <Box key={m.id} marginTop={gap} flexShrink={0}>
-              <Box {...assistantInset} flexDirection="column" gap={1} flexShrink={0}>
-                {thinkingLineCount > 0 &&
-                  (expanded ? (
+          if (item.kind === "thought") {
+            const thinking = thinkingText(m);
+            const lineCount = thinking.split("\n").length;
+            const expanded = expandedThinking.has(item.messageId);
+            return (
+              <Box key={`${item.messageId}:thought`} marginTop={gap} flexShrink={0}>
+                <Box {...assistantInset} flexShrink={0}>
+                  {expanded ? (
                     <Box flexDirection="column">
                       <Text dimColor>
                         {marker}── thought ──
@@ -674,56 +657,89 @@ export function ChatView({
                     </Box>
                   ) : (
                     <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
-                      {marker}▸ thought ({thinkingLineCount} line
-                      {thinkingLineCount === 1 ? "" : "s"})
+                      {marker}▸ thought ({lineCount} line
+                      {lineCount === 1 ? "" : "s"})
                     </Text>
-                  ))}
-                {calls.length > 0 && (
-                  <Box flexDirection="column">
-                    {calls.map((c, ci) => {
-                      const lineMarker = ci === 0 && firstRowIsTool ? marker : null;
-                      const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-                      const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
-                      // task: a thought-style node — the dialog (click, or
-                      // enter on a focused message) shows the child's live
-                      // transcript, so the inline line stays one row.
-                      if (c.name === "task") {
-                        const openable = c.result !== undefined;
-                        return (
-                          <Text key={c.callId} wrap="truncate">
-                            {lineMarker}
-                            <Text color={color}>
-                              {c.status === "done" ? "▸" : `${glyph} `}
-                            </Text>
-                            <Text dimColor={c.status === "done"} color={c.status === "running" ? "yellow" : c.status === "error" ? "red" : undefined}>
-                              task {c.argsPreview}
-                            </Text>
-                            {c.status === "running" && <Text dimColor> · working…</Text>}
-                            {c.status === "error" && <Text color="red"> · failed</Text>}
-                            {openable && focused && <Text dimColor> · enter to view</Text>}
-                          </Text>
-                        );
-                      }
-                      return (
-                        <Text key={c.callId} wrap="truncate">
-                          {lineMarker}
-                          <Text color={color}>{glyph} </Text>
-                          <Text dimColor>{c.name}</Text>
-                          {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                          {c.result !== undefined && c.result.isError && (
-                            <Text color="red"> · denied/failed</Text>
-                          )}
-                        </Text>
-                      );
-                    })}
+                  )}
+                </Box>
+              </Box>
+            );
+          }
+          if (item.kind === "tool") {
+            const c = item.call;
+            // task: live status from the tracked child (asking/running beat
+            // the transcript's result-less "running"); the dialog (click or
+            // enter) shows the child's live transcript.
+            if (c.name === "task") {
+              const child = resolveTaskChild(item);
+              const asking = child?.needsApproval === true;
+              const live = c.result === undefined && (asking || child?.running === true);
+              const status = live ? "running" : c.status;
+              const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "▸";
+              const statusColor = asking ? "red" : status === "running" ? "yellow" : status === "error" ? "red" : "green";
+              return (
+                <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
+                  <Box {...assistantInset} flexShrink={0}>
+                    <Text wrap="truncate">
+                      {marker}
+                      <Text color={focused ? "cyan" : statusColor}>
+                        {status === "done" ? "" : `${glyph} `}
+                      </Text>
+                      <Text
+                        color={focused ? "cyan" : (asking ? "red" : status === "running" ? "yellow" : status === "error" ? "red" : undefined)}
+                        dimColor={!focused && status === "done"}
+                      >
+                        task {c.argsPreview}
+                      </Text>
+                      {asking && <Text color="red"> · needs approval</Text>}
+                      {!asking && status === "running" && <Text dimColor> · working…</Text>}
+                      {status === "error" && <Text color="red"> · failed</Text>}
+                      {focused && status !== "running" && <Text dimColor> · enter to view</Text>}
+                    </Text>
                   </Box>
-                )}
-                <Text
-                  wrap="wrap"
-                  color={m.role === "assistant" ? undefined : "yellow"}
-                >
-                  {thinkingLineCount === 0 && calls.length === 0 ? marker : null}
-                  {text}
+                </Box>
+              );
+            }
+            // Any other tool: its own node — click/enter toggles the inline
+            // output (the tool_result content), thought-body style.
+            const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
+            const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+            const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+            return (
+              <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
+                <Box {...assistantInset} flexDirection="column" flexShrink={0}>
+                  <Text wrap="truncate">
+                    {marker}
+                    <Text color={focused ? "cyan" : color}>{glyph} </Text>
+                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                      {c.name}
+                    </Text>
+                    {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                    {c.result !== undefined && c.result.isError && <Text color="red"> · denied/failed</Text>}
+                    {c.result !== undefined && focused && (
+                      <Text dimColor> · enter to {expanded ? "hide" : "view"} output</Text>
+                    )}
+                  </Text>
+                  {expanded && c.result !== undefined && (
+                    <Box flexDirection="column" paddingLeft={2}>
+                      {c.result.content.split("\n").map((line, li) => (
+                        <Text key={li} dimColor wrap="wrap">
+                          {line.length > 0 ? line : " "}
+                        </Text>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            );
+          }
+          // text: the reply body — its own node; the ❯ marker marks focus.
+          return (
+            <Box key={`${item.messageId}:text`} marginTop={gap} flexShrink={0}>
+              <Box {...assistantInset} flexShrink={0}>
+                <Text wrap="wrap">
+                  {marker}
+                  {messageText(m)}
                 </Text>
               </Box>
             </Box>

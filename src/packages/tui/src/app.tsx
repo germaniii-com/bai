@@ -319,10 +319,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
   }, [refreshProviders, refreshSessions]);
 
   const modelLabel = currentModelLabel(active, providers, configDefault);
-  // Inspector rows: hidden while a dialog/ask owns the body, capped at
-  // three (opencode's footer inspector shows a bounded window too).
-  const subagentList = view === "chat" && !dialogOpenRef.current ? subagentRows(subagents) : [];
-  const subagentsShown = subagentList.slice(0, 3);
 
   /**
    * Open the subagent output dialog: at `sessionId` when the task result
@@ -473,6 +469,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
                   void refreshSessions();
                 }}
                 onOpenSubagent={openSubagentDialog}
+                subagents={subagents}
               />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}
@@ -483,23 +480,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
       </Box>
 
       <Box paddingX={1} flexDirection="column">
-        {subagentsShown.map((r) => (
-          <Text key={r.sessionId} wrap="truncate">
-            <Text color={r.needsApproval ? "red" : r.running ? "yellow" : "green"}>
-              {r.needsApproval ? "⚠" : r.running ? "◐" : "✓"}{" "}
-            </Text>
-            <Text dimColor>subagent</Text>
-            <Text color="yellow"> @{r.agent}</Text>
-            {r.tool !== undefined && <Text dimColor> · {r.tool}</Text>}
-            {r.running && r.tool === undefined && r.textTail !== undefined && (
-              <Text dimColor> · {r.textTail.replaceAll("\n", " ").trimEnd()}</Text>
-            )}
-            {r.needsApproval && <Text color="red"> · needs approval — enter on the task to review</Text>}
-          </Text>
-        ))}
-        {subagentList.length > subagentsShown.length && (
-          <Text dimColor> +{subagentList.length - subagentsShown.length} more subagents</Text>
-        )}
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
         {quitArmed && (

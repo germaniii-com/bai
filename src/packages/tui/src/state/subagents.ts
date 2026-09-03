@@ -179,3 +179,33 @@ export function cycleSubagentIndex(index: number, delta: number, count: number):
   if (count <= 0) return 0;
   return (index + delta + count) % count;
 }
+
+/**
+ * Match a task node to its tracked child: the result payload's session link
+ * when the result landed, else the child whose title the task tool built
+ * from the same description + agent (`"<desc> (@<agent> subagent)")` — that
+ * is how running tasks (no result yet) resolve exactly, so clicks and live
+ * status target the right child even mid-flight.
+ */
+export function findChildForTask(
+  children: Map<string, SubagentActivity>,
+  rawArgs: string,
+  resultSessionId: string | undefined,
+): SubagentActivity | undefined {
+  if (resultSessionId !== undefined) {
+    const byId = children.get(resultSessionId);
+    if (byId !== undefined) return byId;
+  }
+  try {
+    const parsed = JSON.parse(rawArgs) as { description?: unknown; subagent_type?: unknown };
+    if (typeof parsed.description === "string" && typeof parsed.subagent_type === "string") {
+      const title = `${parsed.description.trim()} (@${parsed.subagent_type} subagent)`;
+      for (const child of children.values()) {
+        if (child.title === title) return child;
+      }
+    }
+  } catch {
+    // Args may still be streaming (partial JSON) — no match then.
+  }
+  return undefined;
+}
