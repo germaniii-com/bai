@@ -1,6 +1,6 @@
 import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
-import wrapAnsi from "wrap-ansi";
+import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, Session } from "@bai/shared";
 import type { Mode } from "../app";
@@ -24,88 +24,37 @@ import {
   type Editor,
 } from "../state/composer";
 import { recordPrompt, resetTraversal, traverse } from "../state/history";
-import { moveFocus, snapOffset } from "../state/focus";
+import { moveFocus } from "../state/focus";
 
-/** Messages jumped per pageUp/pageDown (ctrl+u/ctrl+d) press. */
-const PAGE = 12;
 /** SGR mouse buttons for the wheel (X10 button codes + 1000h tracking). */
 const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
+/** Terminal rows per mouse-wheel tick (opencode's default scroll speed). */
+const WHEEL_ROWS = 3;
+/** The app header is exactly 3 rows (round border + one truncated line), so
+ *  the chat viewport always starts at terminal row 4 (1-based) — the anchor
+ *  for click hit-testing. */
+const VIEWPORT_TOP_ROW = 4;
 
 /**
- * Number of rendered rows wrap-ansi produces for `text` at `width` — the
- * EXACT same wrapping Ink's `Text wrap="wrap"` applies (default
- * `wordWrap: true`: long words break, short ones wrap at word boundaries).
- * The whole string is passed through (like Ink's dom.js wrapText), so
- * embedded blank lines and trailing newlines count exactly as rendered.
- * Counting rows this way instead of `ceil(len/width)` closes the gap that
- * accumulated while streaming and made the transcript taller than the
- * viewport (overflow into the composer / garbled text).
- */
-function wrappedRows(text: string, width: number): number {
-  if (text.length === 0) return 0;
-  return wrapAnsi(text, Math.max(1, width), { trim: false, hard: true }).split("\n").length;
-}
-
-/**
- * Estimated rendered rows for a message at the given terminal width.
+ * Chat view: continuous-scroll message history + inline composer. The
+ * composer is a multi-line, cursor-aware text input built on the pure
+ * `Editor` model (no extra deps); ctrl-prefixed globals are ignored here so
+ * typing stays clean.
  *
- * Width math mirrors the JSX nesting exactly:
- *   - the app body wraps the viewport in `<Box paddingX={1}>`, so the
- *     viewport content is `columns - 2`;
- *   - user messages: that minus the round border (2) minus `paddingX={1}`
- *     on each side (2)      → `columns - 6`;
- *   - assistant messages: that minus `assistantInset` (paddingLeft 2 +
- *     paddingRight 3 = 5)  → `columns - 7`.
- * (The estimator previously used `columns - 4 / - 5`, two columns too WIDE,
- * so it wrapped fewer lines than Ink and undercounted rows.)
- */
-function estimateRows(m: Message, columns: number, expanded: boolean): number {
-  const text = messageText(m);
-  const width = Math.max(8, columns - (m.role === "user" ? 6 : 7));
-  // Empty text (thinking-only phase, before the first answer delta) renders
-  // zero rows — don't count a line for it.
-  let lines = 0;
-  if (text.length > 0) {
-    lines += wrappedRows(text, width);
-  }
-  // Tool calls render one collapsed line each (args digest + status glyph),
-  // with a gap row before the first one.
-  const calls = toolCalls(m);
-  if (calls.length > 0 && m.role !== "user") lines += calls.length + 1;
-  // Thinking nodes count toward the budget: expanded = header + reasoning
-  // lines + gap; collapsed = summary line + gap before the reply.
-  const thinking = thinkingText(m);
-  if (thinking.length > 0 && m.role !== "user") {
-    if (expanded) {
-      lines += 2; // header + gap
-      lines += wrappedRows(thinking, width);
-    } else {
-      lines += 2; // summary line + gap
-    }
-  }
-  return m.role === "user" ? lines + 2 : Math.max(lines, 1);
-}
-
-// Exported for unit tests (the estimator must stay in lockstep with Ink's
-// wrap-ansi rendering — overestimating steals rows, underestimating overflows).
-export const __estimateRows = estimateRows;
-export const __wrappedRows = wrappedRows;
-
-/**
- * Chat view: scrollable message history + inline composer. The composer is a
- * multi-line, cursor-aware text input built on the pure `Editor` model (no
- * extra deps); ctrl-prefixed globals are ignored here so typing stays clean.
- * Scrolling is message-anchored: `offset` counts messages hidden from the
- * bottom (0 = pinned to latest), and the window stays put while new messages
- * arrive mid-read.
+ * Scrolling is ROW-based and continuous (components/scroll-view.tsx): the
+ * transcript renders in full and the container clips at `scrollOffset` rows
+ * from the top, so partial messages at the viewport edges are natural — no
+ * message snapping. Follow-the-bottom is the sticky policy: while pinned
+ * (`followRef`), every content-height change re-snaps to the bottom; scrolled
+ * up, the reading window is automatically stable while new content streams in
+ * below (the offset is from the top, so new rows appear out of view).
  */
 export function ChatView({
   client,
   session,
   messages,
   runActive,
-  footerLines,
   mode,
   onEnterInput,
   onExitInput,
@@ -116,8 +65,6 @@ export function ChatView({
   messages: Message[];
   /** True while the coordinator is draining this session (run.started → run.finished). */
   runActive: boolean;
-  /** Exact footer line count (hints + error + setup hint) — click hit testing. */
-  footerLines: number;
   /** Input mode owned by App: NORMAL (vim motions) vs INPUT (typing). */
   mode: Mode;
   /** Switch to INPUT mode (i/a/Enter in NORMAL; paste implies typing). */
@@ -129,9 +76,7 @@ export function ChatView({
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
   const [sentPending, setSentPending] = useState(false);
-  const [offset, setOffset] = useState(0);
   const [escArmed, setEscArmed] = useState(false);
-  const lastLen = useRef(messages.length);
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
   // the assistant's first text lands. Stops on errors too — run.finished
@@ -156,27 +101,35 @@ export function ChatView({
   );
 
   // NORMAL-mode transcript focus: index into `messages`, null = no focus
-  // (plain browsing). j/k/up/down move it; the focused message renders
+  // (plain browsing). ctrl+j/ctrl+k move it; the focused message renders
   // highlighted; Enter/Space toggle a focused thought's visibility.
   const [focus, setFocus] = useState<number | null>(null);
-  // Last rendered visible window [start, end) — read by the key handler to
-  // re-snap the scroll offset when focus leaves the viewport (same estimate
-  // fidelity as click hit-testing; ref write during render, like lenRef).
-  const windowRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
 
-  // Keep the reading window stable when messages arrive while scrolled up.
-  useEffect(() => {
-    const grew = messages.length - lastLen.current;
-    lastLen.current = messages.length;
-    if (grew > 0) setOffset((o) => (o > 0 ? o + grew : 0));
-  }, [messages.length]);
+  // ---- Continuous scroll state (terminal rows from the transcript top) ----
+  const scrollRef = useRef<ScrollViewRef>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  // Measured transcript/viewport heights (mirrored from the ScrollView) —
+  // drive the indicator, clamping, and the paging distances.
+  const [contentHeight, setContentHeight] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const bottomOffset = Math.max(0, contentHeight - viewportHeight);
+  // Sticky-bottom policy: follow = pinned to the latest content; pending = a
+  // session switch or submit wants the next content-height change to snap.
+  const followRef = useRef(true);
+  const pendingBottomRef = useRef(false);
+  // Latest offset readable from stale closures (the mouse listener
+  // subscribes once) without re-subscribing.
+  const scrollOffsetRef = useRef(0);
+  scrollOffsetRef.current = scrollOffset;
 
-  // Session switched → back to the latest messages, no stale pending state,
-  // focus cleared (the transcript it pointed into is gone), history
-  // traversal back to the live-draft boundary (history itself is global and
-  // survives the switch).
+  // Session switched → follow the new transcript from the bottom, no stale
+  // pending state, focus cleared (the transcript it pointed into is gone),
+  // history traversal back to the live-draft boundary (history itself is
+  // global and survives the switch).
   useEffect(() => {
-    setOffset(0);
+    followRef.current = true;
+    pendingBottomRef.current = true;
+    setScrollOffset(0);
     setSentPending(false);
     setFocus(null);
     resetTraversal();
@@ -226,7 +179,10 @@ export function ChatView({
         e.text === value ? { text: nextDraft, cursor: nextDraft.length } : e,
       );
       setSentPending(true); // dots until the run's first token (or run.finished)
-      setOffset(0); // follow the reply
+      // Follow the reply: re-engage sticky-bottom; the snap happens when the
+      // user message lands (content-height change).
+      followRef.current = true;
+      pendingBottomRef.current = true;
     } catch (err) {
       setSentPending(false);
       // Errors surface via the parent's error line on next refresh; keep input.
@@ -239,16 +195,87 @@ export function ChatView({
     void submitText(editor.text);
   };
 
-  // Latest message count for clamping — readable from stale closures (the
-  // mouse listener subscribes once) without re-subscribing.
-  const lenRef = useRef(messages.length);
-  lenRef.current = messages.length;
+  // ---- Scroll operations (continuous, clamped to [0, bottomOffset]) ----
+  const scrollTo = useCallback(
+    (offset: number): void => {
+      const bottom = scrollRef.current?.getBottomOffset() ?? bottomOffset;
+      const next = Math.max(0, Math.min(offset, bottom));
+      followRef.current = next >= bottom;
+      setScrollOffset(next);
+    },
+    [bottomOffset],
+  );
 
-  const scrollBy = useCallback((delta: number): void => {
-    setOffset((o) =>
-      Math.max(0, Math.min(o + delta, Math.max(0, lenRef.current - 1))),
-    );
+  const scrollBy = useCallback(
+    (delta: number): void => {
+      scrollTo(scrollOffsetRef.current + delta);
+    },
+    [scrollTo],
+  );
+
+  // Follow-the-bottom wiring: while pinned (or a snap is pending), every
+  // content-height change re-anchors to the bottom — streaming replies,
+  // thinking expand/collapse, and the waiting spinner all ride this. Scrolled
+  // up, the offset is from the TOP, so new rows appear out of view and the
+  // reading window is stable with no compensation at all.
+  const handleContentHeightChange = useCallback((height: number): void => {
+    setContentHeight(height);
+    const bottom = Math.max(0, height - (scrollRef.current?.getViewportHeight() ?? 0));
+    if (pendingBottomRef.current || followRef.current) {
+      pendingBottomRef.current = false;
+      followRef.current = true;
+      setScrollOffset(bottom);
+    } else if (scrollOffsetRef.current > bottom) {
+      setScrollOffset(bottom); // content shrank below the reading position
+    }
   }, []);
+
+  const handleViewportSizeChange = useCallback(
+    (size: { width: number; height: number }): void => {
+      setViewportHeight(size.height);
+      if (pendingBottomRef.current || followRef.current) {
+        pendingBottomRef.current = false;
+        followRef.current = true;
+        setScrollOffset(
+          Math.max(0, (scrollRef.current?.getContentHeight() ?? 0) - size.height),
+        );
+      }
+    },
+    [],
+  );
+
+  // ---- NORMAL-mode focus traversal (ctrl+j/ctrl+k) ----
+  // The first press focuses the last visible message (where you're looking);
+  // further steps clamp at the ends and scroll BY ROWS to reveal the target.
+  const lastVisibleMessage = (): number => {
+    const limit = scrollOffsetRef.current + Math.max(1, viewportHeight);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const pos = scrollRef.current?.getItemPosition(i);
+      if (pos !== null && pos !== undefined && pos.top < limit) return i;
+    }
+    return Math.max(0, messages.length - 1);
+  };
+
+  const revealMessage = (index: number): void => {
+    const pos = scrollRef.current?.getItemPosition(index);
+    if (pos === null || pos === undefined) return;
+    const current = scrollOffsetRef.current;
+    const vh = Math.max(1, viewportHeight);
+    if (pos.top < current) {
+      scrollTo(pos.top); // target above the window: pin its top row
+    } else if (pos.top + pos.height > current + vh) {
+      scrollTo(Math.max(0, pos.top + pos.height - vh)); // below: pin its bottom row
+    }
+  };
+
+  const stepFocus = (down: boolean): void => {
+    const len = messages.length;
+    if (len === 0) return;
+    const base = focus ?? lastVisibleMessage();
+    const next = moveFocus(base, len, down);
+    setFocus(next);
+    revealMessage(next);
+  };
 
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
   // the chat view is mounted. Wheel events arrive through useInput itself —
@@ -263,6 +290,13 @@ export function ChatView({
       stdout.write("\x1b[?1006l\x1b[?1000l");
     };
   }, [stdout]);
+
+  // Terminal resize: ink re-renders (which re-measures the viewport), but an
+  // explicit remeasure keeps the measured size honest per upstream guidance.
+  const { columns, rows } = useWindowSize();
+  useEffect(() => {
+    scrollRef.current?.remeasure();
+  }, [columns, rows]);
 
   // Bracketed paste: pasted text (including newlines) arrives on its own
   // channel and is inserted literally at the cursor — it never reaches
@@ -282,8 +316,10 @@ export function ChatView({
       ch !== undefined ? /^\x1b?\[<(\d+);(\d+);(\d+)([Mm])$/.exec(ch) : null;
     if (mouse !== null) {
       const button = Number(mouse[1]);
-      if (button === WHEEL_UP) return scrollBy(1);
-      if (button === WHEEL_DOWN) return scrollBy(-1);
+      // Wheel: continuous row scrolling. The offset is from the transcript
+      // TOP, so wheel-up (toward older content) is a negative delta.
+      if (button === WHEEL_UP) return scrollBy(-WHEEL_ROWS);
+      if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
       // Left press (release ignored — one click, one toggle) on a thinking
       // node's row toggles that node individually.
       if (button === 0 && mouse[4] === "M") {
@@ -302,10 +338,11 @@ export function ChatView({
       }
       return;
     }
-    // pageUp/pageDown scroll in both modes (not ctrl chords); ctrl+u/ctrl+d
-    // paging is a NORMAL-mode command — dead while typing (mode split).
-    if (key.pageUp) return scrollBy(PAGE);
-    if (key.pageDown) return scrollBy(-PAGE);
+    // pageUp/pageDown = half a viewport; ctrl+u/ctrl+d = a quarter (opencode).
+    const pageRows = Math.max(1, Math.floor(viewportHeight / 2));
+    const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
+    if (key.pageUp) return scrollBy(-pageRows);
+    if (key.pageDown) return scrollBy(pageRows);
 
     // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
     // then interrupts the running drain (double-press: first arms, second
@@ -330,18 +367,17 @@ export function ChatView({
       return;
     }
 
-    // ctrl+j's legacy spelling (lone "\n", key.ctrl=false in legacy
-    // terminals) is a kept editing chord in both modes — match it before the
-    // mode branches. Kitty-protocol terminals deliver a real ctrl+j below.
-    if (ch === "\n") return setEditor(openBelow);
-
     if (mode === "normal") {
       // NORMAL: vim motions + the ctrl command family. Plain typing is
       // ignored — only single-char mode entries count (batched chunks are
       // rapid-typing artifacts that belong to INPUT).
       if (key.ctrl) {
-        if (ch === "u") return scrollBy(PAGE);
-        if (ch === "d") return scrollBy(-PAGE);
+        if (ch === "u") return scrollBy(-halfPageRows);
+        if (ch === "d") return scrollBy(halfPageRows);
+        // ctrl+j/ctrl+k: transcript focus traversal (the cyan highlight) —
+        // steps message-by-message and scrolls by rows to reveal the target.
+        if (ch === "j") return stepFocus(true);
+        if (ch === "k") return stepFocus(false);
         // ctrl+t toggles ALL reasoning nodes: expand all when any is
         // collapsed, collapse all otherwise.
         if (ch === "t") {
@@ -356,10 +392,13 @@ export function ChatView({
         }
         // Editing chords stay live in both modes (the draft persists).
         if (ch === "w") return setEditor(deleteWordBefore);
-        if (ch === "j") return setEditor(openBelow);
-        if (ch === "k") return setEditor(openAbove);
         return; // remaining ctrl chords belong to App's globals handler
       }
+      // ctrl+j's legacy spelling (lone "\n": ink parses the raw linefeed byte
+      // as name:'enter' with ctrl=false, so it never reaches the ctrl branch
+      // above). Typing is ignored in NORMAL mode, so a lone "\n" here is
+      // unambiguously ctrl+j → focus traversal down.
+      if (ch === "\n") return stepFocus(true);
       if (ch === "i" || ch === "a") return onEnterInput();
       // Enter/Space toggle the focused thought's visibility; Enter falls
       // through to INPUT mode when the focus isn't on a thought.
@@ -380,27 +419,9 @@ export function ChatView({
         if (key.return) return onEnterInput();
         return; // space outside a thought: no-op
       }
-      // j/k/up/down: transcript traversal. The first press focuses the last
-      // visible message (where you're looking); further steps clamp at the
-      // ends and re-snap the scroll window when focus leaves the viewport.
-      if (key.upArrow || ch === "k" || key.downArrow || ch === "j") {
-        const len = messages.length;
-        if (len === 0) return;
-        const down = key.downArrow || ch === "j";
-        const base =
-          focus ?? Math.max(0, Math.min(windowRef.current.end, len) - 1);
-        const next = moveFocus(base, len, down);
-        setFocus(next);
-        setOffset((o) =>
-          snapOffset(
-            next,
-            len,
-            o,
-            windowRef.current.start,
-            windowRef.current.end,
-          ),
-        );
-      }
+      // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
+      if (key.upArrow || ch === "k") return scrollBy(-1);
+      if (key.downArrow || ch === "j") return scrollBy(1);
       return;
     }
 
@@ -412,6 +433,10 @@ export function ChatView({
       if (ch === "k") return setEditor(openAbove);
       return;
     }
+    // ctrl+j's legacy spelling (lone "\n", key.ctrl=false in legacy
+    // terminals) is a kept editing chord in INPUT mode only — NORMAL's
+    // ctrl+j/k now drive focus traversal.
+    if (ch === "\n") return setEditor(openBelow);
     if (busy || key.meta) return;
     // Up/down are line-wise cursor movement in the draft (standard editor
     // behavior). History traversal only engages from an empty draft — once
@@ -472,71 +497,42 @@ export function ChatView({
   });
 
   const len = messages.length;
-  const clamped = Math.min(offset, Math.max(0, len - 1));
+  // Clamp for rendering: the measured content height can lag one commit behind
+  // a scroll, and the follow callbacks re-sync the state.
+  const shownOffset = Math.min(scrollOffset, bottomOffset);
 
-  // Viewport windowing: the message list gets whatever rows the terminal has
-  // left over from the fixed chrome (header, composer, footer, indicator).
-  // Walking backward from the anchor keeps the newest messages visible.
-  const { columns, rows } = useWindowSize();
-  // The composer box grows with the draft: 2 border rows + one row per draft
-  // line (multi-line drafts are real since ctrl+j/ctrl+k and paste).
-  const composerLines = Math.max(1, editor.text.split("\n").length);
-  const composerRows = 2 + composerLines;
-  const chrome =
-    3 /* header box */ +
-    composerRows +
-    1 /* footer hints */ +
-    1 /* list marginBottom */ +
-    2 /* error line + estimation slack */ +
-    (clamped > 0 ? 2 : 0); /* scroll indicator */
-  const budget = Math.max(1, rows - chrome - (waiting ? 2 : 0));
-  const end = len - clamped;
-
-  // Terminal row (1-based) of the viewport's last content row: the viewport
-  // is bottom-anchored, so its bottom edge is the terminal bottom minus
-  // composer, footer, scroll block, and the viewport's bottom margin.
-  // Referenced from the mouse handler above via closure (via nodeRows).
-  // Keep these constants in sync with the JSX below and App's footer.
-  const viewportBottomRow =
-    rows -
-    footerLines -
-    composerRows -
-    (clamped > 0 ? 2 : 0) -
-    1; /* viewport marginBottom */
-  let start = Math.max(0, end - 1);
-  const newest = messages[end - 1];
-  if (newest !== undefined) {
-    let used = estimateRows(newest, columns, expandedThinking.has(newest.id));
-    for (let i = end - 2; i >= 0; i--) {
-      const m = messages[i];
-      if (m === undefined) break;
-      const cost = estimateRows(m, columns, expandedThinking.has(m.id)) + 1; // + gap row
-      if (used + cost > budget) break;
-      used += cost;
-      start = i;
+  // Messages fully above the viewport top — the "↑ N earlier messages" count.
+  // Skipped until the first measurement lands (heights default to 0).
+  let aboveCount = 0;
+  if (len > 0 && contentHeight > 0) {
+    for (let i = 0; i < len; i++) {
+      const pos = scrollRef.current?.getItemPosition(i);
+      if (pos !== null && pos !== undefined && pos.top + pos.height <= shownOffset) {
+        aboveCount++;
+      } else {
+        break;
+      }
     }
   }
-  const visible = messages.slice(start, end);
-  // Publish the rendered window for the key handler's focus re-snap (ref
-  // write during render — the established pattern here, cf. lenRef).
-  windowRef.current = { start, end };
 
-  // Terminal row of each visible thinking node (1-based) — click hit testing.
-  // Walk bottom-up from the viewport's last row: while waiting the spinner
-  // occupies that row plus a gap row above it; every message block is
-  // separated by a gap row, and a node's clickable line is its block's first
-  // row. Must stay in sync with the JSX below.
+  // Terminal row (1-based) of each visible thinking node — click hit testing.
+  // The thinking header is the message block's first rendered row; the
+  // per-item gap margin (i > 0) lives inside the measured item, above that
+  // row. Content row c maps to terminal row VIEWPORT_TOP_ROW + c − shownOffset.
   const nodeRows = new Map<string, number>();
-  {
-    let cursorBottom = viewportBottomRow - (waiting ? 2 : 0);
-    for (let i = visible.length - 1; i >= 0; i--) {
-      const m = visible[i];
-      if (m === undefined) break;
-      const height = estimateRows(m, columns, expandedThinking.has(m.id));
-      const top = cursorBottom - height + 1;
-      if (m.role === "assistant" && thinkingText(m).length > 0)
-        nodeRows.set(m.id, top);
-      cursorBottom = top - 1;
+  if (len > 0 && contentHeight > 0) {
+    const vh = Math.max(1, viewportHeight);
+    for (let i = 0; i < len; i++) {
+      const m = messages[i];
+      if (m === undefined || m.role !== "assistant" || thinkingText(m).length === 0) {
+        continue;
+      }
+      const pos = scrollRef.current?.getItemPosition(i);
+      if (pos === null || pos === undefined) continue;
+      const row = VIEWPORT_TOP_ROW + pos.top + (i === 0 ? 0 : 1) - shownOffset;
+      if (row >= VIEWPORT_TOP_ROW && row < VIEWPORT_TOP_ROW + vh) {
+        nodeRows.set(m.id, row);
+      }
     }
   }
 
@@ -546,49 +542,50 @@ export function ChatView({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Viewport: flexBasis 0 + flexGrow 1 pins this box to exactly the
-          leftover rows between header and composer; flex-end keeps messages
-          hugging the composer. overflowY hidden is the DETERMINISTIC guard:
-          whatever the estimate misses, the box clips at its own bounds —
-          content can never bleed into the composer or the thinking area.
-          Message boxes carry flexShrink 0 so Yoga never compresses them to
-          "fit" (which would re-introduce overlap); the clip handles the
-          rest. User messages get a bordered box; assistant messages render
-          plain — role is conveyed by shape, not labels. Reasoning renders
-          as a transcript node (opencode parity): collapsed to a summary
-          line, expanded to the full chain of thought. */}
-      <Box
-        flexDirection="column"
-        gap={1}
-        marginBottom={1}
+      {/* Continuous scroll viewport (components/scroll-view.tsx): the
+          transcript renders in full and the container clips at `scrollOffset`
+          rows from the top — scrolling is row-continuous and partial messages
+          at the edges are natural. bottomAlign keeps short transcripts hugging
+          the composer. The component's overflow-hidden viewport is the
+          deterministic guard: content can never bleed into the composer.
+          Message boxes carry flexShrink 0 so Yoga never compresses them.
+          User messages get a bordered box; assistant messages render plain —
+          role is conveyed by shape, not labels. Reasoning renders as a
+          transcript node (opencode parity): collapsed to a summary line,
+          expanded to the full chain of thought. */}
+      <ScrollView
+        ref={scrollRef}
+        scrollOffset={shownOffset}
+        bottomAlign
+        onContentHeightChange={handleContentHeightChange}
+        onViewportSizeChange={handleViewportSizeChange}
         flexGrow={1}
         flexShrink={1}
         flexBasis={0}
-        justifyContent="flex-end"
-        overflowY="hidden"
+        minHeight={0}
+        marginBottom={1}
       >
-        {visible.length === 0 && !waiting && (
-          <Box {...assistantInset}>
-            <Text dimColor>No messages yet — say something.</Text>
-          </Box>
-        )}
-        {visible.map((m, vi) => {
+        {messages.map((m, i) => {
           const text = messageText(m);
-          const focused = focus === start + vi;
+          const focused = focus === i;
+          // Per-item gap row (replaces the old container gap): rendered
+          // INSIDE the measured item so measured positions stay exact.
+          const gap = i === 0 ? 0 : 1;
           if (m.role === "user") {
             return (
-              <Box
-                key={m.id}
-                borderStyle="round"
-                // Neutral white outline at rest; the cyan accent is reserved
-                // for the focus highlight so it stands out.
-                borderColor={focused ? "cyan" : "white"}
-                paddingX={1}
-                flexShrink={0}
-              >
-                <Text wrap="wrap" bold={focused}>
-                  {text}
-                </Text>
+              <Box key={m.id} marginTop={gap} flexShrink={0}>
+                <Box
+                  borderStyle="round"
+                  // Neutral white outline at rest; the cyan accent is reserved
+                  // for the focus highlight so it stands out.
+                  borderColor={focused ? "cyan" : "white"}
+                  paddingX={1}
+                  flexShrink={0}
+                >
+                  <Text wrap="wrap" bold={focused}>
+                    {text}
+                  </Text>
+                </Box>
               </Box>
             );
           }
@@ -598,73 +595,80 @@ export function ChatView({
           const expanded = expandedThinking.has(m.id);
           const calls = toolCalls(m);
           // Focus marker: an inline cyan ❯ on the block's first rendered
-          // line — no extra rows, so estimateRows and click hit-testing stay
-          // exact (the 2-column prefix lives inside the estimation slack).
+          // line — no extra rows, so measured positions and click
+          // hit-testing stay exact.
           const marker = focused ? <Text color="cyan">❯ </Text> : null;
           const firstRowIsThinking = thinkingLineCount > 0;
           const firstRowIsTool = firstRowIsThinking === false && calls.length > 0;
           return (
-            <Box key={m.id} {...assistantInset} flexDirection="column" gap={1} flexShrink={0}>
-              {thinkingLineCount > 0 &&
-                (expanded ? (
-                  <Box flexDirection="column">
-                    <Text dimColor>
-                      {marker}── thought ──
+            <Box key={m.id} marginTop={gap} flexShrink={0}>
+              <Box {...assistantInset} flexDirection="column" gap={1} flexShrink={0}>
+                {thinkingLineCount > 0 &&
+                  (expanded ? (
+                    <Box flexDirection="column">
+                      <Text dimColor>
+                        {marker}── thought ──
+                      </Text>
+                      {thinking.split("\n").map((line, li) => (
+                        <Text key={li} dimColor wrap="wrap">
+                          {line.length > 0 ? line : " "}
+                        </Text>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                      {marker}▸ thought ({thinkingLineCount} line
+                      {thinkingLineCount === 1 ? "" : "s"})
                     </Text>
-                    {thinking.split("\n").map((line, i) => (
-                      <Text key={i} dimColor wrap="wrap">
-                        {line.length > 0 ? line : " "}
-                      </Text>
-                    ))}
+                  ))}
+                {calls.length > 0 && (
+                  <Box flexDirection="column">
+                    {calls.map((c, ci) => {
+                      const lineMarker = ci === 0 && firstRowIsTool ? marker : null;
+                      const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+                      const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+                      return (
+                        <Text key={c.callId} wrap="truncate">
+                          {lineMarker}
+                          <Text color={color}>{glyph} </Text>
+                          <Text dimColor>{c.name}</Text>
+                          {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                          {c.result !== undefined && c.result.isError && (
+                            <Text color="red"> · denied/failed</Text>
+                          )}
+                        </Text>
+                      );
+                    })}
                   </Box>
-                ) : (
-                  <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
-                    {marker}▸ thought ({thinkingLineCount} line
-                    {thinkingLineCount === 1 ? "" : "s"})
-                  </Text>
-                ))}
-              {calls.length > 0 && (
-                <Box flexDirection="column">
-                  {calls.map((c, i) => {
-                    const lineMarker = i === 0 && firstRowIsTool ? marker : null;
-                    const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-                    const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
-                    return (
-                      <Text key={c.callId} wrap="truncate">
-                        {lineMarker}
-                        <Text color={color}>{glyph} </Text>
-                        <Text dimColor>{c.name}</Text>
-                        {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                        {c.result !== undefined && c.result.isError && (
-                          <Text color="red"> · denied/failed</Text>
-                        )}
-                      </Text>
-                    );
-                  })}
-                </Box>
-              )}
-              <Text
-                wrap="wrap"
-                color={m.role === "assistant" ? undefined : "yellow"}
-              >
-                {thinkingLineCount === 0 && calls.length === 0 ? marker : null}
-                {text}
-              </Text>
+                )}
+                <Text
+                  wrap="wrap"
+                  color={m.role === "assistant" ? undefined : "yellow"}
+                >
+                  {thinkingLineCount === 0 && calls.length === 0 ? marker : null}
+                  {text}
+                </Text>
+              </Box>
             </Box>
           );
         })}
-        {waiting && (
+        {len === 0 && !waiting && (
           <Box {...assistantInset}>
+            <Text dimColor>No messages yet — say something.</Text>
+          </Box>
+        )}
+        {waiting && (
+          <Box marginTop={len > 0 ? 1 : 0} {...assistantInset}>
             <Spinner label="thinking…" />
           </Box>
         )}
-      </Box>
+      </ScrollView>
 
-      {clamped > 0 && (
+      {aboveCount > 0 && (
         <Box marginBottom={1}>
           <Text dimColor>
-            ↑ {clamped} earlier message{clamped === 1 ? "" : "s"} · j/k or
-            mouse wheel / pageUp-pageDown to scroll
+            ↑ {aboveCount} earlier message{aboveCount === 1 ? "" : "s"} · mouse
+            wheel / pageUp-pageDown to scroll · ctrl+j/k to focus
           </Text>
         </Box>
       )}

@@ -283,10 +283,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
       ? ((active.meta as Record<string, unknown>).agent as string)
       : (configAgentDefault ?? "build");
   const setupHint = needsSetup(providers);
-  // Exact footer line count — ChatView needs it to compute the thinking
-  // spinner's terminal row for click-to-toggle hit testing.
-  const footerLines =
-    1 + (error !== null ? 1 : 0) + (setupHint ? 1 : 0) + (quitArmed ? 1 : 0);
 
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
@@ -365,7 +361,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 session={active}
                 messages={messages}
                 runActive={runActive}
-                footerLines={footerLines}
                 mode={mode}
                 onEnterInput={() => setMode("input")}
                 onExitInput={() => setMode("normal")}
@@ -409,7 +404,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
         )}
         <Text dimColor>
           {mode === "normal"
-            ? `${runActive ? "esc stop · " : ""}i input · j/k history · enter/space thought · ctrl+p providers · ctrl+l models · ctrl+a agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
+            ? `${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p providers · ctrl+l models · ctrl+a agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
             : "enter send · esc normal · ctrl+j/k newline · ctrl+w word"}
         </Text>
       </Box>
