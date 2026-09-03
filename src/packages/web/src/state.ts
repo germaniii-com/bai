@@ -102,6 +102,31 @@ export function applyPermissionEvent(list: PermissionRequest[], evt: Event): Per
 }
 
 /**
+ * Pure reducer for the pending-SUBAGENT-ask queue over firehose events
+ * (mirrors the TUI's helper): a child session's permission ask pops the
+ * same modal a parent ask gets. `isTrackedChild` gates which asks belong
+ * to the active session's subagents; asked → append (dedup), replied →
+ * drop by id (whichever surface answered).
+ */
+export function applyChildAskEvent(
+  list: PermissionRequest[],
+  evt: Event,
+  isTrackedChild: (sessionId: string) => boolean,
+): PermissionRequest[] {
+  if (evt.type === "permission.asked") {
+    const request = (evt.payload as { request: PermissionRequest }).request;
+    const sessionId = evt.sessionId;
+    if (sessionId === undefined || !isTrackedChild(sessionId)) return list;
+    return list.some((r) => r.id === request.id) ? list : [...list, request];
+  }
+  if (evt.type === "permission.replied") {
+    const requestId = (evt.payload as { requestId: PermissionRequest["id"] }).requestId;
+    return list.filter((r) => r.id !== requestId);
+  }
+  return list;
+}
+
+/**
  * Pure reducer for the pending-question queue over session-stream events
  * (mirrors the TUI's helper): asked → append (dedup), replied/rejected →
  * drop, anything else passes through.

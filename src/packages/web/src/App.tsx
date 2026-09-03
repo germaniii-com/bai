@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
-import { applyEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
+import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
@@ -52,6 +52,15 @@ export function App() {
   // Seeded from the snapshot (asks raised before connect) and kept live by
   // permission.asked / permission.replied. First reply wins across devices.
   const [pendingAsks, setPendingAsks] = useState<PermissionRequest[]>([]);
+  // Pending permission asks from the active session's SUBAGENTS (fed from
+  // the firehose) — they pop the same modal, tagged with the child's name.
+  const [pendingChildAsks, setPendingChildAsks] = useState<PermissionRequest[]>([]);
+  // Latest session lists/active readable from the firehose closure (the
+  // firehose subscribes once; the lists change independently).
+  const knownSessionsRef = useRef<Session[]>([]);
+  knownSessionsRef.current = [...sessions, ...workspaceSessions];
+  const activeRef = useRef<Session | null>(null);
+  activeRef.current = active;
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
   const streamCtrl = useRef<AbortController | null>(null);
@@ -178,6 +187,16 @@ export function App() {
         if (evt.type === "tools.updated") {
           void refreshTools();
         }
+        // A subagent's permission ask pops the same modal a parent ask
+        // gets — otherwise the child would sit blocked with no dialog.
+        if (evt.type === "permission.asked" || evt.type === "permission.replied") {
+          const parentId = activeRef.current?.id;
+          setPendingChildAsks((list) =>
+            applyChildAskEvent(list, evt, (id) =>
+              knownSessionsRef.current.some((s) => s.id === id && parentId !== undefined && s.meta.parent === parentId),
+            ),
+          );
+        }
       },
     });
     return () => ctrl.abort();
@@ -196,6 +215,7 @@ export function App() {
     setRunActive(false); // a mid-run switch can't see the earlier run.started
     setSentPending(false);
     setPendingAsks([]); // session switch: the new session's asks arrive below
+    setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
     void (async () => {
       try {
@@ -372,7 +392,15 @@ export function App() {
           onDone={() => setPendingAsks((list) => list.slice(1))}
         />
       )}
-      {pendingAsks.length === 0 && pendingQuestions.length > 0 && (
+      {pendingAsks.length === 0 && pendingChildAsks.length > 0 && (
+        <PermissionModal
+          client={client}
+          request={pendingChildAsks[0] as PermissionRequest}
+          context={`subagent @${knownSessionsRef.current.find((s) => s.id === pendingChildAsks[0]?.sessionId && typeof s.meta.agent === "string")?.meta.agent ?? "subagent"}`}
+          onDone={() => setPendingChildAsks((list) => list.slice(1))}
+        />
+      )}
+      {pendingAsks.length === 0 && pendingChildAsks.length === 0 && pendingQuestions.length > 0 && (
         <QuestionModal
           client={client}
           request={pendingQuestions[0] as QuestionRequest}

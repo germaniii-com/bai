@@ -10,7 +10,7 @@ import { PermissionDialog } from "./views/permission-dialog";
 import { QuestionDialog } from "./views/question-dialog";
 import { SubagentDialog } from "./views/subagent-dialog";
 import { ProviderFlow } from "./components/provider-flow";
-import { applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
+import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
 import {
   applySubagentEvent,
   emptySubagentState,
@@ -72,6 +72,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // keyboard until answered (first reply wins across devices — a loser's
   // dialog clears via permission.replied).
   const [pendingAsks, setPendingAsks] = useState<PermissionRequest[]>([]);
+  // Pending permission asks from the active session's SUBAGENTS (fed from
+  // the firehose) — they pop the same modal, tagged with the child's name.
+  const [pendingChildAsks, setPendingChildAsks] = useState<PermissionRequest[]>([]);
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
   // Agent/tool catalog version — bumped by live events so the manager
@@ -87,7 +90,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
   const subagentsRef = useRef<SubagentState>(emptySubagentState);
   subagentsRef.current = subagents;
   const dialogOpenRef = useRef(false);
-  dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingQuestions.length > 0;
+  dialogOpenRef.current = dialog !== null || pendingAsks.length > 0 || pendingChildAsks.length > 0 || pendingQuestions.length > 0;
   // Latest active session readable from the firehose handler's stale closure
   // (the firehose subscribes once and must not resubscribe on every switch).
   const activeRef = useRef<Session | null>(null);
@@ -192,6 +195,13 @@ export function App({ client, version }: { client: BaiClient; version: string })
         // Subagent inspector: children of the active session stream their
         // activity through the firehose (state/subagents.ts).
         setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
+        // A subagent's permission ask pops the same modal a parent ask
+        // gets — otherwise the child would sit blocked with no dialog.
+        if (evt.type === "permission.asked" || evt.type === "permission.replied") {
+          setPendingChildAsks((list) =>
+            applyChildAskEvent(list, evt, (id) => subagentsRef.current.children.has(id)),
+          );
+        }
       },
     });
     return () => ctrl.abort();
@@ -215,6 +225,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
     setMessages([]);
     setRunActive(false); // a mid-run switch can't see the earlier run.started
     setPendingAsks([]); // session switch: the new session's asks arrive below
+    setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
     void (async () => {
       try {
@@ -370,6 +381,15 @@ export function App({ client, version }: { client: BaiClient; version: string })
             client={client}
             request={pendingAsks[0] as PermissionRequest}
             onDone={() => setPendingAsks((list) => list.slice(1))}
+          />
+        ) : pendingChildAsks.length > 0 ? (
+          // A subagent's tool ask: same modal, tagged with the child's
+          // agent name so the user knows who is asking.
+          <PermissionDialog
+            client={client}
+            request={pendingChildAsks[0] as PermissionRequest}
+            context={`subagent @${subagentsRef.current.children.get(pendingChildAsks[0]?.sessionId ?? "")?.agent ?? "subagent"}`}
+            onDone={() => setPendingChildAsks((list) => list.slice(1))}
           />
         ) : pendingQuestions.length > 0 ? (
           <QuestionDialog

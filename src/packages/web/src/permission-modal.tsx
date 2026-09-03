@@ -13,10 +13,13 @@ import type { PermissionRequest } from "@bai/shared";
 export function PermissionModal({
   client,
   request,
+  context,
   onDone,
 }: {
   client: BaiClient;
   request: PermissionRequest;
+  /** Optional origin line, e.g. "subagent @plan" for a child session's ask. */
+  context?: string;
   onDone: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -67,6 +70,7 @@ export function PermissionModal({
           <strong>Permission requested</strong>
         </div>
         <div className="perm-body">
+          {context !== undefined && <p className="perm-context dim">{context}</p>}
           <p className="perm-tool">
             tool: <strong>{request.tool}</strong>
           </p>

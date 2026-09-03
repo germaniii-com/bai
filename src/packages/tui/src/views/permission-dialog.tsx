@@ -23,10 +23,13 @@ const DIFF_WINDOW = 14;
 export function PermissionDialog({
   client,
   request,
+  context,
   onDone,
 }: {
   client: BaiClient;
   request: PermissionRequest;
+  /** Optional origin line, e.g. "subagent @plan" for a child session's ask. */
+  context?: string;
   onDone: () => void;
 }) {
   // "choose" = the three options; "reject" = optional feedback message input.
@@ -79,6 +82,7 @@ export function PermissionDialog({
       <Text bold color="yellow">
         permission requested
       </Text>
+      {context !== undefined && <Text color="magenta">{context}</Text>}
       <Text>
         tool: <Text bold>{request.tool}</Text>
       </Text>

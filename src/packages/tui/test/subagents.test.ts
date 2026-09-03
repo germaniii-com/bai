@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Event, Session, SessionId } from "@bai/shared";
+import type { Event, PermissionRequest, Session, SessionId } from "@bai/shared";
 import {
   applySubagentEvent,
   cycleSubagentIndex,
@@ -9,6 +9,7 @@ import {
   trackSubagents,
   type SubagentState,
 } from "../src/state/subagents";
+import { applyChildAskEvent } from "../src/state/sync";
 
 const PARENT = "ses_parent" as SessionId;
 
@@ -148,5 +149,24 @@ describe("subagent tracking (tui inspector)", () => {
     expect(cycleSubagentIndex(1, -1, 3)).toBe(0);
     expect(cycleSubagentIndex(0, 1, 1)).toBe(0); // single row
     expect(cycleSubagentIndex(0, 1, 0)).toBe(0); // empty guard
+  });
+
+  test("applyChildAskEvent: tracked-child asks queue; others ignored; replied drops", () => {
+    const ask = (id: string): PermissionRequest => ({
+      id: id as PermissionRequest["id"],
+      tool: "bash",
+      argsDigest: "x",
+      status: "pending",
+      createdAt: "t",
+    });
+    const isChild = (id: string): boolean => id === "ses_child";
+    const tracked = applyChildAskEvent([], evt("permission.asked", "ses_child", { request: ask("pr1") }), isChild);
+    expect(tracked.map((r) => r.id as string)).toEqual(["pr1"]);
+    // Not a child of the active parent → ignored.
+    expect(applyChildAskEvent([], evt("permission.asked", "ses_stranger", { request: ask("pr2") }), isChild)).toEqual([]);
+    // Dedup on replay.
+    expect(applyChildAskEvent(tracked, evt("permission.asked", "ses_child", { request: ask("pr1") }), isChild)).toHaveLength(1);
+    // Replied (from any surface) drops it.
+    expect(applyChildAskEvent(tracked, evt("permission.replied", "ses_child", { requestId: "pr1", status: "approved" }), isChild)).toEqual([]);
   });
 });

@@ -131,8 +131,11 @@ workspace.
   (`▸ task <task> (@<agent>)`); clicking one (or enter on a focused
   message) opens the **subagent dialog** — the child's full transcript,
   live-refreshing while it works, with ←/→ cycling between multiple
-  subagents and ↑ (at top) or esc to exit; a child's pending permission
-  ask is reviewed right inside the dialog. A live inspector bar above the
+  subagents and ↑ (at top) or esc to exit. A child's pending permission
+  ask **pops the same dialog a parent ask gets** — tagged with the
+  subagent's name — on every surface (TUI modal, web modal), and is also
+  reviewable inside the subagent dialog; the run can never sit blocked on
+  a dialog nobody saw. A live inspector bar above the
   footer shows each subagent's status at a glance. Subagent sessions stay
   out of the session lists on every surface — the dialog is the way in.
   The web shows an `↗ agent` chip on task nodes linking to the child
