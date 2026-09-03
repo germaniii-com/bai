@@ -228,8 +228,14 @@ export function App() {
   useEffect(() => {
     streamCtrl.current?.abort();
     if (active === null) {
+      // Draft state (+ new session): a NEW session — the previous
+      // session's transcript and its asks/questions must not linger.
       setMessages([]);
       setRunActive(false);
+      setSentPending(false);
+      setPendingAsks([]);
+      setPendingChildAsks([]);
+      setPendingQuestions([]);
       return;
     }
     const ctrl = new AbortController();

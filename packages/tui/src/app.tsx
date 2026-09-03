@@ -268,7 +268,15 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // Open the durable session stream whenever a session becomes active.
   useEffect(() => {
     if (active === null) {
+      // Draft state (ctrl+s → n, or before the first message): a NEW
+      // session — the previous session's transcript and its asks/questions
+      // must not linger. The global ask index still shows the blocked
+      // session in the ctrl+s list; picking it re-seeds from the snapshot.
+      setMessages([]);
       setRunActive(false);
+      setPendingAsks([]);
+      setPendingChildAsks([]);
+      setPendingQuestions([]);
       return;
     }
     const ctrl = new AbortController();
