@@ -2,9 +2,11 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, thinkingText, toolCalls, type ToolCallView } from "./state";
+import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
+import { SubagentStream } from "./subagent-stream";
 
 /**
  * The chat surface, shared by the Chat section and the Workspace section
@@ -29,7 +31,7 @@ export function ChatPane({
   runActive,
   waiting,
   error,
-  onOpenSubagent,
+  subagents,
   pendingAsk,
   askQueued = 0,
   onAskDone,
@@ -57,8 +59,9 @@ export function ChatPane({
   error: string | null;
   /** Composer placeholder while no session is open. */
   startPlaceholder?: string;
-  /** Open a subagent session from a task tool node (undefined → no chip). */
-  onOpenSubagent?: (sessionId: string) => void;
+  /** Tracked children of the active session (firehose-fed) — live status
+   *  for task nodes and the inline live transcripts. */
+  subagents?: SubagentState;
   // ---- inline ask panel (non-blocking; replaces the modal era) ----------
   /** The merged, prioritized pending ask (undefined → no panel). */
   pendingAsk?: PendingAsk;
@@ -95,7 +98,7 @@ export function ChatPane({
           <div key={m.id} className={`message ${m.role}`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
             {m.role === "assistant" && toolCalls(m).length > 0 && (
-              <ToolNodes calls={toolCalls(m)} onOpenSubagent={onOpenSubagent} />
+              <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} />
             )}
             <p>{messageText(m)}</p>
           </div>
@@ -182,10 +185,23 @@ function ThinkingNode({ text }: { text: string }) {
 /**
  * Tool-call transcript nodes: one collapsible line per call (tool name +
  * args digest + status), expanding to the result content. Mirrors the
- * ThinkingNode pattern — collapsible, independent, history-backed. Task
- * calls render an "open subagent" chip linking to the child session.
+ * ThinkingNode pattern — collapsible, independent, history-backed.
+ *
+ * Task calls (TUI SubagentDialog parity): the row shows the tracked
+ * child's LIVE status (⚠ needs approval / ◦ working…) — resolved from the
+ * firehose-fed children even before the task result lands — and expands
+ * into an inline live transcript of the child session (SubagentStream).
+ * No navigation away: the parent session stays open underneath.
  */
-function ToolNodes({ calls, onOpenSubagent }: { calls: ToolCallView[]; onOpenSubagent?: (sessionId: string) => void }) {
+function ToolNodes({
+  calls,
+  subagents,
+  client,
+}: {
+  calls: ToolCallView[];
+  subagents?: SubagentState;
+  client: BaiClient;
+}) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const toggle = (callId: string) => {
     setOpenIds((prev) => {
@@ -199,40 +215,50 @@ function ToolNodes({ calls, onOpenSubagent }: { calls: ToolCallView[]; onOpenSub
     <div className="tool-nodes">
       {calls.map((c) => {
         const open = openIds.has(c.callId);
-        const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+        // Task nodes: resolve the tracked child (result link when landed,
+        // exact title match while still running) for live status.
+        const isTask = c.name === "task";
+        const child =
+          isTask && subagents !== undefined
+            ? findChildForTask(subagents.children, c.rawArgs, c.subagent?.sessionId)
+            : undefined;
+        const asking = child?.needsApproval === true;
+        const live = c.result === undefined && (asking || child?.running === true);
+        const status = live ? ("running" as const) : c.status;
+        const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "✓";
+        const agent = child?.agent ?? c.subagent?.agent;
         return (
-          <div key={c.callId} className={`tool-node tool-${c.status}`}>
+          <div key={c.callId} className={`tool-node tool-${status}`}>
             <button
               type="button"
               className="tool-toggle"
               onClick={() => toggle(c.callId)}
               aria-expanded={open}
             >
-              <span className={`tool-glyph tool-glyph-${c.status}`}>{glyph}</span> {c.name}
+              <span className={`tool-glyph tool-glyph-${status}`}>{glyph}</span> {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
-              {c.subagent !== undefined && onOpenSubagent !== undefined && (
-                <span
-                  className="subagent-link"
-                  role="button"
-                  tabIndex={0}
-                  title={`open the ${c.subagent.agent} subagent session`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenSubagent(c.subagent?.sessionId ?? "");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.stopPropagation();
-                      onOpenSubagent(c.subagent?.sessionId ?? "");
-                    }
-                  }}
-                >
-                  ↗ {c.subagent.agent}
-                </span>
-              )}
+              {isTask && agent !== undefined && <span className="subagent-agent">@{agent}</span>}
+              {asking && <span className="subagent-asking"> · needs approval</span>}
+              {!asking && live && <span className="dim"> · working…</span>}
             </button>
-            {open && c.result !== undefined && (
-              <div className={`tool-body ${c.result.isError ? "tool-body-error" : ""}`}>{c.result.content}</div>
+            {open && isTask && child !== undefined ? (
+              // Live child transcript (snapshot polling while the task
+              // runs; stays reviewable after it finishes).
+              <SubagentStream
+                client={client}
+                child={child}
+                active={c.result === undefined || child.running}
+              />
+            ) : open && isTask && c.result === undefined ? (
+              // The task node is previewable the moment it shows up —
+              // while the child session is still being created/tracked,
+              // say so instead of rendering an empty expansion.
+              <div className="tool-body dim">subagent is starting…</div>
+            ) : (
+              open &&
+              c.result !== undefined && (
+                <div className={`tool-body ${c.result.isError ? "tool-body-error" : ""}`}>{c.result.content}</div>
+              )
             )}
           </div>
         );

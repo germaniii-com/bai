@@ -776,16 +776,95 @@ body {
   border-left-color: #c4443f;
 }
 
-/* task tool node: link chip to the subagent's own session. */
-.subagent-link {
-  color: var(--dim);
-  text-decoration: underline dotted;
+/* task tool node: tracked-child badge + live status (TUI parity). */
+.subagent-agent {
+  color: var(--accent);
   margin-left: 8px;
-  cursor: pointer;
+  font-size: 12px;
 }
 
-.subagent-link:hover {
-  color: var(--text);
+.subagent-asking {
+  color: #c4443f;
+}
+
+/* Inline live subagent transcript (expanded task node): a bordered,
+   bottom-anchored mini transcript — snapshot + durable stream, so the
+   child's tokens appear live. Sticky header carries agent/status. */
+.subagent-stream {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  margin: 4px 0 4px 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+}
+
+.subagent-stream-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.subagent-stream-head .subagent-agent {
+  color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.subagent-title {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.subagent-status {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.subagent-status-asking { color: #c4443f; }
+.subagent-status-running { color: #d9a038; }
+.subagent-status-done { color: #4a9d5b; }
+
+.subagent-stream-body {
+  overflow-y: auto;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+
+.subagent-stream-body .dim {
+  color: var(--dim);
+}
+
+.subagent-message {
+  margin-bottom: 8px;
+}
+
+.subagent-message p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.subagent-message.user p {
+  color: var(--user);
+}
+
+.subagent-stream-error {
+  color: #c4443f;
+  padding: 8px 10px;
+  font-size: 12.5px;
 }
 
 /* Agents & tools management pane: two-tab list + form/code editor. */

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
+import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
@@ -62,6 +63,10 @@ export function App() {
   activeRef.current = active;
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  // Live subagent tracking for the chat pane's task nodes (TUI parity):
+  // children of the active session, fed from the firehose — live status
+  // (asking/running) and the child session ids the inline transcripts open.
+  const [subagents, setSubagents] = useState<SubagentState>(emptySubagentState);
   // The merged, prioritized pending ask (parent permission > subagent
   // permission > question — the modal era's ordering), rendered INLINE in
   // the chat pane between the transcript and the composer. First reply
@@ -220,6 +225,10 @@ export function App() {
             ),
           );
         }
+        // Subagent tracking (TUI parity): every firehose event may advance
+        // a tracked child's live activity (run lifecycle, permission asks,
+        // streamed tool/text parts).
+        setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
       },
     });
     return () => ctrl.abort();
@@ -228,6 +237,7 @@ export function App() {
   useEffect(() => {
     streamCtrl.current?.abort();
     setError(null); // a session switch drops the previous session's error banner
+    setSubagents(emptySubagentState); // the previous session's children are gone
     if (active === null) {
       // Draft state (+ new session): a NEW session — the previous
       // session's transcript and its asks/questions must not linger.
@@ -294,6 +304,14 @@ export function App() {
     return () => ctrl.abort();
   }, [active, client]);
 
+  // Rebuild the tracked child set whenever the active session or either
+  // session list changes (switch, refresh, archive) — live activity for
+  // children already tracked survives the rebuild (TUI parity).
+  const activeId = active?.id;
+  useEffect(() => {
+    setSubagents((prev) => trackSubagents(prev, [...sessions, ...workspaceSessions], activeId));
+  }, [activeId, sessions, workspaceSessions]);
+
   // Stale-selection fallbacks: a provider deleted from another surface
   // (firehose provider.updated) resolves back to General; a workspace
   // removed from config (config.updated) resolves back to no selection.
@@ -335,26 +353,6 @@ export function App() {
     setWorkspacePath(path);
     // Keep the open session only when it belongs to the chosen workspace.
     setActive((current) => (path !== null && current?.cwd === path ? current : null));
-  };
-
-  /**
-   * Open a subagent session from a task tool node: it is an ordinary
-   * session (inheriting workbench + cwd), so "open" = select it and make
-   * sure the right section shows it.
-   */
-  const openSubagentSession = (sessionId: string): void => {
-    const child = [...sessions, ...workspaceSessions].find((s) => s.id === sessionId);
-    if (child === undefined) return;
-    if (child.workbench === "chat") {
-      setActive(child);
-      navigate("chat");
-      return;
-    }
-    if (child.cwd !== undefined) {
-      setActive(child);
-      selectWorkspace(child.cwd);
-      navigate("workspace");
-    }
   };
 
   /** Validate-then-persist happened in the nav; here: append + save config. */
@@ -633,7 +631,7 @@ export function App() {
             runActive={runActive}
             waiting={waiting}
             error={error}
-            onOpenSubagent={openSubagentSession}
+            subagents={subagents}
             pendingAsk={pendingAsk}
             askQueued={Math.max(0, askTotal - 1)}
             onAskDone={

@@ -156,6 +156,8 @@ export interface ToolCallView {
   name: string;
   argsPreview: string;
   status: "running" | "done" | "error";
+  /** Raw (possibly still-streaming) args JSON — running task → child matching. */
+  rawArgs: string;
   result?: { content: string; isError: boolean };
   /** For `task` calls: the child session this result came from. */
   subagent?: { sessionId: string; agent: string };
@@ -195,6 +197,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       name: payload.name,
       argsPreview: argsDigest(payload.name, payload.args ?? ""),
       status: result === undefined ? "running" : result.isError ? "error" : "done",
+      rawArgs: payload.args ?? "",
       ...(result !== undefined
         ? {
             result: { content: result.content, isError: result.isError },
@@ -207,7 +210,7 @@ export function toolCalls(message: Message): ToolCallView[] {
 }
 
 /** One-line args digest: first string-ish field (path/pattern/input). */
-function argsDigest(name: string, args: string): string {
+export function argsDigest(name: string, args: string): string {
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
     const interesting = parsed.path ?? parsed.pattern ?? parsed.input ?? parsed.command;
