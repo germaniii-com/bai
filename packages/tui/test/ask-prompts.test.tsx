@@ -51,6 +51,13 @@ const childPermRequest: PermissionRequest = {
   sessionId: "ses_child" as SessionId,
 };
 
+/** A second ask in the SAME session — the consecutive-asks scenario. */
+const nextPermRequest: PermissionRequest = {
+  ...permRequest,
+  id: "perm_2" as PermissionRequest["id"],
+  detail: { summary: "rm -rf node_modules" },
+};
+
 const questionRequest: QuestionRequest = {
   id: "que_1" as QuestionRequest["id"],
   sessionId: "ses_1" as SessionId,
@@ -310,6 +317,41 @@ describe("PermissionPrompt (inline)", () => {
     expect(frame).toContain("nope");
     expect(frame).toContain("enter reject");
   });
+
+  test("consecutive asks: the next request on the SAME mounted instance is answerable", async () => {
+    // The queue can pop ask 1 and append ask 2 in one commit (replied + next
+    // asked between renders) — the prompt re-renders with a new `request`
+    // instead of unmounting. The busy latch must die with its ask, or every
+    // key on the second prompt is dead.
+    const { client, replyPermission } = mockClient();
+    const app = render(<PermissionHarness request={permRequest} client={client} />);
+    await tick();
+    app.stdin.write("a");
+    await tick();
+    expect(replyPermission.mock.calls[0]).toEqual(["perm_1", { status: "approved", scope: "once" }]);
+
+    // Prop swap, no unmount: ask 2 becomes the head.
+    app.rerender(<PermissionHarness request={nextPermRequest} client={client} />);
+    await tick();
+    app.stdin.write("s");
+    await tick();
+    app.unmount();
+    expect(replyPermission.mock.calls[1]).toEqual(["perm_2", { status: "approved", scope: "always" }]);
+  });
+
+  test("a failed reply re-arms the prompt for retry (never bricks the keys)", async () => {
+    const replyPermission = mock((_id: string, _body?: unknown) => Promise.reject(new Error("network blip")));
+    const client = { replyPermission } as unknown as BaiClient;
+    const { stdin, unmount } = render(<PermissionHarness request={permRequest} client={client} />);
+    await tick();
+    stdin.write("a"); // fails server-side — must not latch the prompt shut
+    await tick();
+    stdin.write("a"); // retry
+    await tick();
+    unmount();
+    expect(replyPermission).toHaveBeenCalledTimes(2);
+    expect(replyPermission.mock.calls[1]).toEqual(["perm_1", { status: "approved", scope: "once" }]);
+  });
 });
 
 // ---- QuestionPrompt --------------------------------------------------------
@@ -539,6 +581,29 @@ describe("ChatView inline ask slot", () => {
     await tick();
     unmount();
     expect(replyPermission).toHaveBeenCalledTimes(1);
+  });
+
+  test("consecutive pending asks: answering the head leaves the next one answerable", async () => {
+    // App's queue transitions [ask1] → [ask2] in a single commit when the
+    // replied event pops and the next asked event appends between renders.
+    // The slot must hand the keyboard to a FRESH prompt for ask 2.
+    const { client, replyPermission } = mockClient();
+    const app = render(<AskHarness client={client} messages={messages} pendingAsks={[permRequest]} />);
+    await tick();
+    expect(app.lastFrame() ?? "").toContain("echo hello");
+    app.stdin.write("a");
+    await tick();
+    expect(replyPermission).toHaveBeenCalledTimes(1);
+
+    // Ask 1 popped, ask 2 appended — same commit in the wild; rerender here.
+    app.rerender(<AskHarness client={client} messages={messages} pendingAsks={[nextPermRequest]} />);
+    await tick();
+    expect(app.lastFrame() ?? "").toContain("rm -rf node_modules");
+    app.stdin.write("a");
+    await tick();
+    app.unmount();
+    expect(replyPermission).toHaveBeenCalledTimes(2);
+    expect(replyPermission.mock.calls[1]).toEqual(["perm_2", { status: "approved", scope: "once" }]);
   });
 
   test("a pending question: esc arms then dismisses; k does not scroll", async () => {

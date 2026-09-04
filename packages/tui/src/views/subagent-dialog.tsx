@@ -259,6 +259,7 @@ export function SubagentDialog({
         // The child is blocked on a permission ask: review it right here
         // (a/s/d reply; the transcript resumes after).
         <PermissionDialog
+          key={String(pendingAsk.id)} // fresh instance per ask: the busy latch must not outlive its request
           client={client}
           request={pendingAsk}
           onDone={() => {

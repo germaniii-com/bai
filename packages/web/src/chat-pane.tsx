@@ -116,8 +116,10 @@ export function ChatPane({
         // The inline ask panel (opencode's above-the-input placement): a
         // normal layout child between transcript and composer — no overlay,
         // no dim. The transcript keeps scrolling; the composer stays put
-        // below; the rest of the app stays navigable.
-        <AskPanel client={client} ask={pendingAsk} queued={askQueued} onDone={onAskDone} />
+        // below; the rest of the app stays navigable. Keyed by the request
+        // id: a next ask swaps in as a fresh instance, so component-local
+        // latches (busy) can never outlive their ask.
+        <AskPanel key={String(pendingAsk.request.id)} client={client} ask={pendingAsk} queued={askQueued} onDone={onAskDone} />
       )}
       <form
         className="composer"

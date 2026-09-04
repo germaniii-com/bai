@@ -227,6 +227,7 @@ export function App() {
 
   useEffect(() => {
     streamCtrl.current?.abort();
+    setError(null); // a session switch drops the previous session's error banner
     if (active === null) {
       // Draft state (+ new session): a NEW session — the previous
       // session's transcript and its asks/questions must not linger.
@@ -268,9 +269,14 @@ export function App() {
           onEvent: (evt) => {
             applyEvent(setMessages, evt);
             // Run lifecycle drives the waiting indicator (and surfaces
-            // provider failures, which otherwise die silently).
-            if (evt.type === "run.started") setRunActive(true);
-            else if (evt.type === "run.finished") {
+            // provider failures, which otherwise die silently). A fresh
+            // run.started clears the previous run's failure banner — the
+            // user acted on it by sending again; a stale failure must not
+            // shadow the new run.
+            if (evt.type === "run.started") {
+              setRunActive(true);
+              setError(null);
+            } else if (evt.type === "run.finished") {
               setRunActive(false);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
@@ -388,6 +394,7 @@ export function App() {
     if (text.length === 0) return;
     setDraft("");
     setSentPending(true);
+    setError(null); // a new send supersedes the previous run's failure banner
     try {
       let session = active;
       if (session === null) {

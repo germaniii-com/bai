@@ -859,6 +859,7 @@ export function ChatView({
           forces NORMAL so no stale INPUT state lingers. */}
       {headPermission !== undefined ? (
         <PermissionPrompt
+          key={String(headPermission.id)} // fresh instance per ask: local latches (busy) must not outlive their request
           client={client}
           request={headPermission}
           context={childContext}
@@ -869,6 +870,7 @@ export function ChatView({
         />
       ) : headQuestion !== undefined ? (
         <QuestionPrompt
+          key={String(headQuestion.id)} // fresh instance per ask (same latch concern)
           client={client}
           request={headQuestion}
           ui={askUi ?? emptyAskUi()}

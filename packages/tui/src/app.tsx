@@ -267,6 +267,7 @@ export function App({ client, version }: { client: BaiClient; version: string })
 
   // Open the durable session stream whenever a session becomes active.
   useEffect(() => {
+    setError(null); // a session switch drops the previous session's error line
     if (active === null) {
       // Draft state (ctrl+s → n, or before the first message): a NEW
       // session — the previous session's transcript and its asks/questions
@@ -307,9 +308,13 @@ export function App({ client, version }: { client: BaiClient; version: string })
           onEvent: (evt) => {
             applyEvent(setMessages, evt);
             // Run lifecycle drives the waiting indicator (and surfaces
-            // provider failures, which otherwise die silently).
-            if (evt.type === "run.started") setRunActive(true);
-            else if (evt.type === "run.finished") {
+            // provider failures, which otherwise die silently). A fresh
+            // run.started clears the previous run's failure line — the
+            // user acted on it by sending again.
+            if (evt.type === "run.started") {
+              setRunActive(true);
+              setError(null);
+            } else if (evt.type === "run.finished") {
               setRunActive(false);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {

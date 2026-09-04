@@ -47,14 +47,23 @@ export function PermissionPrompt({
   queued?: number;
   onDone: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // Request-scoped busy latch: the id the reply was sent for, not a bare
+  // boolean. Consecutive asks swap the `request` prop on the SAME mounted
+  // instance (the replied event pops the head in the same commit the next
+  // asked event appends — no unmount between), so a `useState(false)` latch
+  // would stay true forever and dead-key the second ask. Keyed by id, the
+  // latch dies with its ask; a failed reply clears it (re-arm → retry)
+  // instead of bricking the prompt.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
 
   const reply = (status: "approved" | "rejected", scope: "once" | "always", msg?: string) => {
     if (busy) return;
-    setBusy(true);
+    const id = request.id as string;
+    setBusyId(id);
     void client
-      .replyPermission(request.id as string, { status, scope, ...(msg !== undefined ? { message: msg } : {}) })
-      .catch(() => {})
+      .replyPermission(id, { status, scope, ...(msg !== undefined ? { message: msg } : {}) })
+      .catch(() => setBusyId((current) => (current === id ? null : current)))
       .finally(() => onDone());
   };
 

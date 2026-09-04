@@ -37,14 +37,20 @@ export function PermissionDialog({
   // "choose" = the three options; "reject" = optional feedback message input.
   const [stage, setStage] = useState<"choose" | "reject">("choose");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Request-scoped busy latch (see permission-prompt.tsx): keyed by the
+  // request id so consecutive asks — which can swap the `request` prop on
+  // this same instance — never inherit the previous ask's latch; a failed
+  // reply clears it (re-arm → retry) instead of dead-keying the dialog.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
 
   const reply = (status: "approved" | "rejected", scope: "once" | "always", msg?: string) => {
     if (busy) return;
-    setBusy(true);
+    const id = request.id as string;
+    setBusyId(id);
     void client
-      .replyPermission(request.id as string, { status, scope, ...(msg !== undefined ? { message: msg } : {}) })
-      .catch(() => {})
+      .replyPermission(id, { status, scope, ...(msg !== undefined ? { message: msg } : {}) })
+      .catch(() => setBusyId((current) => (current === id ? null : current)))
       .finally(() => onDone());
   };
 

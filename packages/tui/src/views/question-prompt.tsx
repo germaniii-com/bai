@@ -36,7 +36,12 @@ export function QuestionPrompt({
   queued?: number;
   onDone: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // Request-scoped busy latch (see permission-prompt.tsx): keyed by the
+  // request id so a next question block — which can mount as a prop swap,
+  // not an unmount — never inherits this block's latch; a failed
+  // reply/dismiss clears it (re-arm → retry) instead of dead-keying keys.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
 
   const total = request.questions.length;
   const q = request.questions[ui.qIndex];
@@ -45,19 +50,21 @@ export function QuestionPrompt({
 
   const submit = (answers: string[][]) => {
     if (busy) return;
-    setBusy(true);
+    const id = request.id as string;
+    setBusyId(id);
     void client
-      .replyQuestion(request.id as string, answers)
-      .catch(() => {})
+      .replyQuestion(id, answers)
+      .catch(() => setBusyId((current) => (current === id ? null : current)))
       .finally(() => onDone());
   };
 
   const dismiss = () => {
     if (busy) return;
-    setBusy(true);
+    const id = request.id as string;
+    setBusyId(id);
     void client
-      .rejectQuestion(request.id as string)
-      .catch(() => {})
+      .rejectQuestion(id)
+      .catch(() => setBusyId((current) => (current === id ? null : current)))
       .finally(() => onDone());
   };
 

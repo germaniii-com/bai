@@ -57,20 +57,30 @@ function PermissionAsk({
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Request-scoped busy latch (mirrors the TUI's permission-prompt.tsx):
+  // the id the reply was sent for, not a bare boolean. Consecutive asks —
+  // what back-to-back gated tool calls (web-search/web-fetch batches)
+  // produce — swap the `request` prop on this SAME mounted instance (the
+  // optimistic pop and the next asked event land in one commit, no unmount
+  // between), so a bare `useState(false)` latch would stay true forever and
+  // dead-button the second ask. Keyed by id the latch dies with its ask;
+  // a failed reply clears it (re-arm → retry).
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
 
   const reply = async (status: "approved" | "rejected", scope: "once" | "always", feedback?: string) => {
     if (busy) return;
-    setBusy(true);
+    const id = request.id as string;
+    setBusyId(id);
     try {
-      await client.replyPermission(request.id as string, {
+      await client.replyPermission(id, {
         status,
         scope,
         ...(feedback !== undefined ? { message: feedback } : {}),
       });
     } catch {
       // The ask stays visible on failure (server unreachable) — retryable.
-      setBusy(false);
+      setBusyId((current) => (current === id ? null : current));
       return;
     }
     onDone();
@@ -190,16 +200,28 @@ function QuestionAsk({
 }) {
   const [answers, setAnswers] = useState<string[][]>(() => request.questions.map(() => []));
   const [customs, setCustoms] = useState<string[]>(() => request.questions.map(() => ""));
-  const [busy, setBusy] = useState(false);
+  // Request-scoped busy latch (see PermissionAsk above): keyed by the
+  // request id so a next question block — which can mount as a prop swap,
+  // not an unmount — never inherits this block's latch.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
 
-  const act = async (fn: () => Promise<void>) => {
+  const act = (fn: () => Promise<void>) => {
     if (busy) return;
-    setBusy(true);
-    try {
-      await fn();
-    } finally {
+    const id = request.id as string;
+    setBusyId(id);
+    void (async () => {
+      try {
+        await fn();
+      } catch {
+        // Keep the panel on failure (server unreachable) — retryable. The
+        // old unconditional finally-pop hid a still-pending block, and the
+        // rejection escaped as an unhandled error.
+        setBusyId((current) => (current === id ? null : current));
+        return;
+      }
       onDone();
-    }
+    })();
   };
 
   const submit = () =>
