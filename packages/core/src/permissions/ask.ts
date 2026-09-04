@@ -1,6 +1,6 @@
 import { evaluatePermission } from "./engine";
 import path from "node:path";
-import type { AskDetail, PermissionAction, Session } from "@bai/shared";
+import type { AskDetail, AskOutcome, PermissionAction, Session } from "@bai/shared";
 import type { Bus } from "../event/bus";
 import type { EventLog } from "../event/log";
 import type { Clock } from "@bai/shared";
@@ -79,6 +79,13 @@ export interface AuthorizeResult {
    * aborted signal anyway.
    */
   cancelled?: boolean;
+  /**
+   * The answered interactive ask, when one was raised (static allow/deny
+   * never asks). The executor stamps it onto the tool_result part so the
+   * transcript retains what was approved/refused — re-openable review,
+   * surviving reloads like any history-backed part.
+   */
+  ask?: AskOutcome;
 }
 
 export interface GateDeps {
@@ -91,7 +98,13 @@ export interface GateDeps {
 
 /** An ask awaiting its first reply (or an interrupt). */
 interface PendingAsk {
-  resolve: (result: { approved: boolean; feedback?: string; cancelled?: boolean }) => void;
+  resolve: (result: {
+    approved: boolean;
+    feedback?: string;
+    cancelled?: boolean;
+    /** The reply's scope ("always" persists the session approval). */
+    scope?: "once" | "always";
+  }) => void;
   /** Removes the abort listener once the wait ends any other way. */
   cleanup: () => void;
 }
@@ -137,7 +150,12 @@ export class PermissionGate {
       now: this.deps.clock.iso(),
     });
     this.emitDurable(input.sessionId, "permission.asked", { request });
-    const result = await new Promise<{ approved: boolean; feedback?: string; cancelled?: boolean }>((resolve) => {
+    const result = await new Promise<{
+      approved: boolean;
+      feedback?: string;
+      cancelled?: boolean;
+      scope?: "once" | "always";
+    }>((resolve) => {
       // One latch for both endings (user verdict vs interrupt): whichever
       // lands first wins, the loser is a no-op. The pre-aborted branch runs
       // onAbort before the entry is registered, so liveness can't key on
@@ -171,10 +189,20 @@ export class PermissionGate {
         cleanup: () => input.signal?.removeEventListener("abort", onAbort),
       });
     });
+    // An interactive ask was raised and answered — hand the outcome back so
+    // the executor can retain it on the tool_result (transcript review).
+    // An interrupt resolves cancelled: the row was flipped to rejected.
+    const ask: AskOutcome = {
+      status: result.approved ? "approved" : "rejected",
+      scope: result.scope ?? "once",
+      ...(result.feedback !== undefined && result.feedback.length > 0 ? { message: result.feedback } : {}),
+      ...(input.detail !== undefined ? { detail: input.detail } : {}),
+    };
     return {
       allowed: result.approved,
       ...(result.feedback !== undefined ? { feedback: result.feedback } : {}),
       ...(result.cancelled === true ? { cancelled: true } : {}),
+      ask,
     };
   }
 
@@ -198,6 +226,7 @@ export class PermissionGate {
       entry.resolve({
         approved: status === "approved",
         ...(status === "rejected" && message !== undefined && message.length > 0 ? { feedback: message } : {}),
+        scope,
       });
     }
     if (request === undefined) return undefined;

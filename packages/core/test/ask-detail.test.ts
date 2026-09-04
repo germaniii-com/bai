@@ -17,10 +17,15 @@ describe("ask-detail enrichers", () => {
     return dir;
   };
 
-  test("no enricher for unknown/read-only tools", () => {
+  test("no enricher for unknown/read-only tools; bash/web carry their target", () => {
     expect(askDetailFor("fs.read", { path: "x" }, dir)).toBeUndefined();
-    expect(askDetailFor("bash", { command: "ls" }, dir)).toBeUndefined();
+    expect(askDetailFor("question", { questions: [] }, dir)).toBeUndefined();
     expect(askDetailFor("fs.write", "not-an-object", dir)).toBeUndefined();
+    // bash's summary IS the command (the ask must show what would execute).
+    expect(askDetailFor("bash", { command: "ls -la" }, dir)).toEqual({ summary: "ls -la" });
+    expect(askDetailFor("web.fetch", { url: "https://example.com" }, dir)).toEqual({
+      summary: "https://example.com",
+    });
   });
 
   test("fs.write creating a new file: summary, no diff", () => {

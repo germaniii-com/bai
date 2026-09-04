@@ -26,7 +26,12 @@ describe("permission gate abort", () => {
     // The replied event also publishes synchronously inside abort().
     const repliedArrived = waitForEvent(t.bus, "permission.replied", { timeoutMs: 3000 });
     ctrl.abort();
-    expect(await pending).toEqual({ allowed: false, cancelled: true });
+    // The answered ask rides the verdict (rejected-by-interrupt, no detail).
+    expect(await pending).toEqual({
+      allowed: false,
+      cancelled: true,
+      ask: { status: "rejected", scope: "once" },
+    });
     expect(t.store.permissions.pendingBySession(session.id)).toHaveLength(0);
     expect(t.store.permissions.get(askEvt.payload.request.id)?.status).toBe("rejected");
     const replied = await repliedArrived;
@@ -41,7 +46,11 @@ describe("permission gate abort", () => {
     const ctrl = new AbortController();
     ctrl.abort();
     const result = await t.core.permissions.authorize({ tool: "bash", sessionId: session.id, signal: ctrl.signal });
-    expect(result).toEqual({ allowed: false, cancelled: true });
+    expect(result).toEqual({
+      allowed: false,
+      cancelled: true,
+      ask: { status: "rejected", scope: "once" },
+    });
     expect(t.store.permissions.pendingBySession(session.id)).toHaveLength(0);
     t.store.close();
   });
@@ -55,7 +64,10 @@ describe("permission gate abort", () => {
     const askEvt = await askArrived;
 
     t.core.replyPermission(askEvt.payload.request.id, "approved", "once");
-    expect(await pending).toEqual({ allowed: true });
+    expect(await pending).toEqual({
+      allowed: true,
+      ask: { status: "approved", scope: "once" },
+    });
 
     ctrl.abort(); // late abort after the verdict consumed the entry: no double-settle
     expect(t.store.permissions.get(askEvt.payload.request.id)?.status).toBe("approved");

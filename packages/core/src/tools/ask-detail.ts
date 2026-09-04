@@ -137,6 +137,47 @@ registry.set("fs.edit", (args, cwd) => {
   return { path: abs, summary, ...(diff !== undefined ? { diff } : {}) };
 });
 
+/** Commands/URLs above this length are truncated in the ask summary. */
+const SUMMARY_LIMIT = 500;
+
+/** bash — the command IS the ask: surfaces must show what would execute. */
+registry.set("bash", (args) => {
+  const command = typeof args.command === "string" ? args.command.trim() : "";
+  if (command.length === 0) return {};
+  const summary = command.length > SUMMARY_LIMIT ? `${command.slice(0, SUMMARY_LIMIT)}…` : command;
+  return { summary };
+});
+
+/** web.fetch — the URL is the ask. */
+registry.set("web.fetch", (args) => {
+  const url = typeof args.url === "string" ? args.url.trim() : "";
+  return url.length > 0 ? { summary: url } : {};
+});
+
+/** web.search — the query is the ask. */
+registry.set("web.search", (args) => {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  return query.length > 0 ? { summary: `search: ${query}` } : {};
+});
+
+/** fs.grep — what pattern, searched where. */
+registry.set("fs.grep", (args, cwd) => {
+  const pattern = typeof args.pattern === "string" ? args.pattern.trim() : "";
+  if (pattern.length === 0) return {};
+  const abs = resolveArgPath(args.path, cwd);
+  const where = abs !== undefined ? displayPath(abs, cwd) : "the workspace";
+  return { summary: `grep "${pattern}" in ${where}`, ...(abs !== undefined ? { path: abs } : {}) };
+});
+
+/** fs.list / fs.glob — the directory or glob being listed (asks only outside cwd). */
+for (const tool of ["fs.list", "fs.glob"] as const) {
+  registry.set(tool, (args, cwd) => {
+    const abs = resolveArgPath(args.path, cwd);
+    if (abs === undefined) return {};
+    return { path: abs, summary: `${tool === "fs.glob" ? "glob" : "list"} ${displayPath(abs, cwd)}` };
+  });
+}
+
 /** task — a human-readable summary of the subagent spawn being requested. */
 registry.set("task", (args) => {
   const description = typeof args.description === "string" ? args.description.trim() : "";

@@ -197,3 +197,57 @@ describe("question + todo tools end-to-end", () => {
     expect(meta.todos).toEqual(todos);
   });
 });
+
+describe("question tool result retention", () => {
+  test("the answered Q&A is stamped onto the tool_result payload (transcript review)", async () => {
+    const t = makeCore();
+    try {
+      t.config.models.default = "scripted/main";
+      const provider = new ScriptedToolProvider([
+        [
+          {
+            type: "tool_call_delta",
+            id: "q1",
+            name: "question",
+            argsDelta: JSON.stringify({
+              questions: [
+                { question: "Which database?", header: "db", options: [{ label: "Postgres", description: "pg" }, { label: "SQLite", description: "lite" }] },
+                { question: "Proceed?", header: "confirm", options: [{ label: "yes", description: "go" }, { label: "no", description: "stop" }] },
+              ],
+            }),
+          },
+          { type: "done", stopReason: "tool_use" },
+        ],
+        [{ type: "text_delta", delta: "ok" }, { type: "done", stopReason: "end_turn" }],
+      ]);
+      t.providers.register(provider);
+      const session = t.core.createSession({ workbench: "code" });
+      await t.core.setSessionAgent(session.id, { agent: "build" });
+
+      const askReader = (async () => {
+        const evt = await waitForEvent(t.bus, "question.asked", { timeoutMs: 3000 });
+        const id = (evt.payload as { request: { id: string } }).request.id;
+        t.core.replyQuestion(id, [["Postgres"], []]); // second question left unanswered
+      })();
+      const finished = waitForEvent(t.bus, "run.finished");
+      t.core.submitPrompt(session.id, { text: "ask me" });
+      await finished;
+      await askReader.catch(() => {});
+
+      const assistant = t.core.history(session.id).find((m) => m.role === "assistant");
+      const payload = (assistant?.parts.find((p) => p.kind === "tool_result")?.payload ?? {}) as {
+        questions?: Array<{ header?: string; question: string; answers: string[] }>;
+      };
+      // The structured review rides the payload — surfaces render it as a
+      // re-openable Q&A review instead of the model-facing sentence.
+      expect(payload.questions).toEqual([
+        { header: "db", question: "Which database?", answers: ["Postgres"] },
+        { header: "confirm", question: "Proceed?", answers: [] },
+      ]);
+    } finally {
+      t.core.questions.stop();
+      t.store.close();
+      rmSync(t.dir, { recursive: true, force: true });
+    }
+  });
+});

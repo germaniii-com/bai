@@ -40,7 +40,10 @@ export interface Part {
   /**
    * Shape depends on `kind`: text/thinking → {text}; tool_call →
    * {callId, name, args}; tool_result → {callId, content, isError?, title?,
-   * subagent?} where `subagent` links a `task` result to its child session.
+   * subagent?, permission?, questions?} where `subagent` links a `task`
+   * result to its child session, `permission` retains an answered
+   * interactive ask and `questions` retains answered Q&A (surfaces render
+   * both as re-openable reviews in the transcript).
    */
   payload: unknown;
 }
@@ -91,6 +94,36 @@ export interface PermissionRequest {
   /** Ask-detail (summary/diff) computed by the tool-facing enricher, when any. */
   detail?: AskDetail;
   createdAt: string;
+}
+
+/**
+ * An answered interactive permission ask, stamped onto the gated call's
+ * tool_result part (payload key `permission`) so the transcript RETAINS
+ * what was approved/refused: surfaces render it as a re-openable review
+ * (the ask's summary/diff + the verdict) that survives reloads like any
+ * history-backed part — parity with how task results keep their subagent
+ * output viewable.
+ */
+export interface AskOutcome {
+  status: "approved" | "rejected";
+  scope: "once" | "always";
+  /** The user's reject feedback, when given (opencode's CorrectedError). */
+  message?: string;
+  /** The ask's rendered detail (summary/diff) as the surfaces previewed it. */
+  detail?: AskDetail;
+}
+
+/**
+ * One retained Q&A row for a `question` tool result (payload key
+ * `questions`) — surfaces render it as a re-openable review of what was
+ * asked and what the user answered, instead of the model-facing sentence.
+ */
+export interface QuestionReview {
+  /** Very short label, when the model provided one. */
+  header?: string;
+  question: string;
+  /** The user's answer labels; empty = unanswered (dimmed as such). */
+  answers: string[];
 }
 
 // --- questions (the agent asking the USER mid-run; opencode's question tool) ---

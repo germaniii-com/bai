@@ -782,10 +782,23 @@ export function ChatView({
               );
             }
             // Any other tool: its own node — click/enter toggles the inline
-            // output (the tool_result content), thought-body style.
+            // output (the tool_result content), thought-body style. An
+            // answered permission ask is retained on the result: the row
+            // carries the verdict, expanding reviews the ask (summary +
+            // diff) that was approved/refused — history-backed, survives
+            // reloads (task-node parity for the ask UX).
             const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
             const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
             const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+            const perm = c.permission;
+            const permVerdict =
+              perm === undefined
+                ? undefined
+                : perm.status === "approved"
+                  ? `allowed (${perm.scope})`
+                  : perm.message !== undefined
+                    ? `rejected — "${perm.message}"`
+                    : "rejected";
             return (
               <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
                 <Box {...assistantInset} flexDirection="column" flexShrink={0}>
@@ -796,19 +809,60 @@ export function ChatView({
                       {c.name}
                     </Text>
                     {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                    {permVerdict !== undefined && <Text dimColor> · {permVerdict}</Text>}
                     {c.result !== undefined && c.result.isError && <Text color="red"> · denied/failed</Text>}
                     {c.result !== undefined && focused && (
                       <Text dimColor> · enter to {expanded ? "hide" : "view"} output</Text>
                     )}
                   </Text>
-                  {expanded && c.result !== undefined && (
-                    <Box flexDirection="column" paddingLeft={2}>
-                      {c.result.content.split("\n").map((line, li) => (
-                        <Text key={li} dimColor wrap="wrap">
-                          {line.length > 0 ? line : " "}
+                  {expanded && perm !== undefined && (
+                    <Box flexDirection="column" paddingLeft={2} marginBottom={perm.detail?.diff !== undefined ? 1 : 0}>
+                      {perm.detail?.summary !== undefined && (
+                        <Text dimColor wrap="wrap">
+                          ask: {perm.detail.summary}
                         </Text>
+                      )}
+                      {perm.detail?.diff !== undefined &&
+                        perm.detail.diff.split("\n").map((line, li) => (
+                          <Text key={li} dimColor wrap="truncate">
+                            {line}
+                          </Text>
+                        ))}
+                    </Box>
+                  )}
+                  {expanded && c.questions !== undefined && c.result !== undefined ? (
+                    // Retained Q&A review (question tool): pretty per-row
+                    // question → answer instead of the model-facing sentence.
+                    <Box flexDirection="column" paddingLeft={2}>
+                      {c.questions.map((qa, i) => (
+                        <Box key={i} flexDirection="column" marginBottom={1}>
+                          <Text dimColor wrap="wrap">
+                            {qa.header !== undefined ? `[${qa.header}] ` : ""}
+                            {qa.question}
+                          </Text>
+                          {qa.answers.length > 0 ? (
+                            qa.answers.map((a, ai) => (
+                              <Text key={ai} color="green" wrap="wrap">
+                                ✓ {a}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text dimColor italic>· unanswered</Text>
+                          )}
+                        </Box>
                       ))}
                     </Box>
+                  ) : (
+                    expanded &&
+                    c.result !== undefined && (
+                      <Box flexDirection="column" paddingLeft={2}>
+                        {c.result.content.split("\n").map((line, li) => (
+                          <Text key={li} dimColor wrap="wrap">
+                            {line.length > 0 ? line : " "}
+                          </Text>
+                        ))}
+                      </Box>
+                    )
                   )}
                 </Box>
               </Box>

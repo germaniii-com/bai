@@ -73,9 +73,21 @@ export function questionTool(questions: QuestionService): Tool {
           return `"${q.question}"="${answer !== undefined && answer.length > 0 ? answer.join(", ") : "Unanswered"}"`;
         })
         .join(", ");
+      // Structured Q&A for surface retention: the transcript renders this
+      // as a re-openable review instead of the model-facing sentence.
+      const review = prompts.map((q, i) => ({
+        ...(typeof q.header === "string" && q.header.length > 0 ? { header: q.header } : {}),
+        question: q.question,
+        answers: answers[i] ?? [],
+      }));
       return {
         content: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
-        meta: { answers, count: prompts.length, title: `Asked ${prompts.length} question${prompts.length === 1 ? "" : "s"}` },
+        meta: {
+          answers,
+          count: prompts.length,
+          title: `Asked ${prompts.length} question${prompts.length === 1 ? "" : "s"}`,
+          questions: review,
+        },
       };
     },
   };

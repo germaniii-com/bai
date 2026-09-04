@@ -1,5 +1,14 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Event, Message, Part, PermissionRequest, QuestionRequest, SessionId } from "@bai/shared";
+import type {
+  AskOutcome,
+  Event,
+  Message,
+  Part,
+  PermissionRequest,
+  QuestionRequest,
+  QuestionReview,
+  SessionId,
+} from "@bai/shared";
 import { unwrapTaskOutput } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list (mirrors the TUI's semantics). */
@@ -159,16 +168,36 @@ export interface ToolCallView {
   /** Raw (possibly still-streaming) args JSON — running task → child matching. */
   rawArgs: string;
   result?: { content: string; isError: boolean };
+  /** Answered permission ask retained on the result (transcript review). */
+  permission?: AskOutcome;
+  /** Retained Q&A (question tool) — rendered as a re-openable review. */
+  questions?: QuestionReview[];
   /** For `task` calls: the child session this result came from. */
   subagent?: { sessionId: string; agent: string };
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
 export function toolCalls(message: Message): ToolCallView[] {
-  const results = new Map<string, { content: string; isError: boolean; subagent?: { sessionId: string; agent: string } }>();
+  const results = new Map<
+    string,
+    {
+      content: string;
+      isError: boolean;
+      subagent?: { sessionId: string; agent: string };
+      permission?: AskOutcome;
+      questions?: QuestionReview[];
+    }
+  >();
   for (const p of message.parts) {
     if (p.kind !== "tool_result") continue;
-    const payload = p.payload as { callId?: string; content?: string; isError?: boolean; subagent?: { sessionId?: unknown; agent?: unknown } } | null;
+    const payload = p.payload as {
+      callId?: string;
+      content?: string;
+      isError?: boolean;
+      subagent?: { sessionId?: unknown; agent?: unknown };
+      permission?: AskOutcome;
+      questions?: QuestionReview[];
+    } | null;
     if (payload?.callId === undefined) continue;
     const subagent =
       payload.subagent !== undefined &&
@@ -180,10 +209,22 @@ export function toolCalls(message: Message): ToolCallView[] {
     // Task results carry a <task> envelope — show the child's actual output.
     const rawContent = payload.content ?? "";
     const content = subagent !== undefined ? (unwrapTaskOutput(rawContent)?.text ?? rawContent) : rawContent;
+    const permission =
+      payload.permission !== undefined &&
+      typeof payload.permission === "object" &&
+      typeof (payload.permission as AskOutcome).status === "string"
+        ? (payload.permission as AskOutcome)
+        : undefined;
+    const questions =
+      Array.isArray(payload.questions) && payload.questions.length > 0
+        ? (payload.questions as QuestionReview[])
+        : undefined;
     results.set(payload.callId, {
       content,
       isError: payload.isError === true,
       ...(subagent !== undefined ? { subagent } : {}),
+      ...(permission !== undefined ? { permission } : {}),
+      ...(questions !== undefined ? { questions } : {}),
     });
   }
   const views: ToolCallView[] = [];
@@ -202,6 +243,8 @@ export function toolCalls(message: Message): ToolCallView[] {
         ? {
             result: { content: result.content, isError: result.isError },
             ...(result.subagent !== undefined ? { subagent: result.subagent } : {}),
+            ...(result.permission !== undefined ? { permission: result.permission } : {}),
+            ...(result.questions !== undefined ? { questions: result.questions } : {}),
           }
         : {}),
     });

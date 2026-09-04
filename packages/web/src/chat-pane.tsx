@@ -227,6 +227,18 @@ function ToolNodes({
         const status = live ? ("running" as const) : c.status;
         const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "✓";
         const agent = child?.agent ?? c.subagent?.agent;
+        // Retained answered ask (task-node parity for the ask UX): the
+        // verdict rides the row; expanding reviews the ask (summary/diff)
+        // that was approved/refused — history-backed, survives reloads.
+        const perm = c.permission;
+        const permVerdict =
+          perm === undefined
+            ? undefined
+            : perm.status === "approved"
+              ? `allowed (${perm.scope})`
+              : perm.message !== undefined
+                ? `rejected — "${perm.message}"`
+                : "rejected";
         return (
           <div key={c.callId} className={`tool-node tool-${status}`}>
             <button
@@ -240,6 +252,7 @@ function ToolNodes({
               {isTask && agent !== undefined && <span className="subagent-agent">@{agent}</span>}
               {asking && <span className="subagent-asking"> · needs approval</span>}
               {!asking && live && <span className="dim"> · working…</span>}
+              {permVerdict !== undefined && <span className="dim"> · {permVerdict}</span>}
             </button>
             {open && isTask && child !== undefined ? (
               // Live child transcript (snapshot polling while the task
@@ -249,15 +262,45 @@ function ToolNodes({
                 child={child}
                 active={c.result === undefined || child.running}
               />
-            ) : open && isTask && c.result === undefined ? (
-              // The task node is previewable the moment it shows up —
-              // while the child session is still being created/tracked,
-              // say so instead of rendering an empty expansion.
-              <div className="tool-body dim">subagent is starting…</div>
             ) : (
               open &&
-              c.result !== undefined && (
-                <div className={`tool-body ${c.result.isError ? "tool-body-error" : ""}`}>{c.result.content}</div>
+              (c.result !== undefined || perm !== undefined || c.questions !== undefined) && (
+                <div className={`tool-body ${c.result?.isError === true ? "tool-body-error" : ""}`}>
+                  {perm !== undefined && (
+                    <div className="ask-review">
+                      <div className="ask-review-verdict">
+                        {perm.status === "approved" ? `✓ permission ${permVerdict}` : `✗ permission ${permVerdict}`}
+                      </div>
+                      {perm.detail?.summary !== undefined && <div className="ask-review-summary">{perm.detail.summary}</div>}
+                      {perm.detail?.diff !== undefined && <pre className="perm-diff">{perm.detail.diff}</pre>}
+                    </div>
+                  )}
+                  {c.questions !== undefined ? (
+                    // Retained Q&A review (question tool): pretty per-row
+                    // question → answer instead of the model-facing sentence.
+                    <div className="qa-review">
+                      {c.questions.map((qa, i) => (
+                        <div key={i} className="qa-item">
+                          <div className="qa-q">
+                            {qa.header !== undefined && <span className="qa-header">[{qa.header}] </span>}
+                            {qa.question}
+                          </div>
+                          {qa.answers.length > 0 ? (
+                            qa.answers.map((a) => (
+                              <div key={a} className="qa-a">
+                                ✓ {a}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="qa-a qa-a-unanswered">· unanswered</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    c.result?.content
+                  )}
+                </div>
               )
             )}
           </div>

@@ -161,6 +161,15 @@ describe("tool-call loop", () => {
     const results = history.flatMap((m) => m.parts).filter((p) => p.kind === "tool_result");
     expect(results).toHaveLength(2);
     expect((results[0]?.payload as { content: string }).content).toContain("Wrote");
+    // The answered ask is RETAINED on the gated call's result (transcript
+    // review, reload-proof) — with its scope; the second write was
+    // auto-allowed by the session approval, so nothing was asked or stamped.
+    expect((results[0]?.payload as { permission?: unknown }).permission).toEqual({
+      status: "approved",
+      scope: "always",
+      detail: expect.objectContaining({ summary: expect.stringContaining("out.txt") }),
+    });
+    expect((results[1]?.payload as { permission?: unknown }).permission).toBeUndefined();
   });
 
   test("rejected ask feeds an error result and stops the run", async () => {
@@ -209,10 +218,22 @@ describe("tool-call loop", () => {
     await askReader.catch(() => {});
 
     const assistant = t.core.history(session.id).find((m) => m.role === "assistant");
-    const result = (assistant?.parts.find((p) => p.kind === "tool_result")?.payload ?? {}) as { content: string; isError?: boolean };
+    const result = (assistant?.parts.find((p) => p.kind === "tool_result")?.payload ?? {}) as {
+      content: string;
+      isError?: boolean;
+      permission?: { status: string; scope: string; message?: string; detail?: { summary?: string; diff?: string } };
+    };
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Permission denied for tool: fs.write");
     expect(result.content).toContain('User feedback: "use a different filename please".');
+    // The rejected ask is retained with the user's feedback AND the detail
+    // the ask previewed (summary + would-be diff) — re-openable review.
+    expect(result.permission?.status).toBe("rejected");
+    expect(result.permission?.scope).toBe("once");
+    expect(result.permission?.message).toBe("use a different filename please");
+    expect(result.permission?.detail?.summary).toContain("nope.txt");
+    // A create has no previous content to diff against — summary only.
+    expect(result.permission?.detail?.diff).toBeUndefined();
   });
 
   test("fs.write asks carry a computed diff; fs.read never asks", async () => {

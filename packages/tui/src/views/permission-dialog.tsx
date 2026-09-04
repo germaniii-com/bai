@@ -96,7 +96,7 @@ export function PermissionDialog({
       <Text>
         tool: <Text bold>{request.tool}</Text>
       </Text>
-      {detail?.summary !== undefined && <Text>{detail.summary}</Text>}
+      {detail?.summary !== undefined && <Text wrap="wrap">{detail.summary}</Text>}
 
       {diffLines.length > 0 && (
         <Box flexDirection="column" marginTop={0}>

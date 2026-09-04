@@ -1187,9 +1187,60 @@ body {
   margin: 0;
 }
 
+/* The ask's summary IS the command/path being gated (bash command, fetch
+   URL, write path…) — full-strength text, wrapping, never clipped. */
 .perm-summary {
   margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ask-review {
+  margin: 0 0 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ask-review-verdict {
+  font-size: 12px;
+}
+
+.ask-review-summary {
   color: var(--dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 2px;
+}
+
+.ask-review .perm-diff {
+  margin-top: 6px;
+  max-height: 180px;
+}
+
+/* Retained Q&A review (question tool): per-row question with the user's
+   picked answer(s) highlighted; unanswered rows dimmed. */
+.qa-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qa-q {
+  color: var(--text);
+}
+
+.qa-header {
+  color: var(--accent);
+}
+
+.qa-a {
+  color: #4ec96a;
+}
+
+.qa-a-unanswered {
+  color: var(--dim);
+  font-style: italic;
 }
 
 .perm-diff {

@@ -1,4 +1,4 @@
-import type { AgentInfo, Clock, EventType, MessageId, PartId, PromptPayload, SessionId } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, EventType, MessageId, PartId, PromptPayload, QuestionReview, SessionId } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import { applyDiscipline } from "./context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
@@ -73,6 +73,8 @@ interface GatedCall {
   error?: string;
   /** True when the error came from the permission gate (ends an all-denied run). */
   denied?: boolean;
+  /** Answered interactive ask (when the gate raised one) — retained on the result. */
+  ask?: AskOutcome;
 }
 
 /** One turn's wiring — agent, model, credentials, tool defs (see resolveRunContext). */
@@ -699,17 +701,23 @@ export class RunCoordinator {
           call,
           error: `Permission denied for tool: ${call.name}.${feedback} Ask the user to allow it, or use a different approach.`,
           denied: true,
+          ...(verdict.ask !== undefined ? { ask: verdict.ask } : {}),
         });
         continue;
       }
-      gated.push({ call, args });
+      gated.push({
+        call,
+        args,
+        ...(verdict.ask !== undefined ? { ask: verdict.ask } : {}),
+      });
     }
 
     // --- stage 2: execute the ready calls ---
     const readyIdx = gated.flatMap((entry, i) => (entry.error === undefined ? [i] : []));
     const parallel = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
-    const executed: Array<{ content: string; isError: boolean; title?: string; subagent?: { sessionId: string; agent: string } } | undefined> =
-      new Array(gated.length).fill(undefined);
+    const executed: Array<
+      { content: string; isError: boolean; title?: string; subagent?: { sessionId: string; agent: string }; questions?: QuestionReview[] } | undefined
+    > = new Array(gated.length).fill(undefined);
     const runOne = async (i: number): Promise<void> => {
       const entry = gated[i];
       if (entry === undefined || entry.args === undefined) return;
@@ -720,6 +728,7 @@ export class RunCoordinator {
           isError: false,
           ...(typeof result.meta?.title === "string" ? { title: result.meta.title as string } : {}),
           ...readSubagentMeta(result.meta?.subagent),
+          ...readQuestionsMeta(result.meta?.questions),
         };
       } catch (err) {
         executed[i] = { content: `Error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
@@ -737,7 +746,16 @@ export class RunCoordinator {
       if (entry.error !== undefined || outcome === undefined) {
         // Gate-stage errors are error results like any other (isError true);
         // `denied` only drives the outcomes array (all-denied ends the run).
-        this.persistToolResult(sessionId, assistantId, entry.call, entry.error ?? "Tool execution failed.", true);
+        this.persistToolResult(
+          sessionId,
+          assistantId,
+          entry.call,
+          entry.error ?? "Tool execution failed.",
+          true,
+          undefined,
+          undefined,
+          entry.ask,
+        );
         outcomes.push(entry.denied === true ? "denied" : "executed");
       } else {
         this.persistToolResult(
@@ -748,6 +766,8 @@ export class RunCoordinator {
           outcome.isError,
           outcome.title,
           outcome.subagent,
+          entry.ask,
+          outcome.questions,
         );
         outcomes.push("executed");
       }
@@ -764,6 +784,8 @@ export class RunCoordinator {
     isError: boolean,
     title?: string,
     subagent?: { sessionId: string; agent: string },
+    permission?: AskOutcome,
+    questions?: QuestionReview[],
   ): void {
     // Final args snapshot lands in the tool_call part (deltas may have raced).
     const callPart = this.deps.store.parts.get(call.partId);
@@ -776,6 +798,8 @@ export class RunCoordinator {
       ...(isError ? { isError: true } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(subagent !== undefined ? { subagent } : {}),
+      ...(permission !== undefined ? { permission } : {}),
+      ...(questions !== undefined ? { questions } : {}),
     });
     this.emitDurable(sessionId, "message.part.updated", {
       messageId: assistantId,
@@ -901,6 +925,25 @@ function readSubagentMeta(value: unknown): { subagent?: { sessionId: string; age
   if (typeof candidate.sessionId !== "string" || candidate.sessionId.length === 0) return {};
   if (typeof candidate.agent !== "string" || candidate.agent.length === 0) return {};
   return { subagent: { sessionId: candidate.sessionId, agent: candidate.agent } };
+}
+
+/** Structured Q&A retention (question tool): validated row-per-question. */
+function readQuestionsMeta(value: unknown): { questions?: QuestionReview[] } {
+  if (!Array.isArray(value)) return {};
+  const rows: QuestionReview[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object") continue;
+    const candidate = item as { header?: unknown; question?: unknown; answers?: unknown };
+    if (typeof candidate.question !== "string" || candidate.question.length === 0) continue;
+    rows.push({
+      ...(typeof candidate.header === "string" && candidate.header.length > 0 ? { header: candidate.header } : {}),
+      question: candidate.question,
+      answers: Array.isArray(candidate.answers)
+        ? candidate.answers.filter((a): a is string => typeof a === "string")
+        : [],
+    });
+  }
+  return rows.length > 0 ? { questions: rows } : {};
 }
 
 /**

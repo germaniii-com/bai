@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Event, Message, Part, PermissionRequest, QuestionRequest, SessionId } from "@bai/shared";
+import type { AskOutcome, Event, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, SessionId } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list. */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -210,16 +210,35 @@ export interface ToolCallView {
   status: "running" | "done" | "error";
   /** Present once the result part landed. */
   result?: { content: string; isError: boolean };
+  /** Answered permission ask retained on the result (transcript review). */
+  permission?: AskOutcome;
+  /** Retained Q&A (question tool) — rendered as a re-openable review. */
+  questions?: QuestionReview[];
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
 export function toolCalls(message: Message): ToolCallView[] {
-  const results = new Map<string, { content: string; isError: boolean }>();
+  const results = new Map<string, { content: string; isError: boolean; permission?: AskOutcome; questions?: QuestionReview[] }>();
   for (const p of message.parts) {
     if (p.kind !== "tool_result") continue;
-    const payload = p.payload as { callId?: string; content?: string; isError?: boolean } | null;
+    const payload = p.payload as {
+      callId?: string;
+      content?: string;
+      isError?: boolean;
+      permission?: AskOutcome;
+      questions?: QuestionReview[];
+    } | null;
     if (payload?.callId === undefined) continue;
-    results.set(payload.callId, { content: payload.content ?? "", isError: payload.isError === true });
+    results.set(payload.callId, {
+      content: payload.content ?? "",
+      isError: payload.isError === true,
+      ...(payload.permission !== undefined &&
+      typeof payload.permission === "object" &&
+      typeof (payload.permission as AskOutcome).status === "string"
+        ? { permission: payload.permission as AskOutcome }
+        : {}),
+      ...(Array.isArray(payload.questions) && payload.questions.length > 0 ? { questions: payload.questions as QuestionReview[] } : {}),
+    });
   }
   const views: ToolCallView[] = [];
   for (const p of message.parts) {
@@ -233,6 +252,8 @@ export function toolCalls(message: Message): ToolCallView[] {
       argsPreview: argsDigest(payload.name, payload.args ?? ""),
       status: result === undefined ? "running" : result.isError ? "error" : "done",
       ...(result !== undefined ? { result } : {}),
+      ...(result?.permission !== undefined ? { permission: result.permission } : {}),
+      ...(result?.questions !== undefined ? { questions: result.questions } : {}),
     });
   }
   return views;

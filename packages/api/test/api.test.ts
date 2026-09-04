@@ -573,7 +573,10 @@ describe("api contract", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(200);
-    expect(await pending).toEqual({ allowed: true });
+    expect(await pending).toEqual({
+      allowed: true,
+      ask: { status: "approved", scope: "always" },
+    });
     // scope=always persisted into session meta (regression: the route used to drop scope).
     const meta = stack.core.getSession(session.id)?.meta as { approvals?: Record<string, string> };
     expect(meta.approvals?.["custom.danger"]).toBe("allow");
@@ -591,5 +594,10 @@ describe("api contract", () => {
     const verdict = await pending2;
     expect(verdict.allowed).toBe(false);
     expect(verdict.feedback).toBe("no thanks");
+    expect(verdict.ask).toEqual({
+      status: "rejected",
+      scope: "once",
+      message: "no thanks",
+    });
   });
 });
