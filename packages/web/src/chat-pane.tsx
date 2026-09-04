@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Check, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, thinkingText, toolCalls, type ToolCallView } from "./state";
@@ -9,6 +10,7 @@ import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { FolderGlyph } from "./workspace";
+import { Chevron, ToolStatusIcon } from "./icons";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -231,7 +233,10 @@ function ThinkingNode({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {open ? "▾" : "▸"} thought ({lineCount} line{lineCount === 1 ? "" : "s"})
+        <Chevron open={open} />
+        <span>
+          thought ({lineCount} line{lineCount === 1 ? "" : "s"})
+        </span>
       </button>
       {open && (
         <div className="thinking-body">
@@ -285,7 +290,6 @@ function ToolNodes({
         const asking = child?.needsApproval === true;
         const live = c.result === undefined && (asking || child?.running === true);
         const status = live ? ("running" as const) : c.status;
-        const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "✓";
         const agent = child?.agent ?? c.subagent?.agent;
         // Retained answered ask (task-node parity for the ask UX): the
         // verdict rides the row; expanding reviews the ask (summary/diff)
@@ -307,7 +311,7 @@ function ToolNodes({
               onClick={() => toggle(c.callId)}
               aria-expanded={open}
             >
-              <span className={`tool-glyph tool-glyph-${status}`}>{glyph}</span> {c.name}
+              <ToolStatusIcon status={status} asking={asking} /> {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
               {isTask && agent !== undefined && <span className="subagent-agent">@{agent}</span>}
               {asking && <span className="subagent-asking"> · needs approval</span>}
@@ -329,7 +333,12 @@ function ToolNodes({
                   {perm !== undefined && (
                     <div className="ask-review">
                       <div className="ask-review-verdict">
-                        {perm.status === "approved" ? `✓ permission ${permVerdict}` : `✗ permission ${permVerdict}`}
+                        {perm.status === "approved" ? (
+                          <Check size={12} aria-hidden="true" />
+                        ) : (
+                          <X size={12} aria-hidden="true" />
+                        )}
+                        <span>permission {permVerdict}</span>
                       </div>
                       {perm.detail?.summary !== undefined && <div className="ask-review-summary">{perm.detail.summary}</div>}
                       {perm.detail?.diff !== undefined && <pre className="perm-diff">{perm.detail.diff}</pre>}
@@ -348,7 +357,8 @@ function ToolNodes({
                           {qa.answers.length > 0 ? (
                             qa.answers.map((a) => (
                               <div key={a} className="qa-a">
-                                ✓ {a}
+                                <Check size={12} aria-hidden="true" />
+                                <span>{a}</span>
                               </div>
                             ))
                           ) : (

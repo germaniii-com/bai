@@ -4,6 +4,7 @@ import type { Message } from "@bai/shared";
 import { messageText, thinkingText, toolCalls } from "./state";
 import type { SubagentActivity } from "./state-subagents";
 import { Markdown } from "./markdown";
+import { Chevron, SubagentStatusIcon, ToolStatusIcon } from "./icons";
 
 /** Live-refresh cadence while the child is still running (TUI parity). */
 const REFRESH_MS = 1500;
@@ -90,10 +91,10 @@ export function SubagentStream({
   };
 
   const status = child.needsApproval
-    ? { glyph: "⚠", text: "needs approval", className: "subagent-status-asking" }
+    ? { text: "needs approval", className: "subagent-status-asking" }
     : active
-      ? { glyph: "◐", text: "working…", className: "subagent-status-running" }
-      : { glyph: "✓", text: "done", className: "subagent-status-done" };
+      ? { text: "working…", className: "subagent-status-running" }
+      : { text: "done", className: "subagent-status-done" };
 
   return (
     <div className="subagent-stream" aria-label={`live transcript of the ${child.agent} subagent`}>
@@ -101,7 +102,8 @@ export function SubagentStream({
         <span className="subagent-agent">@{child.agent}</span>
         <span className="subagent-title">{child.title}</span>
         <span className={`subagent-status ${status.className}`}>
-          {status.glyph} {status.text}
+          <SubagentStatusIcon asking={child.needsApproval} active={active} />
+          <span>{status.text}</span>
         </span>
       </div>
       {error !== null ? (
@@ -131,7 +133,8 @@ function ChildThought({ text }: { text: string }) {
   return (
     <div className="thinking-node">
       <button type="button" className="thinking-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {open ? "▾" : "▸"} thought
+        <Chevron open={open} />
+        <span>thought</span>
       </button>
       {open && (
         <div className="thinking-body">
@@ -160,11 +163,10 @@ function ToolNodes({ calls }: { calls: ReturnType<typeof toolCalls> }) {
     <div className="tool-nodes">
       {calls.map((c) => {
         const open = openIds.has(c.callId);
-        const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
         return (
           <div key={c.callId} className={`tool-node tool-${c.status}`}>
             <button type="button" className="tool-toggle" onClick={() => toggle(c.callId)} aria-expanded={open}>
-              <span className={`tool-glyph tool-glyph-${c.status}`}>{glyph}</span> {c.name}
+              <ToolStatusIcon status={c.status} /> {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
             </button>
             {open && c.result !== undefined && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check, ChevronDown, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
 
@@ -55,7 +56,7 @@ export function ModelPicker({
           {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
         </span>
         <span className="model-caret" aria-hidden="true">
-          ▾
+          <ChevronDown size={12} />
         </span>
       </button>
       {open && (
@@ -206,7 +207,7 @@ function ModelModal({
         <div className="model-modal-head">
           <strong>Pick a model</strong>
           <button type="button" className="modal-close" onClick={onClose} aria-label="close">
-            ×
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
         {list === null ? (
@@ -230,7 +231,7 @@ function ModelModal({
                     <span className="dim">{p.adapter}</span>
                     {p.connected && (
                       <span className="check" title="connected">
-                        ✓
+                        <Check size={12} aria-hidden="true" />
                       </span>
                     )}
                   </button>

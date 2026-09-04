@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Check } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ProviderInfo, ProviderListResponse } from "@bai/shared";
 
@@ -62,7 +63,7 @@ export function SettingsNav({
           <span className="dim">{p.adapter}</span>
           {p.connected && (
             <span className="check" title="connected">
-              ✓
+              <Check size={12} aria-hidden="true" />
             </span>
           )}
         </button>
@@ -150,7 +151,11 @@ function ProviderDetail({
       <div className={`provider-card ${provider.connected ? "connected" : ""}`}>
         <div className="provider-head">
           <strong>accounts</strong>
-          {provider.connected && <span className="check">✓ connected</span>}
+          {provider.connected && (
+            <span className="check">
+              <Check size={12} aria-hidden="true" /> connected
+            </span>
+          )}
         </div>
         {provider.accounts.length === 0 && (
           <p className="dim">No accounts yet — add one below.</p>

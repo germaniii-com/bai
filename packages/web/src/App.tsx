@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Cpu, Folder, Image, MessageCircle, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
@@ -658,7 +659,7 @@ export function App() {
 /**
  * Master rail: brand mark, workbench sections (Image/Video disabled until
  * their phases land), Settings pinned at the bottom.
- * Icons are inline SVG — no icon dependency.
+ * Icons via lucide-react (the one icon dependency).
  */
 function MasterNav({
   section,
@@ -676,63 +677,29 @@ function MasterNav({
         <img src="/icon.svg" alt="bai" className="brand-mark" />
       <div className="master-items">
         <MasterItem section="chat" label="Chat" active={section === "chat"} onNavigate={onNavigate} badge={askBadge}>
-          <Icon>
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-          </Icon>
+          <MessageCircle className="nav-icon" aria-hidden="true" />
         </MasterItem>
         <MasterItem section="workspace" label="Workspace" active={section === "workspace"} onNavigate={onNavigate}>
-          <Icon>
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </Icon>
+          <Folder className="nav-icon" aria-hidden="true" />
         </MasterItem>
         <MasterItem section="image" label="Image Gen" disabled onNavigate={onNavigate}>
-          <Icon>
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </Icon>
+          <Image className="nav-icon" aria-hidden="true" />
         </MasterItem>
         <MasterItem section="video" label="Video Gen" disabled onNavigate={onNavigate}>
-          <Icon>
-            <path d="M23 7l-7 5 7 5V7z" />
-            <rect x="1" y="5" width="15" height="14" rx="2" />
-          </Icon>
+          <Video className="nav-icon" aria-hidden="true" />
         </MasterItem>
         {/* Workbenches above the line, agent machinery below it. */}
         <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
         <MasterItem section="agents" label="Agents" active={section === "agents"} onNavigate={onNavigate}>
-          <Icon>
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-            <rect x="9" y="9" width="6" height="6" />
-            <line x1="9" y1="1" x2="9" y2="4" />
-            <line x1="15" y1="1" x2="15" y2="4" />
-            <line x1="9" y1="20" x2="9" y2="23" />
-            <line x1="15" y1="20" x2="15" y2="23" />
-            <line x1="20" y1="9" x2="23" y2="9" />
-            <line x1="20" y1="14" x2="23" y2="14" />
-            <line x1="1" y1="9" x2="4" y2="9" />
-            <line x1="1" y1="14" x2="4" y2="14" />
-          </Icon>
+          <Cpu className="nav-icon" aria-hidden="true" />
         </MasterItem>
         <MasterItem section="tools" label="Tools" active={section === "tools"} onNavigate={onNavigate}>
-          <Icon>
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-          </Icon>
+          <Wrench className="nav-icon" aria-hidden="true" />
         </MasterItem>
       </div>
       <div className="master-spacer" />
       <MasterItem section="settings" label="Settings" active={section === "settings"} onNavigate={onNavigate}>
-        <Icon>
-          <line x1="4" y1="21" x2="4" y2="14" />
-          <line x1="4" y1="10" x2="4" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="12" />
-          <line x1="12" y1="8" x2="12" y2="3" />
-          <line x1="20" y1="21" x2="20" y2="16" />
-          <line x1="20" y1="12" x2="20" y2="3" />
-          <line x1="1" y1="14" x2="7" y2="14" />
-          <line x1="9" y1="8" x2="15" y2="8" />
-          <line x1="17" y1="16" x2="23" y2="16" />
-        </Icon>
+        <SlidersHorizontal className="nav-icon" aria-hidden="true" />
       </MasterItem>
     </nav>
   );
@@ -793,21 +760,3 @@ function basename(p: string): string {
 
 /** Local alias — the sessions panel head shows the workspace's basename. */
 const wsBasename = basename;
-
-/** Stroke icon wrapper — inherits currentColor, sized by CSS. */
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      className="nav-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Check, Plus, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 
 interface Completion {
@@ -267,7 +268,7 @@ export function AddWorkspaceModal({
             void confirmCreate(pane);
           }}
         >
-          ✓
+          <Check size={14} aria-hidden="true" />
         </button>
       </div>
     ) : (
@@ -276,7 +277,8 @@ export function AddWorkspaceModal({
         className="ws-row ws-newfolder"
         onClick={() => startCreate(pane)}
       >
-        + New Folder
+        <Plus size={14} aria-hidden="true" />
+        New Folder
       </button>
     );
 
@@ -292,7 +294,7 @@ export function AddWorkspaceModal({
         <div className="model-modal-head">
           <strong>Add a Workspace</strong>
           <button type="button" className="modal-close" onClick={onClose} aria-label="close">
-            ×
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
         <div className="ws-modal-body">
@@ -416,7 +418,14 @@ export function AddWorkspaceModal({
               void submit();
             }}
           >
-            {busy ? "working…" : "+ Add Workspace"}
+            {busy ? (
+              "working…"
+            ) : (
+              <>
+                <Plus size={14} aria-hidden="true" />
+                Add Workspace
+              </>
+            )}
           </button>
         </div>
       </div>

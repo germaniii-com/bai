@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Folder } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { AddWorkspaceModal } from "./add-workspace-modal";
 
@@ -67,20 +68,7 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
-/** Folder glyph on workspace items — same stroke convention as the tree. */
+/** Folder glyph on workspace items — lucide's Folder, sized by CSS. */
 export function FolderGlyph() {
-  return (
-    <svg
-      className="ws-item-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
+  return <Folder className="ws-item-icon" aria-hidden="true" />;
 }

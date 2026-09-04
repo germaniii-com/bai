@@ -419,6 +419,9 @@ body {
 /* "+ New Folder" action row (bottom of each pane). */
 .ws-row.ws-newfolder {
   color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 /* Inline name input for per-pane folder creation. */
@@ -453,6 +456,9 @@ body {
   cursor: pointer;
   font: inherit;
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ws-newok:disabled {
@@ -504,6 +510,10 @@ body {
   font: inherit;
   font-size: 13px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 
 .ws-add:disabled {
@@ -585,17 +595,13 @@ body {
   background: transparent;
 }
 
-/* Folder/file glyph — distinguishes row types at a glance. */
+/* Folder/file glyph — distinguishes row types at a glance; the open state
+   is the FolderOpen shape swap (no tint). */
 .tree-icon {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   color: var(--dim);
-}
-
-/* Open folder: accent tint replaces the old caret's expanded signal. */
-.tree-icon.open {
-  color: var(--accent);
 }
 
 .tree-name {
@@ -904,6 +910,9 @@ body {
   padding: 2px 0;
   cursor: pointer;
   text-align: left;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .thinking-toggle:hover {
@@ -942,6 +951,13 @@ body {
 
 .tool-toggle:hover {
   color: var(--dim);
+}
+
+/* Status glyph slot (lucide icon) — inline-flex centers the svg in the
+   13px text line; the per-status classes tint it. */
+.tool-glyph {
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 .tool-glyph-running { color: #d9a038; }
@@ -1024,6 +1040,9 @@ body {
 .subagent-status {
   flex-shrink: 0;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .subagent-status-asking { color: #c4443f; }
@@ -1164,10 +1183,36 @@ body {
   }
 }
 
+/* --- lucide icon helpers --- */
+
+/* Live status spinner (LoaderCircle in the subagent stream head). */
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon-spin {
+  animation: icon-spin 1s linear infinite;
+}
+
+/* Check marks inside absolutely-positioned row badges: optically center
+   the icon on the surrounding text line. */
+.check svg {
+  vertical-align: middle;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing .dot {
     animation: none;
     opacity: 0.5;
+  }
+
+  .icon-spin {
+    animation: none;
   }
 }
 
@@ -1314,7 +1359,8 @@ button.composer-chip:hover {
 
 .model-caret {
   color: var(--dim);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* --- model modal: provider → accounts → models --- */
@@ -1350,11 +1396,12 @@ button.composer-chip:hover {
 }
 
 .modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: var(--dim);
-  font-size: 20px;
-  line-height: 1;
   cursor: pointer;
   padding: 0 4px;
 }
@@ -1446,6 +1493,9 @@ button.composer-chip:hover {
 
 .ask-review-verdict {
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .ask-review-summary {
@@ -1478,6 +1528,9 @@ button.composer-chip:hover {
 
 .qa-a {
   color: #4ec96a;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .qa-a-unanswered {

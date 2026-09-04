@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session } from "@bai/shared";
 
@@ -47,7 +48,7 @@ export function AgentPicker({
         <span className="dim">agent</span>
         <span className="model-current">{current}</span>
         <span className="model-caret" aria-hidden="true">
-          ▾
+          <ChevronDown size={12} />
         </span>
       </button>
       {open && (
@@ -138,7 +139,7 @@ function AgentModal({
         <div className="model-modal-head">
           <strong>Pick an agent</strong>
           <button type="button" className="modal-close" onClick={onClose} aria-label="close">
-            ×
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
         <div className="agent-modal-list">

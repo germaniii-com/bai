@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { File, Folder, FolderOpen } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 
 interface FsEntry {
@@ -161,10 +162,9 @@ function DirEntries({
           const isOpen = expanded.has(path);
           return (
             <li key={path}>
-              {/* No caret — the folder icon marks the type; an open folder
-                  tints accent (closed stays dim) and the indented children
-                  show the expanded state (aria-expanded keeps it
-                  programmatically). */}
+              {/* No caret — the folder icon carries the state: FolderOpen
+                  when expanded, Folder when closed (shape swap only, no
+                  tint; aria-expanded keeps it programmatically). */}
               <button
                 type="button"
                 className="tree-row"
@@ -201,31 +201,17 @@ function DirEntries({
   );
 }
 
-/** Stroke icons — same inline-SVG convention as the master rail. */
+/** Lucide icons — sized by .tree-icon CSS; open state is the shape swap. */
 function FolderIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={open ? "tree-icon open" : "tree-icon"}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
+  return open ? (
+    <FolderOpen className="tree-icon" aria-hidden="true" />
+  ) : (
+    <Folder className="tree-icon" aria-hidden="true" />
   );
 }
 
 function FileIcon() {
-  return (
-    <svg className="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-      <polyline points="13 2 13 9 20 9" />
-    </svg>
-  );
+  return <File className="tree-icon" aria-hidden="true" />;
 }
 
 function joinPath(dir: string, name: string): string {
