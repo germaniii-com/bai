@@ -9,7 +9,8 @@ import { ChatView } from "../src/views/chat";
 /**
  * Integration checks for the chat view's scroll wiring on the vendored
  * ScrollView, inside a replica of app.tsx's real shell nesting (fixed-height
- * root → 3-row header → flex body with paddingX → footer):
+ * root → flex body with paddingX → footer; the app is headerless — the
+ * composer hub owns the context):
  *
  *   1. On mount the follow-the-bottom chain (content measured → sticky-bottom
  *      snap) lands the view on the NEWEST message, older content clipped.
@@ -37,13 +38,11 @@ function msg(i: number, role: Message["role"]): Message {
 const messages = Array.from({ length: 30 }, (_, i) => msg(i, i % 2 === 0 ? "user" : "assistant"));
 
 function ChatHarness({ messages: msgs }: { messages: Message[] }) {
-  // Mirrors app.tsx's shell: fixed-height root, 3-row header, flex body with
-  // paddingX, footer line — the ScrollView must scroll inside THIS nesting.
+  // Mirrors app.tsx's shell (headerless): fixed-height root, flex body with
+  // paddingX, one footer line — the ScrollView must scroll inside THIS
+  // nesting. footerRows mirrors the footer's line count (hub chip math).
   return (
     <Box flexDirection="column" width={60} height={24}>
-      <Box borderStyle="round" paddingX={1}>
-        <Text wrap="truncate">bai vdev · test session</Text>
-      </Box>
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         <ChatView
           client={{} as BaiClient}
@@ -51,10 +50,16 @@ function ChatHarness({ messages: msgs }: { messages: Message[] }) {
           messages={messages}
           runActive={false}
           mode="normal"
+          modelLabel="stub/echo"
+          agent="build"
+          footerRows={1}
           onEnterInput={() => {}}
           onExitInput={() => {}}
           onSessionCreated={() => {}}
           onOpenSubagent={() => {}}
+          onOpenModels={() => {}}
+          onOpenAgents={() => {}}
+          onOpenSessions={() => {}}
         />
       </Box>
       <Box paddingX={1}>

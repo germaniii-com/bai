@@ -190,9 +190,10 @@ describe("App inline ask flow (end-to-end)", () => {
       stdin.write("\x0e"); // ctrl+n — new draft session
       // Anchor AFTER the ctrl+n write: the initial mount frames also show
       // the empty state, so only frames past the mark prove the transition.
+      // The composer hub's status row shows the draft label ("new session").
       const draftFrame = await waitForAnyFrame(
         () => frames.slice(markN),
-        (f) => f.includes("No messages yet") && f.includes("no session"),
+        (f) => f.includes("No messages yet") && f.includes("new session"),
       );
       expect(draftFrame).not.toContain("done running");
       expect(draftFrame).not.toContain("Echo: run the bash tool");

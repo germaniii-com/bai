@@ -20,7 +20,10 @@ export interface Editor {
 
 /** Start/end offsets of the line containing `cursor`. */
 function lineBounds(text: string, cursor: number): [number, number] {
-  const start = text.lastIndexOf("\n", cursor - 1) + 1;
+  // cursor 0 must special-case: lastIndexOf("\n", -1) clamps to 0 and
+  // FINDS a leading newline, which would report the line starting at 1 —
+  // the line containing offset 0 always starts at 0.
+  const start = cursor === 0 ? 0 : text.lastIndexOf("\n", cursor - 1) + 1;
   const nl = text.indexOf("\n", cursor);
   const end = nl === -1 ? text.length : nl;
   return [start, end];

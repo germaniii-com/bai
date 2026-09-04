@@ -49,9 +49,10 @@ type DialogOpen =
  * keys before global bindings (the Crush pattern); global bindings here are
  * ctrl-prefixed so the chat input never fights them. ctrl+c and esc-as-back
  * are handled before the dialog defer — ctrl+c must stay global (quit hatch)
- * and esc only means "back" outside dialogs and chat.
+ * and esc only means "back" outside dialogs and chat. `version` stays in the
+ * prop contract (CLI plumbing) but has no header to render on anymore.
  */
-export function App({ client, version }: { client: BaiClient; version: string }) {
+export function App({ client }: { client: BaiClient; version: string }) {
   const { rows } = useWindowSize();
   const { exit } = useApp();
   const [view, setView] = useState<UiState>("chat");
@@ -352,7 +353,22 @@ export function App({ client, version }: { client: BaiClient; version: string })
   // NORMAL-mode globals: esc-as-back + the ctrl command family. Gated off in
   // INPUT mode — typing must never trigger app commands (the point of the
   // mode split). Dialogs handle their own keys and are only reachable from
-  // NORMAL anyway (they open via ctrl chords).
+  // NORMAL anyway (they open via ctrl chords). The same openers are shared
+  // with the composer hub's clickable chips (bottom row = the ctrl family).
+  const openProvidersDialog = useCallback(() => {
+    setDialog({ kind: "providers" });
+    void refreshProviders();
+  }, [refreshProviders]);
+  const openModelsDialog = useCallback(() => {
+    setDialog({ kind: "all-models" });
+    void refreshProviders();
+  }, [refreshProviders]);
+  const openAgentsDialog = useCallback(() => {
+    setDialog({ kind: "agents" });
+  }, []);
+  const openSessionsDialog = useCallback(() => {
+    setDialog({ kind: "sessions" });
+  }, []);
   useInput((ch, key) => {
     // esc is "back": out of any non-chat view. Dialogs handle their own esc
     // (per-level back-out) and chat uses it for focus/interrupt/mode-exit.
@@ -361,16 +377,10 @@ export function App({ client, version }: { client: BaiClient; version: string })
       return;
     }
     if (!key.ctrl || dialogOpenRef.current) return;
-    if (ch === "p") {
-      setDialog({ kind: "providers" });
-      void refreshProviders();
-    } else if (ch === "l") {
-      // Flat model picker across connected providers — no provider step.
-      setDialog({ kind: "all-models" });
-      void refreshProviders();
-    } else if (ch === "a") {
-      setDialog({ kind: "agents" });
-    } else if (ch === "s") setDialog({ kind: "sessions" });
+    if (ch === "p") openProvidersDialog();
+    else if (ch === "l") openModelsDialog();
+    else if (ch === "a") openAgentsDialog();
+    else if (ch === "s") openSessionsDialog();
     else if (ch === "g") setView("gallery");
     else if (ch === "o") setView("settings");
   }, { isActive: mode === "normal" });
@@ -407,30 +417,22 @@ export function App({ client, version }: { client: BaiClient; version: string })
       : (configAgentDefault ?? "build");
   const setupHint = needsSetup(providers);
 
+  // The footer renders ONLY the conditional status lines above — this count
+  // must mirror that render exactly (the chat view bottom-anchors its hub
+  // chip hit-testing to rows - footerRows).
+  const footerRows =
+    (error !== null ? 1 : 0) +
+    (setupHint ? 1 : 0) +
+    (askPending ? 1 : 0) +
+    (quitArmed ? 1 : 0);
+
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
     // composer/footer stay pinned to the bottom regardless of content size.
+    // No header: the composer hub (chat view) is the single source of
+    // context — session/workspace info, mode, agent, model, and the command
+    // hints all live in its status/commands rows.
     <Box flexDirection="column" height={rows > 0 ? rows : undefined}>
-      <Box borderStyle="round" paddingX={1}>
-        {/* One truncating line: long model ids / default titles must never
-            wrap inside the border (the garbled two-line header bug). */}
-        <Text wrap="truncate">
-          <Text bold color="cyan">
-            bai
-          </Text>
-          <Text dimColor> v{version}</Text>
-          <Text dimColor> · {active ? active.title || active.id : "no session"}</Text>
-          <Text dimColor> · </Text>
-          <Text color="magenta">{modelLabel}</Text>
-          <Text dimColor> · </Text>
-          <Text color="yellow">@{activeAgent}</Text>
-          <Text dimColor> · </Text>
-          <Text bold color={mode === "normal" ? "cyan" : "green"}>
-            {mode === "normal" ? "NORMAL" : "INPUT"}
-          </Text>
-        </Text>
-      </Box>
-
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         {dialog !== null && dialog.kind === "sessions" ? (
           // Session picker dialog (ctrl+s): pick → open the session and
@@ -502,6 +504,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
                 messages={messages}
                 runActive={runActive}
                 mode={mode}
+                modelLabel={modelLabel}
+                agent={activeAgent}
+                footerRows={footerRows}
                 onEnterInput={() => setMode("input")}
                 onExitInput={() => setMode("normal")}
                 onSessionCreated={(s) => {
@@ -509,6 +514,9 @@ export function App({ client, version }: { client: BaiClient; version: string })
                   void refreshSessions();
                 }}
                 onOpenSubagent={openSubagentDialog}
+                onOpenModels={openModelsDialog}
+                onOpenAgents={openAgentsDialog}
+                onOpenSessions={openSessionsDialog}
                 subagents={subagents}
                 pendingAsks={pendingAsks}
                 pendingChildAsks={pendingChildAsks}
@@ -524,6 +532,11 @@ export function App({ client, version }: { client: BaiClient; version: string })
         )}
       </Box>
 
+      {/* Slim footer: status/warning lines only (errors, provider setup,
+          pending asks, ctrl+c arming). The keybinding hints live in the
+          composer hub's commands row now. Every line here is conditional —
+          footerRows below MUST mirror this render exactly: the chat view
+          derives its chip hit-testing row from it. */}
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color="red">error: {error}</Text>}
         {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
@@ -540,11 +553,6 @@ export function App({ client, version }: { client: BaiClient; version: string })
             {runActive ? "ctrl+c again to interrupt" : "ctrl+c again to quit"}
           </Text>
         )}
-        <Text dimColor>
-          {mode === "normal"
-            ? `${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p providers · ctrl+l models · ctrl+a agents · ctrl+t thoughts · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`
-            : "enter send · esc normal · ctrl+j/k newline · ctrl+w word"}
-        </Text>
       </Box>
     </Box>
   );

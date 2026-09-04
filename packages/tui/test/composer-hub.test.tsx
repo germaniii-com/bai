@@ -1,0 +1,78 @@
+import { describe, expect, test } from "bun:test";
+import { render } from "ink-testing-library";
+import React from "react";
+import type { Session, SessionId } from "@bai/shared";
+import { ComposerHub } from "../src/components/composer";
+import { layoutHubStatus } from "../src/state/hub";
+
+const tick = (ms = 30): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+function session(): Session {
+  return {
+    id: "s1" as SessionId,
+    title: "My session",
+    workbench: "chat",
+    createdAt: "",
+    updatedAt: "",
+    meta: {},
+  };
+}
+
+function renderHub(mode: "normal" | "input", runActive = false) {
+  const layout = layoutHubStatus({
+    width: 60,
+    session: session(),
+    mode,
+    agent: "build",
+    model: "stub/echo",
+  });
+  return render(
+    <ComposerHub
+      editor={{ text: "", cursor: 0 }}
+      mode={mode}
+      busy={false}
+      escArmed={false}
+      runActive={runActive}
+      layout={layout}
+    />,
+  );
+}
+
+describe("ComposerHub render", () => {
+  test("NORMAL: status row shows label, mode, agent, model; commands row lists the ctrl family", async () => {
+    const { lastFrame, unmount } = renderHub("normal");
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    // Status row (the hub owns what the old header carried).
+    expect(frame).toContain("chat · My session");
+    expect(frame).toContain("NORMAL");
+    expect(frame).toContain("@build");
+    expect(frame).toContain("stub/echo");
+    // Commands row: the old footer hints (the row truncates at the test
+    // terminal's 100 columns, so assert the leading entries).
+    expect(frame).toContain("ctrl+p providers");
+    expect(frame).toContain("ctrl+l models");
+    // Ex-mode prompt while in NORMAL.
+    expect(frame).toContain(": ");
+  });
+
+  test("INPUT: green typing affordance, input-mode command hints", async () => {
+    const { lastFrame, unmount } = renderHub("input");
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("›");
+    expect(frame).toContain("▌");
+    expect(frame).toContain("enter send · esc normal · ctrl+j/k newline · ctrl+w word");
+    expect(frame).not.toContain("ctrl+p providers");
+  });
+
+  test("runActive NORMAL surfaces the esc-stop hint", async () => {
+    const { lastFrame, unmount } = renderHub("normal", true);
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("esc stop");
+  });
+});

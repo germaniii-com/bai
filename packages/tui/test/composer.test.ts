@@ -199,4 +199,35 @@ describe("movement", () => {
   test("moveLineDown reaches a trailing empty line", () => {
     expect(moveLineDown(e("abc\n", 1))).toEqual(e("abc\n", 4));
   });
+
+  test("moveLineDown leaves an EMPTY first line (ctrl+j on an empty draft)", () => {
+    // A draft starting with "\n" is what ctrl+j on an empty draft produces.
+    // lastIndexOf("\n", -1) clamps to 0 and FINDS the leading newline, so
+    // lineBounds used to report start=1 for cursor=0 — column went negative
+    // and the cursor never left line 1.
+    expect(moveLineDown(e("\n\n", 0))).toEqual(e("\n\n", 1));
+    expect(moveLineDown(e("\nabc\ndef", 0))).toEqual(e("\nabc\ndef", 1));
+  });
+
+  test("moveLineStart/moveLineEnd on an empty first line stay at 0", () => {
+    expect(moveLineStart(e("\nabc", 0))).toEqual(e("\nabc", 0));
+    expect(moveLineEnd(e("\nabc", 0))).toEqual(e("\nabc", 0));
+  });
+
+  test("moveLineUp is a no-op at cursor 0 even when the draft starts with \\n", () => {
+    expect(moveLineUp(e("\nabc", 0))).toEqual(e("\nabc", 0));
+  });
+
+  test("round trip: ctrl+j ×2 → up ×2 → down ×2 walks back down", () => {
+    // The exact reported flow: two structural newlines on an empty draft,
+    // walk back to the first line, then walk down again.
+    let d = openBelow(openBelow(e("", 0)));
+    expect(d).toEqual(e("\n\n", 2));
+    d = moveLineUp(moveLineUp(d));
+    expect(d).toEqual(e("\n\n", 0));
+    d = moveLineDown(d);
+    expect(d).toEqual(e("\n\n", 1));
+    d = moveLineDown(d);
+    expect(d).toEqual(e("\n\n", 2));
+  });
 });

@@ -492,9 +492,7 @@ function AskHarness({
   const [ui, setUi] = useState<AskUiState>(() => (head !== undefined ? askUiFor(head) : emptyAskUi()));
   return (
     <Box flexDirection="column" width={60} height={24}>
-      <Box borderStyle="round" paddingX={1}>
-        <Text wrap="truncate">bai vdev · test session</Text>
-      </Box>
+      {/* Headerless shell (app parity): the composer hub owns the context. */}
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         <ChatView
           client={client}
@@ -502,10 +500,16 @@ function AskHarness({
           messages={msgs}
           runActive={false}
           mode="normal"
+          modelLabel="stub/echo"
+          agent="build"
+          footerRows={1}
           onEnterInput={onEnterInput}
           onExitInput={() => {}}
           onSessionCreated={() => {}}
           onOpenSubagent={() => {}}
+          onOpenModels={() => {}}
+          onOpenAgents={() => {}}
+          onOpenSessions={() => {}}
           pendingAsks={pendingAsks}
           pendingChildAsks={pendingChildAsks}
           pendingQuestions={pendingQuestions}

@@ -8,12 +8,33 @@ import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
+import { FolderGlyph } from "./workspace";
+
+/**
+ * Contextual hub label — the composer status row's left chip (TUI parity):
+ * a workspace (code) session shows its folder basename; a chat session shows
+ * workbench + title; the draft state (no session yet) shows "new session".
+ */
+function hubContextLabel(active: Session | null): string {
+  if (active === null) return "new session";
+  const cwd = typeof active.cwd === "string" ? active.cwd : "";
+  if (cwd.length > 0) {
+    const parts = cwd.split("/").filter((s) => s.length > 0);
+    return parts[parts.length - 1] ?? cwd;
+  }
+  return `${active.workbench} · ${active.title.length > 0 ? active.title : "(untitled)"}`;
+}
 
 /**
  * The chat surface, shared by the Chat section and the Workspace section
  * (a workspace session is an ordinary session — same streaming transcript,
- * model picker, agent picker, stop button). Presentational: all state lives
- * in App so a section switch keeps one source of truth.
+ * composer hub, stop button). Presentational: all state lives in App so a
+ * section switch keeps one source of truth.
+ *
+ * The COMPOSER is the centralized hub (TUI parity — there is no chat
+ * header): input row on top, then a status row — contextual workspace/
+ * session chip left; provider hint, "updating…", and the agent + model
+ * pickers right. Navigation lives in the master rail.
  */
 export function ChatPane({
   client,
@@ -32,6 +53,7 @@ export function ChatPane({
   runActive,
   waiting,
   error,
+  onSwitchWorkspace,
   subagents,
   pendingAsk,
   askQueued = 0,
@@ -58,6 +80,8 @@ export function ChatPane({
   runActive: boolean;
   waiting: boolean;
   error: string | null;
+  /** Workspace-chip click: switch to the workspace picker (code sessions only). */
+  onSwitchWorkspace: () => void;
   /** Composer placeholder while no session is open. */
   startPlaceholder?: string;
   /** Tracked children of the active session (firehose-fed) — live status
@@ -73,26 +97,6 @@ export function ChatPane({
 }) {
   return (
     <main className="chat">
-      <div className="chat-head">
-        <ModelPicker
-          client={client}
-          list={list}
-          active={active}
-          configDefault={configDefault}
-          refreshProviders={refreshProviders}
-        />
-        <AgentPicker
-          client={client}
-          agents={agents}
-          active={active}
-          configDefaultAgent={configDefaultAgent}
-          refreshAgents={refreshAgents}
-        />
-        {providersFetching && <span className="dim">updating…</span>}
-        {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
-          <span className="hint">no provider connected — add one under settings</span>
-        )}
-      </div>
       <div className="messages">
         {messages.length === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
         {messages.map((m) => (
@@ -126,6 +130,14 @@ export function ChatPane({
         // latches (busy) can never outlive their ask.
         <AskPanel key={String(pendingAsk.request.id)} client={client} ask={pendingAsk} queued={askQueued} onDone={onAskDone} />
       )}
+      {/* The composer HUB — the centralized surface (there is no chat
+          header): row 1 the input + send/stop, row 2 the status row
+          (contextual workspace/session chip left; provider hint +
+          "updating…" + agent/model pickers right). The workspace chip
+          switches to the workspace picker for code sessions. The inline ask
+          panel above stays a normal layout child — the composer never
+          moves. All buttons here are type="button": only the form's
+          implicit submit (Enter / the send button) sends. */}
       <form
         className="composer"
         onSubmit={(e) => {
@@ -133,28 +145,70 @@ export function ChatPane({
           onSubmit();
         }}
       >
-        <input
-          value={draft}
-          placeholder={active === null ? startPlaceholder : "Message…"}
-          onChange={(e) => setDraft(e.target.value)}
-          aria-label="message"
-        />
-        {runActive && active !== null ? (
-          // Stop replaces send while the model is responding; the partial
-          // reply stays in history after the interrupt.
-          <button
-            type="button"
-            className="stop"
-            onClick={() => void client.interrupt(active.id)}
-            aria-label="stop generating"
-          >
-            stop
-          </button>
-        ) : (
-          <button type="submit" disabled={draft.trim().length === 0}>
-            send
-          </button>
-        )}
+        <div className="composer-input-row">
+          <input
+            value={draft}
+            placeholder={active === null ? startPlaceholder : "Message…"}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label="message"
+          />
+          {runActive && active !== null ? (
+            // Stop replaces send while the model is responding; the partial
+            // reply stays in history after the interrupt.
+            <button
+              type="button"
+              className="stop"
+              onClick={() => void client.interrupt(active.id)}
+              aria-label="stop generating"
+            >
+              stop
+            </button>
+          ) : (
+            <button type="submit" disabled={draft.trim().length === 0}>
+              send
+            </button>
+          )}
+        </div>
+        <div className="composer-row composer-status">
+          {active !== null && typeof active.cwd === "string" && active.cwd.length > 0 ? (
+            <button
+              type="button"
+              className="composer-chip"
+              title={`${active.cwd} — switch workspace`}
+              onClick={onSwitchWorkspace}
+            >
+              <FolderGlyph />
+              <span className="chip-label">{hubContextLabel(active)}</span>
+            </button>
+          ) : (
+            <span
+              className="composer-chip static"
+              title={active === null ? "Draft — the session is created with your first message" : undefined}
+            >
+              <FolderGlyph />
+              <span className="chip-label">{hubContextLabel(active)}</span>
+            </span>
+          )}
+          <span className="composer-spacer" />
+          {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
+            <span className="hint">no provider connected</span>
+          )}
+          {providersFetching && <span className="dim">updating…</span>}
+          <AgentPicker
+            client={client}
+            agents={agents}
+            active={active}
+            configDefaultAgent={configDefaultAgent}
+            refreshAgents={refreshAgents}
+          />
+          <ModelPicker
+            client={client}
+            list={list}
+            active={active}
+            configDefault={configDefault}
+            refreshProviders={refreshProviders}
+          />
+        </div>
       </form>
     </main>
   );

@@ -9,6 +9,8 @@ import { emptySubagentState, findChildForTask, type SubagentActivity, type Subag
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
 import { Markdown } from "../components/markdown";
+import { ComposerHub } from "../components/composer";
+import { layoutHubStatus } from "../state/hub";
 import { PermissionPrompt } from "./permission-prompt";
 import { QuestionPrompt } from "./question-prompt";
 import {
@@ -36,10 +38,11 @@ const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
 /** Terminal rows per mouse-wheel tick (opencode's default scroll speed). */
 const WHEEL_ROWS = 3;
-/** The app header is exactly 3 rows (round border + one truncated line), so
- *  the chat viewport always starts at terminal row 4 (1-based) — the anchor
- *  for click hit-testing. */
-const VIEWPORT_TOP_ROW = 4;
+/** No header — the composer hub owns the context — so the chat viewport
+ *  always starts at terminal row 1 (1-based), the anchor for click
+ *  hit-testing. Chip hit-testing is bottom-anchored instead (see the mouse
+ *  handler): the hub sits at a fixed offset above the App footer. */
+const VIEWPORT_TOP_ROW = 1;
 
 /**
  * Chat view: continuous-scroll message history + inline composer. The
@@ -61,10 +64,16 @@ export function ChatView({
   messages,
   runActive,
   mode,
+  modelLabel,
+  agent,
+  footerRows,
   onEnterInput,
   onExitInput,
   onSessionCreated,
   onOpenSubagent,
+  onOpenModels,
+  onOpenAgents,
+  onOpenSessions,
   subagents = emptySubagentState,
   pendingAsks = [],
   pendingChildAsks = [],
@@ -82,11 +91,23 @@ export function ChatView({
   runActive: boolean;
   /** Input mode owned by App: NORMAL (vim motions) vs INPUT (typing). */
   mode: Mode;
+  /** Effective model label (App-computed via currentModelLabel) — the hub's model chip. */
+  modelLabel: string;
+  /** Effective agent name (session pin → config default → build) — the hub's agent chip. */
+  agent: string;
+  /** Rows the App footer renders below this view — anchors the hub chip hit-testing. */
+  footerRows: number;
   /** Switch to INPUT mode (i/a/Enter in NORMAL; paste implies typing). */
   onEnterInput: () => void;
   /** Back to NORMAL (esc in INPUT). */
   onExitInput: () => void;
   onSessionCreated: (session: Session) => void;
+  /** Open the model picker dialog (the ctrl+l flat list) — hub model chip. */
+  onOpenModels: () => void;
+  /** Open the agent manager dialog (ctrl+a) — hub agent chip. */
+  onOpenAgents: () => void;
+  /** Open the session picker dialog (ctrl+s) — hub workspace/session chip. */
+  onOpenSessions: () => void;
   /**
    * Open the subagent output dialog — `sessionId` when the task's child is
    * resolved (result link or title match), undefined to let App focus the
@@ -419,12 +440,31 @@ export function ChatView({
       // TOP, so wheel-up (toward older content) is a negative delta.
       if (button === WHEEL_UP) return scrollBy(-WHEEL_ROWS);
       if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
-      // Left press (release ignored — one click, one action): the item whose
-      // measured block contains the clicked row acts — thought toggles, a
-      // task opens the subagent dialog, any other tool toggles its inline
-      // output. Positions are exact per node (each item is measured).
+      // Left press (release ignored — one click, one action): first the
+      // composer hub's chips, then the transcript items. Hub chips are
+      // BOTTOM-anchored (input wrapping above them is variable, but the
+      // status row sits at a fixed offset above the App footer), while
+      // transcript items are top-anchored (VIEWPORT_TOP_ROW). Only live
+      // when the hub itself is on screen — a pending ask swaps the prompt
+      // into the hub's slot.
       if (button === 0 && mouse[4] === "M") {
         const row = Number(mouse[3]);
+        if (!askPending && rows > 3 && row === rows - footerRows - 2) {
+          // 1-based screen column → 0-based inner content column: border
+          // (1) + paddingX (1) each side.
+          const col = Number(mouse[2]) - 3;
+          const chip = hubLayout.chips.find((c) => col >= c.start && col < c.end);
+          if (chip !== undefined) {
+            if (chip.kind === "agent") return onOpenAgents();
+            if (chip.kind === "model") return onOpenModels();
+            return onOpenSessions();
+          }
+          return;
+        }
+        // The item whose measured block contains the clicked row acts —
+        // thought toggles, a task opens the subagent dialog, any other tool
+        // toggles its inline output. Positions are exact per node (each
+        // item is measured).
         for (let ii = 0; ii < items.length; ii++) {
           const pos = scrollRef.current?.getItemPosition(ii);
           if (pos === null || pos === undefined) continue;
@@ -667,6 +707,17 @@ export function ChatView({
   // spinner) shares one inset so the whole non-user column aligns.
   const assistantInset = { paddingLeft: 2, paddingRight: 3 };
 
+  // Composer hub status row: pure column math over the inner width (the
+  // composer box spans the padded body; border + paddingX eat 4 columns).
+  // Recomputed per render — cheap, and it must track mode/session/labels.
+  const hubLayout = layoutHubStatus({
+    width: Math.max(8, columns - 4),
+    session,
+    mode,
+    agent,
+    model: modelLabel,
+  });
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Continuous scroll viewport (components/scroll-view.tsx): the
@@ -898,16 +949,16 @@ export function ChatView({
         </Box>
       )}
 
-      {/* The composer mirrors the mode: INPUT keeps the green border and ›
-          prompt (the typing affordance — message boxes themselves are
-          neutral white so the cyan focus highlight stands out), with the ▌
-          block at the cursor position (multi-line drafts render their
-          embedded newlines; ←/→/Home/End move the cursor). NORMAL dims the
-          box and swaps the prompt to vim's ex-mode `:` — typing is off
-          there. While an ask is pending the composer is REPLACED by the
-          inline prompt (opencode's placement): the prompt takes this slot,
-          the transcript keeps scrolling, and typing is inert — the App
-          forces NORMAL so no stale INPUT state lingers. */}
+      {/* The composer HUB — the centralized surface (no header above):
+          row 1 the draft (INPUT keeps the green border and › prompt, ▌ at
+          the cursor), row 2 the status row (contextual session/workspace
+          label left; mode badge + clickable agent/model chips right), row 3
+          the commands row (the old footer hints, mode-dependent). Chips are
+          click-routed by the mouse handler above (bottom-anchored math).
+          While an ask is pending the hub is REPLACED by the inline prompt
+          (opencode's placement): the prompt takes this slot, the transcript
+          keeps scrolling, and typing is inert — the App forces NORMAL so no
+          stale INPUT state lingers. */}
       {headPermission !== undefined ? (
         <PermissionPrompt
           key={String(headPermission.id)} // fresh instance per ask: local latches (busy) must not outlive their request
@@ -930,26 +981,14 @@ export function ChatView({
           onDone={onQuestionDone ?? (() => {})}
         />
       ) : (
-        <Box
-          borderStyle="round"
-          borderColor={mode === "input" ? "green" : "gray"}
-          paddingX={1}
-        >
-          <Text color="magenta">{mode === "input" ? "› " : ": "}</Text>
-          <Text>
-            {editor.text.slice(0, editor.cursor)}
-            {mode === "input" && <Text dimColor>▌</Text>}
-            {editor.text.slice(editor.cursor)}
-          </Text>
-          {busy && <Text dimColor> (working…)</Text>}
-          {mode === "input" && <Text dimColor> · esc normal</Text>}
-          {mode === "normal" && runActive && !escArmed && (
-            <Text dimColor> · esc to stop</Text>
-          )}
-          {mode === "normal" && escArmed && (
-            <Text color="yellow"> · esc again to stop</Text>
-          )}
-        </Box>
+        <ComposerHub
+          editor={editor}
+          mode={mode}
+          busy={busy}
+          escArmed={escArmed}
+          runActive={runActive}
+          layout={hubLayout}
+        />
       )}
     </Box>
   );

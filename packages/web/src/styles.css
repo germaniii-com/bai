@@ -1182,16 +1182,25 @@ body {
   font-size: 13px;
 }
 
+/* The composer hub — the centralized surface (no chat header): column of
+   input row → status row (workspace chip + pickers) → commands row. */
 .composer {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
-.composer input {
+.composer-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.composer-input-row input {
   flex: 1;
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -1200,11 +1209,13 @@ body {
   font: inherit;
 }
 
-.composer input:focus {
+.composer-input-row input:focus {
   outline: 1px solid var(--accent);
 }
 
-.composer button {
+/* Scope the accent styling to the send/stop row — the picker buttons and
+   chips are also <button>s inside .composer and style themselves. */
+.composer-input-row button {
   background: var(--accent);
   color: #06121c;
   border: 0;
@@ -1214,27 +1225,65 @@ body {
   cursor: pointer;
 }
 
-.composer button:disabled {
+.composer-input-row button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
 /* Stop button (replaces send while the model responds). */
-.composer button.stop {
+.composer-input-row button.stop {
   background: #ff7b72;
   color: #2a0b09;
 }
 
-/* --- chat header --- */
-
-.chat-head {
+/* Status/commands rows: contextual chip left, pickers right (status);
+   quick-action chips + provider hint (commands). Chips wrap on narrow
+   panes. */
+.composer-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.composer-spacer {
+  flex: 1;
+}
+
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  border-radius: 8px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 280px;
+}
+
+button.composer-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Informational variant (draft label / plain chat session): not a control. */
+.composer-chip.static {
+  cursor: default;
+}
+
+.composer-chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-chip .ws-item-icon {
+  flex-shrink: 0;
 }
 
 /* Model picker: a button that opens the three-column modal. */
@@ -1823,6 +1872,21 @@ body {
 
   .model-button {
     max-width: 200px;
+  }
+
+  /* Composer hub: tighter padding, smaller chips, rows wrap. */
+  .composer {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .composer-chip {
+    max-width: 160px;
+    padding: 2px 8px;
+  }
+
+  .composer-input-row button {
+    padding: 0 14px;
   }
 
   /* Three columns stay side by side, horizontally scrollable. */

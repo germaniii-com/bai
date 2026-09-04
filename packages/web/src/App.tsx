@@ -631,6 +631,7 @@ export function App() {
             runActive={runActive}
             waiting={waiting}
             error={error}
+            onSwitchWorkspace={() => navigate("workspace")}
             subagents={subagents}
             pendingAsk={pendingAsk}
             askQueued={Math.max(0, askTotal - 1)}
