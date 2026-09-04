@@ -7,6 +7,7 @@ import { AskPanel, type PendingAsk } from "./ask-panel";
 import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
+import { Markdown } from "./markdown";
 
 /**
  * The chat surface, shared by the Chat section and the Workspace section
@@ -100,7 +101,8 @@ export function ChatPane({
             {m.role === "assistant" && toolCalls(m).length > 0 && (
               <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} />
             )}
-            <p>{messageText(m)}</p>
+            {/* Assistant bodies render markdown; user input stays literal. */}
+            {m.role === "assistant" ? <Markdown text={messageText(m)} /> : <p>{messageText(m)}</p>}
           </div>
         ))}
         {waiting && (
@@ -177,7 +179,11 @@ function ThinkingNode({ text }: { text: string }) {
       >
         {open ? "▾" : "▸"} thought ({lineCount} line{lineCount === 1 ? "" : "s"})
       </button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && (
+        <div className="thinking-body">
+          <Markdown text={text} />
+        </div>
+      )}
     </div>
   );
 }

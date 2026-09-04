@@ -10,6 +10,7 @@
     "@bai/api": "workspace:*",
     "@bai/shared": "workspace:*",
     "ink": "^7.1.1",
+    "marked": "^18.0.11",
     "react": "^19.2.7",
     "wrap-ansi": "^10.0.1"
   },

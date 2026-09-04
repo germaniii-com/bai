@@ -8,6 +8,7 @@ import { buildTranscriptItems, messageText, thinkingText, type TranscriptItem } 
 import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
+import { Markdown } from "../components/markdown";
 import { PermissionPrompt } from "./permission-prompt";
 import { QuestionPrompt } from "./question-prompt";
 import {
@@ -730,11 +731,8 @@ export function ChatView({
                       <Text dimColor>
                         {marker}── thought ──
                       </Text>
-                      {thinking.split("\n").map((line, li) => (
-                        <Text key={li} dimColor wrap="wrap">
-                          {line.length > 0 ? line : " "}
-                        </Text>
-                      ))}
+                      {/* Thinking renders markdown too, dimmed overall. */}
+                      <Markdown text={thinking} dim />
                     </Box>
                   ) : (
                     <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
@@ -869,13 +867,12 @@ export function ChatView({
             );
           }
           // text: the reply body — its own node; the ❯ marker marks focus.
+          // Assistant replies render as markdown (components/markdown.tsx);
+          // the marker hangs as a column so wrapped lines align under it.
           return (
             <Box key={`${item.messageId}:text`} marginTop={gap} flexShrink={0}>
               <Box {...assistantInset} flexShrink={0}>
-                <Text wrap="wrap">
-                  {marker}
-                  {messageText(m)}
-                </Text>
+                <Markdown text={messageText(m)} marker={marker ?? undefined} />
               </Box>
             </Box>
           );

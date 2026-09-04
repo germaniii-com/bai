@@ -3,6 +3,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { Message } from "@bai/shared";
 import { messageText, thinkingText, toolCalls } from "./state";
 import type { SubagentActivity } from "./state-subagents";
+import { Markdown } from "./markdown";
 
 /** Live-refresh cadence while the child is still running (TUI parity). */
 const REFRESH_MS = 1500;
@@ -114,7 +115,8 @@ export function SubagentStream({
                 <ChildThought text={thinkingText(m)} />
               )}
               {m.role === "assistant" && toolCalls(m).length > 0 && <ToolNodes calls={toolCalls(m)} />}
-              {messageText(m).length > 0 && <p>{messageText(m)}</p>}
+              {messageText(m).length > 0 &&
+                (m.role === "assistant" ? <Markdown text={messageText(m)} /> : <p>{messageText(m)}</p>)}
             </div>
           ))}
         </div>
@@ -131,7 +133,11 @@ function ChildThought({ text }: { text: string }) {
       <button type="button" className="thinking-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         {open ? "▾" : "▸"} thought
       </button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && (
+        <div className="thinking-body">
+          <Markdown text={text} />
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { PermissionDialog } from "./permission-dialog";
 import { buildTranscriptItems, messageText } from "../state/sync";
 import { moveFocus } from "../state/focus";
 import type { SubagentActivity } from "../state/subagents";
+import { Markdown } from "../components/markdown";
 
 /** Live-refetch cadence while the child session is still running. */
 const REFRESH_MS = 1500;
@@ -301,11 +302,7 @@ export function SubagentDialog({
                   {expanded ? (
                     <Box flexDirection="column">
                       <Text dimColor>{marker}── thought ──</Text>
-                      {thinking.split("\n").map((line, li) => (
-                        <Text key={li} dimColor wrap="wrap">
-                          {line.length > 0 ? line : " "}
-                        </Text>
-                      ))}
+                      <Markdown text={thinking} dim />
                     </Box>
                   ) : (
                     <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
@@ -346,13 +343,10 @@ export function SubagentDialog({
                 </Box>
               );
             }
-            // text: the child's reply body.
+            // text: the child's reply body — markdown like the main view.
             return (
               <Box key={`${item.messageId}:text`} marginTop={gap} marginBottom={1} flexShrink={0}>
-                <Text wrap="wrap">
-                  {marker}
-                  {messageText(messages[item.messageIndex] as Message)}
-                </Text>
+                <Markdown text={messageText(messages[item.messageIndex] as Message)} marker={marker ?? undefined} />
               </Box>
             );
           })}
