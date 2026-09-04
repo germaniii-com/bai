@@ -43,9 +43,27 @@ export interface Part {
    * subagent?, permission?, questions?} where `subagent` links a `task`
    * result to its child session, `permission` retains an answered
    * interactive ask and `questions` retains answered Q&A (surfaces render
-   * both as re-openable reviews in the transcript).
+   * both as re-openable reviews in the transcript); patch →
+   * {hash, files} — the shadow-repo tree hash BEFORE the batch of tool
+   * calls ran plus the files that batch changed (revert rolls each file
+   * back to its state in that hash; opencode's patch parts, same shape).
    */
   payload: unknown;
+}
+
+/**
+ * Revert state stamped on `session.meta.revert` (opencode's Session.Info.revert):
+ * the boundary USER message — it and everything after it are hidden (and
+ * hard-deleted at the next prompt admission) — plus the shadow-repo tree hash of
+ * the pre-revert worktree (so unrevert can restore it) and the unified diff the
+ * revert produced (surfaces render it in the reverted banner).
+ */
+export interface RevertState {
+  messageId: MessageId;
+  /** Shadow-repo tree hash of the worktree before the revert (unrevert target). */
+  snapshot?: string;
+  /** Unified diff (snapshot → rolled-back worktree) the revert produced. */
+  diff?: string;
 }
 
 export interface Message {

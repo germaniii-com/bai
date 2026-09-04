@@ -15,8 +15,11 @@ import {
   questionRejectSchema,
   questionReplySchema,
   renameSessionSchema,
+  revertSessionSchema,
+  forkSessionSchema,
   setSessionAgentSchema,
   setSessionModelSchema,
+  type MessageId,
   type SessionId,
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
@@ -303,6 +306,48 @@ function buildApi(deps: ApiDeps) {
       const session = deps.core.renameSession(id, body.title);
       if (session === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ session });
+    })
+
+    // --- revert / fork (opencode parity; two-phase revert, see core Service) ---
+    .post("/session/:id/revert", zValidator("json", revertSessionSchema), async (c) => {
+      const id = c.req.param("id") as SessionId;
+      const body = c.req.valid("json");
+      try {
+        const session = await deps.core.revertSession(id, body.messageId as MessageId);
+        return c.json({ session });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session") || message.startsWith("Unknown message")) {
+          return c.json({ error: "not_found" }, 404);
+        }
+        if (message.startsWith("Session is busy")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
+    })
+    .post("/session/:id/unrevert", async (c) => {
+      const id = c.req.param("id") as SessionId;
+      try {
+        const session = await deps.core.unrevertSession(id);
+        return c.json({ session });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        if (message.startsWith("Session is busy")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
+    })
+    .post("/session/:id/fork", zValidator("json", forkSessionSchema), async (c) => {
+      const id = c.req.param("id") as SessionId;
+      const body = c.req.valid("json");
+      try {
+        const session = await deps.core.forkSession(id, body.messageId as MessageId | undefined);
+        return c.json({ session }, 201);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        if (message.startsWith("Session is busy")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
     })
 
     // --- jobs & assets ---

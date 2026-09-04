@@ -688,6 +688,81 @@ body {
   word-break: break-word;
 }
 
+/* Per-user-message action row (opencode web parity): hover-revealed icon
+   buttons under the user bubble — copy, fork, revert. Hidden until the
+   bubble is hovered or keyboard-focused; each button is a quiet ghost that
+   lights up on its own hover. */
+.message-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.message.user:hover .message-actions,
+.message.user:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.message-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font: inherit;
+}
+
+.message-action:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+/* Pending two-phase revert: the cut point in the transcript. A quiet banner
+   where the hidden messages were, with the restore affordance (they come
+   back until the next prompt commits the deletion). */
+.revert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 720px;
+  padding: 6px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.revert-banner button {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.revert-banner button:hover {
+  border-color: var(--accent);
+}
+
+.revert-banner button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* --- Markdown bodies (assistant replies + thinking) ---------------------- */
 /* The <Markdown> component (markdown.tsx) renders under .md. Structure
    comes from the markdown AST; everything visual lives here so the

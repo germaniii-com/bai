@@ -6,6 +6,8 @@ import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import { renderOutbound, isToolCallPayload } from "./run/history";
 import { buildEnvBlock } from "./run/env";
+import { readRevert, SNAPSHOT_TOOLS } from "./revert";
+import type { Snapshot } from "./snapshot";
 import type { PermissionGate } from "./permissions/ask";
 import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry";
 import type { Provider, StreamEvent, ToolDef } from "./provider/types";
@@ -56,6 +58,11 @@ export interface RunCoordinatorDeps {
   titleModel(): string | undefined;
   /** Registered workspace roots — fs-tool agents get them in <env> when the session has no cwd. */
   workspaceRoots(): string[];
+  /**
+   * Shadow-repo snapshots (revert's file rollback input). Undefined → runs
+   * never record patch parts and revert is message-only.
+   */
+  snapshot?: Snapshot;
 }
 
 /** One completed tool call streamed by the model, ready to execute. */
@@ -189,6 +196,11 @@ export class RunCoordinator {
     const promoted = this.deps.store.inputs.promoteReady(sessionId);
     if (promoted.length === 0) return;
 
+    // A pending revert is committed by the next prompt (opencode's cleanup):
+    // the boundary message and everything after it are hard-deleted BEFORE
+    // the new user message lands, so transcript ordering stays intact.
+    this.revertCleanup(sessionId);
+
     const now = this.deps.clock.iso();
     for (const input of promoted) {
       const message = this.deps.store.messages.append(sessionId, "user", now);
@@ -252,10 +264,17 @@ export class RunCoordinator {
         ...(finalStep ? [STEPS_NOTICE] : []),
       ];
 
-      // History → compaction pointer slice → token discipline → render.
-      // history() returns fresh objects, so the in-place discipline
+      // History → revert cut → compaction pointer slice → token discipline →
+      // render. history() returns fresh objects, so the in-place discipline
       // transforms never touch the durable transcript.
       let history = this.deps.store.messages.history(sessionId);
+      // Defensive two-phase-revert cut (cleanup normally already ran at
+      // admission): never render the boundary message or anything after it.
+      const revertBoundary = readRevert(this.readMeta(sessionId))?.messageId;
+      if (revertBoundary !== undefined) {
+        const boundaryIdx = history.findIndex((m) => m.id === revertBoundary);
+        if (boundaryIdx >= 0) history = history.slice(0, boundaryIdx);
+      }
       const compactId = this.compactionPointer(sessionId);
       if (compactId !== undefined) {
         const idx = history.findIndex((m) => m.id === compactId);
@@ -327,6 +346,32 @@ export class RunCoordinator {
       // letting the model retry into the same wall.
       if (outcomes.length > 0 && outcomes.every((o) => o === "denied")) break;
     }
+  }
+
+  /**
+   * Commit a pending two-phase revert (opencode's revert cleanup): hard-delete
+   * the boundary message and everything after it, emit `message.removed` per
+   * id, clear the compaction pointer when it pointed into the removed range,
+   * and clear the revert marker. Runs at prompt admission — the revert stays
+   * undoable (unrevert) until the user sends the next message.
+   */
+  private revertCleanup(sessionId: SessionId): void {
+    const revert = readRevert(this.readMeta(sessionId));
+    if (revert === undefined) return;
+    const removed = this.deps.store.messages.removeFrom(sessionId, revert.messageId);
+    const session = this.deps.store.sessions.get(sessionId);
+    if (session === undefined) return;
+    const meta = { ...(session.meta as Record<string, unknown>) };
+    delete meta.revert;
+    const compactId = meta.compactionMessageId;
+    if (typeof compactId === "string" && removed.includes(compactId as MessageId)) {
+      delete meta.compactionMessageId; // the summary it pointed at was reverted away
+    }
+    const updated = this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
+    for (const id of removed) {
+      this.emitDurable(sessionId, "message.removed", { messageId: id });
+    }
+    if (updated !== undefined) this.emitDurable(sessionId, "session.updated", { session: updated });
   }
 
   /**
@@ -714,6 +759,23 @@ export class RunCoordinator {
 
     // --- stage 2: execute the ready calls ---
     const readyIdx = gated.flatMap((entry, i) => (entry.error === undefined ? [i] : []));
+
+    // Shadow-repo snapshot before any mutating call runs: the tree hash plus
+    // the files the batch goes on to change become a `patch` part on this
+    // assistant message — revert's rollback input (opencode's per-message
+    // patch parts). Best-effort: snapshot failures never break the run.
+    const snapshotCwd = session?.cwd;
+    let patchHash: string | undefined;
+    const snapshot = this.deps.snapshot;
+    if (
+      snapshot !== undefined &&
+      snapshotCwd !== undefined &&
+      readyIdx.length > 0 &&
+      readyIdx.some((i) => SNAPSHOT_TOOLS.has(gated[i]?.call.name ?? ""))
+    ) {
+      patchHash = await snapshot.track(snapshotCwd).catch(() => undefined);
+    }
+
     const parallel = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
     const executed: Array<
       { content: string; isError: boolean; title?: string; subagent?: { sessionId: string; agent: string }; questions?: QuestionReview[] } | undefined
@@ -770,6 +832,24 @@ export class RunCoordinator {
           outcome.questions,
         );
         outcomes.push("executed");
+      }
+    }
+
+    // Record what this batch changed (revert rolls each file back to its
+    // pre-change tree). No changes or a failed probe → no patch part.
+    if (patchHash !== undefined && snapshotCwd !== undefined && snapshot !== undefined) {
+      const files = await snapshot.patch(snapshotCwd, patchHash).catch(() => undefined);
+      if (files !== undefined && files.length > 0) {
+        const part = this.deps.store.parts.append(assistantId, this.deps.store.parts.nextOrd(assistantId), "patch", {
+          hash: patchHash,
+          files,
+        });
+        this.emitDurable(sessionId, "message.part.updated", {
+          messageId: assistantId,
+          partId: part.id,
+          kind: "patch",
+          payload: part.payload,
+        });
       }
     }
     return outcomes;

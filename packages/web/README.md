@@ -21,6 +21,10 @@ browsers **and** phones (PWA) from the same bundle.
   2. global SSE firehose applied through pure per-entity reducers
   3. per-session durable stream with cursor (`after=N`) when a session is open
   4. `server.hello` first frame → full refresh (universal healing)
+- Per-user-message actions in the chat transcript: a hover-revealed
+  copy/fork/revert icon row under user bubbles, and a revert banner with a
+  restore button while a revert is pending (`state.ts` derives visibility
+  from `session.meta.revert`).
 - Types imported **directly** from `@bai/shared` — no mirrors, no codegen.
 - PWA manifest + icons so phones can install bai to the home screen
   (`vite-plugin-pwa`).

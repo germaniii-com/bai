@@ -6,7 +6,7 @@ export type WorkbenchName = "chat" | "code" | "image" | "video";
 
 export type Role = "user" | "assistant" | "system";
 
-export type PartKind = "text" | "thinking" | "file" | "image" | "tool_call" | "tool_result";
+export type PartKind = "text" | "thinking" | "file" | "image" | "tool_call" | "tool_result" | "patch";
 
 export type InputState = "admitted" | "promoted" | "cancelled";
 
@@ -35,6 +35,8 @@ export interface EventPayloads {
   "message.created": { messageId: MessageId; role: Role };
   "message.part.updated": { messageId: MessageId; partId: PartId; kind: PartKind; payload: unknown };
   "message.part.delta": { messageId: MessageId; partId: PartId; delta: string };
+  /** A message was hard-deleted (revert cleanup at next prompt admission). */
+  "message.removed": { messageId: MessageId };
   "run.started": Record<string, never>;
   "run.finished": { aborted?: boolean; error?: string };
   "permission.asked": { request: PermissionRequest };
@@ -66,6 +68,7 @@ export const EVENT_TYPES = Object.keys({
   "message.created": 1,
   "message.part.updated": 1,
   "message.part.delta": 1,
+  "message.removed": 1,
   "run.started": 1,
   "run.finished": 1,
   "permission.asked": 1,

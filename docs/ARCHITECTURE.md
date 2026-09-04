@@ -15,7 +15,8 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
   sync, agents (`build`/`plan`/`chat` built-ins + hot-reloaded files), file
   tools + bash/grep, interactive permissions (diff-rendered asks, reject
   feedback, TUI+web dialogs), question/todo/web tools, subagent spawning
-  (`task` tool), token discipline + compaction ship today. MCP (§11),
+  (`task` tool), token discipline + compaction, and per-message
+  revert/fork/copy with shadow-repo file rollback ship today. MCP (§11),
   media adapters, and desktop are next.
 - **Packages:** npm scope `@bai/*` under `packages/`.
 - **Companion docs:** [README.md](README.md),
@@ -197,6 +198,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **Agents** | stored in `~/.config/bai/agents/*.md`; registry `core/src/agent/registry.ts` | Markdown + YAML frontmatter (`description`, `model?`, `tools` allow-list), body = system prompt, name = filename stem. `AgentRegistry` scans + `fs.watch`-es the directory (debounced rescan → live `agents.updated` event) — no restarts, ever. Schema + built-in `build` agent: `shared/src/agents.ts`. Selected per session (TUI ctrl+a switcher, web chat-header picker) or defaulted via config `agents.default`. Created three ways: drop a file on disk, `PUT /api/agent/:name` (writes the markdown), or TUI ctrl+a / web Agents page. |
 | **Permissions** | `core/src/permissions/engine.ts` (pure rule match) + `core/src/permissions/ask.ts` (`PermissionGate`) | Layers: `fs.read/list/glob` allow-by-default < `config.permissions` < session approvals ("always" → `session.meta.approvals`). The gate blocks tool execution on a durable `permission.asked` event until `Service.replyPermission` resolves it — first reply wins across devices. |
 | **Token discipline + compaction** | `core/src/context/discipline.ts`, `core/src/context/compact.ts` | Render-time transforms (transcript untouched): identical-result stubbing, old-result pruning. Compaction triggers at 75% of the context window from provider-reported usage; the summary persists as a message and `session.meta.compactionMessageId` slices history from then on. |
+| **Revert / fork / snapshots** | `core/src/snapshot.ts` (shadow git repo), `core/src/revert.ts` (shared helpers), `core/src/service.ts` (`revertSession`/`unrevertSession`/`forkSession`) | Two-phase revert (opencode parity): every mutating tool batch (`bash`, `fs.write/fs.edit`, `task`) records a `patch` part `{hash, files}` — the shadow-repo tree before the batch + the files it changed (written in `executeCalls`). Revert stamps `session.meta.revert`, rolls each file back from the patch parts, and hides the tail; `RunCoordinator.revertCleanup` hard-deletes it at the next prompt admission (`message.removed` events). Unrevert restores the snapshot. Fork copies the history before a message into a new `"<title> (fork #N)"` session with fresh ids. Message-only fallback outside git worktrees. |
 | **Sessions/parts/events persistence** | `core/src/store/*` (repos) + `core/src/event/{bus,log}.ts` | `parts` rows carry tool_call/tool_result payloads; the event log is the durable replay buffer behind the SSE streams. |
 | **HTTP boundary** | `api/src/server/app.ts` (`buildApi` — one chained Hono expression for typed RPC) | Agent/tool routes live here; SSE in `server/sse.ts`. Typed client: `api/src/client/index.ts`. |
 | **Composition root (boot)** | `cli/src/boot.ts` | Constructs store, registries, agents, tool loader, gate, service, app — and stops them all on shutdown. |
@@ -208,7 +210,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | `~/.config/bai/config.json` | layered config (§12) |
 | `~/.config/bai/agents/*.md` | agent definitions — hot-reloaded (§9) |
 | `~/.config/bai/tools/*.ts` | custom tool files — hot-imported |
-| `~/.local/share/bai/` | `bai.db` (SQLite, WAL), `assets/`, `tmp/` |
+| `~/.local/share/bai/` | `bai.db` (SQLite, WAL), `assets/`, `tmp/`, `snapshot/` (shadow git repos for revert's file rollback) |
 | `~/.local/state/bai/server.json` | url/pid/token for local discovery |
 
 ## 6. Domain model
@@ -217,13 +219,15 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Session**           | A named conversation scoped to a workbench (`chat`, `code`, …). Durable. Has an inbox, message history, and an event log.                              |
 | **Agent**             | A persona + tool allow-list (+ optional model override) defined as a markdown file (`~/.config/bai/agents/*.md`) or built-in (`build`). Selected per session via `session.meta.agent`; hot-reloaded. |
-| **Message**           | One turn participant entry (`user`, `assistant`, `system`). Composed of ordered **Parts** (text, thinking, file ref, image ref, tool call, tool result). |
+| **Message**           | One turn participant entry (`user`, `assistant`, `system`). Composed of ordered **Parts** (text, thinking, file ref, image ref, tool call, tool result, patch — the revert rollback record). |
 | **Input / admission** | A submitted prompt is first persisted as an inbox row (durable), then _promoted_ into history when the runner picks it up. Crash-safe by construction. |
 | **Run (drain)**       | One process-local execution span: promote eligible inputs → loop provider turns + tool calls until idle. Never two concurrent runs per session.        |
 | **Steer vs queue**    | A prompt arriving mid-run _steers_ (promotes at the next safe boundary); one marked `queue` waits until idle.                                          |
 | **Tool**              | A callable unit (builtin, workbench-provided, or MCP-provided). Registry merges all; namespaced (`fs.read`, `mcp/myserver/search`).                    |
 | **Permission**        | Gate evaluated per tool call: rule match → `allow` / `ask` / `deny`. Unmatched defaults to `ask`.                                                      |
 | **Event**             | Typed fact. Two flavors: **live** (firehose SSE, best-effort) and **durable** (per-session log rows, replayable by seq cursor).                        |
+| **Revert (two-phase)**| A boundary USER message recorded in `session.meta.revert`: everything from it on is hidden and the file changes after it are rolled back (shadow-repo snapshot), until restored — or committed (hard-deleted) by the next prompt. |
+| **Fork**              | A new independent session holding the history BEFORE a chosen message, with fresh ids; the boundary message's text seeds the composer.                  |
 | **Job**               | Long-running async unit of work (image generation, video generation). Queued, progress-reported, produces **Assets**.                                  |
 | **Asset**             | Generated media artifact (image/video/audio/file) stored on disk, indexed in SQLite, surfaced in galleries.                                            |
 | **Workbench**         | A modality module registering tools, job types, asset kinds, and HTTP routes. The extension seam for new modalities.                                   |
@@ -256,7 +260,7 @@ Schema (identical to the Go design):
 ```
 sessions(id PK, title, workbench, cwd, created_at, updated_at, meta JSON)
 messages(id PK, session_id FK, role, created_at)
-parts(id PK, message_id FK, ord, kind, payload JSON)         -- text|file|image|tool_call|tool_result
+parts(id PK, message_id FK, ord, kind, payload JSON)         -- text|file|image|tool_call|tool_result|patch
 inputs(id PK, session_id FK, payload JSON, state, created_at) -- admitted|promoted|cancelled
 events(aggregate_id, seq, type, payload JSON, created_at,
        PRIMARY KEY(aggregate_id, seq))                        -- durable per-session log
@@ -281,11 +285,12 @@ table. All timestamps UTC RFC3339. Queries stay explicit — no ORM.
 
 Event types (initial set): `session.created|updated`, `input.admitted`,
 `message.created`, `message.part.updated`, `message.part.delta`,
-`run.started|finished`, `permission.asked|replied`, `job.updated`,
-`asset.created`, `config.updated`, `provider.updated`, `agents.updated`,
-`tools.updated`, `server.hello`. Live-only events (`config.updated`,
-`provider.updated`, `agents.updated`, `tools.updated`, `server.hello`) use
-seq 0 and are best-effort; everything session-scoped is durable.
+`message.removed` (revert cleanup), `run.started|finished`,
+`permission.asked|replied`, `job.updated`, `asset.created`,
+`config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
+`server.hello`. Live-only events (`config.updated`, `provider.updated`,
+`agents.updated`, `tools.updated`, `server.hello`) use seq 0 and are
+best-effort; everything session-scoped is durable.
 
 **Client sync algorithm** (identical shape in TUI and web):
 
@@ -365,6 +370,20 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
   into a structured summary (Goal/Progress/Decisions/Next Steps/Critical
   Context + read/modified-files appendix); `session.meta.compactionMessageId`
   points at it and later drains slice history from that pointer.
+- **Revert & fork:** every mutating tool batch snapshots the worktree into a
+  shadow git repo (`core/src/snapshot.ts` — one repo per worktree under
+  `~/.local/share/bai/snapshot/`, object db borrowed via alternates, ops
+  serialized per gitdir) and appends a `patch` part `{hash, files}`.
+  `revertSession` marks `session.meta.revert` and rolls each touched file
+  back to its pre-change tree (created files deleted); the hidden tail is
+  hard-deleted at the next prompt's admission (before the new user message
+  lands) with `message.removed` events, and a stale compaction pointer is
+  cleared if its summary was reverted away. `unrevertSession` restores the
+  snapshot; `forkSession` copies the history before a message into a new
+  `"<title> (fork #N)"` session with fresh ids, remapping the compaction
+  pointer and stripping `parent`/`revert`. Outside a git worktree revert is
+  message-only; `stopReason`-style guards apply — revert/unrevert/fork
+  refuse while the session is draining.
 - **Length guard:** `stopReason === "length"` fails every pending tool call
   (streamed JSON arguments may be truncated) and ends the run.
 - **Env block:** every turn's system prompt is persona + `<env>` — working
@@ -599,7 +618,7 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 | **0 — Skeleton**          | workspaces, mode dispatch, config layers, store+migrations, hello-world API, web shell, TUI shell, compile pipeline        | `bai` opens TUI; `bai --web` serves SPA; `bai --one-shot hi` prints NDJSON | ✅ shipped |
 | **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         | ✅ shipped |
 | **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
-| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), subagents (`task` tool), token discipline + compaction, diff viewer | Guided multi-file edit with approvals from either surface                  | ✅ shipped (diff viewer with revert pending) |
+| **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), subagents (`task` tool), token discipline + compaction, diff viewer, per-message revert/fork/copy with file rollback | Guided multi-file edit with approvals from either surface                  | ✅ shipped (file-tree diff viewer pending) |
 | **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
 | **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               | ⏳ pending (structured stubs live — see FEATURES.md) |
 | **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |
@@ -639,6 +658,7 @@ TypeScript-specific decisions (D13+):
 | D22 | Render-time token discipline, transcript sacred | Idempotent transforms = cache-stable prefixes; the event-sourced transcript is the recovery store | Mutating history in place; stateful rearm counters |
 | D23 | Custom tools as TS files, dynamically imported  | Bun imports TS natively (no jiti); files stay the source of truth; CRUD UX writes files via the API | Declarative config tools; sandboxed workers (v1) |
 | D24 | Subagents as durable child sessions (`task` tool) | Event-sourcing + multi-device inspection for free: the child is a real session with its own history, compaction, and permission gate, watchable from any surface — not a hidden in-memory transcript | pi-style child processes (no shared store/events), hermes-style thread pools (opaque to surfaces), synthetic in-memory subagents (no resume, no audit) |
+| D25 | Shadow-repo git snapshots for revert (message-only fallback) | File rollback without ever touching the project's own `.git`; alternates seeding avoids re-hashing large repos; message-only fallback keeps revert useful outside git worktrees | Snapshotting via the project repo (mutates user state); per-turn full copies (unbounded growth); deferring file revert entirely |
 
 ## 18. Glossary
 

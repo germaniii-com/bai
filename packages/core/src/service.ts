@@ -9,11 +9,13 @@ import {
   type Input,
   type JobKind,
   type Message,
+  type MessageId,
   type PermissionRequest,
   type PermissionStatus,
   type PromptPayload,
   type ProviderListResponse,
   type QuestionRequest,
+  type RevertState,
   type Session,
   type SessionId,
   type WorkbenchName,
@@ -30,6 +32,8 @@ import { PermissionGate } from "./permissions/ask";
 import { QuestionService } from "./question/service";
 import type { ProviderRegistry } from "./provider/registry";
 import { RunCoordinator } from "./run";
+import { forkedTitle, isPatchPayload, readRevert } from "./revert";
+import type { Snapshot, SnapshotPatch } from "./snapshot";
 import { defaultTitle } from "./title";
 import type { Store } from "./store/store";
 import { questionTool } from "./tools/question";
@@ -63,6 +67,12 @@ export interface ServiceDeps {
    * (~/.config/bai/plans in production; a temp dir in tests).
    */
   plansDir: string;
+  /**
+   * Shadow-repo snapshots (revert's file rollback). Optional: without it
+   * revert is message-only (no snapshot/diff on the revert state, no patch
+   * parts recorded during runs).
+   */
+  snapshot?: Snapshot;
 }
 
 /**
@@ -101,6 +111,7 @@ export class Service {
       defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
       workspaceRoots: () => deps.config().workspaces ?? [],
+      ...(deps.snapshot !== undefined ? { snapshot: deps.snapshot } : {}),
     });
     for (const wb of deps.workbenches) {
       deps.tools.registerAll(wb.tools());
@@ -211,6 +222,142 @@ export class Service {
     });
     if (session) this.emitDurable(id, "session.updated", { session });
     return session;
+  }
+
+  // --- revert & fork (opencode parity) ---
+
+  /** Revert/unrevert/fork mutate history — never mid-drain (api maps to 409). */
+  private assertIdle(id: SessionId): void {
+    if (this.coordinator.isActive(id)) throw new Error("Session is busy");
+  }
+
+  /**
+   * Two-phase revert (opencode's SessionRevert.revert): hide everything from
+   * the boundary USER message on and roll back the file changes recorded in
+   * `patch` parts at/after it. Nothing is deleted yet — the tail is committed
+   * (hard-deleted) at the next prompt admission, and `unrevertSession` can
+   * restore both files and messages until then. `session.meta.revert` carries
+   * the boundary + pre-revert tree hash + diff for the surfaces.
+   */
+  async revertSession(id: SessionId, messageId: MessageId): Promise<Session> {
+    this.assertIdle(id);
+    const session = this.deps.store.sessions.get(id);
+    if (session === undefined) throw new Error(`Unknown session: ${id}`);
+    const history = this.deps.store.messages.history(id);
+    const idx = history.findIndex((m) => m.id === messageId);
+    if (idx < 0) throw new Error(`Unknown message: ${messageId}`);
+    if (history[idx]?.role !== "user") throw new Error("Revert requires a user message");
+
+    const existing = readRevert(session.meta as Record<string, unknown>);
+    // Patch parts at/after the boundary — the file changes to roll back.
+    const patches: SnapshotPatch[] = [];
+    for (const msg of history.slice(idx)) {
+      for (const part of msg.parts) {
+        if (part.kind === "patch" && isPatchPayload(part.payload)) patches.push(part.payload);
+      }
+    }
+
+    const revert: RevertState = { messageId };
+    const snapshot = this.deps.snapshot;
+    if (snapshot !== undefined && session.cwd !== undefined) {
+      try {
+        // Re-reverting keeps the ORIGINAL pre-revert tree as the unrevert
+        // target and un-rolls the previous revert first (opencode revert.ts).
+        const target = existing?.snapshot ?? (await snapshot.track(session.cwd));
+        if (existing?.snapshot !== undefined) await snapshot.restore(session.cwd, existing.snapshot);
+        await snapshot.revert(session.cwd, patches);
+        if (target !== undefined) {
+          revert.snapshot = target;
+          revert.diff = (await snapshot.diff(session.cwd, target)) ?? undefined;
+        }
+      } catch (err) {
+        // File rollback is best-effort — the message revert always applies.
+        console.warn(`[bai] revert file rollback skipped: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    const updated = this.deps.store.sessions.update(id, {
+      meta: { ...(session.meta as Record<string, unknown>), revert },
+      now: this.clock.iso(),
+    });
+    if (updated !== undefined) this.emitDurable(id, "session.updated", { session: updated });
+    return updated ?? session;
+  }
+
+  /**
+   * Undo a revert: restore the snapshot's worktree and clear the marker —
+   * the hidden messages reappear (they were never deleted). No-op without a
+   * pending revert.
+   */
+  async unrevertSession(id: SessionId): Promise<Session> {
+    this.assertIdle(id);
+    const session = this.deps.store.sessions.get(id);
+    if (session === undefined) throw new Error(`Unknown session: ${id}`);
+    const revert = readRevert(session.meta as Record<string, unknown>);
+    if (revert === undefined) return session;
+    if (revert.snapshot !== undefined && session.cwd !== undefined && this.deps.snapshot !== undefined) {
+      try {
+        await this.deps.snapshot.restore(session.cwd, revert.snapshot);
+      } catch (err) {
+        console.warn(`[bai] unrevert file restore failed: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    const meta = { ...(session.meta as Record<string, unknown>) };
+    delete meta.revert;
+    const updated = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
+    if (updated !== undefined) this.emitDurable(id, "session.updated", { session: updated });
+    return updated ?? session;
+  }
+
+  /**
+   * Fork (opencode parity): a new independent session containing everything
+   * BEFORE `messageId` (all messages when omitted) with fresh ids; the
+   * boundary message itself is excluded — surfaces seed the composer with its
+   * text so the user can resend a variant. Title counts up: "X (fork #N)".
+   */
+  async forkSession(id: SessionId, messageId?: MessageId): Promise<Session> {
+    this.assertIdle(id);
+    const session = this.deps.store.sessions.get(id);
+    if (session === undefined) throw new Error(`Unknown session: ${id}`);
+
+    const created = this.createSession({
+      title: forkedTitle(session.title),
+      workbench: session.workbench,
+      ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+    });
+    const idMap = this.deps.store.messages.copyRange(id, created.id, messageId);
+
+    // Inherit everything except run-scoped identity: no parent (forks are
+    // independent — they appear in session pickers), no revert state, and the
+    // compaction pointer follows the remapped ids (dropped when its summary
+    // wasn't copied).
+    const meta: Record<string, unknown> = { ...(session.meta as Record<string, unknown>), forkedFrom: id };
+    delete meta.revert;
+    delete meta.parent;
+    delete meta.oneshot;
+    const compactId = meta.compactionMessageId;
+    if (typeof compactId === "string") {
+      const mapped = idMap.get(compactId as MessageId);
+      if (mapped !== undefined) meta.compactionMessageId = mapped;
+      else delete meta.compactionMessageId;
+    }
+    const updated = this.deps.store.sessions.update(created.id, { meta, now: this.clock.iso() });
+    if (updated !== undefined) this.emitDurable(created.id, "session.updated", { session: updated });
+
+    // Seed the new session's durable log so surfaces following it — and
+    // replay after a restart — can build transcript state from events alone.
+    for (const msg of this.deps.store.messages.history(created.id)) {
+      this.emitDurable(created.id, "message.created", { messageId: msg.id, role: msg.role });
+      for (const part of msg.parts) {
+        this.emitDurable(created.id, "message.part.updated", {
+          messageId: msg.id,
+          partId: part.id,
+          kind: part.kind,
+          payload: part.payload,
+        });
+      }
+    }
+    return updated ?? created;
   }
 
   // --- prompts & runs ---

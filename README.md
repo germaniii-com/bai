@@ -49,9 +49,10 @@ bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 ## Status
 
 Implemented through the code-workbench phase — **chat, sync, agents, file
-tools, interactive permissions, token discipline + compaction all ship
-today** (249 tests, 6 packages). Pending: bash/grep tools, MCP dual role,
-real image/video adapters, desktop shell. Details in
+tools + bash/grep, interactive permissions, token discipline + compaction,
+and per-message revert/fork/copy with shadow-repo file rollback all ship
+today** (483 tests, 6 packages). Pending: MCP dual role, real image/video
+adapters, desktop shell. Details in
 [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
 
 ## Inspiration
@@ -95,6 +96,7 @@ bai-ts/
 │   │   └── src/                 store · event · config · provider · agent/
 │   │                            tools/ · context/ · permissions/ · workbench/
 │   │                            run.ts (the agentic loop)
+│   │                            snapshot.ts + revert.ts (revert/fork file rollback)
 │   ├── api/                   Hono server + typed client             @bai/api
 │   ├── cli/                   entrypoint wiring & mode dispatch      @bai/cli
 │   ├── tui/                   Ink terminal surface                   @bai/tui

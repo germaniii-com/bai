@@ -28,6 +28,10 @@ The conversation modality and bai's default session type.
   durable event log + seq cursors guarantee gap-free resume
 - Auto-generated session titles (small-model refine on the first prompt; a
   concurrent rename always wins)
+- Per-message actions on user messages: **copy**, **revert** (undo the
+  message, everything after it, and the file changes they made), and
+  **fork** (branch the history into a new session) — see
+  [Revert / Fork / Copy](#-revert--fork--copy--shipped)
 - Per-session model override, live from any surface (`config.updated` /
   `provider.updated` propagate instantly)
 - Headless mode: `bai --one-shot "prompt" --format json` streams NDJSON and
@@ -96,7 +100,59 @@ agents that can actually touch the files.
 
 **Coming next**
 
-- Diff viewer with revert on the file tree
+- File-tree diff viewer (conversation-level revert with file rollback
+  already shipped — see [Revert / Fork / Copy](#-revert--fork--copy--shipped))
+
+---
+
+## ⏪ Revert / Fork / Copy — shipped
+
+Per-user-message transcript actions, opencode parity, on every surface.
+
+**What you can do today**
+
+- **Copy** — a user message's text to the clipboard: hover it in the web
+  (the icon flips to a check for two seconds), or focus it in the TUI
+  (ctrl+j/k) and press enter → "Copy" (OSC 52 — honored locally and over
+  SSH, no subprocess)
+- **Revert** — undo a user message, everything after it, and the file
+  changes they made: messages from the boundary on disappear, a
+  "N messages reverted" banner marks the cut, and the prompt text returns
+  to the composer ready to edit & resend
+  - **Two-phase, undoable**: nothing is deleted until you send the next
+    message — restore from the web banner or in the TUI (enter on the
+    revert banner, or open the actions modal on any user message →
+    "Restore reverted messages")
+  - **File rollback is real**: before every mutating tool batch (bash,
+    fs.write/fs.edit, task) the worktree is recorded in a shadow git repo;
+    revert checks each touched file back out of its pre-change tree
+    (files the batch created are deleted). Outside a git worktree revert
+    is message-only
+  - Reverting while a run is active interrupts it first; the server still
+    refuses mid-drain (409) and surfaces retry through the unwind window
+- **Fork** — branch the conversation: a new session titled
+  `<title> (fork #N)` containing everything BEFORE the chosen message,
+  composer prefilled with its text so you can resend a variant (the TUI
+  lands you in the new session; the web switches and seeds the draft)
+
+**Under the hood**
+
+- Revert state lives in `session.meta.revert` `{messageId, snapshot?, diff?}`
+  — surfaces derive visibility from that one boundary marker (hidden is not
+  deleted); the diff rides along for future banner rendering
+- Cleanup commits the revert at the next prompt admission: the tail is
+  hard-deleted and `message.removed` events drop it from every connected
+  surface (the LLM history shrinks with it)
+- `core/src/snapshot.ts` — one shadow git repo per worktree under
+  `~/.local/share/bai/snapshot/`, object database borrowed from the project
+  repo via alternates (no re-hashing), every git op serialized per gitdir;
+  `core/src/revert.ts` + `Service.revertSession/unrevertSession/forkSession`;
+  routes `POST /api/session/:id/revert|unrevert|fork`
+
+**Coming next**
+
+- Per-file restore in the reverted banner (opencode's step-forward redo) ·
+  snapshot GC
 
 ---
 

@@ -10,11 +10,13 @@ import {
   JobQueue,
   ProviderRegistry,
   Service,
+  Snapshot,
   Store,
   ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
   loadConfig,
+  snapshotDir,
   type JobExecutor,
 } from "@bai/core";
 import { createApp } from "@bai/api";
@@ -138,6 +140,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     config: () => configStore.get(),
     version: VERSION,
     plansDir: path.join(configDir(), "plans"),
+    snapshot: new Snapshot(snapshotDir(dataDir())),
   });
 
   const token = resolveToken(args, config);

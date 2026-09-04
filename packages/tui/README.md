@@ -16,7 +16,8 @@ Gemini CLI, GitHub Copilot CLI.
   keybindings, then the focused component.
 - Components: chat view (streaming markdown), session picker, diff viewer
   (code workbench), gallery grid, jobs queue, settings form, permission
-  prompt dialog.
+  prompt dialog, message-actions modal (enter/space on a focused user
+  message: revert / copy / fork / restore).
 - All data flows through `@bai/api`'s client against the in-process loopback
   server started by the same binary (works unchanged against remote servers).
 - Applies event streams with reducers mirroring the web app's semantics.

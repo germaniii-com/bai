@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Copy, GitFork, Undo2, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
-import { messageText, thinkingText, toolCalls, type ToolCallView } from "./state";
+import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { ModelPicker } from "./model-picker";
@@ -61,6 +61,10 @@ export function ChatPane({
   askQueued = 0,
   onAskDone,
   startPlaceholder = "Start a chat…",
+  onForkMessage,
+  onRevertMessage,
+  onRestoreRevert,
+  revertBusy,
 }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
@@ -96,12 +100,29 @@ export function ChatPane({
   askQueued?: number;
   /** Pop the head ask off its queue after a reply. */
   onAskDone: () => void;
+  // ---- per-user-message actions (opencode parity) ------------------------
+  /** Fork at a message: new session with the earlier history, composer seeded. */
+  onForkMessage?: (message: Message) => void;
+  /** Revert to a user message: hide it + everything after, roll back files. */
+  onRevertMessage?: (message: Message) => void;
+  /** Restore a pending revert (bring the hidden messages back). */
+  onRestoreRevert?: () => void;
+  /** True while a revert/restore request is in flight (disables the buttons). */
+  revertBusy?: boolean;
 }) {
+  // Two-phase revert display: everything at/after the boundary disappears
+  // and a small banner offers the restore (messages come back until the
+  // next prompt commits the deletion server-side).
+  const boundary = revertBoundary(active);
+  const boundaryIdx = boundary === undefined ? -1 : messages.findIndex((m) => m.id === boundary);
+  const visible = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
+  const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
+
   return (
     <main className="chat">
       <div className="messages">
-        {messages.length === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
-        {messages.map((m) => (
+        {visible.length === 0 && revertedCount === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
+        {visible.map((m) => (
           <div key={m.id} className={`message ${m.role}`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
             {m.role === "assistant" && toolCalls(m).length > 0 && (
@@ -109,8 +130,22 @@ export function ChatPane({
             )}
             {/* Assistant bodies render markdown; user input stays literal. */}
             {m.role === "assistant" ? <Markdown text={messageText(m)} /> : <p>{messageText(m)}</p>}
+            {m.role === "user" && (onForkMessage !== undefined || onRevertMessage !== undefined) && (
+              <UserMessageActions message={m} onFork={onForkMessage} onRevert={onRevertMessage} />
+            )}
           </div>
         ))}
+        {revertedCount > 0 && onRestoreRevert !== undefined && (
+          <div className="revert-banner" role="status">
+            <Undo2 size={13} aria-hidden="true" />
+            <span>
+              {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — sending a new message commits this
+            </span>
+            <button type="button" onClick={onRestoreRevert} disabled={revertBusy === true}>
+              restore
+            </button>
+          </div>
+        )}
         {waiting && (
           <div className="message assistant">
             <div className="typing" role="status" aria-label="assistant is thinking">
@@ -217,12 +252,73 @@ export function ChatPane({
 }
 
 /**
+ * Hover-revealed action row under a user message (opencode web parity):
+ * copy the prompt text, fork a new session from the earlier history, or
+ * revert to this message (undoing it, everything after it, and the file
+ * changes they made). Copy flips to a check for two seconds on success.
+ */
+function UserMessageActions({
+  message,
+  onFork,
+  onRevert,
+}: {
+  message: Message;
+  onFork?: (message: Message) => void;
+  onRevert?: (message: Message) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(messageText(message));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable (denied permission, insecure context) — no feedback to show.
+    }
+  };
+  return (
+    <div className="message-actions">
+      <button
+        type="button"
+        className="message-action"
+        onClick={() => void copy()}
+        aria-label={copied ? "copied" : "copy message"}
+        title={copied ? "Copied" : "Copy message"}
+      >
+        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+      </button>
+      {onFork !== undefined && (
+        <button
+          type="button"
+          className="message-action"
+          onClick={() => onFork(message)}
+          aria-label="fork from here"
+          title="Fork from here — new session with the earlier history, composer prefilled"
+        >
+          <GitFork size={13} aria-hidden="true" />
+        </button>
+      )}
+      {onRevert !== undefined && (
+        <button
+          type="button"
+          className="message-action"
+          onClick={() => onRevert(message)}
+          aria-label="revert to here"
+          title="Revert — undo this message, everything after it, and their file changes"
+        >
+          <Undo2 size={13} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * A reasoning transcript node (opencode parity): the model's chain of
  * thought rendered as its own collapsible block above the reply. Collapsed
  * by default; each node toggles independently; the state survives session
  * switches because the thinking parts live in the message history itself.
- */
-function ThinkingNode({ text }: { text: string }) {
+ */function ThinkingNode({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const lineCount = text.split("\n").length;
   return (

@@ -1,10 +1,12 @@
 import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
+import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import type { Mode } from "../app";
-import { buildTranscriptItems, messageText, thinkingText, type TranscriptItem } from "../state/sync";
+import { buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
+import type { PickerOption } from "../state/providers";
 import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
@@ -83,6 +85,9 @@ export function ChatView({
   onPermissionDone,
   onChildAskDone,
   onQuestionDone,
+  onForkCreated,
+  composerSeed,
+  onComposerSeedConsumed,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -131,6 +136,15 @@ export function ChatView({
   onPermissionDone?: () => void;
   onChildAskDone?: () => void;
   onQuestionDone?: () => void;
+  /**
+   * A fork just landed: App navigates to the new session and remembers the
+   * seed; the forked message's text goes into the new session's composer.
+   */
+  onForkCreated?: (session: Session, seedText: string) => void;
+  /** App-held composer seed (fork flow) — applied once the session is active. */
+  composerSeed?: { sessionId: string; text: string } | null;
+  /** Clears the seed after it has been applied (never re-applied on revisit). */
+  onComposerSeedConsumed?: () => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
@@ -191,12 +205,41 @@ export function ChatView({
   // (buildTranscriptItems — thought, each tool call, text, user message),
   // null = no focus. ctrl+j/ctrl+k step nodes; the focused node renders
   // highlighted; Enter/Space act on it (toggle thought/tool output, open
-  // the subagent dialog).
+  // the subagent dialog, open the message-actions modal on user messages).
   const [focus, setFocus] = useState<number | null>(null);
+
+  // ---- message actions + two-phase revert (opencode parity) -------------
+  // The message-actions modal (Enter/Space on a focused user message):
+  // Revert / Copy / Fork / Restore. Like the inline ask prompts it takes
+  // the composer hub's slot and owns the keyboard while open.
+  const [msgActions, setMsgActions] = useState<{ messageId: string } | null>(null);
+
+  // Two-phase revert display: everything at/after the boundary disappears
+  // and a banner at the cut offers the restore. Items and the render loop
+  // below index against the VISIBLE slice (messageIndex stays consistent).
+  const revertId = revertBoundary(session);
+  const boundaryIdx = revertId === undefined ? -1 : messages.findIndex((m) => m.id === revertId);
+  const visibleMessages = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
+  const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
 
   // The flattened node list — one focusable/clickable item per renderable
   // piece. Rebuilt per render (cheap); identities are stable per content.
-  const items = buildTranscriptItems(messages);
+  const items = buildTranscriptItems(visibleMessages);
+
+  // The banner marking the pending-revert cut is itself focusable/clickable
+  // (enter restores) — critical when the revert hid EVERY user message and
+  // the dialog is otherwise unreachable.
+  const focusItems: Array<TranscriptItem | { kind: "revert-banner" }> =
+    revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items;
+
+  // App-seeded composer text (fork flow): when the freshly forked session
+  // becomes active, its message's prompt text lands in the composer once.
+  useEffect(() => {
+    if (composerSeed === undefined || composerSeed === null) return;
+    if (composerSeed.sessionId !== session?.id) return;
+    setEditor({ text: composerSeed.text, cursor: composerSeed.text.length });
+    onComposerSeedConsumed?.();
+  }, [composerSeed, session?.id, onComposerSeedConsumed]);
 
   // ---- Continuous scroll state (terminal rows from the transcript top) ----
   const scrollRef = useRef<ScrollViewRef>(null);
@@ -217,14 +260,16 @@ export function ChatView({
 
   // Session switched → follow the new transcript from the bottom, no stale
   // pending state, focus cleared (the transcript it pointed into is gone),
-  // history traversal back to the live-draft boundary (history itself is
-  // global and survives the switch).
+  // any open message-actions modal dismissed with it, history traversal
+  // back to the live-draft boundary (history itself is global and survives
+  // the switch).
   useEffect(() => {
     followRef.current = true;
     pendingBottomRef.current = true;
     setScrollOffset(0);
     setSentPending(false);
     setFocus(null);
+    setMsgActions(null);
     resetTraversal();
   }, [session?.id]);
 
@@ -342,11 +387,11 @@ export function ChatView({
   // further steps clamp at the ends and scroll BY ROWS to reveal the target.
   const lastVisibleItem = (): number => {
     const limit = scrollOffsetRef.current + Math.max(1, viewportHeight);
-    for (let ii = items.length - 1; ii >= 0; ii--) {
+    for (let ii = focusItems.length - 1; ii >= 0; ii--) {
       const pos = scrollRef.current?.getItemPosition(ii);
       if (pos !== null && pos !== undefined && pos.top < limit) return ii;
     }
-    return Math.max(0, items.length - 1);
+    return Math.max(0, focusItems.length - 1);
   };
 
   const revealItem = (index: number): void => {
@@ -362,9 +407,9 @@ export function ChatView({
   };
 
   const stepFocus = (down: boolean): void => {
-    if (items.length === 0) return;
+    if (focusItems.length === 0) return;
     const base = focus ?? lastVisibleItem();
-    const next = moveFocus(base, items.length, down);
+    const next = moveFocus(base, focusItems.length, down);
     setFocus(next);
     revealItem(next);
   };
@@ -392,8 +437,77 @@ export function ChatView({
   /** The tracked child a tool item's task spawned (exact via title/link). */
   const resolveTaskChild = (item: Extract<TranscriptItem, { kind: "tool" }>): SubagentActivity | undefined => {
     if (item.call.name !== "task") return undefined;
-    const message = messages[item.messageIndex];
+    const message = visibleMessages[item.messageIndex];
     return findChildForTask(subagents.children, item.rawArgs, taskChildId(message, item.call.callId));
+  };
+
+  // ---- message actions (opencode's DialogMessage parity) -----------------
+  /** The message the modal is open for — looked up from the FULL history:
+      the revert boundary itself is hidden from the transcript but still known. */
+  const msgActionsMessage = msgActions !== null ? messages.find((m) => m.id === msgActions.messageId) : undefined;
+
+  /**
+   * Run a revert-family mutation, absorbing the post-interrupt busy window:
+   * the abort unwinds asynchronously, so the first request can still meet a
+   * 409 — retry briefly. Errors stay silent (submitText's precedent; the
+   * session.updated stream carries the outcome either way).
+   */
+  const runWithBusyRetry = async (fn: () => Promise<void>): Promise<void> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fn();
+        return;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (attempt < 4 && message.includes("busy")) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+        return;
+      }
+    }
+  };
+
+  const actionRevert = (message: Message): void => {
+    if (session === null) return;
+    setMsgActions(null);
+    if (runActive) void client.interrupt(session.id);
+    void runWithBusyRetry(async () => {
+      await client.revertSession(session.id, message.id);
+      // The reverted prompt returns to the composer, ready to edit & resend
+      // (opencode's setPrompt round-trip; local — no remount in between).
+      const text = messageText(message);
+      setEditor({ text, cursor: text.length });
+    });
+  };
+
+  const actionRestore = (): void => {
+    if (session === null) return;
+    setMsgActions(null);
+    void runWithBusyRetry(async () => {
+      await client.unrevertSession(session.id);
+    });
+  };
+
+  const actionFork = (message: Message): void => {
+    if (session === null) return;
+    setMsgActions(null);
+    if (runActive) void client.interrupt(session.id);
+    void runWithBusyRetry(async () => {
+      const forked = await client.forkSession(session.id, message.id);
+      // The fork excludes the message itself — its text seeds the new
+      // session's composer via the App-level seed (ChatView remounts on the
+      // switch, so the seed applies after remount, not here).
+      onForkCreated?.(forked, messageText(message));
+    });
+  };
+
+  const actionCopy = (message: Message): void => {
+    setMsgActions(null);
+    // OSC 52 — the terminal clipboard escape: honored locally and over SSH
+    // by most modern terminals, with no subprocess dependency.
+    const encoded = Buffer.from(messageText(message), "utf8").toString("base64");
+    stdout.write(`\x1b]52;c;${encoded}\x07`);
   };
 
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
@@ -449,7 +563,7 @@ export function ChatView({
       // into the hub's slot.
       if (button === 0 && mouse[4] === "M") {
         const row = Number(mouse[3]);
-        if (!askPending && rows > 3 && row === rows - footerRows - 2) {
+        if (!askPending && msgActions === null && rows > 3 && row === rows - footerRows - 2) {
           // 1-based screen column → 0-based inner content column: border
           // (1) + paddingX (1) each side.
           const col = Number(mouse[2]) - 3;
@@ -465,16 +579,18 @@ export function ChatView({
         // thought toggles, a task opens the subagent dialog, any other tool
         // toggles its inline output. Positions are exact per node (each
         // item is measured).
-        for (let ii = 0; ii < items.length; ii++) {
+        for (let ii = 0; ii < focusItems.length; ii++) {
           const pos = scrollRef.current?.getItemPosition(ii);
           if (pos === null || pos === undefined) continue;
           const gap = ii === 0 ? 0 : 1;
           const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
           const bottom = VIEWPORT_TOP_ROW + pos.top + pos.height - shownOffset;
           if (row < top || row >= bottom) continue;
-          const item = items[ii];
+          const item = focusItems[ii];
           if (item === undefined) return;
-          if (item.kind === "thought") {
+          if (item.kind === "revert-banner") {
+            actionRestore();
+          } else if (item.kind === "thought") {
             toggleThought(item.messageId);
           } else if (item.kind === "tool") {
             if (item.call.name === "task") {
@@ -493,6 +609,14 @@ export function ChatView({
     const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
     if (key.pageUp) return scrollBy(-pageRows);
     if (key.pageDown) return scrollBy(pageRows);
+
+    // The message-actions dialog owns the keyboard (its own useInput handles
+    // arrows/enter/esc/filter): everything defers except scrolling.
+    if (msgActions !== null) {
+      if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
+      if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
+      return;
+    }
 
     // An ask is pending: the inline prompt (its own useInput) owns plain
     // keys, arrows, enter/space, and — for questions and the permission
@@ -582,11 +706,16 @@ export function ChatView({
       if (ch === "\n") return stepFocus(true);
       if (ch === "i" || ch === "a") return onEnterInput();
       // Enter/Space act on the focused NODE: thought toggles, a task opens
-      // the subagent dialog, any other tool toggles its inline output;
-      // Enter falls through to INPUT mode on user/text nodes.
+      // the subagent dialog, a user message opens the message-actions modal
+      // (revert/copy/fork/restore), the revert banner restores, any other
+      // tool toggles its inline output.
       if (key.return || ch === " ") {
-        const focusedItem = focus !== null ? items[focus] : undefined;
+        const focusedItem = focus !== null ? focusItems[focus] : undefined;
         if (focusedItem !== undefined) {
+          if (focusedItem.kind === "revert-banner") {
+            actionRestore();
+            return;
+          }
           if (focusedItem.kind === "thought") {
             toggleThought(focusedItem.messageId);
             return;
@@ -597,6 +726,10 @@ export function ChatView({
             } else {
               toggleToolOutput(`${focusedItem.messageId}:${focusedItem.call.callId}`);
             }
+            return;
+          }
+          if (focusedItem.kind === "user") {
+            setMsgActions({ messageId: focusedItem.messageId });
             return;
           }
         }
@@ -680,7 +813,7 @@ export function ChatView({
     }
   });
 
-  const len = items.length;
+  const len = focusItems.length;
   // Clamp for rendering: the measured content height can lag one commit behind
   // a scroll, and the follow callbacks re-sync the state.
   const shownOffset = Math.min(scrollOffset, bottomOffset);
@@ -718,6 +851,17 @@ export function ChatView({
     model: modelLabel,
   });
 
+  // Message-actions options: Restore leads when a revert is pending (the
+  // dialog is reachable on any user message — the boundary itself is hidden).
+  const messageActionOptions: PickerOption[] = [
+    ...(revertId !== undefined
+      ? [{ value: "restore", label: "Restore reverted messages", hint: "bring back the hidden messages" }]
+      : []),
+    { value: "revert", label: "Revert to here", hint: "undo this message + everything after" },
+    { value: "copy", label: "Copy", hint: "message text to clipboard" },
+    { value: "fork", label: "Fork from here", hint: "new session with the earlier history" },
+  ];
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Continuous scroll viewport (components/scroll-view.tsx): the
@@ -744,8 +888,20 @@ export function ChatView({
         minHeight={0}
         marginBottom={1}
       >
-        {items.map((item, ii) => {
-          const m = messages[item.messageIndex];
+        {focusItems.map((item, ii) => {
+          if (item.kind === "revert-banner") {
+            // The pending-revert cut: a banner where the hidden messages
+            // were (opencode's reverted banner). Focus/click → restore.
+            return (
+              <Box key="revert-banner" marginTop={ii === 0 ? 0 : 1} flexShrink={0} {...assistantInset}>
+                <Text color={focus === ii ? "cyan" : undefined} dimColor={focus !== ii}>
+                  {focus === ii ? "❯ " : "  "}↩ {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — enter
+                  to restore
+                </Text>
+              </Box>
+            );
+          }
+          const m = visibleMessages[item.messageIndex];
           if (m === undefined) return null;
           const focused = focus === ii;
           // Per-item gap row (replaces the old container gap): rendered
@@ -959,7 +1115,26 @@ export function ChatView({
           (opencode's placement): the prompt takes this slot, the transcript
           keeps scrolling, and typing is inert — the App forces NORMAL so no
           stale INPUT state lingers. */}
-      {headPermission !== undefined ? (
+      {msgActions !== null ? (
+        // The message-actions modal (opencode's DialogMessage): takes the
+        // composer hub's slot like the inline ask prompts; its own useInput
+        // owns arrows/enter/esc/filter while the chat defers.
+        <SelectDialog
+          title="Message Actions"
+          options={messageActionOptions}
+          onPick={(value) => {
+            const message = msgActionsMessage;
+            if (message === undefined) return setMsgActions(null);
+            if (value === "revert") actionRevert(message);
+            else if (value === "copy") actionCopy(message);
+            else if (value === "fork") actionFork(message);
+            else if (value === "restore") actionRestore();
+            else setMsgActions(null);
+          }}
+          onClose={() => setMsgActions(null)}
+          emptyHint="no actions"
+        />
+      ) : headPermission !== undefined ? (
         <PermissionPrompt
           key={String(headPermission.id)} // fresh instance per ask: local latches (busy) must not outlive their request
           client={client}

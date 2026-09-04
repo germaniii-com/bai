@@ -14,6 +14,8 @@ export { ToolLoader, toolTemplate } from "./tools/loader";
 export * from "./workbench";
 export { JobQueue } from "./jobs/queue";
 export { RunCoordinator } from "./run";
+export { Snapshot, snapshotDir, type SnapshotPatch } from "./snapshot";
+export { forkedTitle, isPatchPayload, readRevert, SNAPSHOT_TOOLS } from "./revert";
 export {
   defaultTitle,
   isDefaultTitle,

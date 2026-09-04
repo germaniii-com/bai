@@ -371,6 +371,51 @@ export class BaiClient {
     return (await res.json()).session;
   }
 
+  /**
+   * Revert to a user message: it and everything after it are hidden (and
+   * hard-deleted at the next prompt) and file changes after it are rolled
+   * back. Returns the session carrying `meta.revert` (the boundary).
+   */
+  async revertSession(id: string, messageId: string): Promise<Session> {
+    const res = await this.rpc().session[":id"].revert.$post({
+      param: { id: encodeURIComponent(id) },
+      json: { messageId },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `revert session failed: ${res.status}`);
+    }
+    return (await res.json()).session;
+  }
+
+  /** Undo a revert: restore the snapshot and bring the hidden messages back. */
+  async unrevertSession(id: string): Promise<Session> {
+    const res = await this.rpc().session[":id"].unrevert.$post({
+      param: { id: encodeURIComponent(id) },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `unrevert session failed: ${res.status}`);
+    }
+    return (await res.json()).session;
+  }
+
+  /**
+   * Fork at a message: a new session with everything BEFORE it (all messages
+   * when omitted); surfaces seed the composer with the message's text.
+   */
+  async forkSession(id: string, messageId?: string): Promise<Session> {
+    const res = await this.rpc().session[":id"].fork.$post({
+      param: { id: encodeURIComponent(id) },
+      json: messageId !== undefined ? { messageId } : {},
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `fork session failed: ${res.status}`);
+    }
+    return (await res.json()).session;
+  }
+
   async enqueueJob(body: EnqueueJobBody): Promise<Job> {
     const res = await this.rpc().job.$post({ json: body });
     if (!res.ok) throw new Error(`enqueue job failed: ${res.status}`);

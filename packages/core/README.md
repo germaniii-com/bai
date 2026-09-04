@@ -14,12 +14,21 @@ top-level packages — see [Submodules](#submodules) below.
 - Durable input admission: every prompt becomes an inbox row before any model
   call (crash-safe by construction).
 - Message/part assembly from provider stream events.
+- Two-phase revert & fork (opencode parity): `revertSession` hides a user
+  message and everything after it — rolling files back via the shadow-repo
+  snapshots (`src/snapshot.ts`) — until restored or committed by the next
+  prompt; `forkSession` copies the history before a message into a new
+  session with fresh ids.
 
 ### Run coordinator
 - One drain per session (process-global `Map` keyed by session ID); different
   sessions run concurrently.
 - Drain loop: promote eligible inputs → provider turn (via `provider`) →
   execute tool calls → append results → repeat until idle or interrupted.
+  Mutating batches (`bash`, `fs.write/fs.edit`, `task`) record a `patch`
+  part (shadow-repo tree + changed files) for revert's file rollback.
+- Pending reverts commit at prompt admission: the hidden tail is
+  hard-deleted (emitting `message.removed`) before the new user message.
 - Steering semantics: mid-run prompts promote at the next safe boundary;
   `queue` inputs wait for idle. Interrupt cancels the drain's
   `AbortController`; unpromoted inputs stay queued.

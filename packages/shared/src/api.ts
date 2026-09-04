@@ -18,6 +18,20 @@ export const renameSessionSchema = z.object({
   title: z.string().min(1).max(200),
 });
 
+/**
+ * POST /api/session/:id/revert — revert to a USER message: it and everything
+ * after it are hidden (hard-deleted at the next prompt admission) and file
+ * changes made after it are rolled back via the shadow-repo snapshot.
+ */
+export const revertSessionSchema = z.object({
+  messageId: z.string().min(1),
+});
+
+/** POST /api/session/:id/fork — copy history before messageId (all if omitted) into a new session. */
+export const forkSessionSchema = z.object({
+  messageId: z.string().min(1).optional(),
+});
+
 /** POST /api/session/:id/message */
 export const promptPayloadSchema = z.object({
   text: z.string().min(1).max(1_000_000),
@@ -75,3 +89,5 @@ export type PromptPayloadBody = z.infer<typeof promptPayloadSchema>;
 export type PermissionReplyBody = z.infer<typeof permissionReplySchema>;
 export type EnqueueJobBody = z.infer<typeof enqueueJobSchema>;
 export type RenameSessionBody = z.infer<typeof renameSessionSchema>;
+export type RevertSessionBody = z.infer<typeof revertSessionSchema>;
+export type ForkSessionBody = z.infer<typeof forkSessionSchema>;

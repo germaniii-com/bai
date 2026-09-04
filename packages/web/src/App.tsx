@@ -415,6 +415,67 @@ export function App() {
     }
   };
 
+  // --- per-user-message actions (revert / fork, opencode parity) ----------
+  const [revertBusy, setRevertBusy] = useState(false);
+
+  /**
+   * Run a revert-family mutation, absorbing the post-interrupt busy window:
+   * a running drain aborts asynchronously, so the first request can still
+   * meet the 409 — retry briefly before surfacing the error.
+   */
+  const withBusyRetry = async (fn: () => Promise<void>): Promise<void> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fn();
+        return;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (attempt < 4 && message.includes("busy")) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+        setError(message);
+        return;
+      }
+    }
+  };
+
+  /** Revert to a user message: hide it + everything after, roll back files, and put its text back into the composer. */
+  const revertToMessage = (m: Message): void => {
+    if (active === null || revertBusy) return;
+    setRevertBusy(true);
+    setError(null);
+    if (runActive) void client.interrupt(active.id);
+    void withBusyRetry(async () => {
+      setActive(await client.revertSession(active.id, m.id));
+      setDraft(messageText(m));
+    }).finally(() => setRevertBusy(false));
+  };
+
+  /** Fork at a message: switch to the new session, composer seeded with the message text. */
+  const forkAtMessage = (m: Message): void => {
+    if (active === null || revertBusy) return;
+    setRevertBusy(true);
+    setError(null);
+    if (runActive) void client.interrupt(active.id);
+    void withBusyRetry(async () => {
+      const forked = await client.forkSession(active.id, m.id);
+      setDraft(messageText(m));
+      setActive(forked);
+      void refreshSessions();
+    }).finally(() => setRevertBusy(false));
+  };
+
+  /** Undo a pending revert: the hidden messages reappear (they were never deleted). */
+  const restoreRevert = (): void => {
+    if (active === null || revertBusy) return;
+    setRevertBusy(true);
+    setError(null);
+    void withBusyRetry(async () => {
+      setActive(await client.unrevertSession(active.id));
+    }).finally(() => setRevertBusy(false));
+  };
+
   // The ask panel lives inside ChatPane — visible in the chat section and
   // in an engaged workspace; everywhere else the nav badge carries the
   // count so a blocked run is never invisible.
@@ -646,6 +707,10 @@ export function App() {
             startPlaceholder={
               section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
             }
+            onForkMessage={forkAtMessage}
+            onRevertMessage={revertToMessage}
+            onRestoreRevert={restoreRevert}
+            revertBusy={revertBusy}
           />
           {section === "workspace" && effectiveWorkspacePath !== null && (
             <FileTree client={client} root={effectiveWorkspacePath} />

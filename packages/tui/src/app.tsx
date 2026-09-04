@@ -66,6 +66,10 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
+  // Composer seed for the fork flow: the forked message's text lands in the
+  // new session's composer once it becomes active (ChatView applies it on
+  // mount and calls onComposerSeedConsumed — never re-applied on revisit).
+  const [composerSeed, setComposerSeed] = useState<{ sessionId: string; text: string } | null>(null);
   // Pending permission asks for the active session (queue — normally one).
   // Set by permission.asked events / the snapshot's pendingPermissions;
   // cleared by permission.replied. Rendered INLINE in the chat view (the
@@ -513,6 +517,13 @@ export function App({ client }: { client: BaiClient; version: string }) {
                   setActive(s);
                   void refreshSessions();
                 }}
+                onForkCreated={(s, seedText) => {
+                  setComposerSeed({ sessionId: s.id, text: seedText });
+                  setActive(s);
+                  void refreshSessions();
+                }}
+                composerSeed={composerSeed}
+                onComposerSeedConsumed={() => setComposerSeed(null)}
                 onOpenSubagent={openSubagentDialog}
                 onOpenModels={openModelsDialog}
                 onOpenAgents={openAgentsDialog}

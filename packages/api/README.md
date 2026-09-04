@@ -16,6 +16,9 @@ GET    /api/session/:id
 GET    /api/session/:id/message         history
 POST   /api/session/:id/message         submit prompt (durable admit + wake)
 POST   /api/session/:id/interrupt
+POST   /api/session/:id/revert          two-phase revert (hide tail + roll back files)
+POST   /api/session/:id/unrevert        restore a pending revert
+POST   /api/session/:id/fork            new session with the history before a message
 GET    /api/session/:id/event?after=N   durable SSE stream (replay-then-live)
 GET    /api/event                       global live SSE firehose
 POST   /api/permission/:id/reply        first reply wins

@@ -40,12 +40,12 @@ export class MessagesRepo {
 
   /** Full history for a session, oldest first, parts attached. */
   history(sessionId: SessionId): Message[] {
-    const msgRows = q<MessageRow>(this.db, 
+    const msgRows = q<MessageRow>(this.db,
         "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at, id",
       )
       .all(sessionId);
     if (msgRows.length === 0) return [];
-    const partRows = q<PartRow>(this.db, 
+    const partRows = q<PartRow>(this.db,
         `SELECT p.* FROM parts p JOIN messages m ON m.id = p.message_id
          WHERE m.session_id = ? ORDER BY p.ord, p.id`,
       )
@@ -63,6 +63,62 @@ export class MessagesRepo {
       createdAt: row.created_at,
       parts: byMessage.get(row.id) ?? [],
     }));
+  }
+
+  /**
+   * Hard-delete the boundary message and everything after it (created_at, id
+   * order), parts included — the revert-cleanup primitive. Returns the removed
+   * message ids, oldest first; unknown boundary → nothing removed.
+   */
+  removeFrom(sessionId: SessionId, messageId: MessageId): MessageId[] {
+    return this.db.transaction(() => {
+      const rows = q<{ id: string }>(
+        this.db,
+        "SELECT id FROM messages WHERE session_id = ? ORDER BY created_at, id",
+      ).all(sessionId);
+      const idx = rows.findIndex((r) => r.id === messageId);
+      if (idx < 0) return [];
+      const doomed = rows.slice(idx).map((r) => r.id);
+      for (const id of doomed) {
+        // Parts first — no ON DELETE CASCADE on the schema.
+        this.db.query("DELETE FROM parts WHERE message_id = ?").run(id);
+        this.db.query("DELETE FROM messages WHERE id = ? AND session_id = ?").run(id, sessionId);
+      }
+      return doomed as MessageId[];
+    })();
+  }
+
+  /**
+   * Copy messages strictly before `uptoMessageId` (ALL messages when omitted
+   * or not found — opencode's fork semantics) from one session into another
+   * with FRESH ids — the fork primitive. Ordering (created_at), roles and
+   * parts (ord/kind/payload) are preserved verbatim; returns old → new
+   * message id.
+   */
+  copyRange(
+    fromSessionId: SessionId,
+    toSessionId: SessionId,
+    uptoMessageId?: MessageId,
+  ): Map<MessageId, MessageId> {
+    return this.db.transaction(() => {
+      const source = this.history(fromSessionId);
+      const idx = uptoMessageId === undefined ? -1 : source.findIndex((m) => m.id === uptoMessageId);
+      const slice = idx < 0 ? source : source.slice(0, idx);
+      const idMap = new Map<MessageId, MessageId>();
+      for (const msg of slice) {
+        const id = newId.message();
+        idMap.set(msg.id, id);
+        this.db
+          .query("INSERT INTO messages (id, session_id, role, created_at) VALUES (?, ?, ?, ?)")
+          .run(id, toSessionId, msg.role, msg.createdAt);
+        for (const part of msg.parts) {
+          this.db
+            .query("INSERT INTO parts (id, message_id, ord, kind, payload) VALUES (?, ?, ?, ?, ?)")
+            .run(newId.part(), id, part.ord, part.kind, JSON.stringify(part.payload ?? null));
+        }
+      }
+      return idMap;
+    })();
   }
 }
 

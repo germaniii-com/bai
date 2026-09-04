@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AskOutcome, Event, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, SessionId } from "@bai/shared";
+import type { AskOutcome, Event, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list. */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -46,6 +46,12 @@ export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt
       );
       return;
     }
+    case "message.removed": {
+      // Revert cleanup hard-deleted the tail — drop it from the transcript.
+      const { messageId } = evt.payload;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      return;
+    }
     default:
       return;
   }
@@ -87,6 +93,18 @@ export function messageText(message: Message): string {
   return message.parts
     .map((p) => (p.kind === "text" ? ((p.payload as { text?: string } | null)?.text ?? "") : ""))
     .join("");
+}
+
+/**
+ * The pending two-phase revert boundary of a session (`meta.revert.messageId`)
+ * when one exists — the transcript hides that message and everything after it
+ * until restore or the next prompt commits the deletion.
+ */
+export function revertBoundary(session: Session | null): string | undefined {
+  const revert = session?.meta.revert;
+  if (revert === null || typeof revert !== "object") return undefined;
+  const messageId = (revert as { messageId?: unknown }).messageId;
+  return typeof messageId === "string" ? messageId : undefined;
 }
 
 /**

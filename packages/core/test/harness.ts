@@ -11,6 +11,7 @@ import {
   JobQueue,
   ProviderRegistry,
   Service,
+  Snapshot,
   Store,
   ToolLoader,
   ToolRegistry,
@@ -88,6 +89,9 @@ export function makeCore(): TestCore {
     config: testConfig,
     version: "test",
     plansDir: join(dir, "plans"),
+    // Shadow-repo snapshots (revert's file rollback) — under the throwaway
+    // data dir; sessions without a cwd never touch it.
+    snapshot: new Snapshot(join(dir, "snapshot")),
   });
   return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents };
 }
