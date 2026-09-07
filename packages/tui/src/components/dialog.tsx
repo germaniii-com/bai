@@ -156,7 +156,7 @@ export function SelectDialog({
   ];
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
       <Text bold color={t.accent}>
         {title}
       </Text>
@@ -239,7 +239,7 @@ export function PromptDialog({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
       <Text bold color={t.accent}>
         {title}
       </Text>

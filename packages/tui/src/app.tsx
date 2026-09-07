@@ -57,7 +57,7 @@ type DialogOpen =
  * prop contract (CLI plumbing) but has no header to render on anymore.
  */
 export function App({ client }: { client: BaiClient; version: string }) {
-  const { rows } = useWindowSize();
+  const { columns, rows } = useWindowSize();
   const { exit } = useApp();
   const [view, setView] = useState<UiState>("chat");
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -474,11 +474,19 @@ export function App({ client }: { client: BaiClient; version: string }) {
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
     // composer/footer stay pinned to the bottom regardless of content size.
-    // No header: the composer hub (chat view) is the single source of
-    // context — session/workspace info, mode, agent, model, and the command
-    // hints all live in its status/commands rows.
+    // The root paints the theme's surface across the WHOLE terminal
+    // (opencode's renderer.setBackgroundColor parity — Ink fills a fixed
+    // size box's area before its children render), so a theme looks the
+    // same on every terminal. No header: the composer hub (chat view) is
+    // the single source of context — session/workspace info, mode, agent,
+    // model, and the command hints all live in its status/commands rows.
     <ThemeProvider theme={theme}>
-    <Box flexDirection="column" height={rows > 0 ? rows : undefined}>
+    <Box
+      flexDirection="column"
+      width={columns > 0 ? columns : undefined}
+      height={rows > 0 ? rows : undefined}
+      backgroundColor={theme.background}
+    >
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         {dialog !== null && dialog.kind === "sessions" ? (
           // Session picker dialog (ctrl+s): pick → open the session and

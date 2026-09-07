@@ -368,8 +368,10 @@ and user-defined themes as plain JSON files.
 
 - The catalog is shared data (`shared/src/themes.ts`) — the web's
   `[data-theme]` CSS blocks are pinned to it by a unit test, and the TUI
-  resolves the same palettes to Ink foreground colors (foregrounds only —
-  the terminal owns the background)
+  resolves the same palettes to Ink colors. The TUI paints the theme's
+  surface across the whole terminal (opencode's
+  `renderer.setBackgroundColor` parity), so a theme looks identical
+  everywhere instead of blending with the terminal's own palette
 - Custom themes ride `GET/PUT/DELETE /api/theme/custom`
   (`api/src/server/themes.ts`, atomic writes, strict filename-slug ids);
   the web applies them as inline CSS variables (no static CSS block

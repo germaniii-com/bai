@@ -90,15 +90,15 @@ export function PermissionDialog({
   const t = useTheme();
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} borderBackgroundColor={t.background} paddingX={1}>
       <Text bold color={t.warning}>
         permission requested
       </Text>
       {context !== undefined && <Text color={t.secondary}>{context}</Text>}
-      <Text>
+      <Text color={t.text}>
         tool: <Text bold>{request.tool}</Text>
       </Text>
-      {detail?.summary !== undefined && <Text wrap="wrap">{detail.summary}</Text>}
+      {detail?.summary !== undefined && <Text wrap="wrap" color={t.text}>{detail.summary}</Text>}
 
       {diffLines.length > 0 && (
         <Box flexDirection="column" marginTop={0}>

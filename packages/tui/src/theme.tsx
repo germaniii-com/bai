@@ -3,15 +3,17 @@ import { THEME_COLORS, resolveThemeId, type CustomTheme, type ThemeColors, type 
 
 /**
  * The TUI's theme: an Ink-facing palette derived from the shared theme
- * catalog (shared/src/themes.ts). Foregrounds only — the terminal owns the
- * background (transparency/theme respect), so surface colors never apply
- * here. Ink maps hex values to the nearest terminal color.
+ * catalog (shared/src/themes.ts). Ink maps hex values to the nearest
+ * terminal color.
  *
  * Roles mirror the hardcoded ANSI colors they replace:
  * accent (was cyan) highlights focus/titles, success (was green) marks
  * done/add/apply, warning (was yellow) badges and arming hints, danger
  * (was red) errors, secondary (was magenta) diff context and chips, dim
- * (was dimColor) muted text, border boxes.
+ * (was dimColor) muted text, border boxes. `background` is the theme's
+ * surface — the App paints it across the whole terminal (opencode's
+ * renderer.setBackgroundColor parity), so themes look the same everywhere
+ * instead of blending with whatever terminal palette is underneath.
  */
 export interface TuiTheme {
   id: ThemeId;
@@ -23,6 +25,8 @@ export interface TuiTheme {
   warning: string;
   danger: string;
   secondary: string;
+  /** Full-terminal background (the theme's surface color). */
+  background: string;
   // Markdown element roles (components/markdown.tsx) — the opencode-style
   // treatment, now driven by the active theme instead of one hardcoded
   // dark palette.
@@ -71,6 +75,7 @@ export function tuiTheme(id: string | undefined): TuiTheme {
     warning: c.warning,
     danger: c.danger,
     secondary: c.secondary,
+    background: c.surface,
     mdHeading: c.accent,
     mdStrong: c.warning,
     mdEmph: c.warning,

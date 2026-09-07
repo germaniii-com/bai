@@ -101,7 +101,7 @@ export function PermissionPrompt({
   const t = useTheme();
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} paddingX={1} flexShrink={0}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
       <Text wrap="truncate">
         <Text bold color={t.warning}>
           △ permission requested
@@ -109,10 +109,10 @@ export function PermissionPrompt({
         {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
       </Text>
       {context !== undefined && <Text color={t.secondary} wrap="truncate">{context}</Text>}
-      <Text wrap="truncate">
+      <Text wrap="truncate" color={t.text}>
         tool: <Text bold>{request.tool}</Text>
       </Text>
-      {detail?.summary !== undefined && <Text wrap="wrap">{detail.summary}</Text>}
+      {detail?.summary !== undefined && <Text wrap="wrap" color={t.text}>{detail.summary}</Text>}
 
       {diffLines.length > 0 && (
         <Box flexDirection="column" marginTop={0}>

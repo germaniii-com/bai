@@ -233,7 +233,7 @@ export function SubagentDialog({
 
   if (current === undefined) {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
         <Text bold color={t.accent}>subagent</Text>
         <Text color={t.dim}>no subagents yet</Text>
         <Text color={t.dim}>↑/esc back</Text>
@@ -248,7 +248,7 @@ export function SubagentDialog({
       : { glyph: "✓", text: "done", color: t.success };
 
   return (
-    <Box flexDirection="column" height={rows > 0 ? rows : undefined} borderStyle="round" borderColor={t.border} paddingX={1}>
+    <Box flexDirection="column" height={rows > 0 ? rows : undefined} borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
       <Text wrap="truncate">
         <Text bold color={t.accent}>subagent </Text>
         <Text color={t.warning}>@{current.agent}</Text>
@@ -327,7 +327,7 @@ export function SubagentDialog({
                     <Text color={focused ? t.accent : t.text}>
                       {c.name}
                     </Text>
-                    {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                    {c.argsPreview.length > 0 && <Text color={t.text}> {c.argsPreview}</Text>}
                     {c.result !== undefined && c.result.isError && <Text color={t.danger}> · failed</Text>}
                     {c.result !== undefined && focused && (
                       <Text color={t.dim}> · space to {expanded ? "hide" : "view"} output</Text>

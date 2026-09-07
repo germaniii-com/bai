@@ -193,8 +193,8 @@ export function AgentManager({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" paddingX={1}>
-      <Text bold>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
+      <Text bold color={t.text}>
         agents &amp; tools <Text color={t.dim}>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
       </Text>
       {/* Sliding window around the cursor — long agent/tool lists scroll

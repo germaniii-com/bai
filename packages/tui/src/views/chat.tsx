@@ -906,10 +906,11 @@ export function ChatView({
                   // Neutral outline at rest; the accent is reserved for the
                   // focus highlight so it stands out.
                   borderColor={focused ? t.accent : t.border}
+                  borderBackgroundColor={t.background}
                   paddingX={1}
                   flexShrink={0}
                 >
-                  <Text wrap="wrap" bold={focused}>
+                  <Text wrap="wrap" color={t.text} bold={focused}>
                     {messageText(m)}
                   </Text>
                 </Box>
@@ -1002,7 +1003,7 @@ export function ChatView({
                     <Text color={focused ? t.accent : t.text}>
                       {c.name}
                     </Text>
-                    {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
+                    {c.argsPreview.length > 0 && <Text color={t.text}> {c.argsPreview}</Text>}
                     {permVerdict !== undefined && <Text color={t.dim}> · {permVerdict}</Text>}
                     {c.result !== undefined && c.result.isError && <Text color={t.danger}> · denied/failed</Text>}
                     {c.result !== undefined && focused && (

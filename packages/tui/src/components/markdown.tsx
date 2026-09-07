@@ -160,7 +160,9 @@ function renderBlocks(
             : textOf(token);
         return [
           <Box key={key} marginTop={mt} flexShrink={0}>
-            <Text wrap="wrap" color={baseColor} dimColor={dim}>
+            {/* The painted theme background makes the terminal's default
+                foreground unreliable — plain text always gets theme text. */}
+            <Text wrap="wrap" color={baseColor ?? t.text} dimColor={dim}>
               {content}
             </Text>
           </Box>,
@@ -169,9 +171,9 @@ function renderBlocks(
       case "code": {
         const code = token as Tokens.Code;
         return [
-          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="round" borderColor={t.dim} paddingX={1}>
+          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="round" borderColor={t.dim} borderBackgroundColor={t.background} paddingX={1}>
             {code.lang !== undefined && code.lang.length > 0 && <Text color={t.dim}>{code.lang}</Text>}
-            <Text wrap="wrap">{code.text.replace(/\n$/, "")}</Text>
+            <Text wrap="wrap" color={t.text}>{code.text.replace(/\n$/, "")}</Text>
           </Box>,
         ];
       }
@@ -188,6 +190,7 @@ function renderBlocks(
             borderBottom={false}
             borderRight={false}
             borderColor={t.dim}
+            borderBackgroundColor={t.background}
             paddingLeft={1}
           >
             {renderBlocks(quote.tokens ?? [], key, dim, t.mdQuote, false, t)}
@@ -212,7 +215,7 @@ function renderBlocks(
         if (raw.length === 0) return [];
         return [
           <Box key={key} marginTop={mt} flexShrink={0}>
-            <Text wrap="wrap" dimColor={dim}>
+            <Text wrap="wrap" color={t.text} dimColor={dim}>
               {raw}
             </Text>
           </Box>,
@@ -280,7 +283,7 @@ function renderTable(table: Tokens.Table, key: string, dim: boolean, marginTop: 
         {"─".repeat(total)}
       </Text>
       {table.rows.map((row, i) => (
-        <Text key={`${key}:r${i}`} dimColor={dim} wrap="truncate">
+        <Text key={`${key}:r${i}`} color={t.text} dimColor={dim} wrap="truncate">
           {line(row)}
         </Text>
       ))}

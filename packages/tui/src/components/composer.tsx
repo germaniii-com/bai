@@ -52,6 +52,7 @@ export function ComposerHub({
       flexDirection="column"
       borderStyle="round"
       borderColor={mode === "input" ? t.success : t.border}
+      borderBackgroundColor={t.background}
       paddingX={1}
     >
       {/* Row 1 — the draft. INPUT keeps the green border and › prompt; ▌
@@ -59,7 +60,7 @@ export function ComposerHub({
           NORMAL dims to `:` (vim ex-mode); busy/esc hints ride the line. */}
       <Text>
         <Text color={t.secondary}>{mode === "input" ? "› " : ": "}</Text>
-        <Text>
+        <Text color={t.text}>
           {editor.text.slice(0, editor.cursor)}
           {mode === "input" && <Text color={t.dim}>▌</Text>}
           {editor.text.slice(editor.cursor)}

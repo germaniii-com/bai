@@ -158,14 +158,14 @@ export function QuestionPrompt({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1} flexShrink={0}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
       <Text wrap="truncate">
         <Text bold color={t.accent}>
           △ question{total > 1 ? ` (${ui.qIndex + 1}/${total})` : ""} · {q.header}
         </Text>
         {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
       </Text>
-      <Text wrap="wrap">{q.question}</Text>
+      <Text wrap="wrap" color={t.text}>{q.question}</Text>
       {q.options.map((opt, i) => {
         const picked = selected.includes(opt.label);
         const cursor = ui.custom === null && i === ui.highlight ? "❯ " : "  ";
