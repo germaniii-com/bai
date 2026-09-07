@@ -46,6 +46,9 @@ export class EchoProvider implements Provider {
       for (const chunk of chunks) {
         yield { type: "text_delta", delta: chunk };
       }
+      // Fixed usage so the analytics pipeline (usage rows, cost rates) is
+      // exercisable end-to-end without network credentials.
+      yield { type: "usage", inputTokens: 10, outputTokens: 5 };
       yield { type: "done", stopReason: "end_turn" };
     }
 
@@ -70,6 +73,7 @@ export class EchoProvider implements Provider {
     if (blocks.some((b) => b.type === "tool_result")) {
       // Second turn: the fs.write result came back — end the run.
       events.push({ type: "text_delta", delta: "Wrote the file." });
+      events.push({ type: "usage", inputTokens: 10, outputTokens: 5 });
       events.push({ type: "done", stopReason: "end_turn" });
     } else {
       const text =
@@ -97,6 +101,7 @@ export class EchoProvider implements Provider {
         for (const chunk of chunkForStream(`Echo: ${text}`)) {
           events.push({ type: "text_delta", delta: chunk });
         }
+        events.push({ type: "usage", inputTokens: 10, outputTokens: 5 });
         events.push({ type: "done", stopReason: "end_turn" });
       }
     }

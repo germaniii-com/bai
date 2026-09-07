@@ -4,6 +4,8 @@ import type { CatalogProvider, CatalogService } from "./catalog";
 import { WELL_KNOWN_BASE_URLS } from "./catalog";
 import type { AuthStore, SetAccountInput } from "./auth-store";
 import type { LlmRequest, Provider, ProviderStream } from "./types";
+import type { UsageRates } from "../store/usage";
+import { ZERO_RATES } from "../store/usage";
 import { EchoProvider } from "./stub";
 import { pickSmallModel } from "../title";
 
@@ -258,6 +260,30 @@ export class ProviderRegistry {
       supportsTools: false,
     }));
     return pickSmallModel(models);
+  }
+
+  /**
+   * Effective usage rates (USD per 1M tokens) for a model — the usage
+   * recorder's per-row snapshot (D26). The catalog's base input/output price
+   * is multiplied by how each vendor bills cache tokens: Anthropic reads
+   * 0.1×, 5m writes 1.25×, 1h writes 2×; OpenAI-shaped providers read 0.5×
+   * and don't separately price writes. Models without published pricing get
+   * zero rates — token counts remain the source of truth, spend shows 0.
+   */
+  async usageRates(providerId: string, model: string): Promise<UsageRates> {
+    const entry = await this.deps.catalog.get(providerId);
+    const info = entry?.models.find((m) => m.id === model);
+    const input = info?.inputCost;
+    const output = info?.outputCost;
+    if (input === undefined && output === undefined) return ZERO_RATES;
+    const anthropic = entry !== undefined && adapterNameFor(entry) === "anthropic";
+    return {
+      input: input ?? 0,
+      output: output ?? 0,
+      cacheRead: (input ?? 0) * (anthropic ? 0.1 : 0.5),
+      cacheWrite: (input ?? 0) * (anthropic ? 1.25 : 0),
+      cacheWrite1h: (input ?? 0) * (anthropic ? 2 : 0),
+    };
   }
 
   /** GET /api/provider payload. */

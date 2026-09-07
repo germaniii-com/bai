@@ -37,7 +37,8 @@ export type Route =
     }
   | { section: "settings"; settingsSection: RouteSettingsSection }
   | { section: "agents"; name: string | null; creating: boolean }
-  | { section: "tools"; name: string | null; creating: boolean };
+  | { section: "tools"; name: string | null; creating: boolean }
+  | { section: "analytics" };
 
 /**
  * Opaque URL slug for a workspace path: base64url (URL-safe alphabet, no
@@ -113,6 +114,9 @@ export function parseRoute(pathname: string, search: string): Route {
       if (next === "new") return { section: head, name: null, creating: true };
       return { section: head, name: next, creating: false };
     }
+    case "analytics":
+      // /analytics — a single page, no sub-state.
+      return { section: "analytics" };
     default:
       // "/", unknown paths — the chat draft is the app's home.
       return { section: "chat", sessionId: null };
@@ -143,5 +147,7 @@ export function routeToPath(route: Route): string {
       return route.name !== null
         ? `/${route.section}/${encodeURIComponent(route.name)}`
         : `/${route.section}`;
+    case "analytics":
+      return "/analytics";
   }
 }

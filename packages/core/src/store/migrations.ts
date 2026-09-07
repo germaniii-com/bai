@@ -91,4 +91,41 @@ export const MIGRATIONS: string[] = [
   `,
   // 002 — permission asks carry renderable detail (summary/diff, see AskDetail)
   `ALTER TABLE permissions ADD COLUMN detail TEXT;`,
+  // 003 — per-request LLM usage analytics (D26). One row per provider call
+  // (kind: run | title | compaction) with token counts and the EFFECTIVE
+  // per-component rates (USD per 1M tokens) snapshotted at insert time —
+  // dollars are computed at fetch time as Σ(tokens × rate) / 1e6, so
+  // history stays correct regardless of later catalog price edits.
+  `
+  CREATE TABLE IF NOT EXISTS usage (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    kind TEXT NOT NULL,
+    agent TEXT,
+    workspace TEXT,
+    provider TEXT NOT NULL,
+    account TEXT,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
+    input_rate_usd_1m REAL NOT NULL DEFAULT 0,
+    output_rate_usd_1m REAL NOT NULL DEFAULT 0,
+    cache_read_rate_usd_1m REAL NOT NULL DEFAULT 0,
+    cache_write_rate_usd_1m REAL NOT NULL DEFAULT 0,
+    cache_write_1h_rate_usd_1m REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_usage_created ON usage(created_at);
+  CREATE INDEX IF NOT EXISTS idx_usage_model ON usage(model, created_at);
+  CREATE INDEX IF NOT EXISTS idx_usage_dims ON usage(kind, agent, provider, account);
+  `,
+  // 004 — usage rows also record FAILED LLM calls (D26): the provider error
+  // message rides `error` (NULL for successful calls), so analytics can graph
+  // error volume/rate per bucket and per model. Failed rows carry zero tokens.
+  `ALTER TABLE usage ADD COLUMN error TEXT;`,
 ];

@@ -407,3 +407,14 @@ and user-defined themes as plain JSON files.
 - **Surfaces are thin** — nothing in the TUI or web app owns state; work
   started on one device continues on another because the server is the only
   truth
+- **Usage analytics** — every LLM call (agent runs, title generation,
+  compaction) records a kind-tagged row with token counts (prompt /
+  reasoning / completion, cache reads/writes) and a per-row rate snapshot;
+  dollars are computed at fetch time so history stays correct when catalog
+  prices change. Failed calls record the provider error, so the web
+  **Analytics** page (rail item under Tools) can graph errors alongside
+  volume: total spend, tokens, requests, cache hit rate, blended $/1M,
+  per-model usage tables + charts, request volume, token breakdown,
+  prompt-caching bars, and an error graph — filterable per agent, workspace,
+  provider, and account with day/month/year granularity (D26; enforced by a
+  source-scan test)

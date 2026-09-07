@@ -2420,6 +2420,163 @@ button.composer-chip:hover {
   padding: 4px 8px 10px;
 }
 
+/* --- analytics (usage KPIs + charts) ------------------------------------- */
+
+.analytics-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.analytics-filters select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  max-width: 180px;
+}
+
+.analytics-filters button {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analytics-filters button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel);
+  margin-bottom: 14px;
+}
+
+.chart-card h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.chart-card .recharts-legend-item-text {
+  color: var(--text) !important;
+  font-size: 11px;
+}
+
+.chart-tooltip {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+}
+
+.chart-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+
+.chart-tooltip-name {
+  color: var(--dim);
+  margin-right: auto;
+  padding-right: 12px;
+}
+
+.chart-tooltip-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table th {
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.usage-table td .chart-tooltip-dot {
+  margin-right: 6px;
+}
+
+.usage-errors {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 /* --- theme picker (germaniii.com's preview-card grid) -------------------- */
 
 /* Fixed wrapper centering the modal above the shared overlay. */
@@ -2839,5 +2996,21 @@ button.composer-chip:hover {
 
   .file-tree {
     display: none;
+  }
+
+  /* Analytics: filters wrap tighter; KPI grid and charts stack. */
+  .analytics-filters select {
+    flex: 1 1 140px;
+    max-width: none;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .usage-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 }

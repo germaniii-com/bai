@@ -152,9 +152,24 @@ export class AnthropicProvider implements Provider {
             yield { type: "tool_call_delta", id: currentTool.id, name: currentTool.name, argsDelta: evt.delta.partial_json };
           }
         } else if (evt.type === "message_start") {
-          yield { type: "usage", inputTokens: evt.message.usage?.input_tokens };
+          // Full prompt-side usage lands here: input tokens plus the cache
+          // split (reads = hits, creation = writes; the 1h-TTL portion is
+          // billed at a different multiple and rides its own field).
+          yield {
+            type: "usage",
+            inputTokens: evt.message.usage?.input_tokens,
+            cacheReadTokens: evt.message.usage?.cache_read_input_tokens ?? undefined,
+            cacheWriteTokens: evt.message.usage?.cache_creation_input_tokens ?? undefined,
+            cacheWrite1hTokens: evt.message.usage?.cache_creation?.ephemeral_1h_input_tokens ?? undefined,
+          };
         } else if (evt.type === "message_delta") {
-          yield { type: "usage", outputTokens: evt.usage.output_tokens };
+          yield {
+            type: "usage",
+            outputTokens: evt.usage.output_tokens,
+            // Reasoning (thinking) tokens — a subset of output, per the SDK's
+            // OutputTokensDetails; mergeUsage keeps the first defined report.
+            reasoningTokens: evt.usage.output_tokens_details?.thinking_tokens,
+          };
           yield { type: "done", stopReason: mapStopReason(evt.delta.stop_reason) };
           return;
         }

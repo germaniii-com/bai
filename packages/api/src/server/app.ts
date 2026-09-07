@@ -20,6 +20,7 @@ import {
   forkSessionSchema,
   setSessionAgentSchema,
   setSessionModelSchema,
+  usageAnalyticsQuerySchema,
   type MessageId,
   type SessionId,
 } from "@bai/shared";
@@ -417,6 +418,14 @@ function buildApi(deps: ApiDeps) {
       const asset = deps.store.assets.get(c.req.param("id"));
       if (asset === undefined) return c.json({ error: "not_found" }, 404);
       return new Response(Bun.file(asset.path), { headers: { "Content-Type": asset.mime } });
+    })
+
+    // --- usage analytics (D26) ---
+    // Read-only aggregation over the append-only usage store; dollars are
+    // computed at fetch time from each row's frozen rate snapshot.
+    .get("/usage/analytics", zValidator("query", usageAnalyticsQuerySchema), (c) => {
+      const query = c.req.valid("query");
+      return c.json(deps.store.usage.analytics(query));
     });
 }
 

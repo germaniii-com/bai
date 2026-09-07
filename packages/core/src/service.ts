@@ -112,6 +112,9 @@ export class Service {
       titleModel: () => deps.config().models.title,
       userName: () => deps.config().user?.name,
       workspaceRoots: () => deps.config().workspaces ?? [],
+      // Usage-row rate snapshots (D26): the registry derives effective
+      // USD/1M rates from the catalog (vendor cache multipliers applied).
+      usageRates: (providerId, model) => deps.providers.usageRates(providerId, model),
       ...(deps.snapshot !== undefined ? { snapshot: deps.snapshot } : {}),
     });
     for (const wb of deps.workbenches) {

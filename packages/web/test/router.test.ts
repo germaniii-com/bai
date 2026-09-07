@@ -97,6 +97,10 @@ describe("parseRoute", () => {
     expect(parseRoute("/tools/fs.read", "")).toEqual({ section: "tools", name: "fs.read", creating: false });
   });
 
+  test("analytics: single page, no sub-state", () => {
+    expect(parseRoute("/analytics", "")).toEqual({ section: "analytics" });
+  });
+
   test("trailing slashes are harmless", () => {
     expect(parseRoute("/chat/", "")).toEqual({ section: "chat", sessionId: null });
     expect(parseRoute("/settings/providers/", "")).toEqual({ section: "settings", settingsSection: "providers" });
@@ -116,6 +120,7 @@ describe("routeToPath", () => {
     roundTrip({ section: "agents", name: null, creating: true });
     roundTrip({ section: "agents", name: "coder", creating: false });
     roundTrip({ section: "tools", name: "fs.read", creating: false });
+    roundTrip({ section: "analytics" });
   });
 
   test("canonical shapes", () => {
@@ -125,6 +130,7 @@ describe("routeToPath", () => {
     expect(routeToPath({ section: "settings", settingsSection: "general" })).toBe("/settings/general");
     expect(routeToPath({ section: "agents", name: null, creating: true })).toBe("/agents/new");
     expect(routeToPath({ section: "tools", name: "fs.read", creating: false })).toBe("/tools/fs.read");
+    expect(routeToPath({ section: "analytics" })).toBe("/analytics");
   });
 
   test("workspace slug is opaque in the URL (no raw path visible)", () => {

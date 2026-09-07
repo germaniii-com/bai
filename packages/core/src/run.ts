@@ -10,7 +10,8 @@ import { readRevert, SNAPSHOT_TOOLS } from "./revert";
 import type { Snapshot } from "./snapshot";
 import type { PermissionGate } from "./permissions/ask";
 import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry";
-import type { Provider, StreamEvent, ToolDef } from "./provider/types";
+import type { Provider, ProviderStream, StreamEvent, StreamUsage, ToolDef } from "./provider/types";
+import { mergeUsage } from "./provider/types";
 import type { Store } from "./store/store";
 import type { ToolContext, ToolRegistry } from "./tools/registry";
 import { askDetailFor } from "./tools/ask-detail";
@@ -60,6 +61,12 @@ export interface RunCoordinatorDeps {
   userName(): string | undefined;
   /** Registered workspace roots — fs-tool agents get them in <env> when the session has no cwd. */
   workspaceRoots(): string[];
+  /**
+   * Effective usage rates (USD/1M) for a provider model — the usage row's
+   * rate snapshot (D26). Optional so minimal test setups can omit it; rows
+   * then record zero rates (token counts stay exact, spend shows 0).
+   */
+  usageRates?(providerId: string, model: string): Promise<{ input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number }>;
   /**
    * Shadow-repo snapshots (revert's file rollback input). Undefined → runs
    * never record patch parts and revert is message-only.
@@ -286,23 +293,43 @@ export class RunCoordinator {
       applyDiscipline(history);
       const outbound = renderOutbound(history, { system });
 
-      const stream = await run.provider.stream({
-        model: run.model,
-        messages: outbound,
-        ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
-        auth: run.auth,
-        // Reasoning models: enable extended thinking so reasoning tokens flow
-        // (chat turns; adapters skip thinking on agentic turns themselves).
-        ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
-        signal,
-      });
+      let stream: ProviderStream;
+      try {
+        stream = await run.provider.stream({
+          model: run.model,
+          messages: outbound,
+          ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+          auth: run.auth,
+          // Reasoning models: enable extended thinking so reasoning tokens flow
+          // (chat turns; adapters skip thinking on agentic turns themselves).
+          ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
+          signal,
+        });
+      } catch (err) {
+        // D26: the call failed before any tokens streamed (provider 4xx/5xx,
+        // bad model id, …) — record the failure, then propagate (wake turns
+        // it into run.finished {error}). Aborts are not failures.
+        if (!signal.aborted) {
+          this.recordLlmError({
+            sessionId,
+            kind: "run",
+            agent: run.agent.name,
+            workspace: session?.cwd ?? null,
+            providerId: run.providerId,
+            model: run.model,
+            accountId: run.credentials.accountId,
+            error: err,
+          });
+        }
+        throw err;
+      }
 
       const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());
       this.emitDurable(sessionId, "message.created", { messageId: assistant.id, role: "assistant" });
 
       let calls: ParsedCall[] = [];
       let stopReason: string | undefined;
-      let usage: { inputTokens?: number; outputTokens?: number } | undefined;
+      let usage: StreamUsage | undefined;
       try {
         const consumed = await this.consumeStream(sessionId, assistant.id, stream, toolDefs.length > 0, signal);
         calls = consumed.calls;
@@ -310,14 +337,42 @@ export class RunCoordinator {
         usage = consumed.usage;
       } catch (err) {
         // An interrupt cancels the in-flight request → the adapter's iterator
-        // throws; that's a clean stop, not a failure. Real errors propagate.
-        if (!signal.aborted) throw err;
+        // throws; that's a clean stop, not a failure. Real errors propagate
+        // (and record — D26).
+        if (!signal.aborted) {
+          this.recordLlmError({
+            sessionId,
+            kind: "run",
+            agent: run.agent.name,
+            workspace: session?.cwd ?? null,
+            providerId: run.providerId,
+            model: run.model,
+            accountId: run.credentials.accountId,
+            error: err,
+          });
+          throw err;
+        }
         break;
       } finally {
         await stream.close();
       }
 
-      if (usage?.inputTokens !== undefined) this.recordUsage(sessionId, usage);
+      if (usage?.inputTokens !== undefined) {
+        this.recordUsage(sessionId, usage);
+        // D26: every provider call records a usage row. All dimensions are
+        // in scope here — the run context (agent/provider/model/account) and
+        // the session row (workspace = cwd).
+        this.recordLlmUsage({
+          sessionId,
+          kind: "run",
+          agent: run.agent.name,
+          workspace: session?.cwd ?? null,
+          providerId: run.providerId,
+          model: run.model,
+          accountId: run.credentials.accountId,
+          usage,
+        });
+      }
 
       if (calls.length === 0 || signal.aborted) {
         // End-of-run compaction check: the recorded usage decides whether
@@ -476,6 +531,78 @@ export class RunCoordinator {
   }
 
   /**
+   * The single usage-capture choke point (D26): EVERY provider.stream() call
+   * site — run turns, title refines, compaction summaries — records one
+   * kind-tagged usage row through here. Token counts are the source of
+   * truth; the per-row rate snapshot (effective USD/1M, vendor cache
+   * multipliers applied) freezes pricing at request time so dollars are
+   * always recomputable at fetch. Best-effort: a pricing lookup failure must
+   * never break the run. `core/test/usage-capture.test.ts` enforces that new
+   * call sites route through this method.
+   */
+  private recordLlmUsage(input: {
+    sessionId: SessionId;
+    kind: "run" | "title" | "compaction";
+    /** Agent name — run rows only; background calls stay unattributed. */
+    agent?: string;
+    workspace?: string | null;
+    providerId: string;
+    model: string;
+    accountId?: string;
+    usage: StreamUsage;
+    /** Set for FAILED calls — zero tokens + the provider error message. */
+    error?: string;
+  }): void {
+    void (async () => {
+      const rates = this.deps.usageRates !== undefined
+        ? await this.deps.usageRates(input.providerId, input.model)
+        : undefined;
+      this.deps.store.usage.insert({
+        sessionId: input.sessionId,
+        kind: input.kind,
+        ...(input.agent !== undefined ? { agent: input.agent } : {}),
+        ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+        provider: input.providerId,
+        ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+        model: input.model,
+        inputTokens: input.usage.inputTokens,
+        outputTokens: input.usage.outputTokens,
+        reasoningTokens: input.usage.reasoningTokens,
+        cacheReadTokens: input.usage.cacheReadTokens,
+        cacheWriteTokens: input.usage.cacheWriteTokens,
+        cacheWrite1hTokens: input.usage.cacheWrite1hTokens,
+        ...(rates !== undefined ? { rates } : {}),
+        ...(input.error !== undefined ? { error: input.error } : {}),
+        now: this.deps.clock.iso(),
+      });
+    })().catch(() => {
+      // Analytics is advisory — never break a run over it.
+    });
+  }
+
+  /**
+   * D26 companion to `recordLlmUsage`: a FAILED provider call records a
+   * zero-token row carrying the error message — the analytics error graph's
+   * input. User aborts are not failures and never reach here.
+   */
+  private recordLlmError(input: {
+    sessionId: SessionId;
+    kind: "run" | "title" | "compaction";
+    agent?: string;
+    workspace?: string | null;
+    providerId: string;
+    model: string;
+    accountId?: string;
+    error: unknown;
+  }): void {
+    this.recordLlmUsage({
+      ...input,
+      error: input.error instanceof Error ? input.error.message : String(input.error),
+      usage: {},
+    });
+  }
+
+  /**
    * Compaction: when the last provider-reported input crosses the window
    * threshold, summarize the transcript with the small-model path and store
    * a summary pointer. Best-effort: failures leave the run untouched.
@@ -496,8 +623,11 @@ export class RunCoordinator {
     const history = this.deps.store.messages.history(sessionId);
     if (history.length < 2) return; // nothing substantial to summarize
 
+    // Hoisted for the catch: a failure AT/AFTER the stream call is a failed
+    // provider call (D26); a resolveTitleModel failure made no call.
+    let summarizer: { provider: Provider; model: string; credentials: ResolvedCredentials } | undefined;
     try {
-      const summarizer = await this.resolveTitleModel(providerId, sessionModel);
+      summarizer = await this.resolveTitleModel(providerId, sessionModel);
       const stream = await summarizer.provider.stream({
         model: summarizer.model,
         messages: [
@@ -511,13 +641,28 @@ export class RunCoordinator {
         signal: AbortSignal.timeout(COMPACT_TIMEOUT_MS),
       });
       let text = "";
+      let summaryUsage: StreamUsage | undefined;
       try {
         for await (const evt of stream) {
           if (evt.type === "text_delta") text += evt.delta;
+          else if (evt.type === "usage") summaryUsage = mergeUsage(summaryUsage, evt);
           else if (evt.type === "done") break;
         }
       } finally {
         await stream.close();
+      }
+      // D26: the compaction summarizer is a real provider call — tracked
+      // like any other (kind "compaction", unattributed to an agent, under
+      // the summarizer model actually used).
+      if (summaryUsage !== undefined && (summaryUsage.inputTokens !== undefined || summaryUsage.outputTokens !== undefined)) {
+        this.recordLlmUsage({
+          sessionId,
+          kind: "compaction",
+          providerId: summarizer.provider.name(),
+          model: summarizer.model,
+          accountId: summarizer.credentials.accountId,
+          usage: summaryUsage,
+        });
       }
       const summary = text.trim();
       if (summary.length === 0) return;
@@ -543,6 +688,18 @@ export class RunCoordinator {
       delete meta.lastUsage; // re-arm the trigger
       this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
     } catch (err) {
+      // D26: a failure at/after the stream call is a failed provider call —
+      // record it (resolveTitleModel failures made no call, so no row).
+      if (!signal.aborted && summarizer !== undefined) {
+        this.recordLlmError({
+          sessionId,
+          kind: "compaction",
+          providerId: summarizer.provider.name(),
+          model: summarizer.model,
+          accountId: summarizer.credentials.accountId,
+          error: err,
+        });
+      }
       if (!signal.aborted) console.warn(`[bai] compaction skipped: ${err instanceof Error ? err.message : err}`);
     }
   }
@@ -558,7 +715,7 @@ export class RunCoordinator {
     stream: AsyncIterable<StreamEvent>,
     toolsOffered: boolean,
     signal: AbortSignal,
-  ): Promise<{ calls: ParsedCall[]; stopReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }> {
+  ): Promise<{ calls: ParsedCall[]; stopReason?: string; usage?: StreamUsage }> {
     let ord = 0;
     let textPartId: PartId | null = null;
     let textBuffer = "";
@@ -567,7 +724,7 @@ export class RunCoordinator {
     // callId → accumulating call
     const pending = new Map<string, { name: string; args: string; partId: PartId }>();
     let stopReason: string | undefined;
-    let usage: { inputTokens?: number; outputTokens?: number } | undefined;
+    let usage: StreamUsage | undefined;
 
     const ensureTextPart = (): PartId => {
       if (textPartId === null) {
@@ -631,10 +788,7 @@ export class RunCoordinator {
           this.emitDurable(sessionId, "message.part.delta", { messageId: assistantId, partId, delta: evt.argsDelta });
         }
       } else if (evt.type === "usage") {
-        usage = {
-          inputTokens: evt.inputTokens ?? usage?.inputTokens,
-          outputTokens: evt.outputTokens ?? usage?.outputTokens,
-        };
+        usage = mergeUsage(usage, evt);
       } else if (evt.type === "done") {
         stopReason = evt.stopReason;
         break;
@@ -959,9 +1113,25 @@ export class RunCoordinator {
       });
       try {
         let text = "";
+        let usage: StreamUsage | undefined;
         for await (const evt of stream) {
           if (evt.type === "text_delta") text += evt.delta;
+          else if (evt.type === "usage") usage = mergeUsage(usage, evt);
           else if (evt.type === "done") break;
+        }
+        // D26: the title generator is a real provider call — its spend is
+        // tracked like any other (kind "title", unattributed to an agent,
+        // recorded under the title model actually used, which may differ
+        // from the session's model).
+        if (usage !== undefined && (usage.inputTokens !== undefined || usage.outputTokens !== undefined)) {
+          this.recordLlmUsage({
+            sessionId: input.sessionId,
+            kind: "title",
+            providerId: input.provider.name(),
+            model: input.model,
+            accountId: input.credentials.accountId,
+            usage,
+          });
         }
         const title = sanitizeGeneratedTitle(text);
         if (title.length === 0) return;
@@ -977,9 +1147,17 @@ export class RunCoordinator {
       } finally {
         await stream.close();
       }
-    })().catch(() => {
+    })().catch((err) => {
       // Best-effort: any failure (provider error, timeout, abort) leaves the
-      // default title in place.
+      // default title in place. D26: the failed call is still recorded.
+      this.recordLlmError({
+        sessionId: input.sessionId,
+        kind: "title",
+        providerId: input.provider.name(),
+        model: input.model,
+        accountId: input.credentials.accountId,
+        error: err,
+      });
     });
   }
 

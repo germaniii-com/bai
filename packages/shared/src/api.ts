@@ -82,6 +82,19 @@ export const putToolSchema = z.object({
   code: z.string().min(1).max(500_000),
 });
 
+/** GET /api/usage/analytics — dimension filters + time bucketing (see usage.ts). */
+export const usageAnalyticsQuerySchema = z.object({
+  from: z.string().max(40).optional(), // inclusive RFC3339 lower bound
+  to: z.string().max(40).optional(), // EXCLUSIVE upper bound
+  granularity: z.enum(["day", "month", "year"]).optional(),
+  agent: z.string().max(200).optional(),
+  workspace: z.string().max(1024).optional(),
+  provider: z.string().max(200).optional(),
+  account: z.string().max(200).optional(),
+  model: z.string().max(200).optional(),
+  kind: z.enum(["run", "title", "compaction"]).optional(),
+});
+
 export type PutToolBody = z.infer<typeof putToolSchema>;
 
 export type CreateSessionBody = z.infer<typeof createSessionSchema>;

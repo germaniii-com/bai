@@ -8,6 +8,7 @@ import { KvRepo } from "./kv";
 import { MessagesRepo, PartsRepo } from "./messages";
 import { PermissionsRepo } from "./permissions";
 import { SessionsRepo } from "./sessions";
+import { UsageRepo } from "./usage";
 
 /**
  * The only SQL-talking object in the repo. One connection, WAL, explicit
@@ -23,6 +24,7 @@ export class Store {
   readonly jobs: JobsRepo;
   readonly assets: AssetsRepo;
   readonly kv: KvRepo;
+  readonly usage: UsageRepo;
   private readonly db: SqliteDb;
 
   constructor(file: string) {
@@ -36,6 +38,7 @@ export class Store {
     this.jobs = new JobsRepo(this.db);
     this.assets = new AssetsRepo(this.db);
     this.kv = new KvRepo(this.db);
+    this.usage = new UsageRepo(this.db);
   }
 
   close(): void {

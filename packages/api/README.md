@@ -27,6 +27,8 @@ GET    /api/provider                    providers + models
 POST   /api/job                         enqueue job (media generation)
 GET    /api/job/:id
 GET    /api/asset                       list; GET /api/asset/:id/content  (bytes)
+GET    /api/usage/analytics             usage aggregation (D26): KPIs, per-model totals,
+                                        chart series; filters + day/month/year buckets
 /mcp                                    MCP stateless streamable HTTP (Phase 4)
 ```
 

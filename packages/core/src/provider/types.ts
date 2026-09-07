@@ -49,9 +49,42 @@ export type StreamEvent =
   /** Reasoning tokens (chain of thought) — rendered behind a click-to-reveal panel. */
   | { type: "thinking_delta"; delta: string }
   | { type: "tool_call_delta"; id: string; name: string; argsDelta: string }
-  | { type: "usage"; inputTokens?: number; outputTokens?: number }
+  | ({ type: "usage" } & StreamUsage)
   /** stopReason: "end_turn" | "tool_use" | "length" | "unknown" */
   | { type: "done"; stopReason?: string };
+
+/**
+ * Provider-reported token usage for one request. All fields optional —
+ * providers (and proxies) vary in what they report. Components are DISJOINT:
+ * `inputTokens` excludes cache reads/writes (adapters normalize — OpenAI's
+ * prompt_tokens includes them, Anthropic's input_tokens does not).
+ * `reasoningTokens` is a SUBSET of `outputTokens` (both vendors bill thinking
+ * inside completion output), never added on top. Cache reads are prompt
+ * tokens served from the provider's cache; cache writes are prompt tokens
+ * that created cache entries (Anthropic splits them by TTL — the 1h portion
+ * is billed at a different multiple, so it rides its own field).
+ */
+export interface StreamUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite1hTokens?: number;
+}
+
+/** Merge consecutive usage events (adapters may report input and output in
+ *  separate chunks) — later defined values win, undefined passes through. */
+export function mergeUsage(a: StreamUsage | undefined, evt: StreamUsage): StreamUsage {
+  return {
+    inputTokens: evt.inputTokens ?? a?.inputTokens,
+    outputTokens: evt.outputTokens ?? a?.outputTokens,
+    reasoningTokens: evt.reasoningTokens ?? a?.reasoningTokens,
+    cacheReadTokens: evt.cacheReadTokens ?? a?.cacheReadTokens,
+    cacheWriteTokens: evt.cacheWriteTokens ?? a?.cacheWriteTokens,
+    cacheWrite1hTokens: evt.cacheWrite1hTokens ?? a?.cacheWrite1hTokens,
+  };
+}
 
 export interface ProviderStream extends AsyncIterable<StreamEvent> {
   close(): Promise<void>;

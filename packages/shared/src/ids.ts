@@ -17,6 +17,7 @@ export type PermissionRequestId = Brand<string, "perm">;
 export type QuestionRequestId = Brand<string, "que">;
 export type JobId = Brand<string, "job">;
 export type AssetId = Brand<string, "ast">;
+export type UsageId = Brand<string, "usg">;
 
 /** 80 bits of randomness as a bigint. */
 function randomBits(): bigint {
@@ -94,5 +95,8 @@ export const newId = {
   },
   asset(): AssetId {
     return `ast_${ulid()}` as AssetId;
+  },
+  usage(): UsageId {
+    return `usg_${ulid()}` as UsageId;
   },
 };

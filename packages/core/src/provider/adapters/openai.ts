@@ -209,10 +209,31 @@ export class OpenAiCompatProvider implements Provider {
           stopReason = mapFinishReason(choice.finish_reason);
         }
         if (chunk.usage !== undefined && chunk.usage !== null) {
+          // Cache/reasoning detail rides the *_details objects; some
+          // OpenAI-compatible servers (DeepSeek) report cache hits as a
+          // non-standard top-level `prompt_cache_hit_tokens` instead.
+          const usage = chunk.usage as typeof chunk.usage & {
+            prompt_cache_hit_tokens?: unknown;
+            prompt_cache_miss_tokens?: unknown;
+          };
+          const details = usage.prompt_tokens_details;
+          const cacheRead =
+            typeof details?.cached_tokens === "number"
+              ? details.cached_tokens
+              : typeof usage.prompt_cache_hit_tokens === "number"
+                ? usage.prompt_cache_hit_tokens
+                : undefined;
+          const cacheWrite = details?.cache_write_tokens;
           yield {
             type: "usage",
-            inputTokens: chunk.usage.prompt_tokens,
-            outputTokens: chunk.usage.completion_tokens,
+            // OpenAI's prompt_tokens INCLUDES cached/written tokens (Anthropic
+            // reports them separately) — normalize to disjoint components so
+            // analytics cost math is uniform (see StreamUsage contract).
+            inputTokens: Math.max(0, usage.prompt_tokens - (cacheRead ?? 0) - (cacheWrite ?? 0)),
+            outputTokens: usage.completion_tokens,
+            reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
           };
         }
       }

@@ -268,11 +268,22 @@ permissions(id PK, session_id FK, tool, args_digest, status, rule, created_at)
 jobs(id PK, kind, session_id NULL, status, input JSON, output JSON, error, created_at, updated_at)
 assets(id PK, kind, mime, path, bytes, meta JSON, job_id NULL, created_at)
 kv(key PK, value JSON)                                        -- misc runtime state
+usage(id PK, session_id FK NULL, kind, agent NULL, workspace NULL, provider, account NULL,
+      model, input_tokens, output_tokens, reasoning_tokens NULL, cache_read_tokens,
+      cache_write_tokens, cache_write_1h_tokens, *_rate_usd_1m ×5, error NULL, created_at)
+                                                              -- append-only per-LLM-call analytics (D26)
 ```
 
 Media files live under `~/.local/share/bai/assets/<kind>/<id>.<ext>`; the DB
 holds metadata only. Numbered forward-only SQL migrations recorded in a meta
 table. All timestamps UTC RFC3339. Queries stay explicit — no ORM.
+
+The `usage` table (D26) is append-only analytics: one row per provider LLM
+call (`kind`: run | title | compaction) with token counts and the EFFECTIVE
+per-component rates (USD per 1M tokens) snapshotted at insert time. Dollars
+are computed at FETCH time as Σ(tokens × rate) / 1e6 — never denormalized —
+so history stays correct regardless of later catalog price edits and every
+$ figure is auditable down to the row.
 
 ## 8. Events & sync — the continuity mechanism
 
@@ -365,6 +376,20 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
 - **Token discipline** (render-time, transcript untouched): identical tool
   results collapse to one-line stubs; results outside the newest-10 window
   prune to summaries; errors always stay verbatim.
+- **Usage capture invariant (D26):** EVERY `provider.stream()` call site —
+  run turns, the title generator's detached refine, the compaction
+  summarizer — records one kind-tagged row in the `usage` table through
+  `RunCoordinator.recordLlmUsage` (tokens + per-row rate snapshot; see §7).
+  FAILED calls record zero tokens plus the provider error message
+  (`recordLlmError`) — user aborts are not failures. Future LLM call paths
+  (new workbenches, MCP-driven calls) must do the same:
+  `core/test/usage-capture.test.ts` scans the source and fails when a
+  call site skips capture, so analytics completeness holds by construction.
+  The web **Analytics** section (`/analytics`, rail item under Tools)
+  aggregates these rows per agent/workspace/provider/account with
+  day/month/year buckets — spend, tokens, requests, cache hit rate, blended
+  $/1M, per-model usage/volume, token breakdown, prompt-caching, and
+  error graphs.
 - **Compaction:** when provider-reported input tokens cross 75% of the
   model's window (80K floor), the small-model path summarizes the transcript
   into a structured summary (Goal/Progress/Decisions/Next Steps/Critical
@@ -689,6 +714,7 @@ TypeScript-specific decisions (D13+):
 | D23 | Custom tools as TS files, dynamically imported  | Bun imports TS natively (no jiti); files stay the source of truth; CRUD UX writes files via the API | Declarative config tools; sandboxed workers (v1) |
 | D24 | Subagents as durable child sessions (`task` tool) | Event-sourcing + multi-device inspection for free: the child is a real session with its own history, compaction, and permission gate, watchable from any surface — not a hidden in-memory transcript | pi-style child processes (no shared store/events), hermes-style thread pools (opaque to surfaces), synthetic in-memory subagents (no resume, no audit) |
 | D25 | Shadow-repo git snapshots for revert (message-only fallback) | File rollback without ever touching the project's own `.git`; alternates seeding avoids re-hashing large repos; message-only fallback keeps revert useful outside git worktrees | Snapshotting via the project repo (mutates user state); per-turn full copies (unbounded growth); deferring file revert entirely |
+| D26 | Every LLM call records usage (kind-tagged rows, per-row rate snapshot, cost computed at fetch) | Analytics completeness by construction — spend tracking can't be silently skipped (enforced by a source-scan test); rates frozen per data point keep history correct across catalog price edits; fetch-time Σ(tokens×rate) is auditable and drift-free | Deriving usage from events (lossy — no cache/reasoning fields); per-feature ad-hoc tracking; denormalized cost snapshot (drift risk) |
 
 ## 18. Glossary
 

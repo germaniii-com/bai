@@ -16,7 +16,7 @@ import type {
   Session,
   ToolListEntry,
 } from "@bai/shared";
-import type { PutAccountBody, ProviderListResponse, SetSessionModelBody } from "@bai/shared";
+import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
 import { EventMux, eventMux } from "./mux";
@@ -373,6 +373,13 @@ export class BaiClient {
   async providers(): Promise<ProviderListResponse> {
     const res = await this.rpc().provider.$get();
     if (!res.ok) throw new Error(`providers failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Usage analytics aggregation (D26) — KPIs, per-model totals, chart series. */
+  async usageAnalytics(query: UsageAnalyticsQuery = {}): Promise<UsageAnalyticsResponse> {
+    const res = await this.rpc().usage.analytics.$get({ query });
+    if (!res.ok) throw new Error(`usage analytics failed: ${res.status}`);
     return res.json();
   }
 

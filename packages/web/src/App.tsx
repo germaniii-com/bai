@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
+import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -19,6 +19,7 @@ import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
+import { AnalyticsPane } from "./analytics";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 
 /**
@@ -26,7 +27,7 @@ import { AskPanel, type PendingAsk } from "./ask-panel";
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "tools" | "image" | "video" | "settings";
+type Section = "chat" | "workspace" | "agents" | "tools" | "analytics" | "image" | "video" | "settings";
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
@@ -587,6 +588,9 @@ export function App() {
       case "tools":
         pushRoute({ section: "tools", name: effectiveToolId, creating: false });
         break;
+      case "analytics":
+        pushRoute({ section: "analytics" });
+        break;
       // Image/Video are disabled rail placeholders — never navigable (D9).
       case "image":
       case "video":
@@ -640,7 +644,9 @@ export function App() {
         ? { section: "agents", name: effectiveAgentId, creating: creatingAgent }
         : section === "tools"
           ? { section: "tools", name: effectiveToolId, creating: creatingTool }
-          : section === "workspace"
+          : section === "analytics"
+            ? { section: "analytics" }
+            : section === "workspace"
             ? {
                 section: "workspace",
                 wsPath: effectiveWorkspacePath,
@@ -960,7 +966,9 @@ export function App() {
                 ? "Agents"
                 : section === "tools"
                   ? "Tools"
-                  : "Chat"}
+                  : section === "analytics"
+                    ? "Analytics"
+                    : "Chat"}
          </div>
         {section === "chat" && (
           <>
@@ -1137,6 +1145,10 @@ export function App() {
             />
           )}
         </main>
+      ) : section === "analytics" ? (
+        <main id="main-content" className="settings-pane">
+          <AnalyticsPane client={client} themeColors={themeColors} />
+        </main>
       ) : section === "workspace" && effectiveWorkspacePath === null ? (
         <main id="main-content" className="chat">
           <p className="dim empty">Select or add a workspace to start.</p>
@@ -1275,6 +1287,9 @@ function MasterNav({
         </MasterItem>
         <MasterItem section="tools" label="Tools" active={section === "tools"} onNavigate={onNavigate}>
           <Wrench className="nav-icon" aria-hidden="true" />
+        </MasterItem>
+        <MasterItem section="analytics" label="Analytics" active={section === "analytics"} onNavigate={onNavigate}>
+          <ChartColumn className="nav-icon" aria-hidden="true" />
         </MasterItem>
       </div>
       <div className="master-spacer" />
