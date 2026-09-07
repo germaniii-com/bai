@@ -1242,12 +1242,14 @@ function readQuestionsMeta(value: unknown): { questions?: QuestionReview[] } {
 
 /**
  * Stop consuming the moment the run is interrupted — regardless of whether
- * the provider's HTTP layer honors the signal. Bun's fetch (as of 1.3) does
- * not cancel a streaming body after the headers arrive, so waiting for the
- * next chunk would hold the drain hostage until the provider finishes; the
- * race makes the stop instant. The abandoned `next()` settles later and its
- * value is dropped; `stream.close()` in the caller's finally releases what
- * the runtime can release (and cancels upstream on runtimes that support it).
+ * the provider's HTTP layer honors the signal. Bun's fetch on 1.3.x does
+ * not cancel a streaming body after the headers arrive (fixed in 1.4.0 —
+ * oven-sh/bun#32578), so waiting for the next chunk would hold the drain
+ * hostage until the provider finishes; the race makes the stop instant and
+ * runtime-independent. The abandoned `next()` settles later and its value
+ * is dropped; `stream.close()` in the caller's finally releases what the
+ * runtime can release (and cancels upstream on runtimes that support it —
+ * Bun ≥ 1.4 and Node do, so the provider stops generating and billing).
  */
 async function* raceSignal<T>(stream: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
   const iterator = stream[Symbol.asyncIterator]();

@@ -354,6 +354,15 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
 
 - **One drain per session** (process-global `Map` keyed by session ID);
   different sessions run concurrently. Joins/coalesces wakes.
+- **Interrupts cancel the in-flight provider request** (`run.ts`): the
+  drain's AbortSignal rides `LlmRequest` into both adapters (SDK `signal`
+  option + `stream.close()` in the finally), and `raceSignal` stops
+  consuming instantly on every runtime. Whether the HTTP connection itself
+  tears down is runtime behavior: **Bun ≥ 1.4.0 cancels upstream**
+  (fetch-abort socket teardown, oven-sh/bun#32578) so the provider stops
+  generating and billing; on 1.3.x the request lingers server-side until
+  the model finishes — the stop is instant, but tokens generated after it
+  may still be billed.
 - **Agents** resolve at drain start and are snapshotted for the whole run —
   file edits mid-run apply next run. Tool defs = registry ∩ the agent's
   allow-list (`"*"` = everything), order-stable for prompt caching. The
@@ -668,7 +677,10 @@ Release matrix via `bun build --compile` targets:
 `BAI_VERSION` is stamped into the binary via `define` (the analog of Go's
 `-ldflags -X`). The SPA is embedded via compile assets on Bun ≥ 1.4; on 1.3.x
 `make build` stages it to `dist/web` beside the binary and the runtime finds
-it there. Expected binary size ~60–96 MB (Bun runtime included) vs the Go
+it there. Bun ≥ 1.4 is also the recommended runtime beyond packaging: 1.4.0's
+fetch-abort socket teardown (oven-sh/bun#32578) makes stopping a run cancel
+the upstream provider request; on 1.3.x it lingers until the model finishes
+(see the run-loop interrupt notes). Expected binary size ~60–96 MB (Bun runtime included) vs the Go
 design's <40 MB target — an accepted trade-off documented in the decision
 log. Workers must be listed as explicit compile entrypoints if ever
 introduced.

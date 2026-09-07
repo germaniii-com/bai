@@ -24,6 +24,11 @@ The conversation modality and bai's default session type.
   per session (the TUI supermenu) or globally in config
 - Streaming responses with reasoning panels (thinking parts render behind a
   click-to-reveal node in both TUI and web)
+- **Stop generating** mid-stream: double-esc in the TUI, the red stop button
+  on the web — the reply stops instantly and the partial text stays in the
+  transcript. On **Bun ≥ 1.4.0** the upstream provider request is cancelled
+  too, so nothing past the stop is billed; on 1.3.x the provider side runs
+  to completion server-side (your stop remains instant either way)
 - Sessions are durable: close the terminal, answer on the phone — the
   durable event log + seq cursors guarantee gap-free resume
 - Auto-generated session titles (small-model refine on the first prompt; a

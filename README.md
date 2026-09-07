@@ -124,9 +124,14 @@ make clean        # remove dist/
 
 Or without make: `bun install` · `bun test` · `bun run typecheck` · `bun run compile`.
 
-Requires Bun >= 1.3.14 (1.4+ recommended — its `--compile` embeds the SPA
-directly into the binary; on 1.3.x `make build` stages it to `dist/web`
-beside the binary instead).
+Requires Bun >= 1.3.14 — **Bun 1.4.0+ recommended**, for two reasons. Its
+`--compile` embeds the SPA directly into the binary (on 1.3.x `make build`
+stages it to `dist/web` beside the binary instead). And its fetch-abort
+socket teardown ([oven-sh/bun#32578](https://github.com/oven-sh/bun/issues/32578))
+means **stopping a run truly cancels the upstream provider request** — on
+1.3.x the stop is still instant, but the connection lingers server-side
+until the model finishes, so the provider may bill tokens generated after
+your stop.
 
 ## License
 
