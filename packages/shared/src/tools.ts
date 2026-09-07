@@ -13,6 +13,12 @@ export interface ToolListEntry {
   schema: unknown;
   /** Absolute file path for file-origin tools (undefined for built-ins). */
   path?: string;
+  /**
+   * True when the name belongs to a built-in tool. For `origin: "file"`
+   * entries this marks an OVERRIDE — deleting its file restores the
+   * built-in (surfaces render "reset to default" instead of "delete").
+   */
+  builtin?: boolean;
 }
 
 /** Valid custom-tool names (also the filename stem). */

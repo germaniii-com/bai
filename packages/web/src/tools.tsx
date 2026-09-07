@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
+import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
-import { isValidToolName, type ToolListEntry } from "@bai/shared";
+import { isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
+import { defineBaiTheme } from "./monaco-setup";
+
+/** Toast feedback callback — kind defaults to success (see toast.tsx). */
+type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
  * Tools section, split for the two-level nav: `ToolsNav` renders the nested
@@ -131,9 +136,10 @@ export function ToolCreateForm({
 }
 
 /**
- * Main pane: the selected tool's code editor (built-ins are view-only —
- * they have no editable source). Saving rewrites the tool file; the loader
- * hot-registers it and reports registration failures as a notice.
+ * Main pane: the selected tool's Monaco code editor. Built-ins show an
+ * override template (their real description + schema) — saving writes a
+ * tool file that shadows the built-in until it is deleted, which restores
+ * the built-in. Saving hot-registers; registration failures toast.
  */
 export function ToolsPane({
   client,
@@ -141,12 +147,14 @@ export function ToolsPane({
   selectedId,
   refresh,
   onNotice,
+  themeColors,
 }: {
   client: BaiClient;
   tools: ToolListEntry[];
   selectedId: string | null;
   refresh: () => Promise<void>;
-  onNotice: (message: string) => void;
+  onNotice: OnNotice;
+  themeColors: ThemeColors;
 }) {
   const tool = tools.find((t) => t.name === selectedId);
   if (tool === undefined) {
@@ -158,7 +166,7 @@ export function ToolsPane({
   }
   return (
     <div className="agents-pane">
-      <ToolForm key={tool.name} client={client} tool={tool} refresh={refresh} onNotice={onNotice} />
+      <ToolForm key={tool.name} client={client} tool={tool} refresh={refresh} onNotice={onNotice} themeColors={themeColors} />
     </div>
   );
 }
@@ -168,22 +176,32 @@ function ToolForm({
   tool,
   refresh,
   onNotice,
+  themeColors,
 }: {
   client: BaiClient;
   tool: ToolListEntry;
   refresh: () => Promise<void>;
-  onNotice: (message: string) => void;
+  onNotice: OnNotice;
+  themeColors: ThemeColors;
 }) {
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Monaco theme name — defined from the palette data (themes.ts), so a
+  // theme switch re-skins the live editor with no CSS-read race (the
+  // file-view pattern).
+  const [monacoTheme, setMonacoTheme] = useState(() => defineBaiTheme(themeColors));
+  useEffect(() => {
+    setMonacoTheme(defineBaiTheme(themeColors));
+  }, [themeColors]);
 
-  // Fetch the current file content (GET /api/tool/:name; 404 for built-ins).
+  // Fetch the current source: the tool file, or — for a built-in with no
+  // override file yet — the generated override template (GET /api/tool/:name).
   useEffect(() => {
     void (async () => {
       try {
         setCode(await client.getToolCode(tool.name));
       } catch (err) {
-        onNotice(err instanceof Error ? err.message : String(err));
+        onNotice(err instanceof Error ? err.message : String(err), "error");
         setCode("");
       }
     })();
@@ -198,17 +216,22 @@ function ToolForm({
     );
   }
 
-  const editable = tool.origin === "file";
+  const isBuiltin = tool.origin === "builtin";
+  // A file-origin tool whose name belongs to a built-in: the file is an
+  // override — deleting it restores the built-in, so the action reads
+  // "reset to default" rather than "delete".
+  const isBuiltinOverride = tool.builtin === true && !isBuiltin;
 
   const save = async (): Promise<void> => {
     setBusy(true);
     try {
       const result = await client.putTool(tool.name, code);
-      if (!result.registered) onNotice("saved, but the tool failed to register — check the code for errors");
+      if (!result.registered) onNotice("saved, but the tool failed to register — check the code for errors", "error");
+      else if (isBuiltin) onNotice(`saved "${tool.name}" — built-in overridden`);
       else onNotice(`saved "${tool.name}" — hot-registered`);
       await refresh();
     } catch (err) {
-      onNotice(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setBusy(false);
     }
@@ -219,9 +242,9 @@ function ToolForm({
     try {
       await client.deleteTool(tool.name);
       await refresh();
-      onNotice(`deleted "${tool.name}"`);
+      onNotice(isBuiltinOverride ? `reset "${tool.name}" to the built-in` : `deleted "${tool.name}"`);
     } catch (err) {
-      onNotice(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setBusy(false);
     }
@@ -238,27 +261,50 @@ function ToolForm({
       <h3>
         {tool.name} <span className="dim">({tool.origin})</span>
       </h3>
-      {!editable && <p className="dim">Built-in tool — its source lives in bai itself. Create a new tool to customize behavior.</p>}
+      {isBuiltin && (
+        <p className="dim">
+          Built-in tool — editing saves an override that replaces the built-in until the file is deleted (which restores it).
+        </p>
+      )}
+      {isBuiltinOverride && (
+        <p className="dim">This file overrides the built-in "{tool.name}" — "reset to default" deletes it and restores the original.</p>
+      )}
       <label>
         code <span className="dim">(~/.config/bai/tools/{tool.name}.ts — hot-reloaded on save)</span>
-        <textarea
-          className="code"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          rows={22}
-          spellCheck={false}
-          readOnly={!editable}
-        />
+        <div className="tool-editor">
+          <Editor
+            value={code}
+            language="typescript"
+            theme={monacoTheme}
+            loading={<p className="dim empty">Loading editor…</p>}
+            onChange={(value) => setCode(value ?? "")}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: "on",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              wordWrap: "on",
+              stickyScroll: { enabled: false },
+              contextmenu: false,
+              padding: { top: 10, bottom: 10 },
+            }}
+          />
+        </div>
       </label>
       <div className="agents-actions">
-        {editable && (
-          <button type="submit" disabled={busy}>
-            save
-          </button>
-        )}
-        {editable && (
-          <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>
-            delete
+        <button type="submit" disabled={busy}>
+          save
+        </button>
+        {!isBuiltin && (
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={() => void remove()}
+            title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
+          >
+            {isBuiltinOverride ? "reset to default" : "delete"}
           </button>
         )}
       </div>

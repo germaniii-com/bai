@@ -21,6 +21,7 @@ import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
 import { AnalyticsPane } from "./analytics";
 import { AskPanel, type PendingAsk } from "./ask-panel";
+import { Toast, type Notice } from "./toast";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -168,7 +169,13 @@ export function App() {
   // config names a non-builtin theme, and after saves/deletes in the picker.
   const [customThemes, setCustomThemes] = useState<CustomTheme[]>([]);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Agents/tools mutation feedback — a bottom-right toast (auto-dismisses;
+  // click to dismiss). Settings keeps its inline banner.
+  const [notice, setNotice] = useState<Notice | null>(null);
+  /** Toast feedback from the agents/tools panes (kind defaults to success). */
+  const pushNotice = useCallback((message: string, kind: "success" | "error" = "success") => {
+    setNotice({ message, kind });
+  }, []);
   // Independent catalogs: agents and tools each own their fetch/refresh —
   // updated by firehose events (agents.updated / tools.updated), section
   // engagement, and reconnect healing.
@@ -1163,11 +1170,6 @@ export function App() {
         </main>
       ) : section === "agents" ? (
         <main id="main-content" className="agents-pane">
-          {notice !== null && (
-             <button type="button" className="notice" role="status" onClick={() => setNotice(null)} aria-label="Dismiss notification">
-              {notice}
-             </button>
-          )}
           {creatingAgent ? (
             <AgentCreateForm
               existing={agents.map((a) => a.name)}
@@ -1181,17 +1183,12 @@ export function App() {
               selectedId={effectiveAgentId}
               activeSessionId={active?.id ?? null}
               refresh={refreshAgents}
-              onNotice={setNotice}
+              onNotice={pushNotice}
             />
           )}
         </main>
       ) : section === "tools" ? (
         <main id="main-content" className="agents-pane">
-           {notice !== null && (
-             <button type="button" className="notice" role="status" onClick={() => setNotice(null)} aria-label="Dismiss notification">
-               {notice}
-             </button>
-           )}
           {creatingTool ? (
             <ToolCreateForm
               existing={tools.map((t) => t.name)}
@@ -1204,7 +1201,8 @@ export function App() {
               tools={tools}
               selectedId={effectiveToolId}
               refresh={refreshTools}
-              onNotice={setNotice}
+              onNotice={pushNotice}
+              themeColors={themeColors}
             />
           )}
         </main>
@@ -1303,6 +1301,9 @@ export function App() {
         customThemes={customThemes}
         onSaveCustom={saveCustomTheme}
       />
+
+      {/* Agents/tools mutation feedback — bottom-right toast. */}
+      <Toast notice={notice} onDismiss={() => setNotice(null)} />
     </div>
     </ThemeProvider>
   );

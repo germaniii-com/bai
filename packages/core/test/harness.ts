@@ -78,7 +78,13 @@ export function makeCore(): TestCore {
     executors: Object.assign({}, ...workbenches.map((wb) => wb.jobExecutors())),
   });
   const tools = new ToolRegistry({ spillDir: join(dir, "tmp") });
-  const toolLoader = new ToolLoader({ dir: join(dir, "tools"), registry: tools, debounceMs: 40 });
+  const toolLoader: ToolLoader = new ToolLoader({
+    dir: join(dir, "tools"),
+    registry: tools,
+    debounceMs: 40,
+    // Mirror boot.ts: deleting an override file restores the built-in.
+    builtinFallback: (name) => core.builtinFallback(name),
+  });
   const agents = new AgentRegistry({
     dir: join(dir, "agents"),
     debounceMs: 50,

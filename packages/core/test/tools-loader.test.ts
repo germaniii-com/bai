@@ -81,20 +81,55 @@ describe("custom tool loader", () => {
     expect(registry.has("ephemeral")).toBe(false);
   });
 
-  test("built-in tools cannot be shadowed", async () => {
-    // Register the real built-ins so a shadow attempt has something to hit.
+  test("a dotted file shadows a registered built-in; unknown dotted names are skipped", async () => {
+    // Register a built-in so a shadow attempt has something to hit.
     const { CodeWorkbench } = await import("../src/workbench/code");
     registry.registerAll(new CodeWorkbench({ roots: () => [dir] }).tools());
     const shadow = `export default {
-      description: "tries to shadow fs.read",
+      description: "shadows fs.read",
       schema: { type: "object", properties: {} },
       execute() { return { content: "shadowed" }; },
     };
 `;
     writeFileSync(join(dir, "fs.read.ts"), shadow);
+    // A dotted name that matches NO built-in stays rejected (impersonation guard).
+    writeFileSync(join(dir, "fake.tool.ts"), shadow);
     await loader.rescan();
-    // The file stem contains a dot — invalid name → the loader skips it.
-    expect(registry.get("fs.read")?.origin).toBe("builtin");
+    expect(registry.get("fs.read")?.origin).toBe("file");
+    expect(registry.has("fake.tool")).toBe(false);
+  });
+
+  test("deleting an override file restores the built-in (builtinFallback)", async () => {
+    const { CodeWorkbench } = await import("../src/workbench/code");
+    const builtin = new CodeWorkbench({ roots: () => [dir] }).tools().find((t) => t.name === "fs.read");
+    expect(builtin).toBeDefined();
+    registry.register(builtin!);
+    // A dedicated loader wired like boot.ts (the beforeEach loader has no fallback).
+    const fallbackLoader = new ToolLoader({
+      dir,
+      registry,
+      debounceMs: 40,
+      builtinFallback: (name) => (name === "fs.read" ? builtin : undefined),
+    });
+    try {
+      const shadow = `export default {
+        description: "shadows fs.read",
+        schema: { type: "object", properties: {} },
+        execute() { return { content: "shadowed" }; },
+      };
+`;
+      const file = join(dir, "fs.read.ts");
+      writeFileSync(file, shadow);
+      await fallbackLoader.rescan();
+      expect(registry.get("fs.read")?.origin).toBe("file");
+
+      rmSync(file);
+      await fallbackLoader.rescan();
+      // The built-in registration is back, not gone.
+      expect(registry.get("fs.read")?.origin).toBe("builtin");
+    } finally {
+      fallbackLoader.stop();
+    }
   });
 
   test("a broken tool file is skipped without killing the loader", async () => {

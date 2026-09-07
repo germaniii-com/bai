@@ -47,6 +47,7 @@ import { planWriteTool } from "./tools/plan-write";
 import { planExitTool } from "./tools/plan-exit";
 import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import type { ToolLoader } from "./tools/loader";
+import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { Workbench } from "./workbench/types";
 
@@ -157,6 +158,31 @@ export class Service {
         }
       },
     });
+    // Snapshot the built-in registrations for the tool-override lifecycle:
+    // a tool file may shadow a built-in (same name), and deleting that file
+    // restores the snapshot via the loader's builtinFallback. Taken at
+    // construction — `task` re-registers itself with a fresh agent catalog
+    // on agent reloads, so its restore snapshot may carry a stale
+    // description (acceptable: the override file is the user's own edit).
+    this.builtinTools = new Map(
+      deps.tools
+        .names()
+        .map((name) => deps.tools.get(name))
+        .filter((tool): tool is Tool => tool !== undefined && (tool.origin ?? "builtin") === "builtin")
+        .map((tool) => [tool.name, tool]),
+    );
+  }
+
+  /** Built-in registrations snapshot — the loader restores these when an override file is deleted. */
+  private readonly builtinTools: Map<string, Tool>;
+
+  /**
+   * The original built-in tool for `name`, if any. Wired into the
+   * ToolLoader as `builtinFallback`: when an override file is removed, the
+   * loader re-registers this instead of leaving the name unregistered.
+   */
+  builtinFallback(name: string): Tool | undefined {
+    return this.builtinTools.get(name);
   }
 
   // --- sessions ---
@@ -550,16 +576,22 @@ export class Service {
         origin: tool.origin ?? "builtin",
         schema: tool.schema,
         ...(isFile ? { path: path.join(this.toolLoaderDir(), `${name}.ts`) } : {}),
+        // The name belongs to a built-in — for file-origin entries this
+        // marks an override the user can reset (delete → built-in restored).
+        ...(this.builtinTools.has(name) ? { builtin: true } : {}),
       };
     });
   }
 
-  /** Write a custom tool file; hot-registers via the loader. */
+  /**
+   * Write a custom tool file; hot-registers via the loader. A name may also
+   * shadow a registered built-in (any name shape — e.g. "fs.read"): the
+   * file overrides the built-in until it is deleted, which restores the
+   * original registration. Unknown dotted names are still rejected.
+   */
   async putTool(name: string, code: string): Promise<{ name: string; registered: boolean }> {
-    if (!isValidToolName(name)) throw new Error(`Invalid tool name: ${name}`);
-    if (this.deps.tools.has(name) && this.deps.tools.get(name)?.origin === "builtin") {
-      throw new Error(`"${name}" is a built-in tool and cannot be overwritten`);
-    }
+    const isBuiltin = this.deps.tools.get(name)?.origin === "builtin";
+    if (!isValidToolName(name) && !isBuiltin) throw new Error(`Invalid tool name: ${name}`);
     const file = path.join(this.toolLoaderDir(), `${name}.ts`);
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(tmp, code);
@@ -583,13 +615,22 @@ export class Service {
     return path.join(this.toolLoaderDir(), `${name}.ts`);
   }
 
-  /** Current source of a custom tool file (surfaces read it back for editing). */
+  /**
+   * Current source of a tool file (surfaces read it back for editing).
+   * For a registered built-in with no override file yet, returns a
+   * generated override template pre-filled with the built-in's real
+   * description and schema — saving it shadows the built-in.
+   */
   getToolCode(name: string): string {
     const tsFile = path.join(this.toolLoaderDir(), `${name}.ts`);
     const jsFile = path.join(this.toolLoaderDir(), `${name}.js`);
     const file = existsSync(tsFile) ? tsFile : existsSync(jsFile) ? jsFile : undefined;
-    if (file === undefined) throw new Error(`No tool file for "${name}" (built-in tools have no editable source)`);
-    return readFileSync(file, "utf8");
+    if (file !== undefined) return readFileSync(file, "utf8");
+    const builtin = this.deps.tools.get(name);
+    if (builtin !== undefined && (builtin.origin ?? "builtin") === "builtin") {
+      return builtinOverrideTemplate(builtin);
+    }
+    throw new Error(`No tool file for "${name}"`);
   }
 
   private toolLoaderDir(): string {

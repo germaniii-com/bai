@@ -154,20 +154,62 @@ describe("tool API", () => {
     expect((await app.request("/api/tool/echo", { method: "DELETE" })).status).toBe(404);
   });
 
-  test("PUT /tool refuses built-in names and invalid names", async () => {
-    const res1 = await app.request("/api/tool/fs.read", {
+  test("PUT /tool overrides a built-in; delete restores it; invalid names refused", async () => {
+    const code = `export default {
+      description: "Custom fs.read override.",
+      schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      execute(args) { return { content: "override read: " + (args as { path: string }).path }; },
+    };
+`;
+    const put = await app.request("/api/tool/fs.read", {
       method: "PUT",
-      body: JSON.stringify({ code: "export default {};" }),
+      body: JSON.stringify({ code }),
       headers: { "Content-Type": "application/json" },
     });
-    expect(res1.status).toBe(400);
+    expect(put.status).toBe(201);
+    const { registered } = (await put.json()) as { registered: boolean };
+    expect(registered).toBe(true);
 
+    // The override file is listed (origin flips) and readable.
+    const list = await app.request("/api/tool");
+    const body = (await list.json()) as { tools: { name: string; origin: string; builtin?: boolean }[] };
+    const entry = body.tools.find((t) => t.name === "fs.read");
+    expect(entry?.origin).toBe("file");
+    expect(entry?.builtin).toBe(true); // marks the override (reset-to-default UX)
+    const get = await app.request("/api/tool/fs.read");
+    expect(get.status).toBe(200);
+    expect(((await get.json()) as { code: string }).code).toContain("Custom fs.read override.");
+
+    // Deleting the override restores the built-in registration.
+    const del = await app.request("/api/tool/fs.read", { method: "DELETE" });
+    expect(del.status).toBe(200);
+    const relist = await app.request("/api/tool");
+    const relistBody = (await relist.json()) as { tools: { name: string; origin: string; builtin?: boolean }[] };
+    const restored = relistBody.tools.find((t) => t.name === "fs.read");
+    expect(restored?.origin).toBe("builtin");
+    expect(restored?.builtin).toBe(true);
+
+    // Unknown dotted names and invalid names are still refused.
     const res2 = await app.request("/api/tool/9bad", {
       method: "PUT",
       body: JSON.stringify({ code: "export default {};" }),
       headers: { "Content-Type": "application/json" },
     });
     expect(res2.status).toBe(400);
+    const res3 = await app.request("/api/tool/foo.bar", {
+      method: "PUT",
+      body: JSON.stringify({ code: "export default {};" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res3.status).toBe(400);
+  });
+
+  test("GET /tool/:name returns an override template for a built-in", async () => {
+    const res = await app.request("/api/tool/bash");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toContain("Override of the built-in tool");
+    expect(body.code).toContain("export default");
   });
 
   test("PUT /tool with broken code returns registered: false", async () => {

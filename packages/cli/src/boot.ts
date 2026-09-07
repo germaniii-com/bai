@@ -115,10 +115,18 @@ export async function boot(args: CliArgs): Promise<Booted> {
 
   const tools = new ToolRegistry({ spillDir: tmpDir() });
 
-  // Custom tool files (~/.config/bai/tools/*.ts|js), hot-reloaded.
-  const toolLoader = new ToolLoader({
+  // Custom tool files (~/.config/bai/tools/*.ts|js), hot-reloaded. A file
+  // may shadow a built-in under the same name; deleting it restores the
+  // built-in from the Service's snapshot (builtinFallback). The snapshot
+  // accessor is behind a `let` + optional chain: the loader's constructor
+  // schedules its first rescan as a microtask, and if boot ever grows an
+  // await before the Service exists, the closure must not hit the `core`
+  // TDZ (it resolves to undefined and the poller picks the file up later).
+  let coreRef: Service | undefined;
+  const toolLoader: ToolLoader = new ToolLoader({
     dir: path.join(configDir(), "tools"),
     registry: tools,
+    builtinFallback: (name) => coreRef?.builtinFallback(name),
     onChange: () => {
       bus.publish({ seq: 0, type: "tools.updated", ts: new Date().toISOString(), payload: {} });
     },
@@ -148,6 +156,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     plansDir: path.join(configDir(), "plans"),
     snapshot: new Snapshot(snapshotDir(dataDir())),
   });
+  coreRef = core;
 
   const token = resolveToken(args, config);
   const app = createApp({

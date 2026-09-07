@@ -913,6 +913,15 @@ select:focus-visible,
   min-height: 0;
 }
 
+/* Monaco wrapper for the tools pane code editor — fixed height inside the
+   scrolling form (the old textarea was rows={22}). */
+.tool-editor {
+  height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .file-media {
   flex: 1;
   min-height: 0;
@@ -1576,6 +1585,56 @@ select:focus-visible,
   color: var(--text);
   text-align: left;
   width: 100%;
+}
+
+/* Toast (agents/tools mutation feedback) — fixed bottom-right, auto-dismiss;
+   click anywhere on it to dismiss early. */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 25%);
+  animation: toast-in 160ms ease-out;
+}
+
+.toast-success {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.toast-error {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.toast-info {
+  background: var(--surface);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Agents & tools editors (main pane; the lists render in the nested

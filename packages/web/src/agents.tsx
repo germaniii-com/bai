@@ -2,6 +2,9 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import { isValidAgentName, type AgentInfo } from "@bai/shared";
 
+/** Toast feedback callback — kind defaults to success (see toast.tsx). */
+type OnNotice = (message: string, kind?: "success" | "error") => void;
+
 /**
  * Agents section, split for the two-level nav: `AgentsNav` renders the
  * nested sidebar (create button + agent list), the main pane is either the
@@ -150,7 +153,7 @@ export function AgentsPane({
   selectedId: string | null;
   activeSessionId: string | null;
   refresh: () => Promise<void>;
-  onNotice: (message: string) => void;
+  onNotice: OnNotice;
 }) {
   const agent = agents.find((a) => a.name === selectedId);
   if (agent === undefined) {
@@ -185,7 +188,7 @@ function AgentForm({
   agent: AgentInfo;
   activeSessionId: string | null;
   refresh: () => Promise<void>;
-  onNotice: (message: string) => void;
+  onNotice: OnNotice;
 }) {
   const [description, setDescription] = useState(agent.description ?? "");
   const [model, setModel] = useState(agent.model ?? "");
@@ -209,7 +212,7 @@ function AgentForm({
       await refresh();
       onNotice(`saved "${agent.name}" — live everywhere`);
     } catch (err) {
-      onNotice(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setBusy(false);
     }
@@ -222,7 +225,7 @@ function AgentForm({
       await refresh();
       onNotice(`deleted "${agent.name}"`);
     } catch (err) {
-      onNotice(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setBusy(false);
     }
@@ -241,7 +244,7 @@ function AgentForm({
         onNotice(`session uses "${agent.name}" (applies next prompt)`);
       }
     } catch (err) {
-      onNotice(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setBusy(false);
     }
