@@ -299,6 +299,7 @@ export class RunCoordinator {
         try {
           stream = await run.provider.stream({
             model: run.model,
+            sessionId,
             messages: outbound,
             ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
             auth: run.auth,
@@ -663,6 +664,7 @@ export class RunCoordinator {
       summarizer = await this.resolveTitleModel(providerId, sessionModel);
       const stream = await summarizer.provider.stream({
         model: summarizer.model,
+        sessionId,
         messages: [
           { role: "system", content: SUMMARY_SYSTEM_PROMPT },
           { role: "user", content: buildSummaryInput(history) },
@@ -1124,6 +1126,7 @@ export class RunCoordinator {
     void (async () => {
       const stream = await input.provider.stream({
         model: input.model,
+        sessionId: input.sessionId,
         messages: [
           { role: "system", content: TITLE_SYSTEM_PROMPT },
           {

@@ -37,6 +37,13 @@ export interface LlmRequest {
    */
   auth?: { apiKey?: string; baseUrl?: string };
   /**
+   * Stable id of the conversation this request belongs to (the bai session
+   * id). Sent as `x-opencode-session` by adapters so gateways/proxies can
+   * attribute traffic per conversation. Optional — background jobs
+   * (summarizers) may omit it.
+   */
+  sessionId?: string;
+  /**
    * Abort signal from the run coordinator — interrupts must cancel the
    * in-flight HTTP request, not just stop consuming chunks (a provider that
    * withholds its first token would otherwise hold the drain hostage).

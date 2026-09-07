@@ -156,6 +156,9 @@ export class OpenAiCompatProvider implements Provider {
     const client = new OpenAI({
       apiKey: req.auth?.apiKey ?? "keyless",
       ...(req.auth?.baseUrl !== undefined ? { baseURL: req.auth.baseUrl } : {}),
+      // Stable per-conversation id so opencode's gateway can attribute
+      // traffic (it flags unknown clients missing x-opencode-session).
+      ...(req.sessionId !== undefined ? { defaultHeaders: { "x-opencode-session": req.sessionId } } : {}),
     });
 
     const system = toOpenAiMessages(req.messages.filter((m) => m.role === "system"));
