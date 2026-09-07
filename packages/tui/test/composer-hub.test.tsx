@@ -39,7 +39,7 @@ function renderHub(mode: "normal" | "input", runActive = false) {
 }
 
 describe("ComposerHub render", () => {
-  test("NORMAL: status row shows label, mode, agent, model; commands row lists the ctrl family", async () => {
+  test("NORMAL: status row shows label, mode, agent, model; commands row points at the supermenu", async () => {
     const { lastFrame, unmount } = renderHub("normal");
     await tick();
     const frame = lastFrame() ?? "";
@@ -50,9 +50,11 @@ describe("ComposerHub render", () => {
     expect(frame).toContain("@build");
     expect(frame).toContain("stub/echo");
     // Commands row: the old footer hints (the row truncates at the test
-    // terminal's 100 columns, so assert the leading entries).
-    expect(frame).toContain("ctrl+p providers");
-    expect(frame).toContain("ctrl+l models");
+    // terminal's 100 columns, so assert the leading entries). The ctrl+**
+    // family is gone — the supermenu (ctrl+p) is the single entry point.
+    expect(frame).toContain("ctrl+p commands");
+    expect(frame).not.toContain("ctrl+l models");
+    expect(frame).not.toContain("ctrl+p providers");
     // Ex-mode prompt while in NORMAL.
     expect(frame).toContain(": ");
   });
@@ -65,7 +67,7 @@ describe("ComposerHub render", () => {
     expect(frame).toContain("›");
     expect(frame).toContain("▌");
     expect(frame).toContain("enter send · esc normal · ctrl+j/k newline · ctrl+w word");
-    expect(frame).not.toContain("ctrl+p providers");
+    expect(frame).not.toContain("ctrl+p commands");
   });
 
   test("runActive NORMAL surfaces the esc-stop hint", async () => {

@@ -12,7 +12,7 @@ const WINDOW = 12;
 type Tab = "agents" | "tools";
 
 /**
- * Agent & tool switcher/manager (ctrl+a): list, create, edit ($EDITOR),
+ * Agent & tool switcher/manager: list, create, edit ($EDITOR),
  * delete, and apply. Enter (or u) applies the highlighted agent — to the
  * active session when one is open, otherwise as the config default agent
  * (`agents.default`, what sessions without a selection resolve). All

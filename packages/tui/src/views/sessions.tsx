@@ -3,7 +3,7 @@ import { SelectDialog } from "../components/dialog";
 import type { AskIndex } from "../state/asks";
 
 /**
- * Session picker dialog (ctrl+s) — a SelectDialog over the session list, so
+ * Session picker dialog — a SelectDialog over the session list, so
  * it behaves exactly like the provider/model pickers:
  *
  *   - type-to-filter SEARCH (matches title or id)

@@ -23,7 +23,8 @@ import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, typedChar, type
  *
  *   1. PermissionPrompt / QuestionPrompt key contracts (a/s/d, question
  *      keys, two-stage esc) with the App-hoisted ui state.
- *   2. ctrl-chord guards: ctrl+a must open the agent manager, never answer.
+ *   2. ctrl-chord guards: chords belong to the app (the supermenu), never
+ *      answer.
  *   3. ChatView integration: while an ask is pending the prompt replaces
  *      the composer, plain keys route to the prompt (i does NOT enter
  *      INPUT, enter does not submit, k does not scroll), and the chat's
@@ -213,7 +214,7 @@ describe("PermissionPrompt (inline)", () => {
     expect(second.replyPermission.mock.calls[0]).toEqual(["perm_1", { status: "approved", scope: "always" }]);
   });
 
-  test("ctrl chords never answer the ask (ctrl+a opens agents, not approve)", async () => {
+  test("ctrl chords never answer the ask (inert, never approve)", async () => {
     const { client, replyPermission } = mockClient();
     const { stdin, unmount } = render(<PermissionHarness request={permRequest} client={client} />);
     await tick();

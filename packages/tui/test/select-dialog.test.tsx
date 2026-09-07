@@ -5,7 +5,7 @@ import type { PickerOption } from "../src/state/providers";
 import { SelectDialog } from "../src/components/dialog";
 
 /**
- * The shared select dialog (providers / accounts / ctrl+l models): ctrl+j/k
+ * The shared select dialog (providers / accounts / the flat model list): ctrl+j/k
  * navigate down/up — including ctrl+j's legacy lone-"\n" spelling — while
  * plain j/k still type into the filter, and enter picks the highlighted
  * option.

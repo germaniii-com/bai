@@ -6,7 +6,7 @@ import type { AgentInfo } from "@bai/shared";
 import { AgentManager } from "../src/views/agent-manager";
 
 /**
- * The ctrl+a agents & tools dialog scrolls long lists in a sliding window
+ * The agents & tools dialog scrolls long lists in a sliding window
  * (same listbox pattern as the sessions/provider dialogs) instead of
  * overflowing the terminal.
  */

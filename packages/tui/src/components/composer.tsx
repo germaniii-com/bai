@@ -10,7 +10,7 @@ import { useTheme } from "../theme";
  *   ┌──────────────────────────────────────────────┐
  *   │ › input draft with cursor block              │
  *   │ chat · title        NORMAL · @agent · model  │  ← status row (chips)
- *   │ i input · ctrl+p providers · …               │  ← commands row
+ *   │ i input · ctrl+p commands · …                │  ← commands row
  *   └──────────────────────────────────────────────┘
  *
  * Row 1 is the draft (multi-line; ▌ marks the cursor). Row 2 is the status
@@ -18,7 +18,7 @@ import { useTheme } from "../theme";
  * chips right-aligned. Row 3 is the commands row — the keybinding hints
  * (formerly the footer line), swapping with the mode. Chips are clickable:
  * the chat view's SGR mouse handler hit-tests the column ranges computed by
- * state/hub.ts and routes to the same dialogs the ctrl-chords open.
+ * state/hub.ts and routes to the same dialogs the supermenu's commands open.
  *
  * Presentational: all state and layout math live in the chat view; this
  * component only renders. While a permission/question ask is pending the
@@ -46,7 +46,7 @@ export function ComposerHub({
   const commands =
     mode === "input"
       ? "enter send · esc normal · ctrl+j/k newline · ctrl+w word"
-      : `${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p providers · ctrl+l models · ctrl+a agents · ctrl+t theme · ctrl+s sessions · ctrl+g gallery · ctrl+o settings · ctrl+c quit`;
+      : `${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
   return (
     <Box
       flexDirection="column"

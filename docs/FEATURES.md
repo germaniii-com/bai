@@ -9,7 +9,7 @@ registered against the same core contract (`core/src/workbench/types.ts`).
 They all share one server, one event log, one store, and the same surfaces.
 The web nav groups them accordingly: **Chat, Workspace, Image, Video** (the
 workbenches) above the divider, **Agents, Tools** (the agent machinery)
-below it — and the same split lives in the TUI under `ctrl+a`.
+below it — and the same split lives in the TUI's supermenu (`ctrl+p`).
 
 ---
 
@@ -21,7 +21,7 @@ The conversation modality and bai's default session type.
 
 - Multi-provider conversations: any OpenAI-compatible endpoint (OpenAI,
   OpenRouter, Groq, Ollama, LM Studio, DeepSeek, …) and Anthropic — selected
-  per session (`ctrl+p` in the TUI) or globally in config
+  per session (the TUI supermenu) or globally in config
 - Streaming responses with reasoning panels (thinking parts render behind a
   click-to-reveal node in both TUI and web)
 - Sessions are durable: close the terminal, answer on the phone — the
@@ -32,6 +32,13 @@ The conversation modality and bai's default session type.
   message, everything after it, and the file changes they made), and
   **fork** (branch the history into a new session) — see
   [Revert / Fork / Copy](#-revert--fork--copy--shipped)
+- **Supermenu** (`ctrl+p` in the TUI): one searchable command palette —
+  opencode-style — for everything the old ctrl+** chord family did: switch
+  session/model/agent/theme, connect a provider, new session, gallery,
+  settings, quit. Contextual commands float under a **Suggested** header
+  (no provider connected → Connect provider; away from chat → Back to
+  chat), the rest group under category headers, and typing filters across
+  titles, categories, and ids
 - Per-session model override, live from any surface (`config.updated` /
   `provider.updated` propagate instantly)
 - Headless mode: `bai --one-shot "prompt" --format json` streams NDJSON and
@@ -159,7 +166,7 @@ Per-user-message transcript actions, opencode parity, on every surface.
 ## 🤖 Agents — shipped
 
 First-class citizens with their own nav section (web), chat-header picker
-(web), and switcher dialog (`ctrl+a`, TUI): the personas that drive the
+(web), and switcher dialog (TUI supermenu): the personas that drive the
 workspace.
 
 **What you can do today**
@@ -212,7 +219,7 @@ workspace.
   watcher misses
 - Create, edit, delete, and "use in session" from the web Agents section,
   switch or set the default from the chat-header picker (web) or the TUI
-  switcher (`ctrl+a`); sessions fall back gracefully if a selected agent is
+  supermenu's Switch agent; sessions fall back gracefully if a selected agent is
   deleted before the next prompt
 - Optional per-agent model override; default agent (`agents.default` in
   config): applying an agent with no session open persists it for every
@@ -350,10 +357,11 @@ and user-defined themes as plain JSON files.
   self-contained miniature of its theme (hardcoded from that theme's own
   palette, not the active one), with swatches, the theme name, and a type
   sample; esc or click-outside dismisses
-- **TUI picker** (`ctrl+t`): a type-to-filter list where moving the cursor
+- **TUI picker**: a type-to-filter list (the supermenu's Switch theme) where
+  moving the cursor
   **live-previews** the highlighted theme across the whole app — esc
   restores the previous theme, enter persists it (opencode's picker
-  semantics). The composer hub's commands row lists the chord
+  semantics). The composer hub's commands row points at the supermenu
 - **Custom themes**: the "+ Custom Theme" card in the web selector opens a
   form (name + the 12 palette colors, prefilled from the active theme) and
   saves to `~/.config/bai/themes/<name>.json` — the file stem becomes the
@@ -396,7 +404,7 @@ and user-defined themes as plain JSON files.
   question blocks ride the snapshot too, so a surface opened mid-ask
   renders the dialog immediately
 - **Themes** — one `config.theme` for every surface, switched live from the
-  web's preview-card selector or the TUI's ctrl+t live-preview picker; 24
+  web's preview-card selector or the TUI's live-preview theme picker; 24
   built-ins plus user-defined themes as `~/.config/bai/themes/*.json` (see
   [Themes](#-themes--shipped))
 - **Permissions** — one fail-closed engine for every tool, builtin or

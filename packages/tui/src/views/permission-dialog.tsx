@@ -75,8 +75,8 @@ export function PermissionDialog({
       }
       return;
     }
-    // choose stage — plain keys only: ctrl/meta chords (ctrl+a agents,
-    // ctrl+s sessions) must never answer an ask.
+    // choose stage — plain keys only: ctrl/meta chords (the supermenu's
+    // ctrl+p, dialog navigation) must never answer an ask.
     if (key.ctrl || key.meta) return;
     if (ch === "a") return reply("approved", "once");
     if (ch === "s") return reply("approved", "always");

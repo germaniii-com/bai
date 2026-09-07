@@ -4,7 +4,7 @@ import React from "react";
 import { ThemePicker } from "../src/views/theme-picker";
 
 /**
- * The ctrl+t theme picker: the cursor seeds on the active theme (resolved
+ * The theme picker: the cursor seeds on the active theme (resolved
  * through the same fallback the App applies), navigation live-previews via
  * onHighlight, enter confirms, esc closes.
  */

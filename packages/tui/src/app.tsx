@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
 import type { CustomTheme, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
 import { isThemeId } from "@bai/shared";
@@ -9,6 +9,8 @@ import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
 import { SubagentDialog } from "./views/subagent-dialog";
 import { ThemePicker } from "./views/theme-picker";
+import { CommandPalette } from "./views/command-palette";
+import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
@@ -28,19 +30,22 @@ export type UiState = "chat" | "gallery" | "jobs" | "settings";
 
 /**
  * Input mode, vim-style. NORMAL (default): vim motions over the transcript
- * plus the ctrl command family. INPUT: plain typing into the composer —
- * app-level ctrl commands are dead there (editing chords ctrl+w/j/k and the
+ * plus ctrl+p (the supermenu). INPUT: plain typing into the composer —
+ * app-level ctrl bindings are dead there (editing chords ctrl+w/j/k and the
  * ctrl+c safety hatch excepted). esc always returns to NORMAL.
  */
 export type Mode = "normal" | "input";
 
 /**
- * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
- * ctrl+p → full wizard (provider → account → model), ctrl+l → flat model list
- * across connected providers, ctrl+a → the agent/tool switcher, ctrl+s → the
- * session picker, ctrl+t → the theme picker (live preview).
+ * Which overlay is open — a single slot, so the supermenu's commands
+ * REPLACE the palette when they open one (opencode's dialog.replace).
+ * ctrl+p opens the palette; its entries open the rest: the provider wizard
+ * (provider → account → model), the flat model list, the agent/tool
+ * switcher, the session picker, the theme picker (live preview). The
+ * subagent dialog still opens contextually from the transcript.
  */
 type DialogOpen =
+  | { kind: "palette" }
   | { kind: "providers" }
   | { kind: "all-models" }
   | { kind: "agents" }
@@ -71,7 +76,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // config models.preferZdr — the pickers float ZDR-capable models first.
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   // config theme — the UI theme id (shared/src/themes.ts). Live: switches
-  // from any surface ride config.updated; the ctrl+t picker previews by
+  // from any surface ride config.updated; the theme picker previews by
   // overriding this with previewTheme until confirmed or dismissed.
   const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
@@ -118,8 +123,8 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // the composer swap in the chat view.
   const askPending = pendingAsks.length > 0 || pendingChildAsks.length > 0 || pendingQuestions.length > 0;
   const askTotal = pendingAsks.length + pendingChildAsks.length + pendingQuestions.length;
-  // Global ask index (session → pending count, ALL sessions) — the ctrl+s
-  // sessions-list indicator. Seeded from GET /api/permission on mount and
+  // Global ask index (session → pending count, ALL sessions) — the
+  // sessions-picker indicator. Seeded from GET /api/permission on mount and
   // on every server.hello (the firehose is live-only; drops heal there),
   // kept live by the firehose's ask/reply events (state/asks.ts).
   const [askIndex, setAskIndex] = useState<AskIndex>(new Map());
@@ -155,8 +160,8 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // first press arms, second interrupts a running drain or quits.
   const [quitArmed, setQuitArmed] = useState(false);
   const quitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // On-demand provider list: fetched on first ctrl+p/ctrl+l, kept fresh
-  // afterwards.
+  // On-demand provider list: fetched when the pickers first need it (the
+  // supermenu's provider/model commands, the hub chips), kept fresh after.
   const providersLoadedRef = useRef(false);
   providersLoadedRef.current = providers !== null;
 
@@ -182,8 +187,8 @@ export function App({ client }: { client: BaiClient; version: string }) {
 
   // Tiny startup fetch: the header's default-model/agent labels come from
   // config (no catalog touch, no models.dev refresh). The full provider
-  // list — 200+ providers, thousands of models — loads only when ctrl+p
-  // needs it.
+  // list — 200+ providers, thousands of models — loads only when the
+  // pickers need it (the supermenu's provider/model commands, hub chips).
   const refreshCustomThemes = useCallback(async () => {
     try {
       const themes = await client.listCustomThemes();
@@ -306,10 +311,10 @@ export function App({ client }: { client: BaiClient; version: string }) {
   useEffect(() => {
     setError(null); // a session switch drops the previous session's error line
     if (active === null) {
-      // Draft state (ctrl+s → n, or before the first message): a NEW
-      // session — the previous session's transcript and its asks/questions
+      // Draft state (sessions dialog → n, or before the first message): a
+      // NEW session — the previous session's transcript and its asks/questions
       // must not linger. The global ask index still shows the blocked
-      // session in the ctrl+s list; picking it re-seeds from the snapshot.
+      // session in the sessions list; picking it re-seeds from the snapshot.
       setMessages([]);
       setRunActive(false);
       setPendingAsks([]);
@@ -386,11 +391,11 @@ export function App({ client }: { client: BaiClient; version: string }) {
     }
   });
 
-  // NORMAL-mode globals: esc-as-back + the ctrl command family. Gated off in
+  // NORMAL-mode globals: esc-as-back + ctrl+p (the supermenu). Gated off in
   // INPUT mode — typing must never trigger app commands (the point of the
   // mode split). Dialogs handle their own keys and are only reachable from
-  // NORMAL anyway (they open via ctrl chords). The same openers are shared
-  // with the composer hub's clickable chips (bottom row = the ctrl family).
+  // NORMAL anyway (the palette opens via ctrl+p). The same openers are shared
+  // with the supermenu's dispatch and the composer hub's clickable chips.
   const openProvidersDialog = useCallback(() => {
     setDialog({ kind: "providers" });
     void refreshProviders();
@@ -408,6 +413,62 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const openThemesDialog = useCallback(() => {
     setDialog({ kind: "themes" });
   }, []);
+
+  // The supermenu's registry (state/commands.ts) — context flags are live so
+  // the Suggested section tracks the current surface (no provider connected,
+  // a session open, an away-from-chat view).
+  const commandSpecs = useMemo(
+    () =>
+      buildCommandSpecs({
+        sessionCount: sessions.length,
+        hasActiveSession: active !== null,
+        needsSetup: needsSetup(providers),
+        awayFromChat: view !== "chat",
+      }),
+    [sessions, active, providers, view],
+  );
+
+  // Palette dispatch: the picked id routes to the same openers the hub chips
+  // use. The palette occupies the single dialog slot, so dialog commands
+  // simply replace it; view/quit commands close it on the way out.
+  const runCommand = useCallback(
+    (id: string) => {
+      switch (id) {
+        case "session.switch":
+          return openSessionsDialog();
+        case "session.new":
+          // Draft state — mirrors the sessions dialog's "n" action.
+          setDialog(null);
+          setActive(null);
+          setMode("input");
+          return;
+        case "model.switch":
+          return openModelsDialog();
+        case "provider.connect":
+          return openProvidersDialog();
+        case "agent.switch":
+          return openAgentsDialog();
+        case "theme.switch":
+          return openThemesDialog();
+        case "view.gallery":
+          setDialog(null);
+          setView("gallery");
+          return;
+        case "view.settings":
+          setDialog(null);
+          setView("settings");
+          return;
+        case "view.chat":
+          setDialog(null);
+          setView("chat");
+          return;
+        case "app.quit":
+          return exit();
+      }
+    },
+    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openThemesDialog, exit],
+  );
+
   useInput((ch, key) => {
     // esc is "back": out of any non-chat view. Dialogs handle their own esc
     // (per-level back-out) and chat uses it for focus/interrupt/mode-exit.
@@ -416,13 +477,12 @@ export function App({ client }: { client: BaiClient; version: string }) {
       return;
     }
     if (!key.ctrl || dialogOpenRef.current) return;
-    if (ch === "p") openProvidersDialog();
-    else if (ch === "l") openModelsDialog();
-    else if (ch === "a") openAgentsDialog();
-    else if (ch === "s") openSessionsDialog();
-    else if (ch === "t") openThemesDialog();
-    else if (ch === "g") setView("gallery");
-    else if (ch === "o") setView("settings");
+    if (ch === "p") {
+      setDialog({ kind: "palette" });
+      // The Suggested section keys on needsSetup — keep the (on-demand)
+      // provider list fresh so "Connect provider" floats on a bare install.
+      void refreshProviders();
+    }
   }, { isActive: mode === "normal" });
 
   const closeDialog = useCallback(() => {
@@ -466,7 +526,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
     (askPending ? 1 : 0) +
     (quitArmed ? 1 : 0);
 
-  // Effective theme: the ctrl+t picker's live preview wins until confirmed
+  // Effective theme: the theme picker's live preview wins until confirmed
   // or dismissed; otherwise the config value (unknown ids fall back inside
   // tuiTheme). Recolors the whole tree via ThemeProvider.
   const theme = tuiTheme(previewTheme ?? configTheme);
@@ -488,8 +548,14 @@ export function App({ client }: { client: BaiClient; version: string }) {
       backgroundColor={theme.background}
     >
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {dialog !== null && dialog.kind === "sessions" ? (
-          // Session picker dialog (ctrl+s): pick → open the session and
+        {dialog !== null && dialog.kind === "palette" ? (
+          // Supermenu (ctrl+p): the searchable command registry — category
+          // headers, contextual Suggested section, type-to-filter. Enter
+          // dispatches through runCommand (the palette is replaced when a
+          // command opens its own dialog); esc closes.
+          <CommandPalette specs={commandSpecs} onRun={runCommand} onClose={() => setDialog(null)} />
+        ) : dialog !== null && dialog.kind === "sessions" ? (
+          // Session picker dialog: pick → open the session and
           // close; n → draft state (no session until the first prompt);
           // esc → back to the chat underneath.
           <SessionsView
@@ -508,7 +574,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
             onDone={closeDialog}
           />
         ) : dialog !== null && dialog.kind === "themes" ? (
-          // Theme picker dialog (ctrl+t): cursor movement live-previews the
+          // Theme picker dialog: cursor movement live-previews the
           // highlighted theme App-wide; enter persists it via config (every
           // surface follows via config.updated), esc restores the previous.
           // Custom themes (~/.config/bai/themes/*.json) list after the
@@ -624,7 +690,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
           derives its chip hit-testing row from it. */}
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color={theme.danger}>error: {error}</Text>}
-        {setupHint && <Text color={theme.warning}>no provider connected · ctrl+p to set one up</Text>}
+        {setupHint && <Text color={theme.warning}>no provider connected · ctrl+p → Connect provider</Text>}
         {askPending && (
           // opencode's footer counter: asks block their session's run, so
           // the count stays visible from ANY view (the prompt itself lives

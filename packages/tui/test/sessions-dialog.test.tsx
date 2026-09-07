@@ -5,7 +5,7 @@ import type { Session, SessionId } from "@bai/shared";
 import { SessionsView } from "../src/views/sessions";
 
 /**
- * The ctrl+s session picker dialog (a SelectDialog over sessions):
+ * The session picker dialog (a SelectDialog over sessions):
  * type-to-filter search, ctrl+j/k navigation (all terminal spellings),
  * enter opens the highlighted session, n starts a draft (empty filter),
  * esc closes, long lists scroll in a sliding window.

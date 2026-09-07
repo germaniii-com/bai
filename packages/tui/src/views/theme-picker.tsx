@@ -2,7 +2,7 @@ import { SelectDialog } from "../components/dialog";
 import { resolveThemeId, THEME_OPTIONS, type CustomTheme } from "@bai/shared";
 
 /**
- * Theme picker (ctrl+t) — a SelectDialog over the theme catalog with
+ * Theme picker — a SelectDialog over the theme catalog with
  * opencode's live-preview semantics: moving the cursor (or filtering)
  * IMMEDIATELY applies the highlighted theme App-wide (unpersisted), esc
  * restores the pre-dialog theme, enter confirms and persists it via

@@ -93,7 +93,7 @@ const ThemeContext = createContext<TuiTheme>(tuiTheme(undefined));
 
 /**
  * Theme provider: the App resolves the effective theme (config value, or a
- * ctrl+t picker preview overriding it) and every component reads the palette
+ * theme-picker preview overriding it) and every component reads the palette
  * via useTheme().
  */
 export function ThemeProvider({ theme, children }: { theme: TuiTheme; children: ReactNode }) {

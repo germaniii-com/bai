@@ -74,7 +74,8 @@ export function modelOptions(provider: ProviderInfo, preferZdr = false): PickerO
 }
 
 /**
- * Flat model list across all connected providers (the ctrl+l picker — no
+ * Flat model list across all connected providers (the supermenu's Switch
+ * model command / hub model chip — no
  * provider step). Values are full "provider/model" ids; the server resolves
  * the provider's default account when none is sent. The echo stub is not a
  * real model to switch to and is excluded (same stance as `needsSetup`).
@@ -115,7 +116,7 @@ export function currentModelLabel(
   const meta = active?.meta as { model?: unknown; account?: unknown } | undefined;
   // Mirrors the run path's fallback (service.ts defaultModel → "stub/echo").
   // `configDefault` (GET /api/config) keeps the header truthful without the
-  // full provider list, which is fetched on demand (ctrl+p) only.
+  // full provider list, which is fetched on demand (the pickers) only.
   const model =
     typeof meta?.model === "string"
       ? meta.model

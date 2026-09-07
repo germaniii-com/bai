@@ -65,8 +65,8 @@ export function typedChar(ch: string | undefined): string {
 // --- global ask index (sessions-list indicator) -----------------------------
 
 /**
- * Session id → pending-ask count across ALL sessions — the ctrl+s
- * sessions-list indicator (and any other surface that wants a per-session
+ * Session id → pending-ask count across ALL sessions — the sessions-picker
+ * indicator (and any other surface that wants a per-session
  * blocked-run signal). Seeded from GET /api/permission (authoritative) and
  * kept live by firehose ask/reply events; re-seeded on every server.hello
  * (the firehose is live-only, so events missed during drops heal there).

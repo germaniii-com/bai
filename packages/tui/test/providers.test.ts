@@ -182,7 +182,7 @@ describe("provider picker logic", () => {
   });
 
   test("currentModelLabel: config default keeps the header truthful without the list", () => {
-    // On-demand provider list: before the first ctrl+p the list is null, but
+    // On-demand provider list: before the first picker open the list is null, but
     // the config's default model (tiny GET /api/config) fills the header.
     expect(currentModelLabel(null, null, "zeta/m9")).toBe("zeta/m9");
     expect(currentModelLabel(null, null, undefined)).toBe("stub/echo");

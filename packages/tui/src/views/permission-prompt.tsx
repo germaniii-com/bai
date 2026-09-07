@@ -24,7 +24,7 @@ const DIFF_WINDOW = 14;
  *
  * First reply wins across devices — a loser's prompt clears via the
  * permission.replied event. esc never answers an ask; ctrl chords pass
- * through to the app's global handler (ctrl+a must open the agent manager,
+ * through to the app's global handler (ctrl+p must open the supermenu,
  * not approve).
  */
 export function PermissionPrompt({

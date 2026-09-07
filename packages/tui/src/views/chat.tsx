@@ -108,11 +108,11 @@ export function ChatView({
   /** Back to NORMAL (esc in INPUT). */
   onExitInput: () => void;
   onSessionCreated: (session: Session) => void;
-  /** Open the model picker dialog (the ctrl+l flat list) — hub model chip. */
+  /** Open the model picker dialog (the palette's Switch model) — hub model chip. */
   onOpenModels: () => void;
-  /** Open the agent manager dialog (ctrl+a) — hub agent chip. */
+  /** Open the agent manager dialog (the palette's Switch agent) — hub agent chip. */
   onOpenAgents: () => void;
-  /** Open the session picker dialog (ctrl+s) — hub workspace/session chip. */
+  /** Open the session picker dialog (the palette's Switch session) — hub workspace/session chip. */
   onOpenSessions: () => void;
   /**
    * Open the subagent output dialog — `sessionId` when the task's child is
@@ -623,8 +623,8 @@ export function ChatView({
     // An ask is pending: the inline prompt (its own useInput) owns plain
     // keys, arrows, enter/space, and — for questions and the permission
     // reject stage — esc. The chat keeps mouse (above), paging, and
-    // ctrl+u/d scroll; other ctrl chords fall through to App's globals
-    // (session switching stays live mid-ask — the point of going inline).
+     // ctrl+u/d scroll; other ctrl chords fall through to App's globals
+     // (the supermenu stays reachable mid-ask — the point of going inline).
     if (askPending) {
       if (key.escape && !escOwnedByPrompt) {
         // The chat's esc semantics: clear transcript focus first, then the
@@ -675,7 +675,7 @@ export function ChatView({
     }
 
     if (mode === "normal") {
-      // NORMAL: vim motions + the ctrl command family. Plain typing is
+      // NORMAL: vim motions + ctrl chords. Plain typing is
       // ignored — only single-char mode entries count (batched chunks are
       // rapid-typing artifacts that belong to INPUT).
       if (key.ctrl) {

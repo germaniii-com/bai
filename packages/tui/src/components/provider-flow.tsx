@@ -12,15 +12,15 @@ import {
 } from "../state/providers";
 
 /**
- * ctrl+p wizard (the opencode /connect pattern, extended for multi-account):
+ * Provider wizard (the opencode /connect pattern, extended for multi-account):
  * provider list → account management (add/remove/select) → model picker →
  * apply to the active session (or the global default when none is open).
  * Each step replaces the last; esc backs out one level. The wizard is the
  * one path that selects provider AND account AND model (no accounts-only
  * shortcut).
  *
- * The ctrl+l shortcut skips the provider step, opening at the flat
- * `all-models` step via `initialStep`.
+ * The Switch model command (supermenu / hub model chip) skips the provider
+ * step, opening at the flat `all-models` step via `initialStep`.
  */
 type Step =
   | { kind: "providers" }
@@ -239,7 +239,7 @@ export function ProviderFlow({
         />
       );
   } else if (step.kind === "all-models") {
-    // ctrl+l entry: every connected provider's models in one type-to-filter
+    // Flat entry: every connected provider's models in one type-to-filter
     // list. Account is omitted on apply — the server resolves the provider's
     // default (config override → first stored → env).
     dialog = (

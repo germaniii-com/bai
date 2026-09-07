@@ -148,16 +148,20 @@ describe("App inline ask flow (end-to-end)", () => {
       );
       expect(asked).toContain("a allow once");
 
-      // ctrl+s: the sessions dialog shows the blocked session with a yellow
-      // ask badge (the global index — seeded over HTTP, live via firehose).
-      // Verified against the frame STREAM, anchored BEFORE each keystroke:
-      // the frames array accumulates every frame ink ever wrote, so an
-      // unanchored wait would match stale frames from an earlier dialog
-      // (and lastFrame() is polluted by ChatView's mouse-cleanup write on
-      // unmount — see waitForAnyFrame). "△ 1 chat" = the row's badge +
-      // workbench hint; the footer counter ("△ 1 pending ask") can't match.
+      // Supermenu (ctrl+p) → Switch session: the sessions dialog shows the
+      // blocked session with a yellow ask badge (the global index — seeded
+      // over HTTP, live via firehose). Verified against the frame STREAM,
+      // anchored BEFORE each keystroke: the frames array accumulates every
+      // frame ink ever wrote, so an unanchored wait would match stale frames
+      // from an earlier dialog (and lastFrame() is polluted by ChatView's
+      // mouse-cleanup write on unmount — see waitForAnyFrame). "△ 1 chat" =
+      // the row's badge + workbench hint; the footer counter ("△ 1 pending
+      // ask") can't match. The batched "sess\r" filters to the two session
+      // commands and runs the first (Switch session) in one write.
       const markS1 = frames.length;
-      stdin.write("\x13"); // legacy ctrl+s
+      stdin.write("\x10"); // ctrl+p — the supermenu
+      await tick();
+      stdin.write("sess\r");
       const dialogFrame = await waitForAnyFrame(
         () => frames.slice(markS1),
         (f) => f.includes("type to filter") && f.includes("△ 1 chat"),
@@ -181,11 +185,18 @@ describe("App inline ask flow (end-to-end)", () => {
       // The composer is back (the prompt yielded its slot).
       expect(lastFrame() ?? "").toContain(": ");
 
-      // ctrl+s → ctrl+n: creating a new session must CLEAR the chat view —
-      // the draft shows the empty state, no trace of the old transcript.
+      // Supermenu → Switch session → ctrl+n: creating a new session must
+      // CLEAR the chat view — the draft shows the empty state, no trace of
+      // the old transcript. The "enter select" hint line distinguishes the
+      // sessions dialog's frames from the palette's ("enter run").
       const markS2 = frames.length;
-      stdin.write("\x13"); // ctrl+s — sessions dialog
-      await waitForAnyFrame(() => frames.slice(markS2), (f) => f.includes("type to filter"));
+      stdin.write("\x10"); // ctrl+p — the supermenu
+      await tick();
+      stdin.write("sess\r");
+      await waitForAnyFrame(
+        () => frames.slice(markS2),
+        (f) => f.includes("type to filter") && f.includes("enter select"),
+      );
       const markN = frames.length;
       stdin.write("\x0e"); // ctrl+n — new draft session
       // Anchor AFTER the ctrl+n write: the initial mount frames also show
