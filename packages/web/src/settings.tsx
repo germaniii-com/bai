@@ -6,8 +6,9 @@ import type {
   MediaGenConfig,
   ProviderInfo,
   ProviderListResponse,
+  ThemeId,
 } from "@bai/shared";
-import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
+import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
 
 /**
@@ -76,6 +77,8 @@ export function SettingsPane({
   defaultAgent,
   imageGen,
   videoGen,
+  theme,
+  onOpenThemePicker,
 }: {
   client: BaiClient;
   /** Null until the first engagement fetch lands (User works without it). */
@@ -92,6 +95,10 @@ export function SettingsPane({
   defaultAgent?: string;
   imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
+  /** Active theme (App-resolved) — the General pane's theme card. */
+  theme: ThemeId;
+  /** Open the theme picker modal (App-owned). */
+  onOpenThemePicker: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -137,6 +144,8 @@ export function SettingsPane({
           agents={agents}
           defaultAgent={defaultAgent}
           preferZdr={preferZdr}
+          theme={theme}
+          onOpenThemePicker={onOpenThemePicker}
           mutate={mutate}
         />
       ) : (
@@ -207,13 +216,15 @@ function UserPane({
   );
 }
 
-/** General section: the defaults new sessions resolve (agent, then model). */
+/** General section: the defaults new sessions resolve (agent, then model) + the UI theme. */
 function GeneralPane({
   client,
   list,
   agents,
   defaultAgent,
   preferZdr,
+  theme,
+  onOpenThemePicker,
   mutate,
 }: {
   client: BaiClient;
@@ -221,14 +232,34 @@ function GeneralPane({
   agents: AgentInfo[];
   defaultAgent?: string;
   preferZdr?: boolean;
+  theme: ThemeId;
+  onOpenThemePicker: () => void;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   return (
     <>
       <h2>General</h2>
+      <ThemeCard theme={theme} onOpenThemePicker={onOpenThemePicker} />
       <DefaultAgentForm client={client} agents={agents} current={defaultAgent} mutate={mutate} />
       <DefaultModel client={client} list={list} preferZdr={preferZdr} mutate={mutate} />
     </>
+  );
+}
+
+/** UI theme (config theme): shows the active theme, opens the picker modal. */
+function ThemeCard({ theme, onOpenThemePicker }: { theme: ThemeId; onOpenThemePicker: () => void }) {
+  const label = THEME_OPTIONS.find((opt) => opt.value === theme)?.label ?? theme;
+  return (
+    <div className="settings-card theme-card">
+      <h3>Theme</h3>
+      <p className="dim">
+        One theme everywhere — the terminal picks it up live (config-updated), and this
+        browser remembers it for the next boot. Current: {label}
+      </p>
+      <button type="button" onClick={onOpenThemePicker}>
+        change theme
+      </button>
+    </div>
   );
 }
 

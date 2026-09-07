@@ -1,49 +1,34 @@
 import { Box, Text } from "ink";
 import { useMemo, type ReactNode } from "react";
 import { Marked, type Token, type Tokens } from "marked";
+import { useTheme, type TuiTheme } from "../theme";
 
 /**
  * Markdown renderer for assistant replies and thinking transcripts,
  * modeled on pi's token-walk approach (marked lexer → styled Ink nodes)
  * with opencode's per-element color treatment: headings/strong/lists
  * colored, quotes dim-railed, code blocks boxed — no syntax highlighting,
- * no theme system (one hardcoded palette), no OSC-8 links.
+ * no OSC-8 links.
  *
- * The palette below is opencode's dark `markdown*` theme mapping
- * (opencode/packages/tui/src/theme/assets/opencode.json), expressed as hex
- * colors — Ink maps them to the nearest terminal color.
- *
- * Streaming feeds PARTIAL text on every delta; the marked lexer tolerates
- * unterminated fences and unclosed emphasis, so partial input degrades to
- * plain text gracefully. Parsing is memoized on the text string.
+ * Element colors come from the active theme (theme.tsx's markdown roles —
+ * the opencode-style mapping, theme-driven). Streaming feeds PARTIAL text
+ * on every delta; the marked lexer tolerates unterminated fences and
+ * unclosed emphasis, so partial input degrades to plain text gracefully.
+ * Parsing is memoized on the text string.
  */
-
-const THEME = {
-  heading: "#9d7cd8", // markdownHeading (accent)
-  strong: "#f5a742", // markdownStrong
-  emph: "#e5c07b", // markdownEmph
-  quote: "#e5c07b", // markdownBlockQuote
-  quoteBorder: "#808080", // rail
-  code: "#7fd88f", // markdownCode (inline)
-  link: "#56b6c2", // markdownLinkText
-  linkUrl: "#808080", // dim URL
-  bullet: "#fab283", // markdownListItem
-  enumeration: "#56b6c2", // markdownListEnumeration (also table headers)
-  rule: "#808080", // markdownHorizontalRule
-  codeBorder: "#808080", // code block containment
-};
 
 // One lexer instance for the app; lex() is stateless (no async extensions).
 const LEXER = new Marked({ gfm: true });
 
 export function Markdown({ text, marker, dim = false }: { text: string; marker?: ReactNode; /** Thinking bodies render dim overall. */ dim?: boolean }) {
+  const t = useTheme();
   // Blocks are memoized on content: streaming re-renders every frame but
   // only re-lexes when the text actually changed.
   const blocks = useMemo(() => {
     const trimmed = text.trim();
     if (trimmed.length === 0) return null;
-    return renderBlocks(LEXER.lexer(trimmed), "md", dim, undefined, true);
-  }, [text, dim]);
+    return renderBlocks(LEXER.lexer(trimmed), "md", dim, undefined, true, t);
+  }, [text, dim, t]);
   if (blocks === null) return null;
   // Focused nodes render the ❯ marker as a hanging-indent column: the body
   // wraps in the remaining width, aligned under the marker's first line.
@@ -71,51 +56,51 @@ function textOf(token: Token): string {
 }
 
 /** Inline tokens → styled Ink `<Text>` fragments (strings allowed inside). */
-function renderInline(tokens: Token[] | undefined, keyPrefix: string, dim: boolean): ReactNode[] {
+function renderInline(tokens: Token[] | undefined, keyPrefix: string, dim: boolean, t: TuiTheme): ReactNode[] {
   if (tokens === undefined || tokens.length === 0) return [];
   return tokens.map((token, i) => {
     const key = `${keyPrefix}:${i}`;
     switch (token.type) {
       case "strong":
         return (
-          <Text key={key} bold color={THEME.strong} dimColor={dim}>
-            {renderInline(token.tokens, key, dim)}
+          <Text key={key} bold color={t.mdStrong} dimColor={dim}>
+            {renderInline(token.tokens, key, dim, t)}
           </Text>
         );
       case "em":
         return (
-          <Text key={key} italic color={THEME.emph} dimColor={dim}>
-            {renderInline(token.tokens, key, dim)}
+          <Text key={key} italic color={t.mdEmph} dimColor={dim}>
+            {renderInline(token.tokens, key, dim, t)}
           </Text>
         );
       case "del":
         return (
-          <Text key={key} strikethrough dimColor>
-            {renderInline(token.tokens, key, dim)}
+          <Text key={key} strikethrough color={t.dim}>
+            {renderInline(token.tokens, key, dim, t)}
           </Text>
         );
       case "codespan":
         return (
-          <Text key={key} color={THEME.code} dimColor={dim}>
+          <Text key={key} color={t.mdCode} dimColor={dim}>
             {token.text}
           </Text>
         );
       case "link":
         return (
           <Text key={key}>
-            <Text color={THEME.link} dimColor={dim}>
-              {token.tokens !== undefined && token.tokens.length > 0 ? renderInline(token.tokens, key, dim) : textOf(token)}
+            <Text color={t.mdLink} dimColor={dim}>
+              {token.tokens !== undefined && token.tokens.length > 0 ? renderInline(token.tokens, key, dim, t) : textOf(token)}
             </Text>
-            {token.href.length > 0 && <Text dimColor> ({token.href})</Text>}
+            {token.href.length > 0 && <Text color={t.dim}> ({token.href})</Text>}
           </Text>
         );
       case "image":
         return (
           <Text key={key}>
-            <Text color={THEME.link} dimColor={dim}>
+            <Text color={t.mdLink} dimColor={dim}>
               ![{textOf(token)}]
             </Text>
-            {token.href.length > 0 && <Text dimColor> ({token.href})</Text>}
+            {token.href.length > 0 && <Text color={t.dim}> ({token.href})</Text>}
           </Text>
         );
       case "br":
@@ -127,7 +112,7 @@ function renderInline(tokens: Token[] | undefined, keyPrefix: string, dim: boole
       case "text": {
         const nested = (token as Tokens.Text).tokens;
         if (nested !== undefined && nested.length > 0) {
-          return <Text key={key}>{renderInline(nested, key, dim)}</Text>;
+          return <Text key={key}>{renderInline(nested, key, dim, t)}</Text>;
         }
         return textOf(token);
       }
@@ -147,6 +132,7 @@ function renderBlocks(
   dim: boolean,
   baseColor: string | undefined,
   spaced: boolean,
+  t: TuiTheme,
 ): ReactNode[] {
   return tokens.flatMap((token, i): ReactNode[] => {
     const key = `${keyPrefix}:${i}`;
@@ -159,8 +145,8 @@ function renderBlocks(
         const heading = token as Tokens.Heading;
         return [
           <Box key={key} marginTop={mt} flexShrink={0}>
-            <Text bold color={THEME.heading} dimColor={dim} wrap="wrap">
-              {renderInline(heading.tokens, key, dim)}
+            <Text bold color={t.mdHeading} dimColor={dim} wrap="wrap">
+              {renderInline(heading.tokens, key, dim, t)}
             </Text>
           </Box>,
         ];
@@ -170,7 +156,7 @@ function renderBlocks(
         // Block-level "text" tokens appear in loose list items / tight lists.
         const content =
           "tokens" in token && Array.isArray(token.tokens) && token.tokens.length > 0
-            ? renderInline(token.tokens, key, dim)
+            ? renderInline(token.tokens, key, dim, t)
             : textOf(token);
         return [
           <Box key={key} marginTop={mt} flexShrink={0}>
@@ -183,8 +169,8 @@ function renderBlocks(
       case "code": {
         const code = token as Tokens.Code;
         return [
-          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="round" borderColor={THEME.codeBorder} paddingX={1}>
-            {code.lang !== undefined && code.lang.length > 0 && <Text dimColor>{code.lang}</Text>}
+          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="round" borderColor={t.dim} paddingX={1}>
+            {code.lang !== undefined && code.lang.length > 0 && <Text color={t.dim}>{code.lang}</Text>}
             <Text wrap="wrap">{code.text.replace(/\n$/, "")}</Text>
           </Box>,
         ];
@@ -201,25 +187,25 @@ function renderBlocks(
             borderTop={false}
             borderBottom={false}
             borderRight={false}
-            borderColor={THEME.quoteBorder}
+            borderColor={t.dim}
             paddingLeft={1}
           >
-            {renderBlocks(quote.tokens ?? [], key, dim, THEME.quote, false)}
+            {renderBlocks(quote.tokens ?? [], key, dim, t.mdQuote, false, t)}
           </Box>,
         ];
       }
       case "list":
-        return [renderList(token as Tokens.List, key, dim, baseColor, mt)];
+        return [renderList(token as Tokens.List, key, dim, baseColor, mt, t)];
       case "hr":
         return [
           <Box key={key} marginTop={mt} flexShrink={0}>
-            <Text dimColor wrap="truncate">
+            <Text color={t.dim} wrap="truncate">
               {"─".repeat(60)}
             </Text>
           </Box>,
         ];
       case "table":
-        return [renderTable(token as Tokens.Table, key, dim, mt)];
+        return [renderTable(token as Tokens.Table, key, dim, mt, t)];
       default: {
         // Unknown block token (html, etc.): print its literal text.
         const raw = textOf(token);
@@ -237,7 +223,7 @@ function renderBlocks(
 }
 
 /** One list: colored bullet/number column + hanging-indent item bodies. */
-function renderList(list: Tokens.List, key: string, dim: boolean, baseColor: string | undefined, marginTop: number): ReactNode {
+function renderList(list: Tokens.List, key: string, dim: boolean, baseColor: string | undefined, marginTop: number, t: TuiTheme): ReactNode {
   const numbered = list.ordered === true;
   // marked types `start` as number | '' (missing start attr → '') —
   // normalize to 1 so the numbering math stays numeric.
@@ -253,12 +239,12 @@ function renderList(list: Tokens.List, key: string, dim: boolean, baseColor: str
         return (
           <Box key={`${key}:i${i}`} flexDirection="row" flexShrink={0}>
             <Box width={markerWidth} flexShrink={0}>
-              <Text color={numbered ? THEME.enumeration : THEME.bullet} dimColor={dim}>
+              <Text color={numbered ? t.mdEnumeration : t.mdBullet} dimColor={dim}>
                 {glyph}
               </Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-              {renderBlocks(item.tokens ?? [], `${key}:i${i}`, dim, baseColor, false)}
+              {renderBlocks(item.tokens ?? [], `${key}:i${i}`, dim, baseColor, false, t)}
             </Box>
           </Box>
         );
@@ -268,11 +254,11 @@ function renderList(list: Tokens.List, key: string, dim: boolean, baseColor: str
 }
 
 /**
- * One table: cyan header row, dim separator, plain body rows. Columns are
+ * One table: themed header row, dim separator, plain body rows. Columns are
  * content-aligned (padded, clipped to a per-cell cap) and each row renders
  * as one truncated line — no box-drawing grid, no width negotiation.
  */
-function renderTable(table: Tokens.Table, key: string, dim: boolean, marginTop: number): ReactNode {
+function renderTable(table: Tokens.Table, key: string, dim: boolean, marginTop: number, t: TuiTheme): ReactNode {
   const CAP = 28;
   const clip = (s: string): string => (s.length > CAP ? `${s.slice(0, CAP - 1)}…` : s);
   const widths = table.header.map((cell, i) => {
@@ -287,10 +273,10 @@ function renderTable(table: Tokens.Table, key: string, dim: boolean, marginTop: 
   const total = widths.reduce((sum, w) => sum + w, 0) + 2 * Math.max(0, widths.length - 1);
   return (
     <Box key={key} marginTop={marginTop} flexShrink={0} flexDirection="column">
-      <Text color={THEME.enumeration} dimColor={dim} wrap="truncate">
+      <Text color={t.mdEnumeration} dimColor={dim} wrap="truncate">
         {line(table.header)}
       </Text>
-      <Text dimColor wrap="truncate">
+      <Text color={t.dim} wrap="truncate">
         {"─".repeat(total)}
       </Text>
       {table.rows.map((row, i) => (

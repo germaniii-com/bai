@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { PermissionRequest } from "@bai/shared";
 import { deleteWord } from "../state/composer";
+import { useTheme } from "../theme";
 
 /** Diff lines rendered before eliding with a counter. */
 const DIFF_WINDOW = 14;
@@ -86,13 +87,14 @@ export function PermissionDialog({
   const detail = request.detail;
   const diffLines = detail?.diff !== undefined ? detail.diff.split("\n") : [];
   const hidden = Math.max(0, diffLines.length - DIFF_WINDOW);
+  const t = useTheme();
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text bold color="yellow">
+    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} paddingX={1}>
+      <Text bold color={t.warning}>
         permission requested
       </Text>
-      {context !== undefined && <Text color="magenta">{context}</Text>}
+      {context !== undefined && <Text color={t.secondary}>{context}</Text>}
       <Text>
         tool: <Text bold>{request.tool}</Text>
       </Text>
@@ -103,32 +105,32 @@ export function PermissionDialog({
           {diffLines.slice(0, DIFF_WINDOW).map((line, i) => (
             <Text key={i} wrap="truncate">
               {line.startsWith("+++") || line.startsWith("---") ? (
-                <Text dimColor>{line}</Text>
+                <Text color={t.dim}>{line}</Text>
               ) : line.startsWith("@@") ? (
-                <Text color="magenta">{line}</Text>
+                <Text color={t.secondary}>{line}</Text>
               ) : line.startsWith("+") ? (
-                <Text color="green">{line}</Text>
+                <Text color={t.success}>{line}</Text>
               ) : line.startsWith("-") ? (
-                <Text color="red">{line}</Text>
+                <Text color={t.danger}>{line}</Text>
               ) : (
-                <Text dimColor>{line}</Text>
+                <Text color={t.dim}>{line}</Text>
               )}
             </Text>
           ))}
-          {hidden > 0 && <Text dimColor>… {hidden} more diff lines …</Text>}
+          {hidden > 0 && <Text color={t.dim}>… {hidden} more diff lines …</Text>}
         </Box>
       )}
 
       {stage === "choose" ? (
-        <Text dimColor>a allow once · s allow always (session) · d reject with feedback</Text>
+        <Text color={t.dim}>a allow once · s allow always (session) · d reject with feedback</Text>
       ) : (
         <Box flexDirection="column" marginTop={0}>
-          <Text color="yellow">reject — why? (optional; the model sees this message)</Text>
+          <Text color={t.warning}>reject — why? (optional; the model sees this message)</Text>
           <Text>
-            <Text dimColor={message.length === 0}>{message.length > 0 ? message : "type a reason…"}</Text>
-            <Text dimColor>▌</Text>
+            <Text color={message.length === 0 ? t.dim : t.text}>{message.length > 0 ? message : "type a reason…"}</Text>
+            <Text color={t.dim}>▌</Text>
           </Text>
-          <Text dimColor>enter reject · esc reject without message</Text>
+          <Text color={t.dim}>enter reject · esc reject without message</Text>
         </Box>
       )}
     </Box>

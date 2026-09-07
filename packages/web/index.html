@@ -3,9 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0e14" />
+    <meta name="theme-color" content="#09090b" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>bai</title>
+    <script>
+      // Apply the cached theme before first paint (no flash of the wrong
+      // theme). The server config is the source of truth — this only covers
+      // the boot frame until the config fetch lands (src/theme.tsx).
+      try {
+        var t = localStorage.getItem("bai.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

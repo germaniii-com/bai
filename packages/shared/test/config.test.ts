@@ -42,6 +42,14 @@ describe("config schema", () => {
     expect(configSchema.parse({}).videoGen).toBeUndefined();
   });
 
+  test("parses the theme key (plain string — unknown ids fall back at apply time)", () => {
+    expect(configSchema.parse({ theme: "dracula" }).theme).toBe("dracula");
+    expect(configSchema.parse({ theme: "made-up-theme" }).theme).toBe("made-up-theme");
+    expect(configSchema.parse({}).theme).toBeUndefined();
+    expect(() => configSchema.parse({ theme: "" })).toThrow();
+    expect(() => configSchema.parse({ theme: 7 })).toThrow();
+  });
+
   test("rejects invalid values", () => {
     expect(() => configSchema.parse({ server: { port: -1 } })).toThrow();
     expect(() => configSchema.parse({ permissions: { x: "maybe" } })).toThrow();

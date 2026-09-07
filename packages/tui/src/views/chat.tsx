@@ -34,6 +34,7 @@ import {
 } from "../state/composer";
 import { recordPrompt, resetTraversal, traverse } from "../state/history";
 import { moveFocus } from "../state/focus";
+import { useTheme } from "../theme";
 
 /** SGR mouse buttons for the wheel (X10 button codes + 1000h tracking). */
 const WHEEL_UP = 64;
@@ -189,8 +190,8 @@ export function ChatView({
 
   // Thinking nodes (opencode parity): every assistant message's reasoning
   // renders as its own transcript node — collapsed by default, each toggled
-  // individually by clicking its row (ctrl+t toggles all). The state
-  // persists after the run and across session revisits; only the
+  // individually by clicking its row (or enter/space on the focused node).
+  // The state persists after the run and across session revisits; only the
   // *visibility* toggles.
   const [expandedThinking, setExpandedThinking] = useState<Set<string>>(
     new Set(),
@@ -207,6 +208,7 @@ export function ChatView({
   // highlighted; Enter/Space act on it (toggle thought/tool output, open
   // the subagent dialog, open the message-actions modal on user messages).
   const [focus, setFocus] = useState<number | null>(null);
+  const t = useTheme();
 
   // ---- message actions + two-phase revert (opencode parity) -------------
   // The message-actions modal (Enter/Space on a focused user message):
@@ -679,22 +681,10 @@ export function ChatView({
       if (key.ctrl) {
         if (ch === "u") return scrollBy(-halfPageRows);
         if (ch === "d") return scrollBy(halfPageRows);
-        // ctrl+j/ctrl+k: transcript focus traversal (the cyan highlight) —
+        // ctrl+j/ctrl+k: transcript focus traversal (the accent highlight) —
         // steps message-by-message and scrolls by rows to reveal the target.
         if (ch === "j") return stepFocus(true);
         if (ch === "k") return stepFocus(false);
-        // ctrl+t toggles ALL reasoning nodes: expand all when any is
-        // collapsed, collapse all otherwise.
-        if (ch === "t") {
-          const thinkingIds = messages
-            .filter((m) => m.role === "assistant" && thinkingText(m).length > 0)
-            .map((m) => m.id);
-          const allExpanded =
-            thinkingIds.length > 0 &&
-            thinkingIds.every((id) => expandedThinking.has(id));
-          setExpandedThinking(allExpanded ? new Set() : new Set(thinkingIds));
-          return;
-        }
         // Editing chords stay live in both modes (the draft persists).
         if (ch === "w") return setEditor(deleteWordBefore);
         return; // remaining ctrl chords belong to App's globals handler
@@ -894,7 +884,7 @@ export function ChatView({
             // were (opencode's reverted banner). Focus/click → restore.
             return (
               <Box key="revert-banner" marginTop={ii === 0 ? 0 : 1} flexShrink={0} {...assistantInset}>
-                <Text color={focus === ii ? "cyan" : undefined} dimColor={focus !== ii}>
+                <Text color={focus === ii ? t.accent : t.dim}>
                   {focus === ii ? "❯ " : "  "}↩ {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — enter
                   to restore
                 </Text>
@@ -907,15 +897,15 @@ export function ChatView({
           // Per-item gap row (replaces the old container gap): rendered
           // INSIDE the measured item so measured positions stay exact.
           const gap = ii === 0 ? 0 : 1;
-          const marker = focused ? <Text color="cyan">❯ </Text> : null;
+          const marker = focused ? <Text color={t.accent}>❯ </Text> : null;
           if (item.kind === "user") {
             return (
               <Box key={`${item.messageId}:user`} marginTop={gap} flexShrink={0}>
                 <Box
                   borderStyle="round"
-                  // Neutral white outline at rest; the cyan accent is reserved
-                  // for the focus highlight so it stands out.
-                  borderColor={focused ? "cyan" : "white"}
+                  // Neutral outline at rest; the accent is reserved for the
+                  // focus highlight so it stands out.
+                  borderColor={focused ? t.accent : t.border}
                   paddingX={1}
                   flexShrink={0}
                 >
@@ -935,14 +925,14 @@ export function ChatView({
                 <Box {...assistantInset} flexShrink={0}>
                   {expanded ? (
                     <Box flexDirection="column">
-                      <Text dimColor>
+                      <Text color={t.dim}>
                         {marker}── thought ──
                       </Text>
                       {/* Thinking renders markdown too, dimmed overall. */}
                       <Markdown text={thinking} dim />
                     </Box>
                   ) : (
-                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                    <Text color={focused ? t.accent : t.dim}>
                       {marker}▸ thought ({lineCount} line
                       {lineCount === 1 ? "" : "s"})
                     </Text>
@@ -962,25 +952,24 @@ export function ChatView({
               const live = c.result === undefined && (asking || child?.running === true);
               const status = live ? "running" : c.status;
               const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "▸";
-              const statusColor = asking ? "red" : status === "running" ? "yellow" : status === "error" ? "red" : "green";
+              const statusColor = asking ? t.danger : status === "running" ? t.warning : status === "error" ? t.danger : t.success;
               return (
                 <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
                   <Box {...assistantInset} flexShrink={0}>
                     <Text wrap="truncate">
                       {marker}
-                      <Text color={focused ? "cyan" : statusColor}>
+                      <Text color={focused ? t.accent : statusColor}>
                         {status === "done" ? "" : `${glyph} `}
                       </Text>
                       <Text
-                        color={focused ? "cyan" : (asking ? "red" : status === "running" ? "yellow" : status === "error" ? "red" : undefined)}
-                        dimColor={!focused && status === "done"}
+                        color={focused ? t.accent : (asking ? t.danger : status === "running" ? t.warning : status === "error" ? t.danger : t.dim)}
                       >
                         task {c.argsPreview}
                       </Text>
-                      {asking && <Text color="red"> · needs approval</Text>}
-                      {!asking && status === "running" && <Text dimColor> · working…</Text>}
-                      {status === "error" && <Text color="red"> · failed</Text>}
-                      {focused && status !== "running" && <Text dimColor> · enter to view</Text>}
+                      {asking && <Text color={t.danger}> · needs approval</Text>}
+                      {!asking && status === "running" && <Text color={t.dim}> · working…</Text>}
+                      {status === "error" && <Text color={t.danger}> · failed</Text>}
+                      {focused && status !== "running" && <Text color={t.dim}> · enter to view</Text>}
                     </Text>
                   </Box>
                 </Box>
@@ -994,7 +983,7 @@ export function ChatView({
             // reloads (task-node parity for the ask UX).
             const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
             const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-            const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+            const color = c.status === "running" ? t.warning : c.status === "error" ? t.danger : t.success;
             const perm = c.permission;
             const permVerdict =
               perm === undefined
@@ -1009,27 +998,27 @@ export function ChatView({
                 <Box {...assistantInset} flexDirection="column" flexShrink={0}>
                   <Text wrap="truncate">
                     {marker}
-                    <Text color={focused ? "cyan" : color}>{glyph} </Text>
-                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                    <Text color={focused ? t.accent : color}>{glyph} </Text>
+                    <Text color={focused ? t.accent : t.text}>
                       {c.name}
                     </Text>
                     {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                    {permVerdict !== undefined && <Text dimColor> · {permVerdict}</Text>}
-                    {c.result !== undefined && c.result.isError && <Text color="red"> · denied/failed</Text>}
+                    {permVerdict !== undefined && <Text color={t.dim}> · {permVerdict}</Text>}
+                    {c.result !== undefined && c.result.isError && <Text color={t.danger}> · denied/failed</Text>}
                     {c.result !== undefined && focused && (
-                      <Text dimColor> · enter to {expanded ? "hide" : "view"} output</Text>
+                      <Text color={t.dim}> · enter to {expanded ? "hide" : "view"} output</Text>
                     )}
                   </Text>
                   {expanded && perm !== undefined && (
                     <Box flexDirection="column" paddingLeft={2} marginBottom={perm.detail?.diff !== undefined ? 1 : 0}>
                       {perm.detail?.summary !== undefined && (
-                        <Text dimColor wrap="wrap">
+                        <Text color={t.dim} wrap="wrap">
                           ask: {perm.detail.summary}
                         </Text>
                       )}
                       {perm.detail?.diff !== undefined &&
                         perm.detail.diff.split("\n").map((line, li) => (
-                          <Text key={li} dimColor wrap="truncate">
+                          <Text key={li} color={t.dim} wrap="truncate">
                             {line}
                           </Text>
                         ))}
@@ -1041,18 +1030,18 @@ export function ChatView({
                     <Box flexDirection="column" paddingLeft={2}>
                       {c.questions.map((qa, i) => (
                         <Box key={i} flexDirection="column" marginBottom={1}>
-                          <Text dimColor wrap="wrap">
+                          <Text color={t.dim} wrap="wrap">
                             {qa.header !== undefined ? `[${qa.header}] ` : ""}
                             {qa.question}
                           </Text>
                           {qa.answers.length > 0 ? (
                             qa.answers.map((a, ai) => (
-                              <Text key={ai} color="green" wrap="wrap">
+                              <Text key={ai} color={t.success} wrap="wrap">
                                 ✓ {a}
                               </Text>
                             ))
                           ) : (
-                            <Text dimColor italic>· unanswered</Text>
+                            <Text color={t.dim} italic>· unanswered</Text>
                           )}
                         </Box>
                       ))}
@@ -1062,7 +1051,7 @@ export function ChatView({
                     c.result !== undefined && (
                       <Box flexDirection="column" paddingLeft={2}>
                         {c.result.content.split("\n").map((line, li) => (
-                          <Text key={li} dimColor wrap="wrap">
+                          <Text key={li} color={t.dim} wrap="wrap">
                             {line.length > 0 ? line : " "}
                           </Text>
                         ))}
@@ -1086,7 +1075,7 @@ export function ChatView({
         })}
         {len === 0 && !waiting && (
           <Box {...assistantInset}>
-            <Text dimColor>No messages yet — say something.</Text>
+            <Text color={t.dim}>No messages yet — say something.</Text>
           </Box>
         )}
         {waiting && (
@@ -1098,7 +1087,7 @@ export function ChatView({
 
       {aboveCount > 0 && (
         <Box marginBottom={1}>
-          <Text dimColor>
+          <Text color={t.dim}>
             ↑ {aboveCount} earlier message{aboveCount === 1 ? "" : "s"} · mouse
             wheel / pageUp-pageDown to scroll · ctrl+j/k to focus
           </Text>

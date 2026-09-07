@@ -1,5 +1,6 @@
 import { Text } from "ink";
 import { useEffect, useState } from "react";
+import { useTheme } from "../theme";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -9,13 +10,14 @@ const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
  * when the indicator is actually visible.
  */
 export function Spinner({ label }: { label?: string }) {
+  const t = useTheme();
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setFrame((f) => (f + 1) % FRAMES.length), 80);
     return () => clearInterval(timer);
   }, []);
   return (
-    <Text dimColor>
+    <Text color={t.dim}>
       {FRAMES[frame]}
       {label !== undefined ? ` ${label}` : ""}
     </Text>

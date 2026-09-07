@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session, ToolListEntry } from "@bai/shared";
 import { listWindow } from "../components/dialog";
+import { useTheme } from "../theme";
 
 /** List rows shown around the cursor (SelectDialog parity). */
 const WINDOW = 12;
@@ -40,6 +41,7 @@ export function AgentManager({
   const [index, setIndex] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const t = useTheme();
 
   const refresh = useCallback(async () => {
     try {
@@ -193,7 +195,7 @@ export function AgentManager({
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>
-        agents &amp; tools <Text dimColor>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
+        agents &amp; tools <Text color={t.dim}>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
       </Text>
       {/* Sliding window around the cursor — long agent/tool lists scroll
           instead of overflowing the terminal. */}
@@ -202,7 +204,7 @@ export function AgentManager({
         const windowed = items.slice(start, end);
         return (
           <>
-            {start > 0 && <Text dimColor>  ↑ {start} more</Text>}
+            {start > 0 && <Text color={t.dim}>  ↑ {start} more</Text>}
             {windowed.map((item, i) => {
               const absolute = start + i;
               if (tab === "agents") {
@@ -213,37 +215,37 @@ export function AgentManager({
                 if (sessionAgent === a.name) marks.push("session");
                 if (defaultAgent === a.name) marks.push("default");
                 return (
-                  <Text key={a.name} color={absolute === index ? "cyan" : undefined}>
+                  <Text key={a.name} color={absolute === index ? t.accent : t.text}>
                     {absolute === index ? "❯ " : "  "}
-                    {a.name} <Text dimColor>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
-                    {marks.length > 0 && <Text color="green"> · {marks.join(" · ")}</Text>}
+                    {a.name} <Text color={t.dim}>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
+                    {marks.length > 0 && <Text color={t.success}> · {marks.join(" · ")}</Text>}
                   </Text>
                 );
               }
-              const t = item as ToolListEntry;
+              const tool = item as ToolListEntry;
               return (
-                <Text key={t.name} color={absolute === index ? "cyan" : undefined}>
+                <Text key={tool.name} color={absolute === index ? t.accent : t.text}>
                   {absolute === index ? "❯ " : "  "}
-                  {t.name} <Text dimColor>({t.origin})</Text>
+                  {tool.name} <Text color={t.dim}>({tool.origin})</Text>
                 </Text>
               );
             })}
             {end < items.length && (
-              <Text dimColor>  ↓ {items.length - end} more</Text>
+              <Text color={t.dim}>  ↓ {items.length - end} more</Text>
             )}
           </>
         );
       })()}
-      {items.length === 0 && <Text dimColor>  (empty — n to create)</Text>}
-      <Text dimColor> </Text>
-      <Text dimColor>
+      {items.length === 0 && <Text color={t.dim}>  (empty — n to create)</Text>}
+      <Text color={t.dim}> </Text>
+      <Text color={t.dim}>
         n new · e edit ($EDITOR) · d delete ·{" "}
         {tab === "agents"
           ? `enter/u ${active !== null ? "use in session" : "set as default"} · `
           : ""}j/k move · t tab · esc close
       </Text>
-      {confirmDelete !== null && <Text color="yellow">delete "{confirmDelete}"? y/n</Text>}
-      {notice !== null && <Text color="yellow">{notice}</Text>}
+      {confirmDelete !== null && <Text color={t.warning}>delete "{confirmDelete}"? y/n</Text>}
+      {notice !== null && <Text color={t.warning}>{notice}</Text>}
     </Box>
   );
 }

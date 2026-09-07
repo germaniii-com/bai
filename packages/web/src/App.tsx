@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Cpu, Folder, Image, MessageCircle, SlidersHorizontal, Video, Wrench } from "lucide-react";
+import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
+import { resolveThemeId, type ThemeId } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
 import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
+import { ThemeProvider } from "./theme";
+import { ThemeSelectorModal } from "./theme-picker";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
@@ -108,6 +111,10 @@ export function App() {
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
+  // config theme — the UI theme id; applied by ThemeProvider (data-theme on
+  // <html>) and synced from any surface via config.updated.
+  const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Independent catalogs: agents and tools each own their fetch/refresh —
   // updated by firehose events (agents.updated / tools.updated), section
@@ -132,6 +139,7 @@ export function App() {
       setConfigPreferZdr(config.models.preferZdr);
       setConfigImageGen(config.imageGen);
       setConfigVideoGen(config.videoGen);
+      setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
@@ -490,10 +498,26 @@ export function App() {
 
   // The ask panel lives inside ChatPane — visible in the chat section and
   // in an engaged workspace; everywhere else the nav badge carries the
-  // count so a blocked run is never invisible.
+  // count so a blocked run is never visible.
   const askPanelVisible = section === "chat" || (section === "workspace" && effectiveWorkspacePath !== null);
 
+  // Effective theme: the config value resolved against the catalog
+  // (unknown ids fall back to the default). ThemeProvider applies it to
+  // <html> and caches it for the next boot's inline script.
+  const theme = resolveThemeId(configTheme);
+
+  /** Persist a theme pick; config.updated syncs the TUI (and this tab). */
+  const selectTheme = async (next: ThemeId): Promise<void> => {
+    try {
+      await client.putConfig({ theme: next });
+      await refreshConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
+    <ThemeProvider theme={theme}>
     <div className="app">
       {/* Pending asks render INLINE inside the chat pane (no overlay, no
           dim) — the app stays fully navigable while a run is blocked. The
@@ -502,6 +526,7 @@ export function App() {
         section={section}
         onNavigate={navigate}
         askBadge={askPanelVisible ? 0 : askTotal}
+        onThemePicker={() => setThemePickerOpen(true)}
       />
 
       <aside className="nested-panel">
@@ -635,6 +660,8 @@ export function App() {
             defaultAgent={configDefaultAgent}
             imageGen={configImageGen}
             videoGen={configVideoGen}
+            theme={theme}
+            onOpenThemePicker={() => setThemePickerOpen(true)}
           />
         </main>
       ) : section === "agents" ? (
@@ -732,24 +759,37 @@ export function App() {
           )}
         </>
       )}
+
+      {/* Theme picker (germaniii.com's preview-card grid) — opened from the
+          nav's palette button or Settings → General. */}
+      <ThemeSelectorModal
+        isOpen={themePickerOpen}
+        onClose={() => setThemePickerOpen(false)}
+        currentTheme={theme}
+        onSelect={(next) => void selectTheme(next)}
+      />
     </div>
+    </ThemeProvider>
   );
 }
 
 /**
  * Master rail: brand mark, workbench sections (Image/Video disabled until
- * their phases land), Settings pinned at the bottom.
+ * their phases land), theme picker + Settings pinned at the bottom.
  * Icons via lucide-react (the one icon dependency).
  */
 function MasterNav({
   section,
   onNavigate,
   askBadge = 0,
+  onThemePicker,
 }: {
   section: Section;
   onNavigate: (s: Section) => void;
   /** Pending-ask count for the Chat badge (0 = hidden). */
   askBadge?: number;
+  /** Open the theme picker modal (the palette button above Settings). */
+  onThemePicker: () => void;
 }) {
   return (
       <nav className="master-nav" aria-label="Primary">
@@ -778,6 +818,10 @@ function MasterNav({
         </MasterItem>
       </div>
       <div className="master-spacer" />
+      <button type="button" className="master-item" aria-label="Choose a theme" onClick={onThemePicker}>
+        <Palette className="nav-icon" aria-hidden="true" />
+        <span className="nav-label">Theme</span>
+      </button>
       <MasterItem section="settings" label="Settings" active={section === "settings"} onNavigate={onNavigate}>
         <SlidersHorizontal className="nav-icon" aria-hidden="true" />
       </MasterItem>

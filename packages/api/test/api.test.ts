@@ -205,6 +205,17 @@ describe("api contract", () => {
     const { config: withAgent } = (await putAgent.json()) as { config: { agents: { default?: string } } };
     expect(withAgent.agents.default).toBe("build");
 
+    // theme round-trips as a plain string (unknown ids fall back at apply
+    // time — the boundary doesn't enum-check).
+    const putTheme = await app.request("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({ theme: "dracula" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(putTheme.status).toBe(200);
+    const { config: withTheme } = (await putTheme.json()) as { config: { theme?: string } };
+    expect(withTheme.theme).toBe("dracula");
+
     const bad = await app.request("/api/config", {
       method: "PUT",
       body: JSON.stringify({ server: { port: -5 } }),

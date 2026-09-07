@@ -94,6 +94,12 @@ export interface Config {
   models: ModelsConfig;
   agents: AgentsConfig;
   user: UserConfig;
+  /**
+   * UI theme id (shared/src/themes.ts). One theme everywhere — set from any
+   * surface, applied live everywhere via config.updated. Unknown ids fall
+   * back to the default at apply time, so the value is a plain string here.
+   */
+  theme?: string;
   /** Image-generation defaults (image workbench executor fallback). */
   imageGen?: MediaGenConfig;
   /** Video-generation defaults (video workbench executor fallback). */
@@ -167,11 +173,14 @@ const toolsSchema = z.object({
     .optional(),
 });
 
+const themeSchema = z.string().min(1).max(100);
+
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
   models: modelsSchema.default({}),
   agents: agentsSchema.default({}),
   user: userSchema.default({}),
+  theme: themeSchema.optional(),
   imageGen: mediaGenSchema.optional(),
   videoGen: mediaGenSchema.optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).default({}),
@@ -193,6 +202,7 @@ export const configPatchSchema = z.object({
   models: modelsSchema.optional(),
   agents: agentsSchema.optional(),
   user: userSchema.optional(),
+  theme: themeSchema.optional(),
   imageGen: mediaGenSchema.optional(),
   videoGen: mediaGenSchema.optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),

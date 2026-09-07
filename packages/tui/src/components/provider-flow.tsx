@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { PromptDialog, SelectDialog } from "./dialog";
+import { useTheme } from "../theme";
 import {
   accountOptions,
   allModelOptions,
@@ -279,11 +280,21 @@ export function ProviderFlow({
 
   return (
     <Box flexDirection="column">
-      {busy && <Text dimColor>working…</Text>}
-      {error !== null && <Text color="red">error: {error}</Text>}
+      {busy && <BusyLine />}
+      {error !== null && <ErrorLine error={error} />}
       {dialog}
     </Box>
   );
+}
+
+function BusyLine() {
+  const t = useTheme();
+  return <Text color={t.dim}>working…</Text>;
+}
+
+function ErrorLine({ error }: { error: string }) {
+  const t = useTheme();
+  return <Text color={t.danger}>error: {error}</Text>;
 }
 
 function StepError({ message, onClose }: { message: string; onClose: () => void }) {

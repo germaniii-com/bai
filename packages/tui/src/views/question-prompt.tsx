@@ -4,6 +4,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { QuestionRequest } from "@bai/shared";
 import { deleteWord } from "../state/composer";
 import { typedChar, type AskUiState } from "../state/asks";
+import { useTheme } from "../theme";
 
 /**
  * Inline question prompt — the answer half of the `question` tool
@@ -42,6 +43,7 @@ export function QuestionPrompt({
   // reply/dismiss clears it (re-arm → retry) instead of dead-keying keys.
   const [busyId, setBusyId] = useState<string | null>(null);
   const busy = busyId === (request.id as string);
+  const t = useTheme();
 
   const total = request.questions.length;
   const q = request.questions[ui.qIndex];
@@ -156,44 +158,44 @@ export function QuestionPrompt({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} flexShrink={0}>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1} flexShrink={0}>
       <Text wrap="truncate">
-        <Text bold color="cyan">
+        <Text bold color={t.accent}>
           △ question{total > 1 ? ` (${ui.qIndex + 1}/${total})` : ""} · {q.header}
         </Text>
-        {queued > 0 && <Text dimColor> · {queued} more queued</Text>}
+        {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
       </Text>
       <Text wrap="wrap">{q.question}</Text>
       {q.options.map((opt, i) => {
         const picked = selected.includes(opt.label);
         const cursor = ui.custom === null && i === ui.highlight ? "❯ " : "  ";
         return (
-          <Text key={opt.label} wrap="truncate" color={i === ui.highlight && ui.custom === null ? "cyan" : undefined}>
+          <Text key={opt.label} wrap="truncate" color={i === ui.highlight && ui.custom === null ? t.accent : t.text}>
             {cursor}
             {q.multiple === true ? (picked ? "[x] " : "[ ] ") : picked ? "● " : ""}
             {opt.label}
-            {i === ui.highlight && ui.custom === null ? <Text dimColor> — {opt.description}</Text> : null}
+            {i === ui.highlight && ui.custom === null ? <Text color={t.dim}> — {opt.description}</Text> : null}
           </Text>
         );
       })}
       {ui.custom !== null ? (
         <Box flexDirection="column">
-          <Text color="cyan">custom answer:</Text>
+          <Text color={t.accent}>custom answer:</Text>
           <Text wrap="truncate">
-            <Text dimColor={ui.custom.length === 0}>{ui.custom.length > 0 ? ui.custom : "type your answer…"}</Text>
-            <Text dimColor>▌</Text>
+            <Text color={ui.custom.length === 0 ? t.dim : t.text}>{ui.custom.length > 0 ? ui.custom : "type your answer…"}</Text>
+            <Text color={t.dim}>▌</Text>
           </Text>
-          <Text dimColor>enter submit · esc back</Text>
+          <Text color={t.dim}>enter submit · esc back</Text>
         </Box>
       ) : (
-        <Text dimColor wrap="truncate">
+        <Text color={t.dim} wrap="truncate">
           {q.multiple === true
             ? "space toggle · enter confirm · c custom · "
             : "space/enter pick · c custom · "}
           esc{ui.dismissArmed ? " again dismiss" : " dismiss"}
         </Text>
       )}
-      {ui.dismissArmed && ui.custom === null && <Text color="yellow">press esc again to dismiss all questions</Text>}
+      {ui.dismissArmed && ui.custom === null && <Text color={t.warning}>press esc again to dismiss all questions</Text>}
     </Box>
   );
 }

@@ -8,6 +8,7 @@ import { buildTranscriptItems, messageText } from "../state/sync";
 import { moveFocus } from "../state/focus";
 import type { SubagentActivity } from "../state/subagents";
 import { Markdown } from "../components/markdown";
+import { useTheme } from "../theme";
 
 /** Live-refetch cadence while the child session is still running. */
 const REFRESH_MS = 1500;
@@ -48,6 +49,7 @@ export function SubagentDialog({
   const [pendingAsk, setPendingAsk] = useState<PermissionRequest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tick, setTick] = useState(0); // forces a refetch when bumped
+  const t = useTheme();
 
   // ---- transcript fetch + live refresh -----------------------------------
   useEffect(() => {
@@ -231,27 +233,27 @@ export function SubagentDialog({
 
   if (current === undefined) {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-        <Text bold color="cyan">subagent</Text>
-        <Text dimColor>no subagents yet</Text>
-        <Text dimColor>↑/esc back</Text>
+      <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+        <Text bold color={t.accent}>subagent</Text>
+        <Text color={t.dim}>no subagents yet</Text>
+        <Text color={t.dim}>↑/esc back</Text>
       </Box>
     );
   }
 
   const status = current.needsApproval
-    ? { glyph: "⚠", text: "needs approval", color: "red" as const }
+    ? { glyph: "⚠", text: "needs approval", color: t.danger }
     : current.running
-      ? { glyph: "◐", text: "working…", color: "yellow" as const }
-      : { glyph: "✓", text: "done", color: "green" as const };
+      ? { glyph: "◐", text: "working…", color: t.warning }
+      : { glyph: "✓", text: "done", color: t.success };
 
   return (
-    <Box flexDirection="column" height={rows > 0 ? rows : undefined} borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Box flexDirection="column" height={rows > 0 ? rows : undefined} borderStyle="round" borderColor={t.border} paddingX={1}>
       <Text wrap="truncate">
-        <Text bold color="cyan">subagent </Text>
-        <Text color="yellow">@{current.agent}</Text>
-        <Text dimColor> — {current.title}</Text>
-        {children.length > 1 && <Text dimColor>{` [${index + 1}/${children.length}]`}</Text>}
+        <Text bold color={t.accent}>subagent </Text>
+        <Text color={t.warning}>@{current.agent}</Text>
+        <Text color={t.dim}> — {current.title}</Text>
+        {children.length > 1 && <Text color={t.dim}>{` [${index + 1}/${children.length}]`}</Text>}
         <Text> </Text>
         <Text color={status.color}>{`${status.glyph} ${status.text}`}</Text>
       </Text>
@@ -282,12 +284,12 @@ export function SubagentDialog({
         >
           {items.map((item, ii) => {
             const focused = focusIndex === ii;
-            const marker = focused ? <Text color="cyan">❯ </Text> : null;
+            const marker = focused ? <Text color={t.accent}>❯ </Text> : null;
             const gap = ii === 0 ? 0 : 1;
             if (item.kind === "user") {
               return (
                 <Box key={`${item.messageId}:user`} marginTop={gap} marginBottom={1} flexShrink={0}>
-                  <Text wrap="wrap" dimColor>
+                  <Text wrap="wrap" color={t.dim}>
                     {marker}› {messageText(messages[item.messageIndex] as Message)}
                   </Text>
                 </Box>
@@ -301,11 +303,11 @@ export function SubagentDialog({
                 <Box key={`${item.messageId}:thought`} marginTop={gap} marginBottom={1} flexShrink={0}>
                   {expanded ? (
                     <Box flexDirection="column">
-                      <Text dimColor>{marker}── thought ──</Text>
+                      <Text color={t.dim}>{marker}── thought ──</Text>
                       <Markdown text={thinking} dim />
                     </Box>
                   ) : (
-                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                    <Text color={focused ? t.accent : t.dim}>
                       {marker}▸ thought ({lineCount} line{lineCount === 1 ? "" : "s"})
                     </Text>
                   )}
@@ -316,25 +318,25 @@ export function SubagentDialog({
               const c = item.call;
               const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
               const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-              const color = c.status === "running" ? "yellow" : c.status === "error" ? "red" : "green";
+              const color = c.status === "running" ? t.warning : c.status === "error" ? t.danger : t.success;
               return (
                 <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} marginBottom={expanded ? 1 : 0} flexShrink={0} flexDirection="column">
                   <Text wrap="truncate">
                     {marker}
-                    <Text color={focused ? "cyan" : color}>{glyph} </Text>
-                    <Text color={focused ? "cyan" : undefined} dimColor={!focused}>
+                    <Text color={focused ? t.accent : color}>{glyph} </Text>
+                    <Text color={focused ? t.accent : t.text}>
                       {c.name}
                     </Text>
                     {c.argsPreview.length > 0 && <Text> {c.argsPreview}</Text>}
-                    {c.result !== undefined && c.result.isError && <Text color="red"> · failed</Text>}
+                    {c.result !== undefined && c.result.isError && <Text color={t.danger}> · failed</Text>}
                     {c.result !== undefined && focused && (
-                      <Text dimColor> · space to {expanded ? "hide" : "view"} output</Text>
+                      <Text color={t.dim}> · space to {expanded ? "hide" : "view"} output</Text>
                     )}
                   </Text>
                   {expanded && c.result !== undefined && (
                     <Box flexDirection="column" paddingLeft={2}>
                       {c.result.content.split("\n").map((line, li) => (
-                        <Text key={li} dimColor wrap="wrap">
+                        <Text key={li} color={t.dim} wrap="wrap">
                           {line.length > 0 ? line : " "}
                         </Text>
                       ))}
@@ -350,12 +352,12 @@ export function SubagentDialog({
               </Box>
             );
           })}
-          {items.length === 0 && !loadError && <Text dimColor>waiting for the subagent…</Text>}
-          {loadError !== null && <Text color="red">{loadError}</Text>}
+          {items.length === 0 && !loadError && <Text color={t.dim}>waiting for the subagent…</Text>}
+          {loadError !== null && <Text color={t.danger}>{loadError}</Text>}
         </ScrollView>
       )}
 
-      <Text dimColor>
+      <Text color={t.dim}>
         {children.length > 1 ? "←/→ subagent · " : ""}ctrl+j/k node · space output · j/k scroll · ↑ (at top) / esc back
       </Text>
     </Box>

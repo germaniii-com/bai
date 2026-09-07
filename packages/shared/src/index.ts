@@ -10,3 +10,4 @@ export * from "./agents";
 export * from "./tools";
 export * from "./api";
 export * from "./zdr";
+export * from "./themes";

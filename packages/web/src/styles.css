@@ -1,13 +1,58 @@
+/*
+ * Theme variables — applied via [data-theme] on <html> (germaniii.com's
+ * pattern). The palette data lives in shared/src/themes.ts; the blocks
+ * below mirror it (a unit test pins the two together). :root carries the
+ * default (dark) values so the app renders correctly before any
+ * data-theme attribute is set.
+ *
+ * Token mapping (theme slot → var): surface→--bg, surfaceSecondary→--panel,
+ * border→--border, text→--text, textMuted→--dim, primary→--accent,
+ * success→--user/--success, danger→--danger, warning→--warning,
+ * secondary→--secondary. --on-accent/--on-danger are the readable text
+ * colors on top of accent/danger fills.
+ */
 :root {
   color-scheme: dark;
-  --bg: #0b0e14;
-  --panel: #11151f;
-  --border: #232a38;
-  --text: #e6e6e6;
-  --dim: #8b93a5;
-  --accent: #4cc2ff;
-  --user: #7ee787;
+  --bg: #09090b;
+  --panel: #18181b;
+  --border: #27272a;
+  --text: #fafafa;
+  --dim: #a1a1aa;
+  --accent: #3b82f6;
+  --user: #22c55e;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #eab308;
+  --secondary: #06b6d4;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
+  --inset: #27272a;
 }
+
+[data-theme="light"] { color-scheme: light; --bg: #f4f4f5; --panel: #ffffff; --border: #e4e4e7; --text: #18181b; --dim: #71717a; --accent: #3b82f6; --user: #16a34a; --success: #16a34a; --danger: #dc2626; --warning: #eab308; --secondary: #06b6d4; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #e4e4e7; }
+[data-theme="dark"] { color-scheme: dark; --bg: #09090b; --panel: #18181b; --border: #27272a; --text: #fafafa; --dim: #a1a1aa; --accent: #3b82f6; --user: #22c55e; --success: #22c55e; --danger: #ef4444; --warning: #eab308; --secondary: #06b6d4; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #27272a; }
+[data-theme="catppuccin-latte"] { color-scheme: light; --bg: #eff1f5; --panel: #e6e9ef; --border: #ccd0da; --text: #4c4f69; --dim: #6c6f85; --accent: #1e66f5; --user: #40a02b; --success: #40a02b; --danger: #d20f39; --warning: #df8e1d; --secondary: #04a5e5; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #dce0e8; }
+[data-theme="catppuccin-frappe"] { color-scheme: dark; --bg: #303446; --panel: #292c3c; --border: #414559; --text: #c6d0f5; --dim: #a5adce; --accent: #8caaee; --user: #a6d189; --success: #a6d189; --danger: #e78284; --warning: #e5c890; --secondary: #99d1db; --on-accent: #232634; --on-danger: #232634; --inset: #232634; }
+[data-theme="catppuccin-macchiato"] { color-scheme: dark; --bg: #24273a; --panel: #1e2030; --border: #363a4f; --text: #cad3f5; --dim: #a5adcb; --accent: #8caaee; --user: #a6da95; --success: #a6da95; --danger: #ed8796; --warning: #eed49f; --secondary: #91d7e3; --on-accent: #181926; --on-danger: #181926; --inset: #181926; }
+[data-theme="catppuccin-mocha"] { color-scheme: dark; --bg: #1e1e2e; --panel: #181825; --border: #313244; --text: #cdd6f4; --dim: #a6adc8; --accent: #89b4fa; --user: #a6e3a1; --success: #a6e3a1; --danger: #f38ba8; --warning: #f9e2af; --secondary: #89dceb; --on-accent: #11111b; --on-danger: #11111b; --inset: #11111b; }
+[data-theme="dracula"] { color-scheme: dark; --bg: #282a36; --panel: #44475a; --border: #44475a; --text: #f8f8f2; --dim: #6272a4; --accent: #bd93f9; --user: #50fa7b; --success: #50fa7b; --danger: #ff5555; --warning: #f1fa8c; --secondary: #8be9fd; --on-accent: #21222c; --on-danger: #21222c; --inset: #21222c; }
+[data-theme="nord"] { color-scheme: dark; --bg: #2e3440; --panel: #3b4252; --border: #4c566a; --text: #eceff4; --dim: #81a1c1; --accent: #88c0d0; --user: #a3be8c; --success: #a3be8c; --danger: #bf616a; --warning: #ebcb8b; --secondary: #81a1c1; --on-accent: #2e3440; --on-danger: #2e3440; --inset: #434c5e; }
+[data-theme="solarized-light"] { color-scheme: light; --bg: #fdf6e3; --panel: #eee8d5; --border: #d5cfa4; --text: #657b83; --dim: #93a1a1; --accent: #268bd2; --user: #859900; --success: #859900; --danger: #dc322f; --warning: #b58900; --secondary: #2aa198; --on-accent: #fdf6e3; --on-danger: #fdf6e3; --inset: #eee8d5; }
+[data-theme="solarized-dark"] { color-scheme: dark; --bg: #002b36; --panel: #073642; --border: #073642; --text: #839496; --dim: #586e75; --accent: #268bd2; --user: #859900; --success: #859900; --danger: #dc322f; --warning: #b58900; --secondary: #2aa198; --on-accent: #002b36; --on-danger: #002b36; --inset: #073642; }
+[data-theme="one-dark-pro"] { color-scheme: dark; --bg: #282c34; --panel: #21252b; --border: #3e4452; --text: #abb2bf; --dim: #5c6370; --accent: #61afef; --user: #98c379; --success: #98c379; --danger: #e06c75; --warning: #e5c07b; --secondary: #56b6c2; --on-accent: #181a1f; --on-danger: #181a1f; --inset: #181a1f; }
+[data-theme="github-light"] { color-scheme: light; --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de; --text: #1f2328; --dim: #656d76; --accent: #0969da; --user: #1a7f37; --success: #1a7f37; --danger: #cf222e; --warning: #9a6700; --secondary: #1a7f37; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #e8ecf0; }
+[data-theme="github-dark"] { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff; --user: #3fb950; --success: #3fb950; --danger: #f85149; --warning: #d29922; --secondary: #3fb950; --on-accent: #0d1117; --on-danger: #0d1117; --inset: #21262d; }
+[data-theme="gruvbox-dark"] { color-scheme: dark; --bg: #282828; --panel: #3c3836; --border: #504945; --text: #ebdbb2; --dim: #a89984; --accent: #d79921; --user: #b8bb26; --success: #b8bb26; --danger: #fb4934; --warning: #fabd2f; --secondary: #83a598; --on-accent: #1d2021; --on-danger: #1d2021; --inset: #1d2021; }
+[data-theme="gruvbox-light"] { color-scheme: light; --bg: #fbf1c7; --panel: #f2e5bc; --border: #d5c4a1; --text: #3c3836; --dim: #7c6f64; --accent: #d79921; --user: #98971a; --success: #98971a; --danger: #cc241d; --warning: #d79921; --secondary: #83a598; --on-accent: #fbf1c7; --on-danger: #fbf1c7; --inset: #ebdbb2; }
+[data-theme="tokyo-night"] { color-scheme: dark; --bg: #1a1b26; --panel: #16161e; --border: #292e42; --text: #c0caf5; --dim: #565f89; --accent: #7aa2f7; --user: #9ece6a; --success: #9ece6a; --danger: #f7768e; --warning: #e0af68; --secondary: #7dcfff; --on-accent: #13141c; --on-danger: #13141c; --inset: #13141c; }
+[data-theme="monokai"] { color-scheme: dark; --bg: #272822; --panel: #1e1f1c; --border: #3e3d32; --text: #f8f8f2; --dim: #75715e; --accent: #e6db74; --user: #a6e22e; --success: #a6e22e; --danger: #f92672; --warning: #e6db74; --secondary: #66d9ef; --on-accent: #1a1b15; --on-danger: #1a1b15; --inset: #1a1b15; }
+[data-theme="ayu-dark"] { color-scheme: dark; --bg: #0b0e14; --panel: #11151c; --border: #1c2128; --text: #bfbdb6; --dim: #5c6773; --accent: #f29668; --user: #7fd962; --success: #7fd962; --danger: #f07178; --warning: #e6b450; --secondary: #73d0ff; --on-accent: #0a0d13; --on-danger: #0a0d13; --inset: #0a0d13; }
+[data-theme="ayu-light"] { color-scheme: light; --bg: #fafafa; --panel: #f3f4f5; --border: #e0e0e0; --text: #5c6166; --dim: #8a9199; --accent: #f29668; --user: #6cbf43; --success: #6cbf43; --danger: #e65050; --warning: #f2c14e; --secondary: #36a3d9; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #ededed; }
+[data-theme="everforest-dark"] { color-scheme: dark; --bg: #2d353b; --panel: #232a2e; --border: #475258; --text: #d3c6aa; --dim: #859289; --accent: #a7c080; --user: #a7c080; --success: #a7c080; --danger: #e67e80; --warning: #dbbc7f; --secondary: #7fbbb3; --on-accent: #1e2326; --on-danger: #1e2326; --inset: #1e2326; }
+[data-theme="everforest-light"] { color-scheme: light; --bg: #fdf6e3; --panel: #f3ead3; --border: #d8d3ba; --text: #5c6a72; --dim: #939f91; --accent: #8da101; --user: #8da101; --success: #8da101; --danger: #f85552; --warning: #d8a657; --secondary: #569db6; --on-accent: #fdf6e3; --on-danger: #fdf6e3; --inset: #e8dfc0; }
+[data-theme="kanagawa"] { color-scheme: dark; --bg: #1f1f28; --panel: #16161d; --border: #2a2a37; --text: #dcd7ba; --dim: #727169; --accent: #7fb4ca; --user: #76946a; --success: #76946a; --danger: #c34043; --warning: #dca561; --secondary: #98bb6c; --on-accent: #13131a; --on-danger: #13131a; --inset: #13131a; }
+[data-theme="rose-pine"] { color-scheme: dark; --bg: #191724; --panel: #1f1d2e; --border: #26233a; --text: #e0def4; --dim: #6e6a86; --accent: #c4a7e7; --user: #9ccfd8; --success: #9ccfd8; --danger: #eb6f92; --warning: #f6c177; --secondary: #9ccfd8; --on-accent: #131220; --on-danger: #131220; --inset: #131220; }
+[data-theme="rose-pine-dawn"] { color-scheme: light; --bg: #faf4ed; --panel: #fffaf3; --border: #dfdad9; --text: #575279; --dim: #9893a5; --accent: #907aa9; --user: #56949f; --success: #56949f; --danger: #b4637a; --warning: #ea9d34; --secondary: #56949f; --on-accent: #faf4ed; --on-danger: #faf4ed; --inset: #f2e9de; }
 
 * {
   box-sizing: border-box;
@@ -116,9 +161,9 @@ body {
   line-height: 14px;
   padding: 0 5px;
   border-radius: 7px;
-  color: #e3b341;
-  border: 1px solid #e3b341;
-  background: rgba(227, 179, 65, 0.12);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .soon {
@@ -188,7 +233,7 @@ body {
   position: absolute;
   top: 8px;
   right: 8px;
-  color: #2ea567;
+  color: var(--success);
   font-weight: 700;
 }
 
@@ -501,7 +546,7 @@ body {
 
 .ws-add {
   background: var(--accent);
-  color: #06121c;
+  color: var(--on-accent);
   border: 0;
   border-radius: 8px;
   padding: 7px 14px;
@@ -614,7 +659,7 @@ body {
 .tree-error {
   margin: 2px 0;
   font-size: 12px;
-  color: #e3b341;
+  color: var(--warning);
 }
 
 .session-list {
@@ -1035,9 +1080,9 @@ body {
   vertical-align: middle;
 }
 
-.tool-glyph-running { color: #d9a038; }
-.tool-glyph-done { color: #4a9d5b; }
-.tool-glyph-error { color: #c4443f; }
+.tool-glyph-running { color: var(--warning); }
+.tool-glyph-done { color: var(--success); }
+.tool-glyph-error { color: var(--danger); }
 
 .tool-args {
   color: var(--dim);
@@ -1056,8 +1101,8 @@ body {
 }
 
 .tool-body-error {
-  color: #c4443f;
-  border-left-color: #c4443f;
+  color: var(--danger);
+  border-left-color: var(--danger);
 }
 
 /* task tool node: tracked-child badge + live status (TUI parity). */
@@ -1068,7 +1113,7 @@ body {
 }
 
 .subagent-asking {
-  color: #c4443f;
+  color: var(--danger);
 }
 
 /* Inline live subagent transcript (expanded task node): a bordered,
@@ -1120,9 +1165,9 @@ body {
   gap: 4px;
 }
 
-.subagent-status-asking { color: #c4443f; }
-.subagent-status-running { color: #d9a038; }
-.subagent-status-done { color: #4a9d5b; }
+.subagent-status-asking { color: var(--danger); }
+.subagent-status-running { color: var(--warning); }
+.subagent-status-done { color: var(--success); }
 
 .subagent-stream-body {
   overflow-y: auto;
@@ -1149,7 +1194,7 @@ body {
 }
 
 .subagent-stream-error {
-  color: #c4443f;
+  color: var(--danger);
   padding: 8px 10px;
   font-size: 12.5px;
 }
@@ -1163,7 +1208,7 @@ body {
 }
 
 .notice {
-  background: rgba(74, 157, 91, 0.12);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
@@ -1225,8 +1270,8 @@ body {
 }
 
 .agents-actions button.danger {
-  color: #c4443f;
-  border-color: #c4443f;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .typing .dot {
@@ -1297,7 +1342,7 @@ body {
 }
 
 .error {
-  color: #ff7b72;
+  color: var(--danger);
   padding: 8px 16px;
   font-size: 13px;
 }
@@ -1337,7 +1382,7 @@ body {
    chips are also <button>s inside .composer and style themselves. */
 .composer-input-row button {
   background: var(--accent);
-  color: #06121c;
+  color: var(--on-accent);
   border: 0;
   border-radius: 10px;
   padding: 0 18px;
@@ -1352,8 +1397,8 @@ body {
 
 /* Stop button (replaces send while the model responds). */
 .composer-input-row button.stop {
-  background: #ff7b72;
-  color: #2a0b09;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 
 /* Status/commands rows: contextual chip left, pickers right (status);
@@ -1489,7 +1534,7 @@ button.composer-chip:hover {
 .ask-panel {
   margin: 0 16px 8px;
   border: 1px solid var(--border);
-  border-left: 3px solid #d9a038;
+  border-left: 3px solid var(--warning);
   border-radius: 10px;
   background: var(--panel);
   max-height: 340px;
@@ -1514,7 +1559,7 @@ button.composer-chip:hover {
 }
 
 .ask-warn {
-  color: #e3b341;
+  color: var(--warning);
 }
 
 .ask-queued {
@@ -1525,7 +1570,7 @@ button.composer-chip:hover {
 
 .perm-context {
   margin: 0;
-  color: #c678dd;
+  color: var(--secondary);
 }
 
 .perm-modal {
@@ -1602,7 +1647,7 @@ button.composer-chip:hover {
 }
 
 .qa-a {
-  color: #4ec96a;
+  color: var(--success);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1616,7 +1661,7 @@ button.composer-chip:hover {
 .perm-diff {
   margin: 0;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--inset);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: auto;
@@ -1626,8 +1671,8 @@ button.composer-chip:hover {
   white-space: pre;
 }
 
-.diff-add { color: #4ec96a; }
-.diff-del { color: #f0705f; }
+.diff-add { color: var(--success); }
+.diff-del { color: var(--danger); }
 .diff-hunk { color: var(--dim); }
 .diff-ctx { color: var(--dim); opacity: 0.75; }
 
@@ -1638,7 +1683,7 @@ button.composer-chip:hover {
 }
 
 .perm-reject textarea {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--inset);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
@@ -1669,13 +1714,13 @@ button.composer-chip:hover {
 }
 
 .perm-actions .perm-primary {
-  border-color: #2f7d4f;
-  color: #4ec96a;
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .perm-actions .perm-danger {
-  border-color: #b0483c;
-  color: #f0705f;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .perm-actions .perm-ghost {
@@ -1711,11 +1756,11 @@ button.composer-chip:hover {
 }
 
 .question-option input {
-  accent-color: #4ec96a;
+  accent-color: var(--success);
 }
 
 .question-custom {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--inset);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
@@ -1805,7 +1850,7 @@ button.composer-chip:hover {
   position: absolute;
   top: 7px;
   right: 8px;
-  color: #2ea567;
+  color: var(--success);
   font-weight: 700;
 }
 
@@ -1825,7 +1870,7 @@ button.composer-chip:hover {
   position: absolute;
   top: 8px;
   right: 52px;
-  color: #2ea567;
+  color: var(--success);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1856,7 +1901,7 @@ button.composer-chip:hover {
 }
 
 .hint {
-  color: #e3b341;
+  color: var(--warning);
   font-size: 12px;
 }
 
@@ -1902,7 +1947,7 @@ button.composer-chip:hover {
 }
 
 .provider-card.connected {
-  border-color: #2ea567;
+  border-color: var(--success);
 }
 
 .provider-head {
@@ -1913,7 +1958,7 @@ button.composer-chip:hover {
 }
 
 .provider-head .check {
-  color: #2ea567;
+  color: var(--success);
   font-weight: 700;
   margin-left: auto;
 }
@@ -1944,7 +1989,7 @@ button.composer-chip:hover {
 .accounts .danger {
   border: 1px solid var(--border);
   background: transparent;
-  color: #ff7b72;
+  color: var(--danger);
   border-radius: 6px;
   padding: 2px 10px;
   cursor: pointer;
@@ -1993,7 +2038,7 @@ button.composer-chip:hover {
 .settings-card button[type="submit"] {
   align-self: flex-start;
   background: var(--accent);
-  color: #06121c;
+  color: var(--on-accent);
   border: 0;
   border-radius: 8px;
   padding: 8px 16px;
@@ -2066,6 +2111,163 @@ button.composer-chip:hover {
   flex-direction: column;
   gap: 10px;
   padding: 4px 8px 10px;
+}
+
+/* --- theme picker (germaniii.com's preview-card grid) -------------------- */
+
+/* Fixed wrapper centering the modal above the shared overlay. */
+.theme-modal-wrap {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.theme-modal-wrap .theme-modal {
+  pointer-events: auto;
+}
+
+.theme-modal-wrap.entering {
+  animation: theme-fade-in 0.2s ease-out;
+}
+
+.theme-modal-wrap.exiting {
+  animation: theme-fade-out 0.15s ease-out forwards;
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes theme-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-modal-wrap.entering,
+  .theme-modal-wrap.exiting {
+    animation: none;
+  }
+}
+
+/* The settings-card-style theme launcher inside General. */
+.theme-card button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.theme-card button:hover {
+  border-color: var(--accent);
+}
+
+.theme-card .theme-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.theme-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(880px, 100%);
+  max-height: min(640px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* One preview card. Every color is hardcoded inline from that theme's
+   palette (see theme-picker.tsx) — the card is a self-contained miniature
+   independent of the active theme's variables. */
+.theme-card-preview {
+  position: relative;
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-align: left;
+  font: inherit;
+}
+
+.theme-card-preview:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+.theme-card-preview.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.theme-card-preview .swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.theme-card-preview .swatches span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.theme-card-preview .theme-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-card-preview .theme-sample {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.theme-card-preview .theme-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-card-preview {
+    transition: none;
+  }
 }
 
 @media (max-width: 640px) {

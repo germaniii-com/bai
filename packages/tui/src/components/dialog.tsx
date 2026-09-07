@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PickerOption } from "../state/providers";
 import { deleteWord } from "../state/composer";
+import { useTheme } from "../theme";
 
 /** Options rendered around the highlight when the list is longer than this. */
 const WINDOW = 12;
@@ -32,7 +33,9 @@ export interface DialogAction {
 /**
  * Select dialog with type-to-filter (the live models.dev catalog has 200+
  * providers — scrolling alone doesn't scale) and a sliding window so the
- * highlight never leaves the viewport.
+ * highlight never leaves the viewport. `onHighlight` reports the highlighted
+ * option's value on every cursor/filter change — the theme picker's
+ * live-preview hook (opencode's onMove pattern).
  */
 export function SelectDialog({
   title,
@@ -42,6 +45,7 @@ export function SelectDialog({
   actions = [],
   initialIndex = 0,
   emptyHint = "none yet — ctrl+a to add",
+  onHighlight,
 }: {
   title: string;
   options: PickerOption[];
@@ -53,7 +57,10 @@ export function SelectDialog({
   initialIndex?: number;
   /** Empty-list hint when there are no options at all (no matches says so). */
   emptyHint?: string;
+  /** Live-preview callback: fires whenever the highlighted value changes. */
+  onHighlight?: (value: string) => void;
 }) {
+  const t = useTheme();
   const [filter, setFilter] = useState("");
   const [index, setIndex] = useState(initialIndex);
 
@@ -63,6 +70,16 @@ export function SelectDialog({
       ? options.filter((o) => o.label.toLowerCase().includes(query) || o.value.toLowerCase().includes(query))
       : options;
   const clamped = Math.min(index, Math.max(0, visible.length - 1));
+
+  // Live preview: report the highlighted value whenever it moves (navigation
+  // or filtering). Ref-held callback — the caller's handler is stable enough
+  // not to matter, and re-firing on its identity would loop previews.
+  const highlightedValue = visible[clamped]?.value;
+  const onHighlightRef = useRef(onHighlight);
+  onHighlightRef.current = onHighlight;
+  useEffect(() => {
+    if (highlightedValue !== undefined) onHighlightRef.current?.(highlightedValue);
+  }, [highlightedValue]);
 
   useInput((ch, key) => {
     if (key.escape) return onClose();
@@ -139,34 +156,34 @@ export function SelectDialog({
   ];
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+      <Text bold color={t.accent}>
         {title}
       </Text>
-      <Text dimColor>
+      <Text color={t.dim}>
         {filter.length > 0 ? `filter: ${filter}` : "type to filter"}
         {visible.length !== options.length ? ` · ${visible.length}/${options.length}` : ""}
       </Text>
       {visible.length === 0 && (
-        <Text dimColor>{options.length === 0 ? ` (${emptyHint})` : " (no matches)"}</Text>
+        <Text color={t.dim}>{options.length === 0 ? ` (${emptyHint})` : " (no matches)"}</Text>
       )}
-      {start > 0 && <Text dimColor>  ↑ {start} more</Text>}
+      {start > 0 && <Text color={t.dim}>  ↑ {start} more</Text>}
       {windowed.map((opt, i) => {
         const absolute = start + i;
         return (
-          <Text key={opt.value} color={absolute === clamped ? "cyan" : undefined} wrap="truncate">
+          <Text key={opt.value} color={absolute === clamped ? t.accent : t.text} wrap="truncate">
             {absolute === clamped ? "❯ " : "  "}
-            {opt.gutter !== undefined ? <Text color="green">{opt.gutter} </Text> : null}
+            {opt.gutter !== undefined ? <Text color={t.success}>{opt.gutter} </Text> : null}
             {opt.label}
-            {opt.badge !== undefined && <Text color="yellow"> {opt.badge}</Text>}
-            {opt.hint !== undefined && <Text dimColor> {opt.hint}</Text>}
+            {opt.badge !== undefined && <Text color={t.warning}> {opt.badge}</Text>}
+            {opt.hint !== undefined && <Text color={t.dim}> {opt.hint}</Text>}
           </Text>
         );
       })}
       {end < visible.length && (
-        <Text dimColor>  ↓ {visible.length - end} more</Text>
+        <Text color={t.dim}>  ↓ {visible.length - end} more</Text>
       )}
-      <Text dimColor>{hints.join(" · ")}</Text>
+      <Text color={t.dim}>{hints.join(" · ")}</Text>
     </Box>
   );
 }
@@ -187,6 +204,7 @@ export function PromptDialog({
   onSubmit: (value: string) => void;
   onClose: () => void;
 }) {
+  const t = useTheme();
   const [text, setText] = useState("");
 
   useInput((ch, key) => {
@@ -197,12 +215,12 @@ export function PromptDialog({
       return;
     }
     if (key.backspace || key.delete) {
-      setText((t) => t.slice(0, -1));
+      setText((prev) => prev.slice(0, -1));
       return;
     }
     // ctrl+w: shell-style word delete, matching the composer.
     if (key.ctrl && ch === "w") {
-      setText((t) => deleteWord(t));
+      setText((prev) => deleteWord(prev));
       return;
     }
     if (key.ctrl || key.meta) return;
@@ -221,16 +239,16 @@ export function PromptDialog({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">
+    <Box flexDirection="column" borderStyle="round" borderColor={t.border} paddingX={1}>
+      <Text bold color={t.accent}>
         {title}
       </Text>
-      {description !== undefined && <Text dimColor>{description}</Text>}
+      {description !== undefined && <Text color={t.dim}>{description}</Text>}
       <Text>
-        <Text dimColor={text.length === 0}>{text.length > 0 ? text : (placeholder ?? "")}</Text>
-        <Text dimColor>▌</Text>
+        <Text color={text.length === 0 ? t.dim : t.text}>{text.length > 0 ? text : (placeholder ?? "")}</Text>
+        <Text color={t.dim}>▌</Text>
       </Text>
-      <Text dimColor>enter confirm{optional ? " (empty = skip)" : ""} · esc cancel</Text>
+      <Text color={t.dim}>enter confirm{optional ? " (empty = skip)" : ""} · esc cancel</Text>
     </Box>
   );
 }

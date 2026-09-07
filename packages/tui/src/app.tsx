@@ -7,6 +7,8 @@ import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
 import { SubagentDialog } from "./views/subagent-dialog";
+import { ThemePicker } from "./views/theme-picker";
+import { ThemeProvider, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
@@ -35,13 +37,14 @@ export type Mode = "normal" | "input";
  * Which overlay the ctrl-bindings opened; ProviderFlow starts at this step.
  * ctrl+p → full wizard (provider → account → model), ctrl+l → flat model list
  * across connected providers, ctrl+a → the agent/tool switcher, ctrl+s → the
- * session picker.
+ * session picker, ctrl+t → the theme picker (live preview).
  */
 type DialogOpen =
   | { kind: "providers" }
   | { kind: "all-models" }
   | { kind: "agents" }
   | { kind: "sessions" }
+  | { kind: "themes" }
   | { kind: "subagents"; index: number };
 
 /**
@@ -66,6 +69,11 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
   // config models.preferZdr — the pickers float ZDR-capable models first.
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
+  // config theme — the UI theme id (shared/src/themes.ts). Live: switches
+  // from any surface ride config.updated; the ctrl+t picker previews by
+  // overriding this with previewTheme until confirmed or dismissed.
+  const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
+  const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
   // Composer seed for the fork flow: the forked message's text lands in the
@@ -177,6 +185,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
       setConfigDefault(config.models.default);
       setConfigAgentDefault(config.agents?.default);
       setConfigPreferZdr(config.models.preferZdr);
+      setConfigTheme(config.theme);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
@@ -376,6 +385,9 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const openSessionsDialog = useCallback(() => {
     setDialog({ kind: "sessions" });
   }, []);
+  const openThemesDialog = useCallback(() => {
+    setDialog({ kind: "themes" });
+  }, []);
   useInput((ch, key) => {
     // esc is "back": out of any non-chat view. Dialogs handle their own esc
     // (per-level back-out) and chat uses it for focus/interrupt/mode-exit.
@@ -388,6 +400,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
     else if (ch === "l") openModelsDialog();
     else if (ch === "a") openAgentsDialog();
     else if (ch === "s") openSessionsDialog();
+    else if (ch === "t") openThemesDialog();
     else if (ch === "g") setView("gallery");
     else if (ch === "o") setView("settings");
   }, { isActive: mode === "normal" });
@@ -433,12 +446,18 @@ export function App({ client }: { client: BaiClient; version: string }) {
     (askPending ? 1 : 0) +
     (quitArmed ? 1 : 0);
 
+  // Effective theme: the ctrl+t picker's live preview wins until confirmed
+  // or dismissed; otherwise the config value (unknown ids fall back inside
+  // tuiTheme). Recolors the whole tree via ThemeProvider.
+  const theme = tuiTheme(previewTheme ?? configTheme);
+
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
     // composer/footer stay pinned to the bottom regardless of content size.
     // No header: the composer hub (chat view) is the single source of
     // context — session/workspace info, mode, agent, model, and the command
     // hints all live in its status/commands rows.
+    <ThemeProvider theme={theme}>
     <Box flexDirection="column" height={rows > 0 ? rows : undefined}>
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
         {dialog !== null && dialog.kind === "sessions" ? (
@@ -460,6 +479,26 @@ export function App({ client }: { client: BaiClient; version: string }) {
             }}
             onDone={closeDialog}
           />
+        ) : dialog !== null && dialog.kind === "themes" ? (
+          // Theme picker dialog (ctrl+t): cursor movement live-previews the
+          // highlighted theme App-wide; enter persists it via config (every
+          // surface follows via config.updated), esc restores the previous.
+          <ThemePicker
+            current={configTheme}
+            onPreview={setPreviewTheme}
+            onPick={(value) => {
+              setPreviewTheme(null);
+              setConfigTheme(value); // optimistic — config.updated confirms
+              setDialog(null);
+              client.putConfig({ theme: value }).catch((err) =>
+                setError(err instanceof Error ? err.message : String(err)),
+              );
+            }}
+            onClose={() => {
+              setPreviewTheme(null);
+              setDialog(null);
+            }}
+          />
         ) : dialog !== null && dialog.kind === "subagents" ? (
           // Subagent output dialog (click a task node / enter on a focused
           // message): the child's live transcript; ←/→ cycles subagents,
@@ -480,7 +519,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
           // ProviderFlow unmounts between openings, so its step state
           // restarts at `initialStep` each time.
           <Box flexDirection="column">
-            {providersFetching && <Text dimColor>updating providers…</Text>}
+            {providersFetching && <Text color={theme.dim}>updating providers…</Text>}
             <ProviderFlow
               client={client}
               list={providers}
@@ -501,7 +540,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
               onDone={closeDialog}
             />
           ) : (
-            <Text dimColor>loading providers…</Text>
+            <Text color={theme.dim}>loading providers…</Text>
           )
         ) : (
           <>
@@ -553,22 +592,23 @@ export function App({ client }: { client: BaiClient; version: string }) {
           footerRows below MUST mirror this render exactly: the chat view
           derives its chip hit-testing row from it. */}
       <Box paddingX={1} flexDirection="column">
-        {error !== null && <Text color="red">error: {error}</Text>}
-        {setupHint && <Text color="yellow">no provider connected · ctrl+p to set one up</Text>}
+        {error !== null && <Text color={theme.danger}>error: {error}</Text>}
+        {setupHint && <Text color={theme.warning}>no provider connected · ctrl+p to set one up</Text>}
         {askPending && (
           // opencode's footer counter: asks block their session's run, so
           // the count stays visible from ANY view (the prompt itself lives
           // in the chat view).
-          <Text color="yellow">
+          <Text color={theme.warning}>
             △ {askTotal} pending ask{askTotal === 1 ? "" : "s"}
           </Text>
         )}
         {quitArmed && (
-          <Text color="yellow">
+          <Text color={theme.warning}>
             {runActive ? "ctrl+c again to interrupt" : "ctrl+c again to quit"}
           </Text>
         )}
       </Box>
     </Box>
+    </ThemeProvider>
   );
 }
