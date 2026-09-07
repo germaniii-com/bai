@@ -545,11 +545,41 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 - Tool calls render as collapsible nodes beside the thinking panel
   (`chat-pane.tsx` + `state.ts` — the same kind-aware reducer semantics as
   the TUI).
-- Sync engine mirroring the TUI's semantics (§8).
+- Sync engine mirroring the TUI's semantics (§8). Global events ride ONE
+  shared firehose connection (`EventMux` in `@bai/api/client` — fan-out to
+  every consumer; the page's SSE budget is the mux + the active session's
+  durable stream), and all streams abort on `pagehide` — renderer
+  destruction does not cancel streaming fetches, so unreleased SSEs would
+  otherwise accumulate across reloads and starve the browser's
+  6-per-origin connection budget.
 - State: small stores + reducers over events (no heavyweight state library
   unless Phase 1 proves the need).
 - Styling: utility-first CSS; responsive-first layouts (phone is a primary
   target, not an afterthought).
+- Routing: a dependency-free client router (`router.ts` — pure
+  `parseRoute`/`routeToPath` over the History API; no hash routing, which is
+  reserved for `#pair=` pairing tokens). React state stays the source of
+  truth; the URL is a synced projection: boot seeds state from the URL,
+  user-initiated navigation pushes (`pushRoute`), a replace-only effect
+  canonicalizes corrections (boot `/`, draft → created session, dead ids,
+  stale workspace slugs), and `popstate` applies back/forward. Deep-linked
+  sessions resolve with one `getSession` fetch. Routes:
+
+  | URL | Screen |
+  |---|---|
+  | `/`, `/chat` | Chat, draft |
+  | `/chat/{sessionId}` | Chat, session active |
+  | `/workspace` | Workspace picker |
+  | `/workspace?w={slug}` | Workspace, chat view (`&view=files` → files view, `&s={sessionId}` → session; combinable) |
+  | `/settings/{user\|general\|providers}` | Settings subsection |
+  | `/agents`, `/agents/new`, `/agents/{name}` | Agents list / create form / detail |
+  | `/tools`, `/tools/new`, `/tools/{name}` | Tools (same shape) |
+  | anything else | Chat draft (fallback) |
+
+  The workspace path rides `?w=` as an opaque base64url slug
+  (`wsSlug`/`wsUnslug`) — workspaces are config-listed folder paths with no
+  id (`Config.workspaces: string[]`), so the path is the identity; the slug
+  just keeps it out of the address bar. File tabs are ephemeral (not routed).
 
 Serving contract (owned by `@bai/api`):
 

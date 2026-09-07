@@ -19,6 +19,9 @@ import type {
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
+import { EventMux, eventMux } from "./mux";
+
+export { EventMux, eventMux };
 
 export interface ClientOptions {
   baseURL: string;

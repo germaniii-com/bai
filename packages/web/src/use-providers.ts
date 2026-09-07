@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { followGlobal, type BaiClient } from "@bai/api/client";
+import { eventMux, type BaiClient } from "@bai/api/client";
 import type { ProviderListResponse } from "@bai/shared";
 
 /**
@@ -8,10 +8,10 @@ import type { ProviderListResponse } from "@bai/shared";
  * startup. Every engagement with the provider UI (settings view, model
  * picker) refetches — mirroring the TUI's ctrl+p — and `fetching` reports
  * when a fetch is in flight so surfaces can show an updating hint.
- * Between engagements the firehose keeps a loaded list live: account or
- * config changes from ANY surface (TUI ctrl+p, another browser, the phone)
- * arrive as provider.updated / config.updated and re-render here — no
- * restart, no manual refresh.
+ * Between engagements the shared firehose mux keeps a loaded list live:
+ * account or config changes from ANY surface (TUI ctrl+p, another browser,
+ * the phone) arrive as provider.updated / config.updated and re-render here
+ * — no restart, no manual refresh.
  */
 export function useProviders(client: BaiClient): {
   list: ProviderListResponse | null;
@@ -36,17 +36,15 @@ export function useProviders(client: BaiClient): {
   }, [client]);
 
   useEffect(() => {
-    const ctrl = new AbortController();
-    void followGlobal(client, {
-      signal: ctrl.signal,
-      onEvent: (evt) => {
-        if (evt.type === "provider.updated" || evt.type === "config.updated") {
-          // On-demand: keep the list fresh only once it has been loaded.
-          if (loadedRef.current) void refresh();
-        }
-      },
+    // The shared firehose mux (one global SSE connection for the whole
+    // page) — this hook used to open its own duplicate connection.
+    const unsubscribe = eventMux(client).subscribe((evt) => {
+      if (evt.type === "provider.updated" || evt.type === "config.updated") {
+        // On-demand: keep the list fresh only once it has been loaded.
+        if (loadedRef.current) void refresh();
+      }
     });
-    return () => ctrl.abort();
+    return unsubscribe;
   }, [client, refresh]);
 
   return { list, refresh, fetching };

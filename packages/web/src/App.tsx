@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
-import { BaiClient, followGlobal, followSession } from "@bai/api/client";
+import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
@@ -10,6 +10,7 @@ import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
 import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
+import { parseRoute, routeToPath, type Route } from "./router";
 import { ThemeProvider } from "./theme";
 import { ThemeSelectorModal } from "./theme-picker";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
@@ -42,17 +43,27 @@ export function App() {
     () => new BaiClient({ baseURL: window.location.origin }),
     [],
   );
-  const [section, setSection] = useState<Section>("chat");
+  // The boot route — parsed once; the lazy initializers below seed every
+  // nav state from it, so refresh / deep links / back-forward restore the
+  // exact screen (route-based navigation — src/router.ts).
+  const [bootRoute] = useState(() => parseRoute(window.location.pathname, window.location.search));
+  const [section, setSection] = useState<Section>(bootRoute.section);
   // The settings section (User | General | Model Providers) — the nested
   // sidebar's entries; each renders one scrollable heading-content page.
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(
+    bootRoute.section === "settings" ? bootRoute.settingsSection : "general",
+  );
   const [workspaces, setWorkspaces] = useState<string[]>([]);
-  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [workspacePath, setWorkspacePath] = useState<string | null>(
+    bootRoute.section === "workspace" ? bootRoute.wsPath : null,
+  );
   const [workspaceSessions, setWorkspaceSessions] = useState<Session[]>([]);
   // Workspace center-pane view: the chat surface or the file viewer. The
   // [Chat | Files] segmented control above the pane switches it; opening a
   // file from the tree flips it to "files" automatically.
-  const [workspaceView, setWorkspaceView] = useState<"chat" | "files">("chat");
+  const [workspaceView, setWorkspaceView] = useState<"chat" | "files">(
+    bootRoute.section === "workspace" ? bootRoute.view : "chat",
+  );
   // Open file tabs (workspace-scoped paths, in open order) + the active one.
   // Reset when the workspace changes — tabs belong to a workspace.
   const [openFiles, setOpenFiles] = useState<string[]>([]);
@@ -63,7 +74,17 @@ export function App() {
   const [fsRevision, setFsRevision] = useState(0);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
+  // Deep-linked / popstate-applied session id awaiting resolution via
+  // client.getSession (one direct fetch — no waiting for the session
+  // lists). Null when nothing is pending; the sync effect holds the URL
+  // steady while an id is in flight.
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(
+    bootRoute.section === "chat" || bootRoute.section === "workspace" ? bootRoute.sessionId : null,
+  );
   const [messages, setMessages] = useState<Message[]>([]);
+  // Bumped when the page is restored from bfcache — re-runs the active
+  // session effect (the pagehide abort killed its stream).
+  const [bfcacheEpoch, setBfcacheEpoch] = useState(0);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [runActive, setRunActive] = useState(false);
@@ -130,6 +151,9 @@ export function App() {
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
+  // First successful config load — gates the URL sync effect (the workspace
+  // path's validity, hence the canonical URL, is unknown before it).
+  const [configLoaded, setConfigLoaded] = useState(false);
   // config theme — the UI theme id; applied by ThemeProvider (data-theme on
   // <html>) and synced from any surface via config.updated.
   const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
@@ -145,12 +169,16 @@ export function App() {
   const { tools, refresh: refreshTools } = useTools(client);
   // Selections per section; stale ids (deleted elsewhere) resolve to null
   // against the live lists — the settings pattern.
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(
+    bootRoute.section === "agents" ? bootRoute.name : null,
+  );
+  const [selectedTool, setSelectedTool] = useState<string | null>(
+    bootRoute.section === "tools" ? bootRoute.name : null,
+  );
   // Creation flows: true while the create form (pre-filled, editable name)
   // is open in the main pane — no file is written until the form submits.
-  const [creatingAgent, setCreatingAgent] = useState(false);
-  const [creatingTool, setCreatingTool] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(bootRoute.section === "agents" && bootRoute.creating);
+  const [creatingTool, setCreatingTool] = useState(bootRoute.section === "tools" && bootRoute.creating);
 
   const refreshCustomThemes = useCallback(async () => {
     try {
@@ -171,13 +199,16 @@ export function App() {
       setConfigVideoGen(config.videoGen);
       setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
+      setConfigLoaded(true);
       // A non-builtin theme id means a custom theme file — its palette must
       // be loaded for the surfaces to render it (boot-with-custom, or a
       // theme created on another surface).
       if (config.theme !== undefined && !isThemeId(config.theme)) void refreshCustomThemes();
-    } catch {
-      // Advisory; the label falls back to the session model or stub/echo.
-    }
+      } catch {
+        // Advisory; the label falls back to the session model or stub/echo.
+        // Corrections still run — best-known state beats a frozen URL.
+        setConfigLoaded(true);
+      }
   }, [client, refreshCustomThemes]);
 
   useEffect(() => {
@@ -226,11 +257,11 @@ export function App() {
   }, [refreshWorkspaceSessions]);
 
   // Live refresh of session state (e.g. model picked from another surface).
+  // The firehose rides the shared EventMux — ONE global SSE connection for
+  // the whole page (this sync engine + useProviders' watcher used to open
+  // two identical connections).
   useEffect(() => {
-    const ctrl = new AbortController();
-    void followGlobal(client, {
-      signal: ctrl.signal,
-      onEvent: (evt) => {
+    const unsubscribe = eventMux(client).subscribe((evt) => {
         // Universal healing (§8.4): the firehose's first frame on every
         // (re)connect refreshes the snapshots — live events missed during a
         // drop (e.g. a background title change) can't linger.
@@ -311,9 +342,8 @@ export function App() {
         // a tracked child's live activity (run lifecycle, permission asks,
         // streamed tool/text parts).
         setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
-      },
     });
-    return () => ctrl.abort();
+    return unsubscribe;
   }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools]);
 
   useEffect(() => {
@@ -383,8 +413,26 @@ export function App() {
         if (!ctrl.signal.aborted) setError(err instanceof Error ? err.message : String(err));
       }
     })();
-    return () => ctrl.abort();
-  }, [active, client]);
+    // Renderer destruction does NOT cancel streaming fetches — without this,
+    // every reload leaks its session stream into the browser's per-origin
+    // connection budget (the same pagehide discipline the EventMux applies).
+    const onPageHide = (): void => ctrl.abort();
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      ctrl.abort();
+    };
+  }, [active, client, bfcacheEpoch]);
+
+  // Bfcache restore: the pagehide abort killed the stream — a fresh snapshot
+  // re-establishes it (the DB is the buffer; nothing was lost).
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent): void => {
+      if (e.persisted) setBfcacheEpoch((n) => n + 1);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
 
   // Rebuild the tracked child set whenever the active session or either
   // session list changes (switch, refresh, archive) — live activity for
@@ -410,7 +458,8 @@ export function App() {
   sessionCwdRef.current = (id: string) =>
     knownSessionsRef.current.find((s) => s.id === id)?.cwd ?? activeRef.current?.cwd ?? undefined;
 
-  const navigate = (next: Section): void => {
+  /** Engagement refetches (TUI parity): fresh catalog data on section entry. */
+  const engageSection = useCallback((next: Section): void => {
     if (next === "settings") {
       // On-demand + refetch on engagement (TUI ctrl+p parity): the provider
       // list never loads at startup, and every engagement pulls fresh data.
@@ -424,30 +473,221 @@ export function App() {
     }
     if (next === "agents") {
       // Engagement refetch: agents changed anywhere → fresh list.
-      setCreatingAgent(false);
       void refreshAgents();
     }
     if (next === "tools") {
       // Engagement refetch: tools changed anywhere → fresh list.
-      setCreatingTool(false);
       void refreshTools();
     }
+  }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools]);
+
+  // Deep-link engagement: landing directly on Settings (refresh, shared
+  // link) must fetch the catalogs the pane renders — the provider list is
+  // on-demand and would otherwise stay unloaded until the first click. The
+  // other sections' catalogs fetch on mount via their own hooks/effects.
+  useEffect(() => {
+    if (bootRoute.section === "settings") engageSection("settings");
+  }, [bootRoute, engageSection]);
+
+  /**
+   * Apply a parsed route to the nav-state cluster (the URL→state direction —
+   * pushRoute and popstate both land here). `session` carries an
+   * already-known Session for the route's id (sidebar clicks, fork) so no
+   * refetch is needed; id-only routes park the id in `pendingSessionId` for
+   * the resolution effect below. Settings/agents/tools routes leave the
+   * session cluster untouched — the open session persists in memory (the
+   * URL picks it back up on return), matching the pre-router behavior.
+   */
+  const applyRouteStates = useCallback(
+    (route: Route, session?: Session | null): void => {
+      setSection(route.section);
+      if (route.section === "settings") setSettingsSection(route.settingsSection);
+      if (route.section === "workspace") {
+        setWorkspacePath(route.wsPath);
+        setWorkspaceView(route.view);
+      }
+      if (route.section === "agents") {
+        setSelectedAgent(route.name);
+        setCreatingAgent(route.creating);
+      }
+      if (route.section === "tools") {
+        setSelectedTool(route.name);
+        setCreatingTool(route.creating);
+      }
+      if (session !== undefined) {
+        // Explicit session (sidebar click, fork, kept on section switch).
+        setActive(session);
+        setPendingSessionId(null);
+      } else if (route.section === "chat" || route.section === "workspace") {
+        if (route.sessionId !== null) {
+          // Id-only route: resolve via getSession unless it's already open.
+          if (activeRef.current?.id !== route.sessionId) {
+            // Drop a mismatched open session now — the routed one replaces
+            // it when the fetch lands (old navigate() coherence).
+            const want = route.section === "chat" ? "chat" : "code";
+            if (activeRef.current !== null && activeRef.current.workbench !== want) setActive(null);
+            setPendingSessionId(route.sessionId);
+          }
+        } else {
+          // Explicit draft route ("+ new session", back to a draft).
+          setActive(null);
+          setPendingSessionId(null);
+        }
+      }
+      engageSection(route.section);
+    },
+    [engageSection],
+  );
+
+  /**
+   * User-initiated navigation: push a history entry, then apply the route.
+   * Re-applying the current location (e.g. clicking the active session)
+   * must not spam the history stack.
+   */
+  const pushRoute = useCallback(
+    (route: Route, session?: Session | null): void => {
+      const path = routeToPath(route);
+      if (path !== window.location.pathname + window.location.search) {
+        window.history.pushState(null, "", path);
+      }
+      applyRouteStates(route, session);
+    },
+    [applyRouteStates],
+  );
+
+  const navigate = (next: Section): void => {
     // Keep the open session coherent with the section — a chat session in
-    // the workspace view (or vice versa) would read as a context mixup.
-    if (next === "chat" && active?.workbench !== "chat") setActive(null);
-    if (next === "workspace" && active?.workbench !== "code") setActive(null);
-    setSection(next);
+    // the workspace view (or vice versa) would read as a context mixup —
+    // and carry it into the route so the URL keeps identifying it.
+    switch (next) {
+      case "chat": {
+        const keep = activeRef.current?.workbench === "chat" ? activeRef.current : null;
+        pushRoute({ section: "chat", sessionId: keep?.id ?? null }, keep);
+        break;
+      }
+      case "workspace": {
+        const keep = activeRef.current?.workbench === "code" ? activeRef.current : null;
+        pushRoute(
+          {
+            section: "workspace",
+            wsPath: keep !== null ? (keep.cwd ?? null) : workspacePath,
+            view: workspaceView,
+            sessionId: keep?.id ?? null,
+          },
+          keep,
+        );
+        break;
+      }
+      case "settings":
+        pushRoute({ section: "settings", settingsSection });
+        break;
+      case "agents":
+        pushRoute({ section: "agents", name: effectiveAgentId, creating: false });
+        break;
+      case "tools":
+        pushRoute({ section: "tools", name: effectiveToolId, creating: false });
+        break;
+      // Image/Video are disabled rail placeholders — never navigable (D9).
+      case "image":
+      case "video":
+        break;
+    }
   };
 
+  // Deep-linked / popstate-applied session ids resolve here — one direct
+  // fetch (no waiting for the session lists). A hit activates the session
+  // (the active-effect below then loads its history + stream); a miss
+  // clears the pending id (the sync effect strips the dead id from the
+  // URL). Coherence: the session must belong to the route's section — a
+  // chat session under /chat, a code session rooted at the viewed
+  // workspace (the workspace path may still be validating at boot —
+  // effectiveWorkspacePath null — in which case the cwd check rides on the
+  // config landing).
+  useEffect(() => {
+    if (pendingSessionId === null) return;
+    const id = pendingSessionId;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await client.getSession(id);
+        if (cancelled) return;
+        setPendingSessionId((current) => (current === id ? null : current));
+        if (session === undefined) return; // dead id — URL gets corrected
+        // Workspace coherence rides the RAW workspace path while the config
+        // is still loading (effectiveWorkspacePath null) and turns strict
+        // once it lands — a stale slug never adopts a foreign session.
+        const coherent =
+          section === "chat"
+            ? session.workbench === "chat"
+            : section === "workspace" &&
+              session.workbench === "code" &&
+              session.cwd === (effectiveWorkspacePath ?? workspacePath);
+        if (coherent) setActive(session);
+      } catch {
+        if (!cancelled) setPendingSessionId(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingSessionId, client, section, effectiveWorkspacePath, workspacePath]);
+
+  // The nav state as a Route — the canonical URL projection.
+  const canonicalPath = routeToPath(
+    section === "settings"
+      ? { section: "settings", settingsSection }
+      : section === "agents"
+        ? { section: "agents", name: effectiveAgentId, creating: creatingAgent }
+        : section === "tools"
+          ? { section: "tools", name: effectiveToolId, creating: creatingTool }
+          : section === "workspace"
+            ? {
+                section: "workspace",
+                wsPath: effectiveWorkspacePath,
+                view: workspaceView,
+                // Only a session rooted at the VIEWED workspace identifies
+                // in the URL — a foreign code session (transient
+                // incoherence) must not read as this workspace's session.
+                sessionId:
+                  active?.workbench === "code" && active.cwd === effectiveWorkspacePath
+                    ? active.id
+                    : null,
+              }
+            : { section: "chat", sessionId: active?.workbench === "chat" ? active.id : null },
+  );
+
+  // Keep the address bar on the canonical projection of the nav state.
+  // Replace-only: user-initiated navigation pushes via pushRoute; this
+  // effect only corrects (boot "/", draft→created session, dead ids, stale
+  // workspace paths) without polluting the history stack. Skipped while a
+  // deep-linked session id is resolving (the URL's id is still
+  // authoritative) and until the first config load (the workspace path's
+  // validity — hence the canonical URL — is unknown before it).
+  useEffect(() => {
+    if (pendingSessionId !== null || !configLoaded) return;
+    if (canonicalPath === window.location.pathname + window.location.search) return;
+    window.history.replaceState(null, "", canonicalPath);
+  }, [canonicalPath, pendingSessionId, configLoaded]);
+
+  // Browser back/forward: apply the location to the nav-state cluster (no
+  // push — the history entry already exists). Engagement refetches ride
+  // along so back/forward shows fresh catalogs, matching clicks.
+  useEffect(() => {
+    const onPop = (): void => {
+      applyRouteStates(parseRoute(window.location.pathname, window.location.search));
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [applyRouteStates]);
+
   const selectWorkspace = (path: string | null): void => {
-    setWorkspacePath(path);
     // Open tabs belong to a workspace — a switch drops them and returns to
     // the chat surface.
     setOpenFiles([]);
     setActiveFile(null);
-    setWorkspaceView("chat");
     // Keep the open session only when it belongs to the chosen workspace.
-    setActive((current) => (path !== null && current?.cwd === path ? current : null));
+    const keep = path !== null && activeRef.current?.cwd === path ? activeRef.current : null;
+    pushRoute({ section: "workspace", wsPath: path, view: "chat", sessionId: keep?.id ?? null }, keep);
   };
 
   /** Tree file click: open (or focus) a tab and flip to the Files view. */
@@ -491,7 +731,7 @@ export function App() {
     // this covers dropped live events).
     await refreshConfig();
     // Select the freshly added workspace — the user added it to work in it.
-    setWorkspacePath(path);
+    selectWorkspace(path);
   };
 
   /** Write a starter agent file for the (form-validated) name, then select it. */
@@ -501,17 +741,17 @@ export function App() {
       prompt: `You are ${name}, an agent inside bai.\n\nDescribe the agent's role, tone, and workflow here. The body is the system prompt.`,
       tools: ["fs.read", "fs.list"],
     });
-    setCreatingAgent(false);
-    setSelectedAgent(name);
+    // Refresh BEFORE routing: the canonical URL validates the selection
+    // against the live list — routing first would flicker through /agents.
     await refreshAgents();
+    pushRoute({ section: "agents", name, creating: false });
   };
 
   /** Write a starter tool file for the (form-validated) name, then select it. */
   const createTool = async (name: string): Promise<void> => {
     await client.putTool(name, toolTemplateCode(name));
-    setCreatingTool(false);
-    setSelectedTool(name);
     await refreshTools();
+    pushRoute({ section: "tools", name, creating: false });
   };
 
   const submit = async (): Promise<void> => {
@@ -589,7 +829,14 @@ export function App() {
     void withBusyRetry(async () => {
       const forked = await client.forkSession(active.id, m.id);
       setDraft(messageText(m));
-      setActive(forked);
+      // A fork is real navigation — push it so back returns to the origin
+      // session (the replace-only sync would lose it from the stack).
+      pushRoute(
+        section === "workspace"
+          ? { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: forked.id }
+          : { section: "chat", sessionId: forked.id },
+        forked,
+      );
       void refreshSessions();
     }).finally(() => setRevertBusy(false));
   };
@@ -719,7 +966,7 @@ export function App() {
           <>
             {/* Draft state: no session row exists until the first message is
                 sent (submit() creates it) — opencode's new-chat pattern. */}
-            <button className="new-session" onClick={() => setActive(null)}>
+            <button className="new-session" onClick={() => pushRoute({ section: "chat", sessionId: null })}>
               + new session
             </button>
             <nav className="session-list">
@@ -729,7 +976,7 @@ export function App() {
                    className={active?.id === s.id ? "session active" : "session"}
                    aria-current={active?.id === s.id ? "page" : undefined}
                    title={s.title.length > 0 ? s.title : "Untitled session"}
-                  onClick={() => setActive(s)}
+                  onClick={() => pushRoute({ section: "chat", sessionId: s.id }, s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
                   <span className="dim">{s.workbench}</span>
@@ -769,7 +1016,12 @@ export function App() {
             </button>
             {/* Draft state: the code session (rooted at this workspace) is
                 created by submit() on the first message. */}
-            <button className="new-session" onClick={() => setActive(null)}>
+            <button
+              className="new-session"
+              onClick={() =>
+                pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null })
+              }
+            >
               + new session
             </button>
             <nav className="session-list">
@@ -781,7 +1033,12 @@ export function App() {
                   key={s.id}
                    className={active?.id === s.id ? "session active" : "session"}
                    aria-current={active?.id === s.id ? "page" : undefined}
-                  onClick={() => setActive(s)}
+                  onClick={() =>
+                    pushRoute(
+                      { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: s.id },
+                      s,
+                    )
+                  }
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
                 </button>
@@ -790,20 +1047,17 @@ export function App() {
           </>
         )}
         {section === "settings" && (
-          <SettingsNav selected={settingsSection} onSelect={setSettingsSection} />
+          <SettingsNav
+            selected={settingsSection}
+            onSelect={(next) => pushRoute({ section: "settings", settingsSection: next })}
+          />
         )}
         {section === "agents" && (
           <AgentsNav
             agents={agents}
             selected={effectiveAgentId}
-            onSelect={(name) => {
-              setCreatingAgent(false);
-              setSelectedAgent(name);
-            }}
-            onCreate={() => {
-              setSelectedAgent(null);
-              setCreatingAgent(true);
-            }}
+            onSelect={(name) => pushRoute({ section: "agents", name, creating: false })}
+            onCreate={() => pushRoute({ section: "agents", name: null, creating: true })}
             busy={false}
           />
         )}
@@ -811,14 +1065,8 @@ export function App() {
           <ToolsNav
             tools={tools}
             selected={effectiveToolId}
-            onSelect={(name) => {
-              setCreatingTool(false);
-              setSelectedTool(name);
-            }}
-            onCreate={() => {
-              setSelectedTool(null);
-              setCreatingTool(true);
-            }}
+            onSelect={(name) => pushRoute({ section: "tools", name, creating: false })}
+            onCreate={() => pushRoute({ section: "tools", name: null, creating: true })}
             busy={false}
           />
         )}
@@ -907,7 +1155,14 @@ export function App() {
                     role="tab"
                     aria-selected={workspaceView === "chat"}
                     className={workspaceView === "chat" ? "active" : undefined}
-                    onClick={() => setWorkspaceView("chat")}
+                    onClick={() =>
+                      pushRoute({
+                        section: "workspace",
+                        wsPath: effectiveWorkspacePath,
+                        view: "chat",
+                        sessionId: active?.id ?? null,
+                      })
+                    }
                   >
                     Chat
                   </button>
@@ -916,7 +1171,14 @@ export function App() {
                     role="tab"
                     aria-selected={workspaceView === "files"}
                     className={workspaceView === "files" ? "active" : undefined}
-                    onClick={() => setWorkspaceView("files")}
+                    onClick={() =>
+                      pushRoute({
+                        section: "workspace",
+                        wsPath: effectiveWorkspacePath,
+                        view: "files",
+                        sessionId: active?.id ?? null,
+                      })
+                    }
                   >
                     Files
                   </button>
