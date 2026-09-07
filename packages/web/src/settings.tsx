@@ -6,7 +6,6 @@ import type {
   MediaGenConfig,
   ProviderInfo,
   ProviderListResponse,
-  ThemeId,
 } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
@@ -95,8 +94,8 @@ export function SettingsPane({
   defaultAgent?: string;
   imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
-  /** Active theme (App-resolved) — the General pane's theme card. */
-  theme: ThemeId;
+  /** Active theme id (built-in or custom file stem) — the General pane's theme card. */
+  theme: string;
   /** Open the theme picker modal (App-owned). */
   onOpenThemePicker: () => void;
 }) {
@@ -232,7 +231,7 @@ function GeneralPane({
   agents: AgentInfo[];
   defaultAgent?: string;
   preferZdr?: boolean;
-  theme: ThemeId;
+  theme: string;
   onOpenThemePicker: () => void;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
@@ -247,7 +246,7 @@ function GeneralPane({
 }
 
 /** UI theme (config theme): shows the active theme, opens the picker modal. */
-function ThemeCard({ theme, onOpenThemePicker }: { theme: ThemeId; onOpenThemePicker: () => void }) {
+function ThemeCard({ theme, onOpenThemePicker }: { theme: string; onOpenThemePicker: () => void }) {
   const label = THEME_OPTIONS.find((opt) => opt.value === theme)?.label ?? theme;
   return (
     <div className="settings-card theme-card">

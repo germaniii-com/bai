@@ -19,4 +19,6 @@ export interface ApiDeps {
   loopbackBind: boolean;
   /** Built web SPA directory (packages/web/dist); hint page when missing. */
   webDist?: string;
+  /** Custom theme files directory (~/.config/bai/themes); XDG-aware default when unset. */
+  themesDir?: string;
 }

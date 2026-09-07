@@ -2204,15 +2204,20 @@ button.composer-chip:hover {
 
 /* One preview card. Every color is hardcoded inline from that theme's
    palette (see theme-picker.tsx) — the card is a self-contained miniature
-   independent of the active theme's variables. */
+   independent of the active theme's variables. Flex column so the name
+   sits at the top and the "Aa" sample pins to the bottom (grid rows
+   stretch, so the gap breathes on every card). */
 .theme-card-preview {
   position: relative;
+  display: flex;
+  flex-direction: column;
   border-radius: 10px;
   padding: 12px;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   text-align: left;
   font: inherit;
+  min-height: 96px;
 }
 
 .theme-card-preview:hover {
@@ -2247,9 +2252,12 @@ button.composer-chip:hover {
   white-space: nowrap;
 }
 
+/* Pinned to the card's bottom edge (flex column + auto margin) — a clear
+   gap between the theme title and the sample, on every card height. */
 .theme-card-preview .theme-sample {
   font-size: 12px;
-  margin-top: 6px;
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 .theme-card-preview .theme-check {
@@ -2262,6 +2270,96 @@ button.composer-chip:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* The "+ Custom Theme" card: current-theme chrome (it's an action, not a
+   preview), dashed border, centered content. */
+.theme-card-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 96px;
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+
+.theme-card-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* The custom-theme form (name + the 12 palette colors). */
+.theme-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.theme-form-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.theme-form-colors label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.theme-form-colors input[type="color"] {
+  width: 100%;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.theme-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.theme-form-actions button {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.theme-form-cancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.theme-form-save {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.theme-form-save:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 @media (prefers-reduced-motion: reduce) {

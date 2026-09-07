@@ -9,7 +9,11 @@
  *
  * The web applies these through [data-theme] CSS blocks in
  * packages/web/src/styles.css; a unit test pins the two datasets together.
+ * Custom themes (user-defined, stored as ~/.config/bai/themes/<id>.json)
+ * reuse the same ThemeColors shape — see CustomTheme below.
  */
+
+import { z } from "zod";
 
 export type ThemeId =
   | "light"
@@ -441,4 +445,61 @@ export function isThemeId(value: unknown): value is ThemeId {
  */
 export function resolveThemeId(value: string | undefined | null): ThemeId {
   return isThemeId(value) ? value : DEFAULT_THEME;
+}
+
+// --- custom themes (~/.config/bai/themes/<id>.json) -------------------------
+
+/** Perceived luminance of a #rrggbb hex color (0..1) — opencode's formula. */
+export function hexLuminance(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/** Light/dark mode derived from the surface color (no mode field to maintain). */
+export function modeForColors(colors: ThemeColors): "light" | "dark" {
+  return hexLuminance(colors.surface) > 0.5 ? "light" : "dark";
+}
+
+/** A user-defined theme: file stem = id, colors follow the shared shape. */
+export interface CustomTheme {
+  id: string;
+  name: string;
+  mode: "light" | "dark";
+  colors: ThemeColors;
+}
+
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a #rrggbb hex color");
+
+export const themeColorsSchema = z.object({
+  surface: hexColorSchema,
+  surfaceSecondary: hexColorSchema,
+  background: hexColorSchema,
+  text: hexColorSchema,
+  textMuted: hexColorSchema,
+  border: hexColorSchema,
+  success: hexColorSchema,
+  danger: hexColorSchema,
+  warning: hexColorSchema,
+  primary: hexColorSchema,
+  secondary: hexColorSchema,
+  accent: hexColorSchema,
+});
+
+/** PUT body for a custom theme (the id rides the URL; mode is derived). */
+export const customThemeSchema = z.object({
+  name: z.string().min(1).max(100),
+  colors: themeColorsSchema,
+});
+
+export type CustomThemeInput = z.infer<typeof customThemeSchema>;
+
+/** Filename-stem slug for a custom theme (also the config.theme value). */
+export function slugifyThemeId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
 }

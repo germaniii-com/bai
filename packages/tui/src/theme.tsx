@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { THEME_COLORS, resolveThemeId, type ThemeId } from "@bai/shared";
+import { THEME_COLORS, resolveThemeId, type CustomTheme, type ThemeColors, type ThemeId } from "@bai/shared";
 
 /**
  * The TUI's theme: an Ink-facing palette derived from the shared theme
@@ -37,18 +37,30 @@ export interface TuiTheme {
 }
 
 /**
- * Build the Ink palette for a theme id (unknown ids fall back to the
- * default). Cached per id: the palette object identity is stable across
- * renders, so the context value doesn't invalidate consumers (markdown's
- * parse memo keys on it) for no reason.
+ * Build the Ink palette for a theme id. Built-ins resolve through the
+ * shared catalog; custom themes (~/.config/bai/themes/*.json, registered
+ * via registerCustomThemes) resolve through the registry; unknown ids fall
+ * back to the default. Cached per raw id — the palette object identity is
+ * stable across renders, so the context value doesn't invalidate consumers
+ * (markdown's parse memo keys on it) for no reason.
  */
 const themeCache = new Map<string, TuiTheme>();
+const customRegistry = new Map<string, ThemeColors>();
+
+/** Load the server's custom themes into the resolver (clears the cache). */
+export function registerCustomThemes(themes: CustomTheme[]): void {
+  customRegistry.clear();
+  for (const t of themes) customRegistry.set(t.id, t.colors);
+  themeCache.clear();
+}
 
 export function tuiTheme(id: string | undefined): TuiTheme {
-  const themeId = resolveThemeId(id);
-  const cached = themeCache.get(themeId);
+  const key = id ?? "";
+  const cached = themeCache.get(key);
   if (cached !== undefined) return cached;
-  const c = THEME_COLORS[themeId];
+  const custom = customRegistry.get(key);
+  const themeId: ThemeId = custom !== undefined ? (key as ThemeId) : resolveThemeId(id);
+  const c = custom ?? THEME_COLORS[themeId];
   const palette: TuiTheme = {
     id: themeId,
     text: c.text,
@@ -68,7 +80,7 @@ export function tuiTheme(id: string | undefined): TuiTheme {
     mdBullet: c.primary,
     mdEnumeration: c.secondary,
   };
-  themeCache.set(themeId, palette);
+  themeCache.set(key, palette);
   return palette;
 }
 

@@ -6,6 +6,7 @@ import { zValidator } from "@hono/zod-validator";
 import {
   configPatchSchema,
   createSessionSchema,
+  customThemeSchema,
   enqueueJobSchema,
   permissionReplySchema,
   promptPayloadSchema,
@@ -27,6 +28,7 @@ import type { ApiDeps } from "./deps";
 import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, statPath } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
 import { staticHandler } from "./static";
+import { deleteCustomTheme, listCustomThemes, saveCustomTheme } from "./themes";
 
 /**
  * The /api router. Built as ONE chained expression on purpose — Hono only
@@ -140,6 +142,23 @@ function buildApi(deps: ApiDeps) {
       const config = deps.configStore.update(patch);
       deps.core.emitLive("config.updated", {});
       return c.json({ config });
+    })
+
+    // --- custom themes (~/.config/bai/themes/*.json; the web editor writes here) ---
+    .get("/theme/custom", (c) => c.json({ themes: listCustomThemes(deps.themesDir) }))
+    .put("/theme/custom/:id", zValidator("json", customThemeSchema), (c) => {
+      try {
+        const theme = saveCustomTheme(deps.themesDir, c.req.param("id"), c.req.valid("json"));
+        return c.json({ theme }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/theme/custom/:id", (c) => {
+      if (!deleteCustomTheme(deps.themesDir, c.req.param("id"))) {
+        return c.json({ error: "not_found" }, 404);
+      }
+      return c.json({ ok: true });
     })
 
     // --- agents (file-defined, hot-reloaded; routes write the .md files) ---

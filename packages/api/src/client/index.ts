@@ -4,6 +4,8 @@ import type {
   Config,
   ConfigPatch,
   CreateSessionBody,
+  CustomTheme,
+  CustomThemeInput,
   EnqueueJobBody,
   Event,
   Job,
@@ -237,6 +239,32 @@ export class BaiClient {
     const res = await this.rpc().config.$put({ json: patch });
     if (!res.ok) throw new Error(`put config failed: ${res.status}`);
     return (await res.json()).config;
+  }
+
+  // --- custom themes (~/.config/bai/themes/*.json) ---
+
+  async listCustomThemes(): Promise<CustomTheme[]> {
+    const res = await this.rpc().theme.custom.$get();
+    if (!res.ok) throw new Error(`list custom themes failed: ${res.status}`);
+    return (await res.json()).themes;
+  }
+
+  /** Create or replace a custom theme file (id = filename stem). */
+  async putCustomTheme(id: string, body: CustomThemeInput): Promise<CustomTheme> {
+    const res = await this.rpc().theme.custom[":id"].$put({
+      param: { id: encodeURIComponent(id) },
+      json: body,
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `put custom theme failed: ${res.status}`);
+    }
+    return (await res.json()).theme;
+  }
+
+  async deleteCustomTheme(id: string): Promise<void> {
+    const res = await this.rpc().theme.custom[":id"].$delete({ param: { id: encodeURIComponent(id) } });
+    if (!res.ok) throw new Error(`delete custom theme failed: ${res.status}`);
   }
 
   // --- agents ---

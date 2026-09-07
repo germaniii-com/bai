@@ -329,6 +329,63 @@ Identical shape to image, second in line.
 
 ---
 
+## 🎨 Themes — shipped
+
+One theme everywhere: 24 built-ins, a live-preview picker on every surface,
+and user-defined themes as plain JSON files.
+
+**What you can do today**
+
+- **24 built-in themes** — Light, Dark, the four Catppuccin flavors, Dracula,
+  Nord, Solarized (light/dark), One Dark Pro, GitHub (light/dark), Gruvbox
+  (light/dark), Tokyo Night, Monokai, Ayu (light/dark), Everforest
+  (light/dark), Kanagawa, and Rose Pine (plus Dawn) — the same catalog as
+  germaniii.com, plus a per-theme `warning` color both surfaces need
+- **One theme everywhere, synced live**: the selection is `config.theme` —
+  pick it on the phone and the terminal recolors within a heartbeat
+  (`config.updated`), and vice versa. Unknown ids (a deleted custom theme,
+  a newer build's theme) fall back to Dark
+- **Web selector**: the palette button in the master rail (or Settings →
+  General → Theme) opens a grid of preview cards — each card is a
+  self-contained miniature of its theme (hardcoded from that theme's own
+  palette, not the active one), with swatches, the theme name, and a type
+  sample; esc or click-outside dismisses
+- **TUI picker** (`ctrl+t`): a type-to-filter list where moving the cursor
+  **live-previews** the highlighted theme across the whole app — esc
+  restores the previous theme, enter persists it (opencode's picker
+  semantics). The composer hub's commands row lists the chord
+- **Custom themes**: the "+ Custom Theme" card in the web selector opens a
+  form (name + the 12 palette colors, prefilled from the active theme) and
+  saves to `~/.config/bai/themes/<name>.json` — the file stem becomes the
+  theme id. Hand-written JSON works too (same shape; the light/dark mode is
+  derived from the surface color's luminance); both surfaces list custom
+  themes after the built-ins and apply them like any other theme
+- **No flash on boot**: the web caches the selection in `localStorage` and
+  an inline script applies it before the bundle loads; the server config
+  remains the source of truth
+
+**Under the hood**
+
+- The catalog is shared data (`shared/src/themes.ts`) — the web's
+  `[data-theme]` CSS blocks are pinned to it by a unit test, and the TUI
+  resolves the same palettes to Ink foreground colors (foregrounds only —
+  the terminal owns the background)
+- Custom themes ride `GET/PUT/DELETE /api/theme/custom`
+  (`api/src/server/themes.ts`, atomic writes, strict filename-slug ids);
+  the web applies them as inline CSS variables (no static CSS block
+  needed), the TUI registers them into its palette resolver
+- Deleting a custom theme: the trash icon is a future nicety — for now
+  remove the file (or `DELETE /api/theme/custom/:id`); a config pointing at
+  a missing theme falls back to Dark
+
+**Coming next**
+
+- Delete/edit affordances for custom themes in the picker · a TUI custom
+  theme editor · theme hot-reload on file change (pickers fetch on open
+  today)
+
+---
+
 ## Cross-cutting
 
 - **Sync** — every feature streams through the same durable per-session
@@ -336,6 +393,10 @@ Identical shape to image, second in line.
   a cursor with zero replay duplication; pending permission asks and
   question blocks ride the snapshot too, so a surface opened mid-ask
   renders the dialog immediately
+- **Themes** — one `config.theme` for every surface, switched live from the
+  web's preview-card selector or the TUI's ctrl+t live-preview picker; 24
+  built-ins plus user-defined themes as `~/.config/bai/themes/*.json` (see
+  [Themes](#-themes--shipped))
 - **Permissions** — one fail-closed engine for every tool, builtin or
   user-written; unknown tools can never execute, unmatched actions ask;
   asks carry computed diffs; rejections carry user feedback back to the

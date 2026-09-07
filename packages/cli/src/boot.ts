@@ -162,6 +162,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     ...(token !== undefined ? { token } : {}),
     loopbackBind: args.mode !== "host",
     webDist: webDistDir(),
+    themesDir: path.join(configDir(), "themes"),
   });
 
   return {

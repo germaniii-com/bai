@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
-import { resolveThemeId, type ThemeId } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
@@ -114,6 +114,9 @@ export function App() {
   // config theme — the UI theme id; applied by ThemeProvider (data-theme on
   // <html>) and synced from any surface via config.updated.
   const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
+  // Custom themes (~/.config/bai/themes/*.json) — fetched at boot, when the
+  // config names a non-builtin theme, and after saves/deletes in the picker.
+  const [customThemes, setCustomThemes] = useState<CustomTheme[]>([]);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Independent catalogs: agents and tools each own their fetch/refresh —
@@ -130,6 +133,14 @@ export function App() {
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [creatingTool, setCreatingTool] = useState(false);
 
+  const refreshCustomThemes = useCallback(async () => {
+    try {
+      setCustomThemes(await client.listCustomThemes());
+    } catch {
+      // Advisory; the picker still shows the built-ins.
+    }
+  }, [client]);
+
   const refreshConfig = useCallback(async () => {
     try {
       const config = await client.getConfig();
@@ -141,14 +152,19 @@ export function App() {
       setConfigVideoGen(config.videoGen);
       setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
+      // A non-builtin theme id means a custom theme file — its palette must
+      // be loaded for the surfaces to render it (boot-with-custom, or a
+      // theme created on another surface).
+      if (config.theme !== undefined && !isThemeId(config.theme)) void refreshCustomThemes();
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
-  }, [client]);
+  }, [client, refreshCustomThemes]);
 
   useEffect(() => {
     void refreshConfig();
-  }, [refreshConfig]);
+    void refreshCustomThemes();
+  }, [refreshConfig, refreshCustomThemes]);
 
   // Waiting-for-reply indicator: from submit (optimistic) or run start until
   // the assistant's first text lands; run.finished clears it on errors too.
@@ -501,13 +517,15 @@ export function App() {
   // count so a blocked run is never visible.
   const askPanelVisible = section === "chat" || (section === "workspace" && effectiveWorkspacePath !== null);
 
-  // Effective theme: the config value resolved against the catalog
+  // Effective theme: a custom theme (config id matching a loaded theme
+  // file) applies its palette inline; built-ins resolve through the catalog
   // (unknown ids fall back to the default). ThemeProvider applies it to
   // <html> and caches it for the next boot's inline script.
-  const theme = resolveThemeId(configTheme);
+  const customTheme = configTheme !== undefined ? customThemes.find((t) => t.id === configTheme) : undefined;
+  const theme = customTheme !== undefined && configTheme !== undefined ? configTheme : resolveThemeId(configTheme);
 
   /** Persist a theme pick; config.updated syncs the TUI (and this tab). */
-  const selectTheme = async (next: ThemeId): Promise<void> => {
+  const selectTheme = async (next: string): Promise<void> => {
     try {
       await client.putConfig({ theme: next });
       await refreshConfig();
@@ -516,8 +534,17 @@ export function App() {
     }
   };
 
+  /** Save a custom theme from the picker's form, then select it. */
+  const saveCustomTheme = async (input: CustomThemeInput): Promise<CustomTheme> => {
+    const id = slugifyThemeId(input.name);
+    const saved = await client.putCustomTheme(id, input);
+    await refreshCustomThemes();
+    await selectTheme(id);
+    return saved;
+  };
+
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={theme} customColors={customTheme?.colors}>
     <div className="app">
       {/* Pending asks render INLINE inside the chat pane (no overlay, no
           dim) — the app stays fully navigable while a run is blocked. The
@@ -761,12 +788,16 @@ export function App() {
       )}
 
       {/* Theme picker (germaniii.com's preview-card grid) — opened from the
-          nav's palette button or Settings → General. */}
+          nav's palette button or Settings → General; custom themes
+          (~/.config/bai/themes/*.json) render as cards and the "+ Custom
+          Theme" card opens the creation form. */}
       <ThemeSelectorModal
         isOpen={themePickerOpen}
         onClose={() => setThemePickerOpen(false)}
         currentTheme={theme}
         onSelect={(next) => void selectTheme(next)}
+        customThemes={customThemes}
+        onSaveCustom={saveCustomTheme}
       />
     </div>
     </ThemeProvider>

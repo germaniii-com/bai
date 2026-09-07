@@ -1,14 +1,15 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
+import type { CustomTheme, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
+import { isThemeId } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
 import { SubagentDialog } from "./views/subagent-dialog";
 import { ThemePicker } from "./views/theme-picker";
-import { ThemeProvider, tuiTheme } from "./theme";
+import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
 import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
@@ -74,6 +75,10 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // overriding this with previewTheme until confirmed or dismissed.
   const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
+  // Custom themes (~/.config/bai/themes/*.json) — fetched at boot and when
+  // the config names a non-builtin theme; registered into the palette
+  // resolver so tuiTheme() can render them.
+  const [customThemes, setCustomThemes] = useState<CustomTheme[]>([]);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
   // Composer seed for the fork flow: the forked message's text lands in the
@@ -179,6 +184,16 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // config (no catalog touch, no models.dev refresh). The full provider
   // list — 200+ providers, thousands of models — loads only when ctrl+p
   // needs it.
+  const refreshCustomThemes = useCallback(async () => {
+    try {
+      const themes = await client.listCustomThemes();
+      registerCustomThemes(themes);
+      setCustomThemes(themes);
+    } catch {
+      // Advisory; the picker still shows the built-ins.
+    }
+  }, [client]);
+
   const refreshConfig = useCallback(async () => {
     try {
       const config = await client.getConfig();
@@ -186,16 +201,21 @@ export function App({ client }: { client: BaiClient; version: string }) {
       setConfigAgentDefault(config.agents?.default);
       setConfigPreferZdr(config.models.preferZdr);
       setConfigTheme(config.theme);
+      // A non-builtin theme id means a custom theme file — its palette must
+      // be registered for tuiTheme() to render it (boot-with-custom, or a
+      // theme created on another surface).
+      if (config.theme !== undefined && !isThemeId(config.theme)) void refreshCustomThemes();
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
-  }, [client]);
+  }, [client, refreshCustomThemes]);
 
   useEffect(() => {
     void refreshSessions();
     void refreshConfig();
+    void refreshCustomThemes();
     void refreshAskIndex();
-  }, [refreshSessions, refreshConfig, refreshAskIndex]);
+  }, [refreshSessions, refreshConfig, refreshCustomThemes, refreshAskIndex]);
 
   // ctrl+c arming expires like the composer's esc arming — a stale press
   // must never quit (or interrupt) a later session of events.
@@ -483,8 +503,11 @@ export function App({ client }: { client: BaiClient; version: string }) {
           // Theme picker dialog (ctrl+t): cursor movement live-previews the
           // highlighted theme App-wide; enter persists it via config (every
           // surface follows via config.updated), esc restores the previous.
+          // Custom themes (~/.config/bai/themes/*.json) list after the
+          // built-ins.
           <ThemePicker
             current={configTheme}
+            customThemes={customThemes}
             onPreview={setPreviewTheme}
             onPick={(value) => {
               setPreviewTheme(null);

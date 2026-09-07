@@ -13,7 +13,6 @@ function registerWorkspaces(stack: TestStack, roots: string[]): void {
     update: stack.deps.configStore.update,
   } as typeof stack.deps.configStore;
 }
-
 describe("api contract", () => {
   let stack: TestStack;
   let app: ReturnType<typeof createApp>;
@@ -610,5 +609,78 @@ describe("api contract", () => {
       scope: "once",
       message: "no thanks",
     });
+  });
+});
+
+describe("custom theme files", () => {
+  let stack: TestStack;
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    stack = makeStack();
+    // Sandbox the theme directory (the default would be the real
+    // ~/.config/bai/themes).
+    stack.deps.themesDir = join(stack.dir, "themes");
+    app = createApp(stack.deps);
+  });
+
+  afterEach(() => stack.cleanup());
+
+  const palette = {
+    surface: "#101010",
+    surfaceSecondary: "#1a1a1a",
+    background: "#0a0a0a",
+    text: "#eeeeee",
+    textMuted: "#888888",
+    border: "#2a2a2a",
+    success: "#00cc88",
+    danger: "#ff4455",
+    warning: "#ffcc00",
+    primary: "#4488ff",
+    secondary: "#44ccff",
+    accent: "#8844ff",
+  };
+
+  test("PUT → GET → DELETE roundtrip", async () => {
+    const put = await app.request("/api/theme/custom/my-theme", {
+      method: "PUT",
+      body: JSON.stringify({ name: "My Theme", colors: palette }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(put.status).toBe(201);
+    const { theme } = (await put.json()) as { theme: { id: string; name: string; mode: string } };
+    expect(theme.id).toBe("my-theme");
+    expect(theme.name).toBe("My Theme");
+    expect(theme.mode).toBe("dark"); // derived from the dark surface
+
+    const list = await app.request("/api/theme/custom");
+    const { themes } = (await list.json()) as { themes: { id: string }[] };
+    expect(themes.map((t) => t.id)).toEqual(["my-theme"]);
+
+    const del = await app.request("/api/theme/custom/my-theme", { method: "DELETE" });
+    expect(del.status).toBe(200);
+    const empty = await app.request("/api/theme/custom");
+    expect(((await empty.json()) as { themes: unknown[] }).themes).toEqual([]);
+  });
+
+  test("rejects invalid ids and palettes", async () => {
+    // Uppercase/underscore ids fail the slug guard (also blocks traversal —
+    // the pattern allows only [a-z0-9-]).
+    const badId = await app.request("/api/theme/custom/Bad_ID", {
+      method: "PUT",
+      body: JSON.stringify({ name: "x", colors: palette }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(badId.status).toBe(400);
+
+    const badColor = await app.request("/api/theme/custom/bad", {
+      method: "PUT",
+      body: JSON.stringify({ name: "bad", colors: { ...palette, surface: "not-a-hex" } }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(badColor.status).toBe(400);
+
+    const missing = await app.request("/api/theme/custom/nope", { method: "DELETE" });
+    expect(missing.status).toBe(404);
   });
 });
