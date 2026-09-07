@@ -10,6 +10,11 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["icon.svg"],
+      // The locally-bundled Monaco editor (index chunk + ts worker) exceeds
+      // the 2 MiB default — precache it anyway so the PWA works offline.
+      workbox: {
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+      },
       manifest: {
         name: "bai",
         short_name: "bai",

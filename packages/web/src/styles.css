@@ -721,12 +721,18 @@ select:focus-visible,
   background: var(--border);
 }
 
+/* File rows open the viewer — same affordance as dir rows, plus an accent
+   tint on the viewer's active file. */
 .tree-row.file {
-  cursor: default;
+  cursor: pointer;
 }
 
 .tree-row.file:hover {
-  background: transparent;
+  background: var(--border);
+}
+
+.tree-row.file.active {
+  color: var(--accent);
 }
 
 /* Folder/file glyph — distinguishes row types at a glance; the open state
@@ -749,6 +755,196 @@ select:focus-visible,
   margin: 2px 0;
   font-size: 12px;
   color: var(--warning);
+}
+
+/* --- workspace center: [Chat | Files] switch + tabbed file viewer --- */
+
+/* The center column of the workspace section: switch header on top, then
+   the chat surface or the file viewer. Replaces the bare .chat flex child
+   so both views share one column. */
+.workspace-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-switch-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+/* Segmented [Chat | Files] control. */
+.pane-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pane-switch button {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+
+.pane-switch button + button {
+  border-left: 1px solid var(--border);
+}
+
+.pane-switch button:hover {
+  color: var(--text);
+}
+
+.pane-switch button.active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* File viewer: tab bar over the preview area. */
+.file-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+  min-height: 33px;
+}
+
+.file-tab {
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.file-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 4px 8px 10px;
+  cursor: pointer;
+  max-width: 180px;
+  min-width: 0;
+}
+
+.file-tab-btn:hover {
+  color: var(--text);
+}
+
+.file-tab.active {
+  background: var(--bg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.file-tab.active .file-tab-btn {
+  color: var(--text);
+}
+
+.file-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tab-close {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 4px 7px;
+  display: flex;
+  align-items: center;
+}
+
+.file-tab-close:hover {
+  color: var(--text);
+}
+
+.file-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* Empty / loading / binary states center in the preview area. */
+.file-preview .empty {
+  margin: auto;
+}
+
+/* Monaco wrapper — the editor fills the remaining preview height. */
+.file-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.file-media {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  object-fit: contain;
+  background: var(--inset);
+}
+
+.file-frame {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  background: var(--inset);
+}
+
+.viewer-message {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 480px;
+  text-align: center;
+}
+
+.viewer-message button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.viewer-message button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .session-list {

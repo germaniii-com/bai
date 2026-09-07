@@ -189,6 +189,27 @@ export class BaiClient {
   }
 
   /**
+   * Fetch ONE file's raw bytes from a registered workspace (read-only
+   * preview; powers the file viewer). Text consumers read the body as
+   * text; media consumers wrap it in a blob URL. The mime is sanitized
+   * server-side (never text/html or text/javascript). Throws with the
+   * server's plain message on failures ("path not found", "file too
+   * large", …).
+   */
+  async readFile(root: string, path?: string): Promise<Response> {
+    const res = await this.rpc().fs.file.$get({
+      query: { root, ...(path !== undefined ? { path } : {}) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `read file failed: ${res.status}`);
+    }
+    // The runtime object is a real fetch Response; Hono's typed wrapper
+    // just isn't structurally assignable to it.
+    return res as unknown as Response;
+  }
+
+  /**
    * Validate a single candidate workspace path: exists, is a directory, and
    * is readable by the server's user. Throws with the server's message.
    */

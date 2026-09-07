@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createApp } from "../src";
@@ -565,6 +565,136 @@ describe("api contract", () => {
     } finally {
       delete stack.deps.home;
       rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test("GET /api/fs/file serves text and media bytes (sanitized mime, nosniff)", async () => {
+    const root = mkdtempSync(join("/tmp", "bai-fs-"));
+    try {
+      writeFileSync(join(root, "readme.md"), "# hello\n");
+      writeFileSync(join(root, "page.html"), "<html><body>hi</body></html>");
+      writeFileSync(join(root, "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      writeFileSync(join(root, "doc.pdf"), Buffer.from("%PDF-1.4\n"));
+      registerWorkspaces(stack, [root]);
+
+      // Text file: raw bytes, text/plain, nosniff.
+      const text = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "readme.md"))}`,
+      );
+      expect(text.status).toBe(200);
+      expect(text.headers.get("content-type")).toBe("text/plain");
+      expect(text.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(await text.text()).toBe("# hello\n");
+
+      // SECURITY POLICY: html serves as text/plain (source view), never
+      // text/html — a blob iframe on the app origin must not get documents.
+      const html = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "page.html"))}`,
+      );
+      expect(html.status).toBe(200);
+      expect(html.headers.get("content-type")).toBe("text/plain");
+
+      // Media: mime from the extension map.
+      const png = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "pic.png"))}`,
+      );
+      expect(png.status).toBe(200);
+      expect(png.headers.get("content-type")).toBe("image/png");
+      const bytes = new Uint8Array(await png.arrayBuffer());
+      expect(bytes[0]).toBe(0x89);
+
+      const pdf = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "doc.pdf"))}`,
+      );
+      expect(pdf.status).toBe(200);
+      expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("GET /api/fs/file rejects traversal, unregistered roots, dirs, and oversized files", async () => {
+    const root = mkdtempSync(join("/tmp", "bai-fs-"));
+    const stranger = mkdtempSync(join("/tmp", "bai-fs-"));
+    try {
+      writeFileSync(join(root, "f.txt"), "x");
+      registerWorkspaces(stack, [root]);
+
+      // Escape via ..
+      const escape = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, ".."))}`,
+      );
+      expect(escape.status).toBe(400);
+
+      // Escape via symlink pointing outside the workspace.
+      symlinkSync(stranger, join(root, "out"));
+      const viaLink = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "out"))}`,
+      );
+      expect(viaLink.status).toBe(400);
+
+      // Unregistered root.
+      const unregistered = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(stranger)}&path=${encodeURIComponent(join(stranger, "whatever"))}`,
+      );
+      expect(unregistered.status).toBe(400);
+      expect(((await unregistered.json()) as { error: string }).error).toContain("not a registered workspace");
+
+      // A directory, not a file.
+      mkdirSync(join(root, "dir"));
+      const dir = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "dir"))}`,
+      );
+      expect(dir.status).toBe(400);
+      expect(((await dir.json()) as { error: string }).error).toBe("path is not a file");
+
+      // Missing file.
+      const missing = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "nope.txt"))}`,
+      );
+      expect(missing.status).toBe(400);
+      expect(((await missing.json()) as { error: string }).error).toBe("path not found");
+
+      // Text over the 1 MB cap.
+      writeFileSync(join(root, "big.txt"), "x".repeat(1024 * 1024 + 1));
+      const bigText = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "big.txt"))}`,
+      );
+      expect(bigText.status).toBe(400);
+      expect(((await bigText.json()) as { error: string }).error).toBe("file too large");
+
+      // Media over the 64 MB cap (sparse file — no bytes written).
+      const bigPng = join(root, "big.png");
+      writeFileSync(bigPng, "");
+      truncateSync(bigPng, 64 * 1024 * 1024 + 1);
+      const bigMedia = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(bigPng)}`,
+      );
+      expect(bigMedia.status).toBe(400);
+      expect(((await bigMedia.json()) as { error: string }).error).toBe("file too large");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stranger, { recursive: true, force: true });
+    }
+  });
+
+  test("GET /api/fs/file reports permission denied for unreadable files", async () => {
+    if ((process.getuid?.() ?? 0) === 0) return; // root reads everything
+    const root = mkdtempSync(join("/tmp", "bai-fs-"));
+    try {
+      writeFileSync(join(root, "secret.txt"), "x");
+      registerWorkspaces(stack, [root]);
+      chmodSync(join(root, "secret.txt"), 0o000);
+
+      const denied = await app.request(
+        `/api/fs/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(join(root, "secret.txt"))}`,
+      );
+      expect(denied.status).toBe(400);
+      expect(((await denied.json()) as { error: string }).error).toBe("permission denied");
+
+      chmodSync(join(root, "secret.txt"), 0o644); // allow cleanup
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

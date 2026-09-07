@@ -19,10 +19,22 @@ interface DirState {
  * Read-only file tree for the workspace right sidebar. Lazy per-directory
  * listing (VS Code style): the root loads on mount/workspace change, every
  * expansion fetches exactly one directory — huge trees (node_modules) cost
- * nothing until opened. Display-only in v1; file actions arrive with the
- * Phase 3 code workbench.
+ * nothing until opened. File rows open the workspace file viewer (the
+ * Files view's tabbed Monaco/media preview); directories expand inline.
  */
-export function FileTree({ client, root }: { client: BaiClient; root: string }) {
+export function FileTree({
+  client,
+  root,
+  onOpenFile,
+  activePath = null,
+}: {
+  client: BaiClient;
+  root: string;
+  /** File-row click → open (or focus) the file in the viewer. */
+  onOpenFile?: (path: string) => void;
+  /** The viewer's active file — highlighted in the tree when in Files view. */
+  activePath?: string | null;
+}) {
   const [dirs, setDirs] = useState<Map<string, DirState>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(false);
@@ -114,6 +126,8 @@ export function FileTree({ client, root }: { client: BaiClient; root: string }) 
             expanded={expanded}
             onToggle={toggle}
             showDotfiles={showDotfiles}
+            onOpenFile={onOpenFile}
+            activePath={activePath}
           />
         )}
         {rootState?.truncated === true && <p className="dim">listing truncated</p>}
@@ -129,6 +143,8 @@ function DirEntries({
   expanded,
   onToggle,
   showDotfiles,
+  onOpenFile,
+  activePath,
 }: {
   dir: string;
   depth: number;
@@ -136,6 +152,8 @@ function DirEntries({
   expanded: Set<string>;
   onToggle: (dir: string) => void;
   showDotfiles: boolean;
+  onOpenFile?: (path: string) => void;
+  activePath?: string | null;
 }) {
   const state = dirs.get(dir);
   if (state === undefined) return null;
@@ -185,18 +203,37 @@ function DirEntries({
                   expanded={expanded}
                   onToggle={onToggle}
                   showDotfiles={showDotfiles}
+                  onOpenFile={onOpenFile}
+                  activePath={activePath}
                   />
                   </div>
               )}
             </li>
           );
         }
+        // File rows open the viewer when onOpenFile is wired (the workspace
+        // section); plain spans keep the tree usable without it.
+        const active = activePath === path;
         return (
           <li key={path}>
-            <span className="tree-row file" style={{ paddingLeft: `${8 + depth * 14}px` }}>
-              <FileIcon />
-              <span className="tree-name">{entry.name}</span>
-            </span>
+            {onOpenFile !== undefined ? (
+              <button
+                type="button"
+                className={active ? "tree-row file active" : "tree-row file"}
+                style={{ paddingLeft: `${8 + depth * 14}px` }}
+                onClick={() => onOpenFile(path)}
+                aria-current={active ? "true" : undefined}
+                title={`Open ${path}`}
+              >
+                <FileIcon />
+                <span className="tree-name">{entry.name}</span>
+              </button>
+            ) : (
+              <span className="tree-row file" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+                <FileIcon />
+                <span className="tree-name">{entry.name}</span>
+              </span>
+            )}
           </li>
         );
       })}

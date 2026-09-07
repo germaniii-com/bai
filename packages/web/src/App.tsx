@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
-import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
@@ -13,6 +13,7 @@ import { ThemeProvider } from "./theme";
 import { ThemeSelectorModal } from "./theme-picker";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
+import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
@@ -47,6 +48,14 @@ export function App() {
   const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [workspaceSessions, setWorkspaceSessions] = useState<Session[]>([]);
+  // Workspace center-pane view: the chat surface or the file viewer. The
+  // [Chat | Files] segmented control above the pane switches it; opening a
+  // file from the tree flips it to "files" automatically.
+  const [workspaceView, setWorkspaceView] = useState<"chat" | "files">("chat");
+  // Open file tabs (workspace-scoped paths, in open order) + the active one.
+  // Reset when the workspace changes — tabs belong to a workspace.
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -388,8 +397,28 @@ export function App() {
 
   const selectWorkspace = (path: string | null): void => {
     setWorkspacePath(path);
+    // Open tabs belong to a workspace — a switch drops them and returns to
+    // the chat surface.
+    setOpenFiles([]);
+    setActiveFile(null);
+    setWorkspaceView("chat");
     // Keep the open session only when it belongs to the chosen workspace.
     setActive((current) => (path !== null && current?.cwd === path ? current : null));
+  };
+
+  /** Tree file click: open (or focus) a tab and flip to the Files view. */
+  const openFile = (path: string): void => {
+    setOpenFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveFile(path);
+    setWorkspaceView("files");
+  };
+
+  /** Tab ✕: drop the tab; a closed ACTIVE tab activates its neighbor. */
+  const closeFileTab = (path: string): void => {
+    const idx = openFiles.indexOf(path);
+    const next = openFiles.filter((p) => p !== path);
+    setOpenFiles(next);
+    if (activeFile === path) setActiveFile(next[idx] ?? next[idx - 1] ?? null);
   };
 
   /** Validate-then-persist happened in the nav; here: append + save config. */
@@ -523,6 +552,12 @@ export function App() {
   // <html> and caches it for the next boot's inline script.
   const customTheme = configTheme !== undefined ? customThemes.find((t) => t.id === configTheme) : undefined;
   const theme = customTheme !== undefined && configTheme !== undefined ? configTheme : resolveThemeId(configTheme);
+  // The active PALETTE as data (themes.ts single source of truth) — feeds
+  // the Monaco editor directly, so theme switches re-skin it on the fly
+  // with no dependency on applied CSS. Custom themes carry their own
+  // colors; built-ins resolve through the catalog (theme is a ThemeId
+  // whenever customTheme is undefined).
+  const themeColors: ThemeColors = customTheme?.colors ?? THEME_COLORS[theme as ThemeId];
 
   /** Persist a theme pick; config.updated syncs the TUI (and this tab). */
   const selectTheme = async (next: string): Promise<void> => {
@@ -546,6 +581,48 @@ export function App() {
     await selectTheme(id);
     return saved;
   };
+
+  // The chat surface element — shared by the Chat section and the
+  // workspace's Chat view (identical props; one source of truth).
+  const chatPane = (
+    <ChatPane
+      client={client}
+      list={list}
+      active={active}
+      configDefault={configDefault}
+      configDefaultAgent={configDefaultAgent}
+      preferZdr={configPreferZdr}
+      agents={agents}
+      refreshAgents={refreshAgents}
+      refreshProviders={refreshProviders}
+      providersFetching={providersFetching}
+      messages={messages}
+      draft={draft}
+      setDraft={setDraft}
+      onSubmit={() => void submit()}
+      runActive={runActive}
+      waiting={waiting}
+      error={error}
+      onSwitchWorkspace={() => navigate("workspace")}
+      subagents={subagents}
+      pendingAsk={pendingAsk}
+      askQueued={Math.max(0, askTotal - 1)}
+      onAskDone={
+        headFromChild
+          ? () => setPendingChildAsks((list) => list.slice(1))
+          : headPermission !== undefined
+            ? () => setPendingAsks((list) => list.slice(1))
+            : () => setPendingQuestions((list) => list.slice(1))
+      }
+      startPlaceholder={
+        section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
+      }
+      onForkMessage={forkAtMessage}
+      onRevertMessage={revertToMessage}
+      onRestoreRevert={restoreRevert}
+      revertBusy={revertBusy}
+    />
+  );
 
   return (
     <ThemeProvider theme={theme} customColors={customTheme?.colors}>
@@ -753,45 +830,57 @@ export function App() {
         </main>
       ) : (
         <>
-          <ChatPane
-            client={client}
-            list={list}
-            active={active}
-            configDefault={configDefault}
-            configDefaultAgent={configDefaultAgent}
-            preferZdr={configPreferZdr}
-            agents={agents}
-            refreshAgents={refreshAgents}
-            refreshProviders={refreshProviders}
-            providersFetching={providersFetching}
-            messages={messages}
-            draft={draft}
-            setDraft={setDraft}
-            onSubmit={() => void submit()}
-            runActive={runActive}
-            waiting={waiting}
-            error={error}
-            onSwitchWorkspace={() => navigate("workspace")}
-            subagents={subagents}
-            pendingAsk={pendingAsk}
-            askQueued={Math.max(0, askTotal - 1)}
-            onAskDone={
-              headFromChild
-                ? () => setPendingChildAsks((list) => list.slice(1))
-                : headPermission !== undefined
-                  ? () => setPendingAsks((list) => list.slice(1))
-                  : () => setPendingQuestions((list) => list.slice(1))
-            }
-            startPlaceholder={
-              section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
-            }
-            onForkMessage={forkAtMessage}
-            onRevertMessage={revertToMessage}
-            onRestoreRevert={restoreRevert}
-            revertBusy={revertBusy}
-          />
+          {section === "workspace" ? (
+            // Workspace center: the [Chat | Files] switch on top, then the
+            // chat surface or the tabbed file viewer. The file tree (right
+            // aside) opens files into the viewer.
+            <div className="workspace-center">
+              <div className="pane-switch-header">
+                <div className="pane-switch" role="tablist" aria-label="Workspace view">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={workspaceView === "chat"}
+                    className={workspaceView === "chat" ? "active" : undefined}
+                    onClick={() => setWorkspaceView("chat")}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={workspaceView === "files"}
+                    className={workspaceView === "files" ? "active" : undefined}
+                    onClick={() => setWorkspaceView("files")}
+                  >
+                    Files
+                  </button>
+                </div>
+              </div>
+              {workspaceView === "files" && effectiveWorkspacePath !== null ? (
+                <FileView
+                  client={client}
+                  root={effectiveWorkspacePath}
+                  openFiles={openFiles}
+                  activeFile={activeFile}
+                  themeColors={themeColors}
+                  onSelectTab={setActiveFile}
+                  onCloseTab={closeFileTab}
+                />
+              ) : (
+                chatPane
+              )}
+            </div>
+          ) : (
+            chatPane
+          )}
           {section === "workspace" && effectiveWorkspacePath !== null && (
-            <FileTree client={client} root={effectiveWorkspacePath} />
+            <FileTree
+              client={client}
+              root={effectiveWorkspacePath}
+              onOpenFile={openFile}
+              activePath={workspaceView === "files" ? activeFile : null}
+            />
           )}
         </>
       )}

@@ -11,10 +11,14 @@ import path from "node:path";
  *   symlink inside a workspace cannot escape it. IO errors map to plain
  *   user-facing messages (ENOENT → "path not found", EACCES/EPERM →
  *   "permission denied", …).
- * - `ensureRegisteredRoot` restricts listing to workspace paths registered
- *   in config — the file tree can only browse workspaces, never arbitrary
- *   machine paths (defense in depth; a registered workspace the OS user
- *   cannot read still fails with "permission denied" at listing time).
+ * - `readFile` validates ONE file for content preview (same realpath
+ *   containment as listDir, but the target must be a file) and reports the
+ *   mime + size caps the route enforces when streaming the bytes.
+ * - `ensureRegisteredRoot` restricts listing/reading to workspace paths
+ *   registered in config — the file tree can only browse workspaces, never
+ *   arbitrary machine paths (defense in depth; a registered workspace the
+ *   OS user cannot read still fails with "permission denied" at listing
+ *   time).
  * - `statPath` validates a single candidate path (exists / is a directory /
  *   readable) for the add-workspace flow — no content disclosure.
  * - `createFolder` creates a missing folder (with parents) for the
@@ -162,6 +166,86 @@ export function listDir(root: string, sub?: string): FsListing {
     entries: truncated ? entries.slice(0, FS_LIST_CAP) : entries,
     truncated,
   };
+}
+
+/** Preview size caps: text (Monaco) files vs media (image/pdf/video) files. */
+export const FS_TEXT_MAX_BYTES = 1024 * 1024; // 1 MB
+export const FS_MEDIA_MAX_BYTES = 64 * 1024 * 1024; // 64 MB
+
+/**
+ * Mime types worth previewing as media (image / pdf / video), by extension.
+ * EVERYTHING else — including html/xml and js — serves as `text/plain`:
+ * a blob-iframe on the app origin must never receive executable or
+ * document content (GitHub-raw-style sanitization; the web client renders
+ * text files as source in the editor, never as documents).
+ */
+const MEDIA_MIME: Record<string, string> = {
+  // images
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  svg: "image/svg+xml", // safe: the client renders svg only via <img>
+  // documents
+  pdf: "application/pdf",
+  // video
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  ogv: "video/ogg",
+  mkv: "video/x-matroska",
+};
+
+/** Best-effort mime for a file name — media map, else text/plain. */
+export function fileMime(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return MEDIA_MIME[ext] ?? "text/plain";
+}
+
+export interface FilePreview {
+  /** Realpath of the file — the route streams it via Bun.file. */
+  path: string;
+  /** Sanitized mime (never text/html or text/javascript). */
+  mime: string;
+  /** Stat'd size in bytes — the cap was checked against this. */
+  size: number;
+}
+
+/**
+ * Validate ONE file for content preview inside `root`. Same realpath
+ * containment as listDir (a symlink pointing outside the workspace is
+ * rejected, not followed), but the target must be a FILE. Size caps are
+ * checked against the stat'd size: 1 MB for text (the editor's budget),
+ * 64 MB for media. Returns the resolved path + sanitized mime for the
+ * route to stream — no bytes are read here.
+ */
+export function readFile(root: string, sub?: string): FilePreview {
+  if (root.length === 0) throw new FsError("root is required");
+  const resolvedRoot = toReal(root);
+  const target = sub === undefined || sub.length === 0 ? resolvedRoot : toReal(sub);
+  const rel = path.relative(resolvedRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new FsError("path escapes the workspace root");
+  }
+
+  let stat;
+  try {
+    stat = statSync(target);
+  } catch (err) {
+    throw ioError(err, "path not found");
+  }
+  if (!stat.isFile()) throw new FsError("path is not a file");
+
+  const mime = fileMime(target);
+  const cap = mime === "text/plain" ? FS_TEXT_MAX_BYTES : FS_MEDIA_MAX_BYTES;
+  if (stat.size > cap) throw new FsError("file too large");
+  return { path: target, mime, size: stat.size };
 }
 
 /**

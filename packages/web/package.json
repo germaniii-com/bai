@@ -15,7 +15,9 @@
   "dependencies": {
     "@bai/api": "workspace:*",
     "@bai/shared": "workspace:*",
+    "@monaco-editor/react": "^4.7.0",
     "lucide-react": "^1.40.0",
+    "monaco-editor": "^0.54.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",

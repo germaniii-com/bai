@@ -25,7 +25,7 @@ import {
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
-import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, statPath } from "./fs";
+import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, readFile, statPath } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
 import { staticHandler } from "./static";
 import { deleteCustomTheme, listCustomThemes, saveCustomTheme } from "./themes";
@@ -229,6 +229,30 @@ function buildApi(deps: ApiDeps) {
       try {
         ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
         return c.json({ listing: listDir(root, sub) });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    // Serve ONE file's raw bytes for the workspace file viewer (text source
+    // in the editor, image/pdf/video previews). Registered-root scoped,
+    // realpath-contained, size-capped (1 MB text / 64 MB media). The mime
+    // is sanitized (never text/html or text/javascript — a blob iframe on
+    // the app origin must not receive executable content) and nosniff is
+    // forced. Deliberately a raw Response, not c.json — media needs bytes.
+    .get("/fs/file", (c) => {
+      const root = c.req.query("root") ?? "";
+      const sub = c.req.query("path");
+      try {
+        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        const file = readFile(root, sub);
+        return new Response(Bun.file(file.path), {
+          headers: {
+            "Content-Type": file.mime,
+            "Content-Length": String(file.size),
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
       } catch (err) {
         if (err instanceof FsError) return c.json({ error: err.message }, 400);
         throw err;
