@@ -2,12 +2,18 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
+import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
+import { sortProviders } from "./provider-utils";
 
 /**
  * Chat-header model picker: a button showing the current model; clicking it
- * opens a three-column modal — provider → accounts → models (the web shape
- * of the TUI's ctrl+p wizard). Clicking a model applies it and closes:
- * session-scoped when a session is open, otherwise the global default.
+ * opens a three-column modal — provider → accounts → models. Lists CONNECTED
+ * providers only: the composer hub picks a model to USE, while adding
+ * accounts happens under Settings → Model Providers (which shows the full
+ * catalog). Same stance as the TUI's ctrl+l flat list. Clicking a model
+ * applies it and closes: session-scoped when a session is open, otherwise
+ * the global default. With `preferZdr` (config models.preferZdr) the
+ * ZDR-capable models float first and carry a badge.
  *
  * Account semantics mirror the TUI: "Server default" (no explicit account)
  * lets the server resolve the provider's default (config override → first
@@ -19,6 +25,7 @@ export function ModelPicker({
   list,
   active,
   configDefault,
+  preferZdr,
   refreshProviders,
 }: {
   client: BaiClient;
@@ -28,6 +35,8 @@ export function ModelPicker({
   /** Default model from GET /api/config (startup fetch) — keeps the button
    * label truthful before the heavy provider list is ever loaded. */
   configDefault?: string;
+  /** config models.preferZdr — ZDR-capable models sort first with a badge. */
+  preferZdr?: boolean;
   refreshProviders: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +73,7 @@ export function ModelPicker({
           client={client}
           list={list}
           active={active}
+          preferZdr={preferZdr}
           refreshProviders={refreshProviders}
           current={current}
           onClose={() => setOpen(false)}
@@ -89,6 +99,7 @@ function ModelModal({
   client,
   list,
   active,
+  preferZdr,
   refreshProviders,
   current,
   onClose,
@@ -96,6 +107,7 @@ function ModelModal({
   client: BaiClient;
   list: ProviderListResponse | null;
   active: Session | null;
+  preferZdr?: boolean;
   refreshProviders: () => Promise<void>;
   current: string;
   onClose: () => void;
@@ -121,27 +133,20 @@ function ModelModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Connected first (stable), stub last — same stance as the settings nav.
+  // Connected providers only (the composer hub picks a model to USE; account
+  // setup lives in Settings → Model Providers). Connected first, stub last —
+  // the shared sort stance.
   const providers =
-    list === null
-      ? []
-      : [...list.providers].sort((a, b) => {
-          const ac = a.connected ? 0 : 1;
-          const bc = b.connected ? 0 : 1;
-          if (ac !== bc) return ac - bc;
-          if (a.id === "stub") return 1;
-          if (b.id === "stub") return -1;
-          return a.id.localeCompare(b.id);
-        });
+    list === null ? [] : sortProviders(list.providers.filter((p) => p.connected));
 
   // Default selection: the provider backing the current model, else the
-  // first connected one, else the first entry.
+  // first connected one that actually offers models.
   const currentProviderId = current.split("/")[0];
   const effectiveProviderId =
     providerId ??
     (providers.some((p) => p.id === currentProviderId)
       ? currentProviderId
-      : (providers.find((p) => p.connected)?.id ?? providers[0]?.id ?? null));
+      : (providers.find((p) => p.models.length > 0)?.id ?? providers[0]?.id ?? null));
   const provider = providers.find((p) => p.id === effectiveProviderId);
 
   // Scroll the active provider row into view — the default selection (the
@@ -192,8 +197,14 @@ function ModelModal({
     }
   };
 
+  // Label-sorted; with preferZdr the ZDR-capable models float first.
   const models: ModelInfo[] =
-    provider === undefined ? [] : [...provider.models].sort((a, b) => a.label.localeCompare(b.label));
+    provider === undefined
+      ? []
+      : sortModelsZdrFirst(
+          [...provider.models].sort((a, b) => a.label.localeCompare(b.label)),
+          preferZdr === true,
+        );
 
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
@@ -260,9 +271,6 @@ function ModelModal({
                     <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
                   </button>
                 ))}
-                {provider !== undefined && provider.accounts.length === 0 && (
-                  <p className="dim col-hint">no accounts — add one under settings</p>
-                )}
               </div>
             </div>
             <div className="model-col">
@@ -284,6 +292,11 @@ function ModelModal({
                     >
                       <span className="title">{m.label}</span>
                       {parts.length > 0 && <span className="dim">{parts.join(" · ")}</span>}
+                      {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
+                        <span className="zdr-badge" title="zero data retention capable">
+                          zdr
+                        </span>
+                      )}
                       {isCurrent && <span className="current-badge">current</span>}
                     </button>
                   );

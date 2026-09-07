@@ -110,6 +110,7 @@ export class Service {
       defaultModel: () => deps.config().models.default ?? "stub/echo",
       defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
+      userName: () => deps.config().user?.name,
       workspaceRoots: () => deps.config().workspaces ?? [],
       ...(deps.snapshot !== undefined ? { snapshot: deps.snapshot } : {}),
     });

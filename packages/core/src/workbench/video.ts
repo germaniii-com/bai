@@ -1,3 +1,4 @@
+import type { MediaGenConfig } from "@bai/shared";
 import type { Workbench } from "../workbench/types";
 import type { GeneratedFile, JobExecutor, JobExecutorResult } from "../workbench/types";
 
@@ -13,9 +14,18 @@ export interface VideoGenRequest {
  * workbench's pipeline exactly; produces a tiny placeholder clip so the
  * queue/gallery/events path is exercisable before any vendor key exists.
  * Real adapters (Veo/Runway/Kling/Luma/Seedance via fal.ai first) land in
- * Phase 5+.
+ * Phase 5+. The configured default (config videoGen) is the model fallback
+ * when a job doesn't name one — the settings field is observable before a
+ * real adapter exists.
  */
 export class VideoWorkbench implements Workbench {
+  /** config videoGen accessor — the executor's model fallback. */
+  private readonly defaults?: () => MediaGenConfig | undefined;
+
+  constructor(defaults?: () => MediaGenConfig | undefined) {
+    this.defaults = defaults;
+  }
+
   name() {
     return "video" as const;
   }
@@ -39,6 +49,8 @@ export class VideoWorkbench implements Workbench {
   jobExecutors() {
     const executor: JobExecutor = async (job, ctx) => {
       const req = parseRequest(job.input);
+      const configured = this.defaults?.();
+      const model = req.model ?? configured?.model ?? "stub";
       ctx.progress(0.25);
       if (ctx.signal.aborted) throw new Error("cancelled");
       ctx.progress(0.75);
@@ -47,7 +59,7 @@ export class VideoWorkbench implements Workbench {
       const descriptor = JSON.stringify({
         placeholder: true,
         prompt: req.prompt,
-        model: req.model ?? "stub",
+        model,
         durationSeconds: req.durationSeconds ?? 4,
         resolution: req.resolution ?? "640x360",
       });
@@ -57,10 +69,16 @@ export class VideoWorkbench implements Workbench {
           mime: "video/mp4",
           ext: "mp4",
           bytes: new TextEncoder().encode(descriptor),
-          meta: { prompt: req.prompt, model: req.model ?? "stub", placeholder: true },
+          meta: {
+            prompt: req.prompt,
+            model,
+            ...(configured?.provider !== undefined ? { provider: configured.provider } : {}),
+            ...(configured?.account !== undefined ? { account: configured.account } : {}),
+            placeholder: true,
+          },
         },
       ];
-      const result: JobExecutorResult = { output: { model: req.model ?? "stub" }, files };
+      const result: JobExecutorResult = { output: { model }, files };
       return result;
     };
     return { "video.generate": executor };

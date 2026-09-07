@@ -106,6 +106,64 @@ describe("provider picker logic", () => {
     expect(opts.map((o) => o.value)).toEqual(["__custom__"]);
   });
 
+  test("modelOptions: preferZdr floats capable models first with a zdr hint", () => {
+    const p = provider({
+      id: "openai",
+      models: [
+        { id: "openai/z-model", provider: "openai", label: "Zeta model" },
+        { id: "openai/a-model", provider: "openai", label: "Alpha model", contextWindow: 100000 },
+      ],
+    });
+    // Off: plain label order, no zdr hint.
+    const off = modelOptions(p);
+    expect(off.map((o) => o.value)).toEqual(["openai/a-model", "openai/z-model", "__custom__"]);
+    expect(off[0]?.hint).not.toContain("zdr");
+    // On: capable models first (input order kept within groups) + hint badge.
+    const on = modelOptions(p, true);
+    expect(on.map((o) => o.value)).toEqual(["openai/a-model", "openai/z-model", "__custom__"]);
+    expect(on[0]?.hint).toContain("zdr");
+    expect(on[1]?.hint).toContain("zdr");
+  });
+
+  test("modelOptions: preferZdr keeps excluded models in the tail group", () => {
+    const p = provider({
+      id: "anthropic",
+      models: [
+        { id: "anthropic/claude-fable-5", provider: "anthropic", label: "Fable" },
+        { id: "anthropic/claude-sonnet-4-5", provider: "anthropic", label: "Sonnet" },
+      ],
+    });
+    const opts = modelOptions(p, true);
+    expect(opts.map((o) => o.value)).toEqual([
+      "anthropic/claude-sonnet-4-5",
+      "anthropic/claude-fable-5",
+      "__custom__",
+    ]);
+    expect(opts[0]?.hint).toContain("zdr");
+    expect(opts[1]?.hint ?? "").not.toContain("zdr");
+  });
+
+  test("allModelOptions: preferZdr floats capable models first across providers", () => {
+    const opts = allModelOptions(
+      [
+        provider({
+          id: "deepseek",
+          connected: true,
+          models: [{ id: "deepseek/v4", provider: "deepseek", label: "V4" }],
+        }),
+        provider({
+          id: "openai",
+          connected: true,
+          models: [{ id: "openai/gpt-5", provider: "openai", label: "GPT-5" }],
+        }),
+      ],
+      true,
+    );
+    expect(opts.map((o) => o.value)).toEqual(["openai/gpt-5", "deepseek/v4", "__custom__"]);
+    expect(opts[0]?.hint).toContain("zdr");
+    expect(opts[1]?.hint ?? "").not.toContain("zdr");
+  });
+
   test("applyTarget: session when active, global otherwise", () => {
     const session = { id: "ses_x", meta: {} } as unknown as Session;
     expect(applyTarget(session)).toBe("session");

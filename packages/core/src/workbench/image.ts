@@ -1,3 +1,4 @@
+import type { MediaGenConfig } from "@bai/shared";
 import type { Workbench } from "../workbench/types";
 import type { GeneratedFile, JobExecutor, JobExecutorResult } from "../workbench/types";
 import { fnv1a, solidPng } from "../jobs/png";
@@ -13,9 +14,18 @@ export interface ImageGenRequest {
  * Image-generation modality — structured stub in Phase 0. The pipeline is
  * real: prompt → job row → executor → asset file + DB row → events →
  * galleries. The stub adapter renders a deterministic placeholder PNG; the
- * fal.ai adapter (Phase 5) plugs in behind the same interface.
+ * fal.ai adapter (Phase 5) plugs in behind the same interface. The configured
+ * default (config imageGen) is the model fallback when a job doesn't name
+ * one — the settings field is observable before a real adapter exists.
  */
 export class ImageWorkbench implements Workbench {
+  /** config imageGen accessor — the executor's model fallback. */
+  private readonly defaults?: () => MediaGenConfig | undefined;
+
+  constructor(defaults?: () => MediaGenConfig | undefined) {
+    this.defaults = defaults;
+  }
+
   name() {
     return "image" as const;
   }
@@ -39,6 +49,8 @@ export class ImageWorkbench implements Workbench {
   jobExecutors() {
     const executor: JobExecutor = async (job, ctx) => {
       const req = parseRequest(job.input);
+      const configured = this.defaults?.();
+      const model = req.model ?? configured?.model ?? "stub";
       ctx.progress(0.1);
       const files: GeneratedFile[] = [];
       const count = Math.min(Math.max(req.count ?? 1, 1), 4);
@@ -56,12 +68,21 @@ export class ImageWorkbench implements Workbench {
           mime: "image/png",
           ext: "png",
           bytes: solidPng(w, h, rgb),
-          meta: { prompt: req.prompt, model: req.model ?? "stub", seed, width: w, height: h, placeholder: true },
+          meta: {
+            prompt: req.prompt,
+            model,
+            ...(configured?.provider !== undefined ? { provider: configured.provider } : {}),
+            ...(configured?.account !== undefined ? { account: configured.account } : {}),
+            seed,
+            width: w,
+            height: h,
+            placeholder: true,
+          },
         });
         ctx.progress((i + 1) / count);
       }
       const result: JobExecutorResult = {
-        output: { model: req.model ?? "stub", count: files.length },
+        output: { model, count: files.length },
         files,
       };
       return result;

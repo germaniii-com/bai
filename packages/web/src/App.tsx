@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Cpu, Folder, Image, MessageCircle, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
-import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
+import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
-import { SettingsNav, SettingsPane } from "./settings";
+import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
 import { ChatPane } from "./chat-pane";
@@ -38,7 +38,9 @@ export function App() {
     [],
   );
   const [section, setSection] = useState<Section>("chat");
-  const [settingsProviderId, setSettingsProviderId] = useState<string | null>(null);
+  // The settings section (User | General | Model Providers) — the nested
+  // sidebar's entries; each renders one scrollable heading-content page.
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [workspaceSessions, setWorkspaceSessions] = useState<Session[]>([]);
@@ -100,6 +102,12 @@ export function App() {
   // header.
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [configDefaultAgent, setConfigDefaultAgent] = useState<string | undefined>(undefined);
+  // Settings-section snapshot (User name, ZDR preference, media-gen defaults)
+  // — firehose-refreshed via config.updated like the defaults above.
+  const [configUserName, setConfigUserName] = useState<string | undefined>(undefined);
+  const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
+  const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
+  const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   // Independent catalogs: agents and tools each own their fetch/refresh —
   // updated by firehose events (agents.updated / tools.updated), section
@@ -120,6 +128,10 @@ export function App() {
       const config = await client.getConfig();
       setConfigDefault(config.models.default);
       setConfigDefaultAgent(config.agents?.default);
+      setConfigUserName(config.user?.name);
+      setConfigPreferZdr(config.models.preferZdr);
+      setConfigImageGen(config.imageGen);
+      setConfigVideoGen(config.videoGen);
       setWorkspaces(config.workspaces ?? []);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
@@ -313,11 +325,9 @@ export function App() {
     setSubagents((prev) => trackSubagents(prev, [...sessions, ...workspaceSessions], activeId));
   }, [activeId, sessions, workspaceSessions]);
 
-  // Stale-selection fallbacks: a provider deleted from another surface
-  // (firehose provider.updated) resolves back to General; a workspace
-  // removed from config (config.updated) resolves back to no selection.
-  const providerExists = list?.providers.some((p) => p.id === settingsProviderId) ?? false;
-  const effectiveSettingsId = providerExists ? settingsProviderId : null;
+  // Stale-selection fallbacks: a workspace removed from config (config.updated)
+  // resolves back to no selection. Settings sections are static — no fallback
+  // needed there (the old provider-id selection is gone with the drill-down).
   const effectiveWorkspacePath =
     workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
   const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
@@ -327,7 +337,9 @@ export function App() {
     if (next === "settings") {
       // On-demand + refetch on engagement (TUI ctrl+p parity): the provider
       // list never loads at startup, and every engagement pulls fresh data.
+      // The General pane's agent select rides the same engagement refetch.
       void refreshProviders();
+      void refreshAgents();
     }
     if (next === "workspace") {
       // Engagement refetch: fresh session list for the selected workspace.
@@ -575,12 +587,7 @@ export function App() {
           </>
         )}
         {section === "settings" && (
-          <SettingsNav
-            list={list}
-            fetching={providersFetching}
-            selected={effectiveSettingsId}
-            onSelect={setSettingsProviderId}
-          />
+          <SettingsNav selected={settingsSection} onSelect={setSettingsSection} />
         )}
         {section === "agents" && (
           <AgentsNav
@@ -620,7 +627,14 @@ export function App() {
             client={client}
             list={list}
             refresh={refreshProviders}
-            selectedId={effectiveSettingsId}
+            fetching={providersFetching}
+            section={settingsSection}
+            agents={agents}
+            userName={configUserName}
+            preferZdr={configPreferZdr}
+            defaultAgent={configDefaultAgent}
+            imageGen={configImageGen}
+            videoGen={configVideoGen}
           />
         </main>
       ) : section === "agents" ? (
@@ -682,6 +696,7 @@ export function App() {
             active={active}
             configDefault={configDefault}
             configDefaultAgent={configDefaultAgent}
+            preferZdr={configPreferZdr}
             agents={agents}
             refreshAgents={refreshAgents}
             refreshProviders={refreshProviders}

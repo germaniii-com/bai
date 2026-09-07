@@ -72,6 +72,15 @@ describe("env block (session metadata in the system prompt)", () => {
     expect(block).toContain("Agent: chat");
   });
 
+  test("the user's name renders a User line when set; absent otherwise", () => {
+    const base = { workbench: "chat", title: "", agent: "chat", now: "2026-09-03T12:00:00.000Z" };
+    const named = buildEnvBlock({ ...base, userName: "German" });
+    expect(named).toContain("User: German (the person you are working for");
+    // Whitespace-only names are treated as unset.
+    expect(buildEnvBlock({ ...base, userName: "   " })).not.toContain("User:");
+    expect(buildEnvBlock(base)).not.toContain("User:");
+  });
+
   test("fs-tool agents get absolute-path guidance; others don't", () => {
     const now = "2026-09-03T12:00:00.000Z";
     // With a cwd: prefer absolute paths under it.
@@ -129,6 +138,31 @@ describe("env block (session metadata in the system prompt)", () => {
       expect(content).toContain("Available tools:");
       // The persona still leads the system message.
       expect(content.indexOf("bai's build agent")).toBeLessThan(content.indexOf("<env>"));
+      t.store.close();
+      t = undefined;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the drain injects the configured user name into the env block", async () => {
+    let t: TestCore | undefined;
+    const dir = mkdtempSync(join(tmpdir(), "bai-env-user-"));
+    try {
+      t = makeCore();
+      t.config.models.default = "scripted/main";
+      t.config.user.name = "German";
+      const provider = new ScriptedToolProvider([finalText("hello")]);
+      t.providers.register(provider);
+      const session = t.core.createSession({ workbench: "chat" });
+
+      const finished = waitForRunFinished(t);
+      t.core.submitPrompt(session.id, { text: "hi" });
+      await finished;
+
+      const system = (provider.requests[0] as LlmRequest).messages.find((m) => m.role === "system");
+      const content = (system?.content as string) ?? "";
+      expect(content).toContain("User: German (the person you are working for");
       t.store.close();
       t = undefined;
     } finally {

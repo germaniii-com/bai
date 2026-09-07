@@ -44,6 +44,7 @@ export function ChatPane({
   active,
   configDefault,
   configDefaultAgent,
+  preferZdr,
   agents,
   refreshAgents,
   refreshProviders,
@@ -74,6 +75,8 @@ export function ChatPane({
   configDefault?: string;
   /** Default agent (config agents.default) — keeps the agent label truthful. */
   configDefaultAgent?: string;
+  /** config models.preferZdr — the model picker floats ZDR models first. */
+  preferZdr?: boolean;
   /** Live agent catalog (App-owned; refreshed via agents.updated). */
   agents: AgentInfo[];
   refreshAgents: () => Promise<void>;
@@ -243,6 +246,7 @@ export function ChatPane({
             list={list}
             active={active}
             configDefault={configDefault}
+            preferZdr={preferZdr}
             refreshProviders={refreshProviders}
           />
         </div>

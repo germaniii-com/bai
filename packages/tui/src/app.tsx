@@ -64,6 +64,8 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
+  // config models.preferZdr — the pickers float ZDR-capable models first.
+  const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   const [dialog, setDialog] = useState<DialogOpen | null>(null);
   const [runActive, setRunActive] = useState(false);
   // Composer seed for the fork flow: the forked message's text lands in the
@@ -174,6 +176,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
       const config = await client.getConfig();
       setConfigDefault(config.models.default);
       setConfigAgentDefault(config.agents?.default);
+      setConfigPreferZdr(config.models.preferZdr);
     } catch {
       // Advisory; the label falls back to the session model or stub/echo.
     }
@@ -482,6 +485,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
               client={client}
               list={providers}
               active={active}
+              preferZdr={configPreferZdr}
               initialStep={dialog}
               onDone={closeDialog}
               onRefresh={() => void refreshProviders()}

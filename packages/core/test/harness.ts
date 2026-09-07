@@ -17,7 +17,7 @@ import {
   ToolRegistry,
   createDefaultWorkbenches,
 } from "../src";
-import { DEFAULT_CONFIG, type Event, type EventType } from "@bai/shared";
+import { DEFAULT_CONFIG, type Event, type EventType, type MediaGenConfig } from "@bai/shared";
 export interface TestCore {
   dir: string;
   store: Store;
@@ -28,8 +28,11 @@ export interface TestCore {
   accounts: AuthStore;
   /** Mutable config state — tests mutate, the stack reads live. */
   config: {
-    models: { default?: string; title?: string };
+    models: { default?: string; title?: string; preferZdr?: boolean };
     agents: { default?: string; subagentDepth?: number };
+    user: { name?: string };
+    imageGen?: MediaGenConfig;
+    videoGen?: MediaGenConfig;
     permissions: Record<string, "allow" | "ask" | "deny">;
   };
   tools: ToolRegistry;
@@ -43,11 +46,14 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, permissions: {} };
+  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, user: {}, permissions: {} };
   const testConfig = () => ({
     ...DEFAULT_CONFIG,
     models: { ...config.models },
     agents: { ...config.agents },
+    user: { ...config.user },
+    ...(config.imageGen !== undefined ? { imageGen: { ...config.imageGen } } : {}),
+    ...(config.videoGen !== undefined ? { videoGen: { ...config.videoGen } } : {}),
     permissions: { ...config.permissions },
   });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
@@ -58,7 +64,13 @@ export function makeCore(): TestCore {
   });
   const providers = new ProviderRegistry({ catalog, config: testConfig, accounts });
   providers.register(new EchoProvider());
-  const workbenches = createDefaultWorkbenches({ dataDir: dir });
+  const workbenches = createDefaultWorkbenches({
+    dataDir: dir,
+    mediaDefaults: {
+      image: () => config.imageGen,
+      video: () => config.videoGen,
+    },
+  });
   const jobs = new JobQueue({
     store,
     bus,

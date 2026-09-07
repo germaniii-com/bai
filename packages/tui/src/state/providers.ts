@@ -1,4 +1,5 @@
 import type { AccountInfo, ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 
 /**
  * Pure logic for the provider/model picker flow — no rendering, so the
@@ -45,11 +46,19 @@ export function accountOptions(provider: ProviderInfo): PickerOption[] {
   }));
 }
 
-/** Models of one provider, label-sorted, with context/cost hints. */
-export function modelOptions(provider: ProviderInfo): PickerOption[] {
-  const models: ModelInfo[] = [...provider.models].sort((a, b) => a.label.localeCompare(b.label));
+/**
+ * Models of one provider, label-sorted, with context/cost hints. With
+ * `preferZdr` the ZDR-capable models float first (config models.preferZdr)
+ * and carry a "zdr" hint badge.
+ */
+export function modelOptions(provider: ProviderInfo, preferZdr = false): PickerOption[] {
+  const models: ModelInfo[] = sortModelsZdrFirst(
+    [...provider.models].sort((a, b) => a.label.localeCompare(b.label)),
+    preferZdr,
+  );
   const out: PickerOption[] = models.map((m) => {
     const parts: string[] = [];
+    if (preferZdr && isZdrCapableModel(m.id, m.provider)) parts.push("zdr");
     if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
     if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
     return {
@@ -69,20 +78,25 @@ export function modelOptions(provider: ProviderInfo): PickerOption[] {
  * provider step). Values are full "provider/model" ids; the server resolves
  * the provider's default account when none is sent. The echo stub is not a
  * real model to switch to and is excluded (same stance as `needsSetup`).
+ * With `preferZdr` the ZDR-capable models float to the top of the FLAT list
+ * (provider-alpha + label order preserved within the two groups); the
+ * "zdr" hint badge marks them, and the custom escape hatch stays last.
  */
-export function allModelOptions(providers: ProviderInfo[]): PickerOption[] {
+export function allModelOptions(providers: ProviderInfo[], preferZdr = false): PickerOption[] {
   const connected = providers
     .filter((p) => p.connected && p.id !== "stub" && p.models.length > 0)
     .sort((a, b) => a.id.localeCompare(b.id));
-  const out: PickerOption[] = [];
+  const tagged: { id: string; provider: string; opt: PickerOption }[] = [];
   for (const p of connected) {
     for (const m of [...p.models].sort((a, b) => a.label.localeCompare(b.label))) {
       const parts: string[] = [p.name];
+      if (preferZdr && isZdrCapableModel(m.id, m.provider)) parts.push("zdr");
       if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
       if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
-      out.push({ value: m.id, label: m.label, hint: parts.join(" · ") });
+      tagged.push({ id: m.id, provider: m.provider, opt: { value: m.id, label: m.label, hint: parts.join(" · ") } });
     }
   }
+  const out = sortModelsZdrFirst(tagged, preferZdr).map((t) => t.opt);
   out.push({ value: "__custom__", label: "Type a model id…", hint: "provider/model" });
   return out;
 }

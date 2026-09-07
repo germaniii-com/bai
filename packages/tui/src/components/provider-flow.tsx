@@ -36,6 +36,7 @@ export function ProviderFlow({
   client,
   list,
   active,
+  preferZdr,
   initialStep,
   onDone,
   onRefresh,
@@ -43,6 +44,8 @@ export function ProviderFlow({
   client: BaiClient;
   list: ProviderListResponse;
   active: Session | null;
+  /** config models.preferZdr — ZDR-capable models sort first in the pickers. */
+  preferZdr?: boolean;
   /** Entry step for the shortcut bindings (default: the provider list). */
   initialStep?: Step;
   onDone: () => void;
@@ -223,7 +226,7 @@ export function ProviderFlow({
         <SelectDialog
           key={`models:${provider.id}:${step.accountId ?? ""}`}
           title={`Models · ${provider.name}${step.accountId !== undefined ? ` · ${step.accountId}` : ""}`}
-          options={modelOptions(provider)}
+          options={modelOptions(provider, preferZdr === true)}
           onPick={(value) => {
             if (value === "__custom__") {
               setStep({ kind: "custom-model", providerId: provider.id, accountId: step.accountId });
@@ -242,7 +245,7 @@ export function ProviderFlow({
       <SelectDialog
         key="all-models"
         title="Models"
-        options={allModelOptions(list.providers)}
+        options={allModelOptions(list.providers, preferZdr === true)}
         onPick={(value) => {
           if (value === "__custom__") {
             setStep({ kind: "custom-model" });

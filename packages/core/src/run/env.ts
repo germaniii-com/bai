@@ -17,6 +17,8 @@ export interface EnvBlockInput {
   tools?: string[];
   /** Registered workspace roots — fs tools accept absolute paths under them when the session has no cwd. */
   workspaces?: string[];
+  /** The user's display name (config user.name) — agents address them by it. */
+  userName?: string;
   /** RFC3339 now (the drain's clock). */
   now: string;
 }
@@ -55,6 +57,9 @@ export function buildEnvBlock(input: EnvBlockInput): string {
   const title = input.title.length > 0 ? ` — "${input.title}"` : "";
   lines.push(`Workbench: ${input.workbench}${title}`);
   lines.push(`Agent: ${input.agent}`);
+  if (input.userName !== undefined && input.userName.trim().length > 0) {
+    lines.push(`User: ${input.userName.trim()} (the person you are working for — address them by name)`);
+  }
   if (input.tools !== undefined && input.tools.length > 0) {
     lines.push(`Available tools: ${input.tools.join(", ")}`);
   }

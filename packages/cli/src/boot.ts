@@ -100,6 +100,12 @@ export async function boot(args: CliArgs): Promise<Booted> {
     // fs tools may also touch registered workspaces (config.workspaces),
     // not just the session's own cwd.
     workspaceRoots: () => configStore.get().workspaces ?? [],
+    // Media-gen defaults (config imageGen/videoGen) — the stub executors'
+    // model fallback until the Phase 5 adapters land.
+    mediaDefaults: {
+      image: () => configStore.get().imageGen,
+      video: () => configStore.get().videoGen,
+    },
   });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
     {},

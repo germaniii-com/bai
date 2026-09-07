@@ -1819,6 +1819,18 @@ button.composer-chip:hover {
   letter-spacing: 0.06em;
 }
 
+/* ZDR-capable badge (model picker rows; shown when models.preferZdr is on).
+   Sits left of the current badge so both can coexist on one row. */
+.model-row .zdr-badge {
+  position: absolute;
+  top: 8px;
+  right: 52px;
+  color: #2ea567;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* --- agent picker modal: single-column agent list (narrower than the
    model modal; reuses .model-modal / .model-row chrome) --- */
 
@@ -1941,7 +1953,8 @@ button.composer-chip:hover {
 }
 
 .add-account,
-.default-model {
+.default-model,
+.settings-card {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
@@ -1976,7 +1989,8 @@ button.composer-chip:hover {
 }
 
 .add-account button,
-.default-model button {
+.default-model button,
+.settings-card button[type="submit"] {
   align-self: flex-start;
   background: var(--accent);
   color: #06121c;
@@ -1988,9 +2002,70 @@ button.composer-chip:hover {
 }
 
 .add-account button:disabled,
-.default-model button:disabled {
+.default-model button:disabled,
+.settings-card button[type="submit"]:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* --- settings sections (User / General / Model Providers) ---------------- */
+
+.settings-subheading {
+  margin: 18px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.settings-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-toggle .title {
+  font-weight: 600;
+}
+
+.settings-toggle .dim {
+  flex-basis: 100%;
+}
+
+.provider-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--panel);
+}
+
+.provider-accordion-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.provider-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 8px 10px;
 }
 
 @media (max-width: 640px) {

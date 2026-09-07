@@ -24,10 +24,31 @@ describe("config schema", () => {
     expect(parsed.server.port).toBe(9640);
   });
 
+  test("parses the settings-section keys (user, preferZdr, media gen)", () => {
+    const parsed = configSchema.parse({
+      user: { name: "German" },
+      models: { preferZdr: true },
+      imageGen: { provider: "openai", account: "personal", model: "gpt-image-2" },
+      videoGen: { provider: "fal", model: "fal-ai/flux-2" },
+    });
+    expect(parsed.user.name).toBe("German");
+    expect(parsed.models.preferZdr).toBe(true);
+    expect(parsed.imageGen).toEqual({ provider: "openai", account: "personal", model: "gpt-image-2" });
+    expect(parsed.videoGen).toEqual({ provider: "fal", model: "fal-ai/flux-2" });
+    // Defaults stay empty — the settings keys are opt-in.
+    expect(configSchema.parse({}).models).toEqual({});
+    expect(configSchema.parse({}).user).toEqual({});
+    expect(configSchema.parse({}).imageGen).toBeUndefined();
+    expect(configSchema.parse({}).videoGen).toBeUndefined();
+  });
+
   test("rejects invalid values", () => {
     expect(() => configSchema.parse({ server: { port: -1 } })).toThrow();
     expect(() => configSchema.parse({ permissions: { x: "maybe" } })).toThrow();
     expect(() => configSchema.parse({ providers: { p: { baseUrl: "not-a-url" } } })).toThrow();
+    expect(() => configSchema.parse({ models: { preferZdr: "yes" } })).toThrow();
+    expect(() => configSchema.parse({ user: { name: "" } })).toThrow();
+    expect(() => configSchema.parse({ imageGen: { provider: "" } })).toThrow();
   });
 });
 

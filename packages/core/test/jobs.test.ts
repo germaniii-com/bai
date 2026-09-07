@@ -44,6 +44,38 @@ describe("job queue (structured stubs)", () => {
     expect(t.store.jobs.get(job.id)?.status).toBe("done");
   });
 
+  test("image job without a model falls back to the configured imageGen default", async () => {
+    t.config.imageGen = { provider: "openai", account: "personal", model: "gpt-image-2" };
+    const assetCreated = waitForEvent(t.bus, "asset.created");
+    const job = t.core.enqueueJob("image.generate", undefined, { prompt: "a blue sphere" });
+    await assetCreated;
+    const stored = t.store.jobs.get(job.id);
+    expect(stored?.status).toBe("done");
+    expect(stored?.output).toEqual({ model: "gpt-image-2", count: 1 });
+    const asset = t.store.assets.byJob(job.id)[0];
+    expect(asset?.meta.model).toBe("gpt-image-2");
+    expect(asset?.meta.provider).toBe("openai");
+    expect(asset?.meta.account).toBe("personal");
+  });
+
+  test("video job without a model falls back to the configured videoGen default", async () => {
+    t.config.videoGen = { provider: "fal", model: "fal-ai/flux-2-video" };
+    const assetCreated = waitForEvent(t.bus, "asset.created");
+    const job = t.core.enqueueJob("video.generate", undefined, { prompt: "waves" });
+    await assetCreated;
+    const stored = t.store.jobs.get(job.id);
+    expect(stored?.status).toBe("done");
+    expect(stored?.output).toEqual({ model: "fal-ai/flux-2-video" });
+  });
+
+  test("an explicit job model beats the configured media default", async () => {
+    t.config.imageGen = { provider: "openai", model: "gpt-image-2" };
+    const assetCreated = waitForEvent(t.bus, "asset.created");
+    const job = t.core.enqueueJob("image.generate", undefined, { prompt: "x", model: "custom/model" });
+    await assetCreated;
+    expect(t.store.jobs.get(job.id)?.output).toEqual({ model: "custom/model", count: 1 });
+  });
+
   test("job.updated events fire through the pipeline", async () => {
     const job = t.core.enqueueJob("image.generate", undefined, { prompt: "x" });
     const done = waitForEvent(t.bus, "job.updated", { timeoutMs: 3000 });

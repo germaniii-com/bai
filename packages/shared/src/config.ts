@@ -25,6 +25,34 @@ export interface ModelsConfig {
   title?: string;
   /** Per-provider default account id, e.g. { "openai": "personal" }. */
   defaultAccount?: Record<string, string>;
+  /**
+   * Prefer ZDR-capable models: when true, model pickers sort zero-data-retention
+   * capable models first (with a badge). Capability comes from bai's curated
+   * overlay (shared/src/zdr.ts) — models.dev publishes no retention fields, and
+   * actual ZDR activation is an org-level agreement with the provider.
+   */
+  preferZdr?: boolean;
+}
+
+/** User identity — the human bai is working for. */
+export interface UserConfig {
+  /** Display name; injected into the <env> system block so agents know it. */
+  name?: string;
+}
+
+/**
+ * One media-generation modality's defaults (image or video). The provider is
+ * a provider id (bai's provider list), the account an account id within it
+ * (auth store), the model a vendor model id. Consumed by the modality's
+ * workbench executor as the fallback when a job doesn't name one.
+ */
+export interface MediaGenConfig {
+  /** Provider id, e.g. "openai" or "fal". */
+  provider?: string;
+  /** Account id within that provider (auth store); unset → provider default. */
+  account?: string;
+  /** Default model id, e.g. "gpt-image-2" or "fal-ai/flux-2". */
+  model?: string;
 }
 
 export interface AgentsConfig {
@@ -65,6 +93,11 @@ export interface Config {
   providers: Record<string, ProviderConfig>;
   models: ModelsConfig;
   agents: AgentsConfig;
+  user: UserConfig;
+  /** Image-generation defaults (image workbench executor fallback). */
+  imageGen?: MediaGenConfig;
+  /** Video-generation defaults (video workbench executor fallback). */
+  videoGen?: MediaGenConfig;
   permissions: Record<string, PermissionAction>;
   mcp: Record<string, MCPServerConfig>;
   workbenches: Record<string, Record<string, unknown>>;
@@ -79,6 +112,7 @@ export const DEFAULT_CONFIG: Config = {
   providers: {},
   models: {},
   agents: {},
+  user: {},
   permissions: {},
   mcp: {},
   workbenches: {},
@@ -108,6 +142,23 @@ const agentsSchema = z.object({
   subagentDepth: z.number().int().min(0).max(10).optional(),
 });
 
+const userSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+});
+
+const mediaGenSchema = z.object({
+  provider: z.string().min(1).max(100).optional(),
+  account: z.string().min(1).max(100).optional(),
+  model: z.string().min(1).max(200).optional(),
+});
+
+const modelsSchema = z.object({
+  default: z.string().optional(),
+  title: z.string().optional(),
+  defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
+  preferZdr: z.boolean().optional(),
+});
+
 const toolsSchema = z.object({
   webSearch: z
     .object({
@@ -118,14 +169,11 @@ const toolsSchema = z.object({
 
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
-  models: z
-    .object({
-      default: z.string().optional(),
-      title: z.string().optional(),
-      defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
-    })
-    .default({}),
+  models: modelsSchema.default({}),
   agents: agentsSchema.default({}),
+  user: userSchema.default({}),
+  imageGen: mediaGenSchema.optional(),
+  videoGen: mediaGenSchema.optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).default({}),
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
@@ -142,14 +190,11 @@ export const configSchema = z.object({
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
 export const configPatchSchema = z.object({
   providers: z.record(z.string(), providerSchema).optional(),
-  models: z
-    .object({
-      default: z.string().optional(),
-      title: z.string().optional(),
-      defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
-    })
-    .optional(),
+  models: modelsSchema.optional(),
   agents: agentsSchema.optional(),
+  user: userSchema.optional(),
+  imageGen: mediaGenSchema.optional(),
+  videoGen: mediaGenSchema.optional(),
   permissions: z.record(z.string(), z.enum(["allow", "ask", "deny"])).optional(),
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),

@@ -56,6 +56,8 @@ export interface RunCoordinatorDeps {
   defaultAgent(): string | undefined;
   /** Configured title-call model (config models.title), when set. */
   titleModel(): string | undefined;
+  /** The user's display name (config user.name) — the <env> block's User line. */
+  userName(): string | undefined;
   /** Registered workspace roots — fs-tool agents get them in <env> when the session has no cwd. */
   workspaceRoots(): string[];
   /**
@@ -259,6 +261,7 @@ export class RunCoordinator {
           agent: run.agent.name,
           tools: run.toolDefs.map((d) => d.name),
           workspaces: this.deps.workspaceRoots(),
+          ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
           now: this.deps.clock.iso(),
         }),
         ...(finalStep ? [STEPS_NOTICE] : []),
