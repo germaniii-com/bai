@@ -4,6 +4,7 @@ import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
+import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
@@ -56,6 +57,10 @@ export function App() {
   // Reset when the workspace changes — tabs belong to a workspace.
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  // Live agent file-changes (firehose-fed): paths with unseen edits (tab
+  // dots) and a refresh trigger the viewer/tree watch for re-listing.
+  const [changedFiles, setChangedFiles] = useState<Set<string>>(new Set());
+  const [fsRevision, setFsRevision] = useState(0);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -76,6 +81,11 @@ export function App() {
   knownSessionsRef.current = [...sessions, ...workspaceSessions];
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
+  // File-change detection state (firehose closure — refs, not state, so the
+  // single firehose subscription never resubscribes).
+  const fileWatchRef = useRef<FileWatchState>(emptyFileWatch);
+  const openFilesRef = useRef<string[]>([]);
+  openFilesRef.current = openFiles;
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
   // Live subagent tracking for the chat pane's task nodes (TUI parity):
@@ -230,6 +240,32 @@ export function App() {
           void refreshConfig();
           void refreshAgents();
           void refreshTools();
+          // File-change detection is live-only — events missed during a
+          // firehose drop never replay. Heal the viewer and tree on every
+          // (re)connect: one refetch of the active file + expanded dirs.
+          setFsRevision((n) => n + 1);
+        }
+        // Live file-change detection (workspace viewer): patch parts (git
+        // workspaces, covers bash) + fs.write/fs.edit results (fallback)
+        // from ANY session — the firehose is global. Open tabs get change
+        // dots; the viewer and tree refresh via fsRevision.
+        const changedFiles = applyFileWatch(fileWatchRef.current, evt, {
+          root: wsRootRef.current,
+          sessionCwd: (id) => sessionCwdRef.current(id),
+        });
+        if (changedFiles.length > 0) {
+          setChangedFiles((prev) => {
+            const next = new Set(prev);
+            let touched = false;
+            for (const p of changedFiles) {
+              if (openFilesRef.current.includes(p) && !next.has(p)) {
+                next.add(p);
+                touched = true;
+              }
+            }
+            return touched ? next : prev;
+          });
+          setFsRevision((n) => n + 1);
         }
         if (evt.type === "session.updated") {
           const payload = evt.payload as { session?: Session };
@@ -365,6 +401,14 @@ export function App() {
     workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
   const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
   const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
+  // File-watch closure inputs: the viewed root and the session-cwd lookup
+  // (patch paths are relative to the OWNING session's cwd — subagents
+  // inherit the parent's; unknown sessions fall back to the viewed root).
+  const wsRootRef = useRef<string | null>(null);
+  wsRootRef.current = effectiveWorkspacePath;
+  const sessionCwdRef = useRef<(id: string) => string | undefined>(() => undefined);
+  sessionCwdRef.current = (id: string) =>
+    knownSessionsRef.current.find((s) => s.id === id)?.cwd ?? activeRef.current?.cwd ?? undefined;
 
   const navigate = (next: Section): void => {
     if (next === "settings") {
@@ -413,11 +457,28 @@ export function App() {
     setWorkspaceView("files");
   };
 
+  /** The file's fresh content was seen (active auto-refresh or tab click). */
+  const clearChangedFile = (path: string): void => {
+    setChangedFiles((prev) => {
+      if (!prev.has(path)) return prev;
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+  };
+
+  /** Tab click: activate + acknowledge its changes (the dot clears). */
+  const selectFileTab = (path: string): void => {
+    setActiveFile(path);
+    clearChangedFile(path);
+  };
+
   /** Tab ✕: drop the tab; a closed ACTIVE tab activates its neighbor. */
   const closeFileTab = (path: string): void => {
     const idx = openFiles.indexOf(path);
     const next = openFiles.filter((p) => p !== path);
     setOpenFiles(next);
+    clearChangedFile(path);
     if (activeFile === path) setActiveFile(next[idx] ?? next[idx - 1] ?? null);
   };
 
@@ -514,6 +575,8 @@ export function App() {
     void withBusyRetry(async () => {
       setActive(await client.revertSession(active.id, m.id));
       setDraft(messageText(m));
+      // The rollback rewrote files on disk — the viewer/tree re-list.
+      setFsRevision((n) => n + 1);
     }).finally(() => setRevertBusy(false));
   };
 
@@ -538,6 +601,8 @@ export function App() {
     setError(null);
     void withBusyRetry(async () => {
       setActive(await client.unrevertSession(active.id));
+      // The restore rewrote files on disk — the viewer/tree re-list.
+      setFsRevision((n) => n + 1);
     }).finally(() => setRevertBusy(false));
   };
 
@@ -864,7 +929,10 @@ export function App() {
                   openFiles={openFiles}
                   activeFile={activeFile}
                   themeColors={themeColors}
-                  onSelectTab={setActiveFile}
+                  changedFiles={changedFiles}
+                  fsRevision={fsRevision}
+                  onFileSeen={clearChangedFile}
+                  onSelectTab={selectFileTab}
                   onCloseTab={closeFileTab}
                 />
               ) : (
@@ -880,6 +948,7 @@ export function App() {
               root={effectiveWorkspacePath}
               onOpenFile={openFile}
               activePath={workspaceView === "files" ? activeFile : null}
+              refreshToken={fsRevision}
             />
           )}
         </>

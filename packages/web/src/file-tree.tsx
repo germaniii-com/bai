@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { File, Folder, FolderOpen } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 
@@ -27,6 +27,7 @@ export function FileTree({
   root,
   onOpenFile,
   activePath = null,
+  refreshToken = 0,
 }: {
   client: BaiClient;
   root: string;
@@ -34,6 +35,8 @@ export function FileTree({
   onOpenFile?: (path: string) => void;
   /** The viewer's active file — highlighted in the tree when in Files view. */
   activePath?: string | null;
+  /** Bumped when the agent (or a revert) changes files — expanded dirs re-list. */
+  refreshToken?: number;
 }) {
   const [dirs, setDirs] = useState<Map<string, DirState>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -80,6 +83,25 @@ export function FileTree({
     setExpanded(new Set());
     void load(root);
   }, [root, load]);
+
+  // External refresh (agent file changes, reverts): re-list the root and
+  // every EXPANDED directory so created/deleted entries appear. Collapsed
+  // directories fetch fresh whenever they're expanded later (their cache
+  // entry is dropped too).
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const prevTokenRef = useRef(refreshToken);
+  useEffect(() => {
+    if (prevTokenRef.current === refreshToken) return;
+    prevTokenRef.current = refreshToken;
+    const targets = [root, ...expandedRef.current];
+    setDirs((prev) => {
+      const next = new Map(prev);
+      for (const dir of targets) next.delete(dir);
+      return next;
+    });
+    for (const dir of targets) void load(dir);
+  }, [refreshToken, root, load]);
 
   const toggle = (dir: string): void => {
     setExpanded((prev) => {

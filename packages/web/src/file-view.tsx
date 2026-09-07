@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Editor } from "@monaco-editor/react";
+import type { editor as monacoEditor } from "monaco-editor";
 import { FileCode, FileText, FileVideo, Image as ImageIcon, RotateCw, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
@@ -60,10 +61,18 @@ function monacoLanguage(path: string): string {
   return LANG_BY_EXT[ext] ?? "plaintext";
 }
 
-/** One opened file's fetched state (content cache entry). */
+/** One opened file's fetched state (content cache entry). `gen` stamps the
+ * cache generation the content was fetched at — entries older than the
+ * current generation are stale (agent/revert changed files since). */
 type FileEntry =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; gen: number }
+  | { status: "ok"; kind: "text"; text: string; gen: number }
+  | { status: "ok"; kind: "binary"; gen: number }
+  | { status: "ok"; kind: "image" | "pdf" | "video"; url: string; gen: number };
+
+/** A fetched entry before the generation stamp is applied. */
+type FetchedEntry =
   | { status: "ok"; kind: "text"; text: string }
   | { status: "ok"; kind: "binary" }
   | { status: "ok"; kind: "image" | "pdf" | "video"; url: string };
@@ -74,6 +83,9 @@ export function FileView({
   openFiles,
   activeFile,
   themeColors,
+  changedFiles,
+  fsRevision,
+  onFileSeen,
   onSelectTab,
   onCloseTab,
 }: {
@@ -86,57 +98,100 @@ export function FileView({
   activeFile: string | null;
   /** Active palette (themes.ts ThemeColors) — the editor re-skins on change. */
   themeColors: ThemeColors;
+  /** Open tabs with unseen agent edits (change dots). */
+  changedFiles: Set<string>;
+  /** Bumped whenever the agent (or a revert) changes files — drop the cache
+   * so the active preview refetches and the tree re-lists. */
+  fsRevision: number;
+  /** The active file's fresh content landed — App clears its change dot. */
+  onFileSeen: (path: string) => void;
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string) => void;
 }) {
   const [entries, setEntries] = useState<Map<string, FileEntry>>(new Map());
-  const inflightRef = useRef<Set<string>>(new Set());
   const urlsRef = useRef<Set<string>>(new Set());
   // The Monaco theme name — defined from the palette data (themes.ts), so a
   // theme switch re-skins the live editor with no CSS-read race. The
   // initializer guarantees a defined theme before the Editor ever mounts.
   const [monacoTheme, setMonacoTheme] = useState(() => defineBaiTheme(themeColors));
+  // Current active file at async-completion time (closures go stale).
+  const activeFileRef = useRef(activeFile);
+  activeFileRef.current = activeFile;
+  // The live editor instance — in-place content swaps drive the MODEL
+  // directly (the wrapper's value-prop effect proved unreliable across
+  // cache-entry swaps; the model update here is deterministic).
+  const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
+  // Cache generation: bumped on every revision — entries stamped with an
+  // older generation are stale and refetch IN PLACE (the editor's value
+  // prop updates the model; no unmount/remount, which collapses Monaco's
+  // measured size). No debounce: a refetch is one small GET, and timers
+  // that reset on every render starve under firehose churn.
+  const fsGenRef = useRef(0);
 
-  // Fetch the active file when it has no cache entry yet. Errors cache as
-  // entries (retry clears them); blob URLs register for revocation.
+  useEffect(() => {
+    if (fsRevision > 0) {
+      fsGenRef.current += 1;
+    }
+  }, [fsRevision]);
+
+  // One unified content effect for the active file:
+  // - no entry → first open: fetch with a loading state;
+  // - stale entry (gen older than the current revision generation) →
+  //   in-place refetch, no loading flash — the editor stays mounted;
+  // - fresh entry → nothing.
+  // A fetch that lands after a newer revision discards itself and retries
+  // at the new generation (bounded), so content never lags a write.
   useEffect(() => {
     if (activeFile === null) return;
-    if (entries.has(activeFile) || inflightRef.current.has(activeFile)) return;
     const path = activeFile;
-    inflightRef.current.add(path);
-    setEntries((prev) => new Map(prev).set(path, { status: "loading" }));
+    const entry = entries.get(path);
+    if (entry !== undefined) {
+      if (entry.status === "loading") return;
+      if (entry.gen >= fsGenRef.current) return; // fresh
+    }
+    const firstOpen = entry === undefined;
+    if (firstOpen) setEntries((prev) => new Map(prev).set(path, { status: "loading" }));
     void (async () => {
-      try {
-        const res = await client.readFile(root, path);
-        const kind = fileKind(path);
-        if (kind === "text") {
-          const text = await res.text();
-          // Cheap binary sniff: NUL bytes in the head mean the "text" file
-          // is actually binary (e.g. .wasm) — no mojibake preview.
-          const binary = text.slice(0, 1000).includes("\u0000");
-          setEntries((prev) => new Map(prev).set(path, binary ? { status: "ok", kind: "binary" } : { status: "ok", kind: "text", text }));
-        } else {
-          const url = URL.createObjectURL(await res.blob());
-          urlsRef.current.add(url);
-          setEntries((prev) => new Map(prev).set(path, { status: "ok", kind, url }));
+      // Superseded mid-flight → retry at the newer generation (a bump storm
+      // is bounded by MAX_RETRIES; the next bump re-runs this effect anyway).
+      for (let attempt = 0; ; attempt++) {
+        const gen = fsGenRef.current;
+        try {
+          const res = await client.readFile(root, path);
+          const kind = fileKind(path);
+          let built: FetchedEntry;
+          if (kind === "text") {
+            const text = await res.text();
+            // Cheap binary sniff: NUL bytes in the head mean the "text" file
+            // is actually binary (e.g. .wasm) — no mojibake preview.
+            const binary = text.slice(0, 1000).includes("\u0000");
+            built = binary ? { status: "ok", kind: "binary" } : { status: "ok", kind: "text", text };
+          } else {
+            const url = URL.createObjectURL(await res.blob());
+            urlsRef.current.add(url);
+            built = { status: "ok", kind, url };
+          }
+          if (gen !== fsGenRef.current && attempt < 5) continue; // superseded — refetch
+          setEntries((prev) => new Map(prev).set(path, { ...built, gen } as FileEntry));
+          if (built.status === "ok" && path === activeFileRef.current) onFileSeen(path);
+        } catch (err) {
+          if (gen !== fsGenRef.current && attempt < 5) continue;
+          setEntries((prev) =>
+            new Map(prev).set(path, {
+              status: "error",
+              message: err instanceof Error ? err.message : String(err),
+              gen,
+            }),
+          );
         }
-      } catch (err) {
-        setEntries((prev) =>
-          new Map(prev).set(path, {
-            status: "error",
-            message: err instanceof Error ? err.message : String(err),
-          }),
-        );
-      } finally {
-        inflightRef.current.delete(path);
+        return;
       }
     })();
-  }, [activeFile, entries, client, root]);
+  }, [activeFile, fsRevision, entries, client, root, onFileSeen]);
 
   // Workspace switch: drop the whole cache (App also resets the tab list).
   useEffect(() => {
     setEntries(new Map());
-    inflightRef.current.clear();
   }, [root]);
 
   // Prune cache entries whose tab closed (blob URLs revoke via the
@@ -184,6 +239,22 @@ export function FileView({
 
   const entry = activeFile !== null ? entries.get(activeFile) : undefined;
 
+  // In-place content application: whenever the active entry's text changes
+  // (tab switch or a live refetch), push it into the model directly.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor === null) return;
+    if (entry === undefined || entry.status !== "ok" || entry.kind !== "text") return;
+    const model = editor.getModel();
+    if (model === null) {
+      // The editor was disposed (a loading-state pass unmounted it) and the
+      // ref is stale — the next onMount re-arms it.
+      editorRef.current = null;
+      return;
+    }
+    if (model.getValue() !== entry.text) model.setValue(entry.text);
+  }, [entry]);
+
   return (
     <section className="file-view" aria-label="File viewer">
       <div className="file-tabs" role="tablist" aria-label="Open files">
@@ -201,6 +272,7 @@ export function FileView({
               >
                 <TabIcon kind={fileKind(path)} />
                 <span className="file-tab-name">{basename(path)}</span>
+                {changedFiles.has(path) && <span className="file-tab-dot" aria-label="changed" />}
               </button>
               <button
                 type="button"
@@ -243,6 +315,20 @@ export function FileView({
               language={monacoLanguage(activeFile)}
               theme={monacoTheme}
               loading={<p className="dim empty">Loading editor…</p>}
+              onMount={(editor) => {
+                editorRef.current = editor;
+                // Insurance for remounts (Chat⇄Files switches): re-measure
+                // once the flex layout has settled. The rAF can outlive the
+                // editor (a loading-state pass disposes it) — a disposed
+                // layout() must not crash the app.
+                requestAnimationFrame(() => {
+                  try {
+                    editor.layout();
+                  } catch {
+                    // disposed mid-flight — the next mount measures itself
+                  }
+                });
+              }}
               options={{
                 readOnly: true,
                 domReadOnly: true,

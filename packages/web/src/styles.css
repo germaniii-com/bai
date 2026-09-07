@@ -870,6 +870,16 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+/* Unseen agent edits on this tab — clears when the fresh content is seen
+   (active auto-refresh) or the tab is clicked. */
+.file-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
 .file-tab-close {
   border: 0;
   background: transparent;
