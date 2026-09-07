@@ -158,6 +158,11 @@ describe("service + run coordinator", () => {
     expect(userTexts).toContain("second");
   });
 
+  // NOTE: queued-input lifecycle tests (send-now / cancel / events /
+  // snapshot pendingInputs) live in run-queue.test.ts — they need a held
+  // drain to be deterministic (an idle-session queued submit promotes
+  // synchronously inside submitPrompt's wake).
+
   test("sessions created without a title get the default title", () => {
     const session = t.core.createSession({ workbench: "chat" });
     expect(isDefaultTitle(session.title)).toBe(true);

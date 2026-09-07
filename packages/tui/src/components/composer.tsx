@@ -31,6 +31,7 @@ export function ComposerHub({
   escArmed,
   runActive,
   layout,
+  queuedCount = 0,
 }: {
   editor: Editor;
   mode: Mode;
@@ -41,12 +42,15 @@ export function ComposerHub({
   runActive: boolean;
   /** Status-row layout (state/hub.ts) — chips render in this exact order. */
   layout: HubStatusLayout;
+  /** Pending queued messages (message-queue feature) — the commands-row indicator. */
+  queuedCount?: number;
 }) {
   const t = useTheme();
+  const queuedHint = queuedCount > 0 ? `⏳ ${queuedCount} queued · ` : "";
   const commands =
     mode === "input"
-      ? "enter send · esc normal · ctrl+j/k newline · ctrl+w word"
-      : `${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
+      ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word`
+      : `${queuedHint}${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
   return (
     <Box
       flexDirection="column"

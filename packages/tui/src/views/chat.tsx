@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
-import type { Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
+import type { Input, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
 import type { Mode } from "../app";
 import { buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
 import type { PickerOption } from "../state/providers";
@@ -89,6 +89,11 @@ export function ChatView({
   onForkCreated,
   composerSeed,
   onComposerSeedConsumed,
+  queuedInputs = [],
+  sendingIds = [],
+  onSendQueued,
+  onCancelQueued,
+  onEditQueued,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -146,6 +151,17 @@ export function ChatView({
   composerSeed?: { sessionId: string; text: string } | null;
   /** Clears the seed after it has been applied (never re-applied on revisit). */
   onComposerSeedConsumed?: () => void;
+  // ---- queued messages (message-queue feature) ---------------------------
+  /** Pending queued inputs of the active session (admitted, not yet promoted). */
+  queuedInputs?: Input[];
+  /** Ids flipped to steer by send-now — rendered in place as "sending…" until promoted. */
+  sendingIds?: string[];
+  /** Send now: flip the queued input to steer (promotes at the next safe boundary). */
+  onSendQueued?: (input: Input) => void;
+  /** Cancel: drop the queued input — it never runs. */
+  onCancelQueued?: (input: Input) => void;
+  /** Edit: cancel the queued input and reseed the composer with its text. */
+  onEditQueued?: (input: Input) => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
@@ -216,6 +232,14 @@ export function ChatView({
   // the composer hub's slot and owns the keyboard while open.
   const [msgActions, setMsgActions] = useState<{ messageId: string } | null>(null);
 
+  // ---- queued-message actions (message-queue feature) --------------------
+  // The queued-actions modal (Enter/Space on a focused queued node, or a
+  // click): Send now / Edit / Cancel. Same hub-slot + keyboard-ownership
+  // pattern as the message-actions modal.
+  const [queuedActions, setQueuedActions] = useState<{ inputId: string } | null>(null);
+  const queuedActionsInput =
+    queuedActions !== null ? queuedInputs.find((i) => i.id === queuedActions.inputId) : undefined;
+
   // Two-phase revert display: everything at/after the boundary disappears
   // and a banner at the cut offers the restore. Items and the render loop
   // below index against the VISIBLE slice (messageIndex stays consistent).
@@ -228,11 +252,22 @@ export function ChatView({
   // piece. Rebuilt per render (cheap); identities are stable per content.
   const items = buildTranscriptItems(visibleMessages);
 
+  // Queued nodes (message-queue feature): pending inputs render at the
+  // transcript tail as focusable/clickable items — future messages, dimmed
+  // with a queued chip. Send-now flips re-chip their node "sending…" IN
+  // PLACE (no vanish-then-reshow gap) until promotion; sending nodes don't
+  // open the actions dialog.
+  const sending = new Set(sendingIds);
+  const queuedItems: Array<{ kind: "queued-input"; input: Input; sending: boolean }> = queuedInputs.map(
+    (input) => ({ kind: "queued-input" as const, input, sending: sending.has(input.id) }),
+  );
+
   // The banner marking the pending-revert cut is itself focusable/clickable
   // (enter restores) — critical when the revert hid EVERY user message and
   // the dialog is otherwise unreachable.
-  const focusItems: Array<TranscriptItem | { kind: "revert-banner" }> =
-    revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items;
+  const focusItems: Array<
+    TranscriptItem | { kind: "revert-banner" } | { kind: "queued-input"; input: Input; sending: boolean }
+  > = [...(revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items), ...queuedItems];
 
   // App-seeded composer text (fork flow): when the freshly forked session
   // becomes active, its message's prompt text lands in the composer once.
@@ -272,6 +307,7 @@ export function ChatView({
     setSentPending(false);
     setFocus(null);
     setMsgActions(null);
+    setQueuedActions(null);
     resetTraversal();
   }, [session?.id]);
 
@@ -304,6 +340,10 @@ export function ChatView({
     const trimmed = value.trim();
     if (trimmed.length === 0 || busy) return;
     setBusy(true);
+    // Message-queue default (Cursor-style): a submit while the session is
+    // draining QUEUES instead of steering — the queued node (fed by the
+    // input.admitted event) is the feedback, so the thinking dots stay off.
+    const queuing = session !== null && runActive;
     try {
       if (session === null) {
         // The server titles the session (truncated-prompt fallback, then an
@@ -312,13 +352,13 @@ export function ChatView({
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: trimmed });
       } else {
-        await client.submitPrompt(session.id, { text: trimmed });
+        await client.submitPrompt(session.id, { text: trimmed, ...(queuing ? { queue: true } : {}) });
       }
       recordPrompt(trimmed);
       setEditor((e) =>
         e.text === value ? { text: nextDraft, cursor: nextDraft.length } : e,
       );
-      setSentPending(true); // dots until the run's first token (or run.finished)
+      if (!queuing) setSentPending(true); // dots until the run's first token (or run.finished)
       // Follow the reply: re-engage sticky-bottom; the snap happens when the
       // user message lands (content-height change).
       followRef.current = true;
@@ -512,6 +552,24 @@ export function ChatView({
     stdout.write(`\x1b]52;c;${encoded}\x07`);
   };
 
+  // ---- queued-message actions (message-queue feature) --------------------
+  const actionSendQueued = (input: Input): void => {
+    setQueuedActions(null);
+    onSendQueued?.(input);
+  };
+
+  const actionCancelQueued = (input: Input): void => {
+    setQueuedActions(null);
+    onCancelQueued?.(input);
+  };
+
+  const actionEditQueued = (input: Input): void => {
+    setQueuedActions(null);
+    // The App-level handler cancels the input and seeds the composer via
+    // the App-held seed (applied on the next render, fork-flow parity).
+    onEditQueued?.(input);
+  };
+
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
   // the chat view is mounted. Wheel events arrive through useInput itself —
   // ink's key parser doesn't recognize SGR mouse sequences, so it forwards
@@ -600,6 +658,9 @@ export function ChatView({
             } else {
               toggleToolOutput(`${item.messageId}:${item.call.callId}`);
             }
+          } else if (item.kind === "queued-input") {
+            // Sending nodes are in flight — no actions to offer.
+            if (!item.sending) setQueuedActions({ inputId: item.input.id });
           }
           return;
         }
@@ -612,9 +673,10 @@ export function ChatView({
     if (key.pageUp) return scrollBy(-pageRows);
     if (key.pageDown) return scrollBy(pageRows);
 
-    // The message-actions dialog owns the keyboard (its own useInput handles
-    // arrows/enter/esc/filter): everything defers except scrolling.
-    if (msgActions !== null) {
+    // The message-actions / queued-actions dialogs own the keyboard (their
+    // own useInput handles arrows/enter/esc/filter): everything defers
+    // except scrolling.
+    if (msgActions !== null || queuedActions !== null) {
       if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
       if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
       return;
@@ -694,7 +756,14 @@ export function ChatView({
       // above). Typing is ignored in NORMAL mode, so a lone "\n" here is
       // unambiguously ctrl+j → focus traversal down.
       if (ch === "\n") return stepFocus(true);
-      if (ch === "i" || ch === "a") return onEnterInput();
+      if (ch === "i" || ch === "a") {
+        // Entering INPUT resets the transcript to the tail: a stale focus or
+        // a scrolled-up reading position must not hide the growing queued
+        // tail while typing (new nodes land at the bottom).
+        setFocus(null);
+        scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
+        return onEnterInput();
+      }
       // Enter/Space act on the focused NODE: thought toggles, a task opens
       // the subagent dialog, a user message opens the message-actions modal
       // (revert/copy/fork/restore), the revert banner restores, any other
@@ -720,6 +789,11 @@ export function ChatView({
           }
           if (focusedItem.kind === "user") {
             setMsgActions({ messageId: focusedItem.messageId });
+            return;
+          }
+          if (focusedItem.kind === "queued-input") {
+            // Sending nodes are in flight — no actions to offer.
+            if (!focusedItem.sending) setQueuedActions({ inputId: focusedItem.input.id });
             return;
           }
         }
@@ -852,6 +926,13 @@ export function ChatView({
     { value: "fork", label: "Fork from here", hint: "new session with the earlier history" },
   ];
 
+  // Queued-message options (message-queue feature): send now / edit / cancel.
+  const queuedActionOptions: PickerOption[] = [
+    { value: "send", label: "Send now", hint: "promote immediately — the next provider turn" },
+    { value: "edit", label: "Edit", hint: "cancel and put the text back in the composer" },
+    { value: "cancel", label: "Cancel queue", hint: "drop it — it never runs" },
+  ];
+
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Continuous scroll viewport (components/scroll-view.tsx): the
@@ -879,24 +960,51 @@ export function ChatView({
         marginBottom={1}
       >
         {focusItems.map((item, ii) => {
+          // Per-item gap row (replaces the old container gap): rendered
+          // INSIDE the measured item so measured positions stay exact.
+          const gap = ii === 0 ? 0 : 1;
+          const focused = focus === ii;
           if (item.kind === "revert-banner") {
             // The pending-revert cut: a banner where the hidden messages
             // were (opencode's reverted banner). Focus/click → restore.
             return (
-              <Box key="revert-banner" marginTop={ii === 0 ? 0 : 1} flexShrink={0} {...assistantInset}>
-                <Text color={focus === ii ? t.accent : t.dim}>
-                  {focus === ii ? "❯ " : "  "}↩ {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — enter
+              <Box key="revert-banner" marginTop={gap} flexShrink={0} {...assistantInset}>
+                <Text color={focused ? t.accent : t.dim}>
+                  {focused ? "❯ " : "  "}↩ {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — enter
                   to restore
                 </Text>
               </Box>
             );
           }
+          if (item.kind === "queued-input") {
+            // Queued nodes (message-queue feature): pending inputs at the
+            // transcript tail — future messages, dimmed with a queued chip
+            // ("sending…" once send-now flipped them, accent-tinted).
+            return (
+              <Box key={`queued:${item.input.id}`} marginTop={gap} flexShrink={0}>
+                <Box
+                  borderStyle="round"
+                  // Dim border at rest; the accent is reserved for the
+                  // focus highlight (user-bubble parity).
+                  borderColor={focused ? t.accent : t.border}
+                  borderBackgroundColor={t.background}
+                  paddingX={1}
+                  flexShrink={0}
+                >
+                  <Text wrap="wrap" color={t.dim}>
+                    {item.input.payload.text}
+                    {item.sending ? (
+                      <Text color={t.success}> · ⏳ sending…</Text>
+                    ) : (
+                      <Text color={t.warning}> · ⏳ queued</Text>
+                    )}
+                  </Text>
+                </Box>
+              </Box>
+            );
+          }
           const m = visibleMessages[item.messageIndex];
           if (m === undefined) return null;
-          const focused = focus === ii;
-          // Per-item gap row (replaces the old container gap): rendered
-          // INSIDE the measured item so measured positions stay exact.
-          const gap = ii === 0 ? 0 : 1;
           const marker = focused ? <Text color={t.accent}>❯ </Text> : null;
           if (item.kind === "user") {
             return (
@@ -1124,6 +1232,23 @@ export function ChatView({
           onClose={() => setMsgActions(null)}
           emptyHint="no actions"
         />
+      ) : queuedActions !== null ? (
+        // The queued-actions modal (message-queue feature): same hub-slot
+        // pattern — Send now / Edit / Cancel on the selected queued node.
+        <SelectDialog
+          title="Queued Message"
+          options={queuedActionOptions}
+          onPick={(value) => {
+            const input = queuedActionsInput;
+            if (input === undefined) return setQueuedActions(null);
+            if (value === "send") actionSendQueued(input);
+            else if (value === "edit") actionEditQueued(input);
+            else if (value === "cancel") actionCancelQueued(input);
+            else setQueuedActions(null);
+          }}
+          onClose={() => setQueuedActions(null)}
+          emptyHint="no actions"
+        />
       ) : headPermission !== undefined ? (
         <PermissionPrompt
           key={String(headPermission.id)} // fresh instance per ask: local latches (busy) must not outlive their request
@@ -1153,6 +1278,7 @@ export function ChatView({
           escArmed={escArmed}
           runActive={runActive}
           layout={hubLayout}
+          queuedCount={queuedInputs.length - sendingIds.length}
         />
       )}
     </Box>

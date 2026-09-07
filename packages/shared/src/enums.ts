@@ -32,6 +32,12 @@ export interface EventPayloads {
   "session.created": { session: Session };
   "session.updated": { session: Session };
   "input.admitted": { inputId: InputId; sessionId: SessionId; text: string; queued: boolean };
+  /** A pending input became a user message (surfaces drop the queued node). */
+  "input.promoted": { inputId: InputId; sessionId: SessionId };
+  /** A pending input was cancelled — it never runs. */
+  "input.cancelled": { inputId: InputId; sessionId: SessionId };
+  /** A pending input's delivery changed (send-now flips queued → steer). */
+  "input.updated": { inputId: InputId; sessionId: SessionId; queued: boolean };
   "message.created": { messageId: MessageId; role: Role };
   "message.part.updated": { messageId: MessageId; partId: PartId; kind: PartKind; payload: unknown };
   "message.part.delta": { messageId: MessageId; partId: PartId; delta: string };
@@ -65,6 +71,9 @@ export const EVENT_TYPES = Object.keys({
   "session.created": 1,
   "session.updated": 1,
   "input.admitted": 1,
+  "input.promoted": 1,
+  "input.cancelled": 1,
+  "input.updated": 1,
   "message.created": 1,
   "message.part.updated": 1,
   "message.part.delta": 1,

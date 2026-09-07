@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
+import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
-import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
+import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
@@ -110,6 +110,12 @@ export function App() {
   openFilesRef.current = openFiles;
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  // Queued messages for the active session (message-queue feature): admitted
+  // inputs waiting for the session to go idle, plus send-now flips marked
+  // "sending" in place until they promote. Seeded from the snapshot and kept
+  // live by input.admitted/promoted/cancelled/updated; the queued nodes
+  // render at the transcript tail with actions.
+  const [queuedState, setQueuedState] = useState(emptyQueuedInputs());
   // Live subagent tracking for the chat pane's task nodes (TUI parity):
   // children of the active session, fed from the firehose — live status
   // (asking/running) and the child session ids the inline transcripts open.
@@ -347,11 +353,15 @@ export function App() {
     return unsubscribe;
   }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools]);
 
+  // The active session's ID — the session stream effect keys on this (not
+  // the object reference) so session.updated patches don't tear it down.
+  const activeId = active?.id;
+
   useEffect(() => {
     streamCtrl.current?.abort();
     setError(null); // a session switch drops the previous session's error banner
     setSubagents(emptySubagentState); // the previous session's children are gone
-    if (active === null) {
+    if (activeId === undefined) {
       // Draft state (+ new session): a NEW session — the previous
       // session's transcript and its asks/questions must not linger.
       setMessages([]);
@@ -360,6 +370,7 @@ export function App() {
       setPendingAsks([]);
       setPendingChildAsks([]);
       setPendingQuestions([]);
+      setQueuedState(emptyQueuedInputs());
       return;
     }
     const ctrl = new AbortController();
@@ -370,12 +381,13 @@ export function App() {
     setPendingAsks([]); // session switch: the new session's asks arrive below
     setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
+    setQueuedState(emptyQueuedInputs());
     void (async () => {
       try {
         // Snapshot first, then follow the durable stream from its frontier.
         // followSession resumes from the cursor on drops (idle timeouts,
         // restarts) — replaying from 0 would duplicate the snapshot instead.
-        const snap = await client.historySnapshot(active.id);
+        const snap = await client.historySnapshot(activeId);
         if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
         setMessages(snap.messages);
         // A run may already be draining (mid-run switch, or the snapshot was
@@ -386,7 +398,12 @@ export function App() {
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
         setPendingQuestions(snap.pendingQuestions ?? []);
-        await followSession(client, active.id, {
+        // Queued messages pending at snapshot time (the replayed
+        // input.* events cover anything admitted after the cursor).
+        // Admitted steer inputs seed as "sending" — they promote at the
+        // next boundary.
+        setQueuedState(queuedInputsFromSnapshot(snap.pendingInputs));
+        await followSession(client, activeId, {
           from: snap.afterSeq,
           signal: ctrl.signal,
           onEvent: (evt) => {
@@ -406,6 +423,13 @@ export function App() {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
               setPendingQuestions((list) => applyQuestionEvent(list, evt));
+            } else if (
+              evt.type === "input.admitted" ||
+              evt.type === "input.promoted" ||
+              evt.type === "input.cancelled" ||
+              evt.type === "input.updated"
+            ) {
+              setQueuedState((state) => applyQueuedInputEvent(state, evt));
             }
           },
           onDrop: () => {}, // silent reconnect; the cursor guarantees no gaps
@@ -423,7 +447,11 @@ export function App() {
       window.removeEventListener("pagehide", onPageHide);
       ctrl.abort();
     };
-  }, [active, client, bfcacheEpoch]);
+    // Keyed on the session ID, not the object reference: a session.updated
+    // patch (title refine, compaction, renames from other surfaces) must
+    // NOT tear down the stream and wipe/reseed the transcript + queued
+    // state — metadata flows through the firehose patch instead.
+  }, [activeId, client, bfcacheEpoch]);
 
   // Bfcache restore: the pagehide abort killed the stream — a fresh snapshot
   // re-establishes it (the DB is the buffer; nothing was lost).
@@ -438,7 +466,6 @@ export function App() {
   // Rebuild the tracked child set whenever the active session or either
   // session list changes (switch, refresh, archive) — live activity for
   // children already tracked survives the rebuild (TUI parity).
-  const activeId = active?.id;
   useEffect(() => {
     setSubagents((prev) => trackSubagents(prev, [...sessions, ...workspaceSessions], activeId));
   }, [activeId, sessions, workspaceSessions]);
@@ -764,7 +791,11 @@ export function App() {
     const text = draft.trim();
     if (text.length === 0) return;
     setDraft("");
-    setSentPending(true);
+    // Message-queue default (Cursor-style): a submit while the session is
+    // draining QUEUES instead of steering — the queued node (fed by the
+    // input.admitted event) is the feedback, so the typing dots stay off.
+    const queuing = runActive;
+    if (!queuing) setSentPending(true);
     setError(null); // a new send supersedes the previous run's failure banner
     try {
       let session = active;
@@ -780,11 +811,38 @@ export function App() {
         if (section === "workspace") void refreshWorkspaceSessions();
         else void refreshSessions();
       }
-      await client.submitPrompt(session.id, { text });
+      await client.submitPrompt(session.id, { text, ...(queuing ? { queue: true } : {}) });
     } catch (err) {
       setSentPending(false);
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  // --- queued-message actions (message-queue feature) ---------------------
+  /** Send now: flip the queued input to steer — it promotes at the next safe boundary. */
+  const sendQueued = async (input: Input): Promise<void> => {
+    if (active === null || active.id !== input.sessionId) return;
+    try {
+      await client.sendInputNow(active.id, input.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** Cancel: drop the queued input — it never runs. */
+  const cancelQueued = async (input: Input): Promise<void> => {
+    if (active === null || active.id !== input.sessionId) return;
+    try {
+      await client.cancelInput(active.id, input.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** Edit: cancel the queued input and put its text back into the composer. */
+  const editQueued = (input: Input): void => {
+    void cancelQueued(input);
+    setDraft(input.payload.text);
   };
 
   // --- per-user-message actions (revert / fork, opencode parity) ----------
@@ -939,6 +997,11 @@ export function App() {
       onRevertMessage={revertToMessage}
       onRestoreRevert={restoreRevert}
       revertBusy={revertBusy}
+      queuedInputs={queuedState.inputs}
+      sendingIds={queuedState.sendingIds}
+      onSendQueued={(input) => void sendQueued(input)}
+      onCancelQueued={(input) => void cancelQueued(input)}
+      onEditQueued={editQueued}
     />
   );
 

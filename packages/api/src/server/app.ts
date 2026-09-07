@@ -21,6 +21,7 @@ import {
   setSessionAgentSchema,
   setSessionModelSchema,
   usageAnalyticsQuerySchema,
+  type InputId,
   type MessageId,
   type SessionId,
 } from "@bai/shared";
@@ -89,6 +90,37 @@ function buildApi(deps: ApiDeps) {
       const id = c.req.param("id") as SessionId;
       deps.core.interrupt(id);
       return c.json({ ok: true });
+    })
+    // --- pending inputs (message queue) ---
+    // Send-now flips a queued input to steer semantics (promotes at the
+    // next safe boundary — immediately when idle, mid-run otherwise);
+    // cancel drops it. Both 409 on a non-pending input (already promoted
+    // or cancelled — the surfaces' node is stale).
+    .post("/session/:id/input/:inputId/send", (c) => {
+      const id = c.req.param("id") as SessionId;
+      const inputId = c.req.param("inputId") as InputId;
+      try {
+        const input = deps.core.sendInputNow(id, inputId);
+        return c.json({ input });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        if (message.startsWith("Unknown or non-pending input")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
+    })
+    .post("/session/:id/input/:inputId/cancel", (c) => {
+      const id = c.req.param("id") as SessionId;
+      const inputId = c.req.param("inputId") as InputId;
+      try {
+        const input = deps.core.cancelInput(id, inputId);
+        return c.json({ input });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        if (message.startsWith("Unknown or non-pending input")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
     })
     // Durable per-session stream: replay-then-live with seq cursor.
     .get("/session/:id/event", (c) => {

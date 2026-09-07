@@ -261,7 +261,7 @@ Schema (identical to the Go design):
 sessions(id PK, title, workbench, cwd, created_at, updated_at, meta JSON)
 messages(id PK, session_id FK, role, created_at)
 parts(id PK, message_id FK, ord, kind, payload JSON)         -- text|file|image|tool_call|tool_result|patch
-inputs(id PK, session_id FK, payload JSON, state, created_at) -- admitted|promoted|cancelled
+inputs(id PK, session_id FK, payload JSON, state, queued, created_at) -- admitted|promoted|cancelled; queued = queue delivery (waits for idle)
 events(aggregate_id, seq, type, payload JSON, created_at,
        PRIMARY KEY(aggregate_id, seq))                        -- durable per-session log
 permissions(id PK, session_id FK, tool, args_digest, status, rule, created_at)
@@ -295,6 +295,7 @@ $ figure is auditable down to the row.
 ```
 
 Event types (initial set): `session.created|updated`, `input.admitted`,
+`input.promoted|cancelled|updated` (message-queue lifecycle),
 `message.created`, `message.part.updated`, `message.part.delta`,
 `message.removed` (revert cleanup), `run.started|finished`,
 `permission.asked|replied`, `job.updated`, `asset.created`,
@@ -334,17 +335,20 @@ also sidesteps the fact that Hono's typed RPC client has no native SSE support
 *(Implementation: `core/src/run.ts` — see the code map, §5.1.)*
 
 ```
-submit(prompt) ──► inputs row (durable) ──► wake coordinator
+submit(prompt) ──► inputs row (durable, queued?) ──► wake coordinator
 coordinator(session): if idle → start drain:
    resolve agent (session.meta.agent → config agents.default → built-in default) + tools
-   promote input(s) → append user message
-   loop (≤ 50 turns):
+   promote steers (all) — else, at the would-be-idle boundary, ONE queued input
+   → append user message(s)
+   loop (≤ 50 turns per promotion batch):
       history → compaction-pointer slice → token discipline → renderOutbound
       stream provider turn → persist parts, emit deltas as events
       for each tool call: parse args → unknown-tool check → permission gate
                           → execute → append tool_result part
+      promote steers admitted mid-run (next request carries them)
       continue while tool calls resolved (state-based, not finish-reason based)
    until: no continuation, steps capped, all calls denied, or interrupted
+   → back to promotion (queued inputs drain one at a time) until idle
 interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs stay queued
 ```
 

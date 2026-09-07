@@ -45,16 +45,63 @@ describe("store", () => {
     expect((history[1]?.parts[0]?.payload as { text: string }).text).toBe("second");
   });
 
-  test("inputs admit → promote (atomic)", () => {
+  test("inputs admit → promote steers (atomic)", () => {
     const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
     store.inputs.admit(ses.id, { text: "one" }, "2026-01-01T00:00:01Z");
     store.inputs.admit(ses.id, { text: "two" }, "2026-01-01T00:00:02Z");
 
-    const promoted = store.inputs.promoteReady(ses.id);
+    const promoted = store.inputs.promoteSteers(ses.id);
     expect(promoted).toHaveLength(2);
     expect(promoted.every((i) => i.state === "promoted")).toBe(true);
     // second call is empty — nothing left admitted
-    expect(store.inputs.promoteReady(ses.id)).toHaveLength(0);
+    expect(store.inputs.promoteSteers(ses.id)).toHaveLength(0);
+  });
+
+  test("inputs delivery modes: steers and queued promote separately", () => {
+    const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const steer = store.inputs.admit(ses.id, { text: "steer" }, "2026-01-01T00:00:01Z");
+    const q1 = store.inputs.admit(ses.id, { text: "q1", queue: true }, "2026-01-01T00:00:02Z");
+    const q2 = store.inputs.admit(ses.id, { text: "q2", queue: true }, "2026-01-01T00:00:03Z");
+    expect(steer.queued).toBe(false);
+    expect(q1.queued).toBe(true);
+    expect(q2.queued).toBe(true);
+
+    // Steers promote only steers; queued stay pending.
+    const promotedSteers = store.inputs.promoteSteers(ses.id);
+    expect(promotedSteers.map((i) => i.id)).toEqual([steer.id]);
+    expect(store.inputs.hasPendingQueued(ses.id)).toBe(true);
+    expect(store.inputs.hasPendingSteers(ses.id)).toBe(false);
+
+    // Queued promote ONE at a time, oldest first.
+    const first = store.inputs.promoteNextQueued(ses.id);
+    expect(first?.id).toBe(q1.id);
+    expect(first?.state).toBe("promoted");
+    const second = store.inputs.promoteNextQueued(ses.id);
+    expect(second?.id).toBe(q2.id);
+    expect(store.inputs.promoteNextQueued(ses.id)).toBeUndefined();
+    expect(store.inputs.pendingBySession(ses.id)).toHaveLength(0);
+  });
+
+  test("inputs sendNow flips queued → steer; cancelInput cancels one", () => {
+    const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const q1 = store.inputs.admit(ses.id, { text: "q1", queue: true }, "2026-01-01T00:00:01Z");
+    const q2 = store.inputs.admit(ses.id, { text: "q2", queue: true }, "2026-01-01T00:00:02Z");
+
+    // Send-now: the input stays admitted but steers at the next boundary.
+    const flipped = store.inputs.sendNow(ses.id, q1.id);
+    expect(flipped?.queued).toBe(false);
+    expect(flipped?.state).toBe("admitted");
+    expect(store.inputs.hasPendingSteers(ses.id)).toBe(true);
+    expect(store.inputs.hasPendingQueued(ses.id)).toBe(true);
+
+    // Cancel removes exactly one pending input.
+    const cancelled = store.inputs.cancelInput(ses.id, q2.id);
+    expect(cancelled?.state).toBe("cancelled");
+    expect(store.inputs.pendingBySession(ses.id).map((i) => i.id)).toEqual([q1.id]);
+
+    // Non-pending / unknown ids are undefined (mapped to 409 upstream).
+    expect(store.inputs.sendNow(ses.id, q2.id)).toBeUndefined();
+    expect(store.inputs.cancelInput(ses.id, "inp_unknown" as never)).toBeUndefined();
   });
 
   test("durable events allocate monotonic seq per aggregate", () => {

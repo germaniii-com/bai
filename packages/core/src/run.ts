@@ -1,4 +1,4 @@
-import type { AgentInfo, AskOutcome, Clock, EventType, MessageId, PartId, PromptPayload, QuestionReview, SessionId } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, PartId, PromptPayload, QuestionReview, SessionId } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import { applyDiscipline } from "./context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
@@ -200,18 +200,230 @@ export class RunCoordinator {
    * (state-based continuation: some providers report `stop` alongside tool
    * calls, so the presence of executed calls drives the loop, not the
    * finish reason alone).
+   *
+   * The outer promotion loop gives the two delivery modes their boundaries
+   * (opencode's run loop): steers promote at every entry and at each
+   * provider-turn boundary (mid-generation injection); a queued input
+   * promotes only when the session would otherwise go idle — one at a
+   * time, re-evaluating after its turns finish. Steers beat queued. Each
+   * promotion batch runs with a fresh step allowance.
    */
   private async drainOnce(sessionId: SessionId, signal: AbortSignal): Promise<void> {
-    const promoted = this.deps.store.inputs.promoteReady(sessionId);
-    if (promoted.length === 0) return;
+    for (;;) {
+      if (signal.aborted) return;
+      let promoted = this.deps.store.inputs.promoteSteers(sessionId);
+      if (promoted.length === 0) {
+        // Steers beat queued: a queued input only promotes when nothing is
+        // steering.
+        const queued = this.deps.store.inputs.promoteNextQueued(sessionId);
+        if (queued === undefined) return;
+        promoted = [queued];
+      }
 
-    // A pending revert is committed by the next prompt (opencode's cleanup):
-    // the boundary message and everything after it are hard-deleted BEFORE
-    // the new user message lands, so transcript ordering stays intact.
-    this.revertCleanup(sessionId);
+      // A pending revert is committed by the next prompt (opencode's cleanup):
+      // the boundary message and everything after it are hard-deleted BEFORE
+      // the new user message lands, so transcript ordering stays intact.
+      this.revertCleanup(sessionId);
 
+      this.appendPromotedInputs(sessionId, promoted);
+
+      const session = this.deps.store.sessions.get(sessionId);
+      if (!session) return;
+      const meta = session.meta as { model?: unknown; account?: unknown; oneshot?: unknown; agent?: unknown };
+
+      // Session titling: untitled sessions are created as "New Chat Session -
+      // <timestamp>"; the first prompt of a default-titled session kicks off a
+      // detached mini LLM call that replaces the default — one-shot sessions
+      // are ephemeral proxies, no title spend.
+      const firstPrompt = promoted[0]?.payload.text ?? "";
+      const refineTitle = isDefaultTitle(session.title) && meta.oneshot !== true && firstPrompt.length > 0;
+
+      // Everything a turn needs — agent, model wiring, tool defs — in one
+      // re-resolvable snapshot. Re-resolved mid-run when the session's agent
+      // changes (plan.exit's mid-run switch to build).
+      let run = await this.resolveRunContext(sessionId);
+
+      if (refineTitle && run.providerId !== "stub") {
+        const title = await this.resolveTitleModel(run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials });
+        this.refineSessionTitle({
+          sessionId,
+          provider: title.provider,
+          model: title.model,
+          credentials: title.credentials,
+          defaultTitle: session.title,
+          prompt: firstPrompt,
+        });
+      }
+
+      for (let step = 1; ; step++) {
+        const finalStep = step >= MAX_STEPS;
+        const toolDefs = finalStep ? [] : run.toolDefs;
+        // The agent persona + a session-metadata block (cwd, workbench,
+        // available tools, platform, date) — subagents inherit their parent's
+        // cwd via their own session row, so the whole tree knows where it is.
+        const system = [
+          ...(run.agent.prompt.trim().length > 0 ? [run.agent.prompt] : []),
+          buildEnvBlock({
+            ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
+            workbench: session?.workbench ?? "chat",
+            title: session?.title ?? "",
+            agent: run.agent.name,
+            tools: run.toolDefs.map((d) => d.name),
+            workspaces: this.deps.workspaceRoots(),
+            ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
+            now: this.deps.clock.iso(),
+          }),
+          ...(finalStep ? [STEPS_NOTICE] : []),
+        ];
+
+        // History → revert cut → compaction pointer slice → token discipline →
+        // render. history() returns fresh objects, so the in-place discipline
+        // transforms never touch the durable transcript.
+        let history = this.deps.store.messages.history(sessionId);
+        // Defensive two-phase-revert cut (cleanup normally already ran at
+        // admission): never render the boundary message or anything after it.
+        const revertBoundary = readRevert(this.readMeta(sessionId))?.messageId;
+        if (revertBoundary !== undefined) {
+          const boundaryIdx = history.findIndex((m) => m.id === revertBoundary);
+          if (boundaryIdx >= 0) history = history.slice(0, boundaryIdx);
+        }
+        const compactId = this.compactionPointer(sessionId);
+        if (compactId !== undefined) {
+          const idx = history.findIndex((m) => m.id === compactId);
+          if (idx >= 0) history = history.slice(idx); // the summary leads as a user message
+        }
+        applyDiscipline(history);
+        const outbound = renderOutbound(history, { system });
+
+        let stream: ProviderStream;
+        try {
+          stream = await run.provider.stream({
+            model: run.model,
+            messages: outbound,
+            ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+            auth: run.auth,
+            // Reasoning models: enable extended thinking so reasoning tokens flow
+            // (chat turns; adapters skip thinking on agentic turns themselves).
+            ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
+            signal,
+          });
+        } catch (err) {
+          // D26: the call failed before any tokens streamed (provider 4xx/5xx,
+          // bad model id, …) — record the failure, then propagate (wake turns
+          // it into run.finished {error}). Aborts are not failures.
+          if (!signal.aborted) {
+            this.recordLlmError({
+              sessionId,
+              kind: "run",
+              agent: run.agent.name,
+              workspace: session?.cwd ?? null,
+              providerId: run.providerId,
+              model: run.model,
+              accountId: run.credentials.accountId,
+              error: err,
+            });
+          }
+          throw err;
+        }
+
+        const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());
+        this.emitDurable(sessionId, "message.created", { messageId: assistant.id, role: "assistant" });
+
+        let calls: ParsedCall[] = [];
+        let stopReason: string | undefined;
+        let usage: StreamUsage | undefined;
+        try {
+          const consumed = await this.consumeStream(sessionId, assistant.id, stream, toolDefs.length > 0, signal);
+          calls = consumed.calls;
+          stopReason = consumed.stopReason;
+          usage = consumed.usage;
+        } catch (err) {
+          // An interrupt cancels the in-flight request → the adapter's iterator
+          // throws; that's a clean stop, not a failure. Real errors propagate
+          // (and record — D26).
+          if (!signal.aborted) {
+            this.recordLlmError({
+              sessionId,
+              kind: "run",
+              agent: run.agent.name,
+              workspace: session?.cwd ?? null,
+              providerId: run.providerId,
+              model: run.model,
+              accountId: run.credentials.accountId,
+              error: err,
+            });
+            throw err;
+          }
+          break;
+        } finally {
+          await stream.close();
+        }
+
+        if (usage?.inputTokens !== undefined) {
+          this.recordUsage(sessionId, usage);
+          // D26: every provider call records a usage row. All dimensions are
+          // in scope here — the run context (agent/provider/model/account) and
+          // the session row (workspace = cwd).
+          this.recordLlmUsage({
+            sessionId,
+            kind: "run",
+            agent: run.agent.name,
+            workspace: session?.cwd ?? null,
+            providerId: run.providerId,
+            model: run.model,
+            accountId: run.credentials.accountId,
+            usage,
+          });
+        }
+
+        if (calls.length === 0 || signal.aborted) {
+          // End-of-run compaction check: the recorded usage decides whether
+          // the next prompt starts from a summary pointer.
+          await this.maybeCompact(sessionId, usage, run.contextWindow, run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials }, signal);
+          break;
+        }
+
+        // A `length` stop means streamed arguments may be silently truncated —
+        // executing them could corrupt files. Fail the batch and end the run
+        // (pi agent-loop.ts:229-233).
+        if (stopReason === "length") {
+          for (const call of calls) {
+            this.persistToolResult(sessionId, assistant.id, call, "Tool call aborted: the model response was cut off by the token limit before the arguments completed.", true);
+          }
+          break;
+        }
+
+        const outcomes = await this.executeCalls(sessionId, assistant.id, calls, signal);
+
+        // Steer promotion at the provider-turn boundary (mid-generation
+        // injection, opencode's safe boundary): newly admitted steer inputs
+        // land as user messages and ride the next request's history.
+        const steers = this.deps.store.inputs.promoteSteers(sessionId);
+        if (steers.length > 0) this.appendPromotedInputs(sessionId, steers);
+
+        // Mid-run agent switch (plan.exit → build): the session's meta.agent
+        // changed while executing — re-resolve agent, model, and tool defs so
+        // the next step continues with the new agent (opencode's plan→build).
+        const switched = await this.refreshAgentIfSwitched(sessionId, run.agent.name);
+        if (switched !== undefined) run = switched;
+
+        if (finalStep) break;
+        // Fail-closed: if every call was denied, end the run instead of
+        // letting the model retry into the same wall.
+        if (outcomes.length > 0 && outcomes.every((o) => o === "denied")) break;
+      }
+    }
+  }
+
+  /**
+   * Land promoted inputs as user messages: one message + text part each,
+   * with the durable events surfaces build transcript state from
+   * (`input.promoted` lets surfaces drop the queued node; the message
+   * events add the transcript entry).
+   */
+  private appendPromotedInputs(sessionId: SessionId, inputs: Input[]): void {
     const now = this.deps.clock.iso();
-    for (const input of promoted) {
+    for (const input of inputs) {
       const message = this.deps.store.messages.append(sessionId, "user", now);
       const part = this.deps.store.parts.append(message.id, 0, "text", { text: input.payload.text });
       this.emitDurable(sessionId, "message.created", { messageId: message.id, role: "user" });
@@ -223,186 +435,7 @@ export class RunCoordinator {
         kind: "text",
         payload: { text: input.payload.text },
       });
-    }
-
-    const session = this.deps.store.sessions.get(sessionId);
-    if (!session) return;
-    const meta = session.meta as { model?: unknown; account?: unknown; oneshot?: unknown; agent?: unknown };
-
-    // Session titling: untitled sessions are created as "New Chat Session -
-    // <timestamp>"; the first prompt of a default-titled session kicks off a
-    // detached mini LLM call that replaces the default — one-shot sessions
-    // are ephemeral proxies, no title spend.
-    const firstPrompt = promoted[0]?.payload.text ?? "";
-    const refineTitle = isDefaultTitle(session.title) && meta.oneshot !== true && firstPrompt.length > 0;
-
-    // Everything a turn needs — agent, model wiring, tool defs — in one
-    // re-resolvable snapshot. Re-resolved mid-run when the session's agent
-    // changes (plan.exit's mid-run switch to build).
-    let run = await this.resolveRunContext(sessionId);
-
-    if (refineTitle && run.providerId !== "stub") {
-      const title = await this.resolveTitleModel(run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials });
-      this.refineSessionTitle({
-        sessionId,
-        provider: title.provider,
-        model: title.model,
-        credentials: title.credentials,
-        defaultTitle: session.title,
-        prompt: firstPrompt,
-      });
-    }
-
-    for (let step = 1; ; step++) {
-      const finalStep = step >= MAX_STEPS;
-      const toolDefs = finalStep ? [] : run.toolDefs;
-      // The agent persona + a session-metadata block (cwd, workbench,
-      // available tools, platform, date) — subagents inherit their parent's
-      // cwd via their own session row, so the whole tree knows where it is.
-      const system = [
-        ...(run.agent.prompt.trim().length > 0 ? [run.agent.prompt] : []),
-        buildEnvBlock({
-          ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
-          workbench: session?.workbench ?? "chat",
-          title: session?.title ?? "",
-          agent: run.agent.name,
-          tools: run.toolDefs.map((d) => d.name),
-          workspaces: this.deps.workspaceRoots(),
-          ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
-          now: this.deps.clock.iso(),
-        }),
-        ...(finalStep ? [STEPS_NOTICE] : []),
-      ];
-
-      // History → revert cut → compaction pointer slice → token discipline →
-      // render. history() returns fresh objects, so the in-place discipline
-      // transforms never touch the durable transcript.
-      let history = this.deps.store.messages.history(sessionId);
-      // Defensive two-phase-revert cut (cleanup normally already ran at
-      // admission): never render the boundary message or anything after it.
-      const revertBoundary = readRevert(this.readMeta(sessionId))?.messageId;
-      if (revertBoundary !== undefined) {
-        const boundaryIdx = history.findIndex((m) => m.id === revertBoundary);
-        if (boundaryIdx >= 0) history = history.slice(0, boundaryIdx);
-      }
-      const compactId = this.compactionPointer(sessionId);
-      if (compactId !== undefined) {
-        const idx = history.findIndex((m) => m.id === compactId);
-        if (idx >= 0) history = history.slice(idx); // the summary leads as a user message
-      }
-      applyDiscipline(history);
-      const outbound = renderOutbound(history, { system });
-
-      let stream: ProviderStream;
-      try {
-        stream = await run.provider.stream({
-          model: run.model,
-          messages: outbound,
-          ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
-          auth: run.auth,
-          // Reasoning models: enable extended thinking so reasoning tokens flow
-          // (chat turns; adapters skip thinking on agentic turns themselves).
-          ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
-          signal,
-        });
-      } catch (err) {
-        // D26: the call failed before any tokens streamed (provider 4xx/5xx,
-        // bad model id, …) — record the failure, then propagate (wake turns
-        // it into run.finished {error}). Aborts are not failures.
-        if (!signal.aborted) {
-          this.recordLlmError({
-            sessionId,
-            kind: "run",
-            agent: run.agent.name,
-            workspace: session?.cwd ?? null,
-            providerId: run.providerId,
-            model: run.model,
-            accountId: run.credentials.accountId,
-            error: err,
-          });
-        }
-        throw err;
-      }
-
-      const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());
-      this.emitDurable(sessionId, "message.created", { messageId: assistant.id, role: "assistant" });
-
-      let calls: ParsedCall[] = [];
-      let stopReason: string | undefined;
-      let usage: StreamUsage | undefined;
-      try {
-        const consumed = await this.consumeStream(sessionId, assistant.id, stream, toolDefs.length > 0, signal);
-        calls = consumed.calls;
-        stopReason = consumed.stopReason;
-        usage = consumed.usage;
-      } catch (err) {
-        // An interrupt cancels the in-flight request → the adapter's iterator
-        // throws; that's a clean stop, not a failure. Real errors propagate
-        // (and record — D26).
-        if (!signal.aborted) {
-          this.recordLlmError({
-            sessionId,
-            kind: "run",
-            agent: run.agent.name,
-            workspace: session?.cwd ?? null,
-            providerId: run.providerId,
-            model: run.model,
-            accountId: run.credentials.accountId,
-            error: err,
-          });
-          throw err;
-        }
-        break;
-      } finally {
-        await stream.close();
-      }
-
-      if (usage?.inputTokens !== undefined) {
-        this.recordUsage(sessionId, usage);
-        // D26: every provider call records a usage row. All dimensions are
-        // in scope here — the run context (agent/provider/model/account) and
-        // the session row (workspace = cwd).
-        this.recordLlmUsage({
-          sessionId,
-          kind: "run",
-          agent: run.agent.name,
-          workspace: session?.cwd ?? null,
-          providerId: run.providerId,
-          model: run.model,
-          accountId: run.credentials.accountId,
-          usage,
-        });
-      }
-
-      if (calls.length === 0 || signal.aborted) {
-        // End-of-run compaction check: the recorded usage decides whether
-        // the next prompt starts from a summary pointer.
-        await this.maybeCompact(sessionId, usage, run.contextWindow, run.providerId, { provider: run.provider, model: run.model, credentials: run.credentials }, signal);
-        break;
-      }
-
-      // A `length` stop means streamed arguments may be silently truncated —
-      // executing them could corrupt files. Fail the batch and end the run
-      // (pi agent-loop.ts:229-233).
-      if (stopReason === "length") {
-        for (const call of calls) {
-          this.persistToolResult(sessionId, assistant.id, call, "Tool call aborted: the model response was cut off by the token limit before the arguments completed.", true);
-        }
-        break;
-      }
-
-      const outcomes = await this.executeCalls(sessionId, assistant.id, calls, signal);
-
-      // Mid-run agent switch (plan.exit → build): the session's meta.agent
-      // changed while executing — re-resolve agent, model, and tool defs so
-      // the next step continues with the new agent (opencode's plan→build).
-      const switched = await this.refreshAgentIfSwitched(sessionId, run.agent.name);
-      if (switched !== undefined) run = switched;
-
-      if (finalStep) break;
-      // Fail-closed: if every call was denied, end the run instead of
-      // letting the model retry into the same wall.
-      if (outcomes.length > 0 && outcomes.every((o) => o === "denied")) break;
+      this.emitDurable(sessionId, "input.promoted", { inputId: input.id, sessionId });
     }
   }
 

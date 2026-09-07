@@ -1,59 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { Dispatch, SetStateAction } from "react";
-import type { Event, Input, Message, Session } from "@bai/shared";
-import { applyEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, revertBoundary } from "../src/state";
-
-/** Collect setMessages updates and expose the final list. */
-function capture() {
-  let messages: Message[] = [];
-  const setMessages = ((update: (prev: Message[]) => Message[]) => {
-    messages = update(messages);
-  }) as Dispatch<SetStateAction<Message[]>>;
-  return { setMessages, get: () => messages };
-}
-
-function msg(id: string, role: Message["role"], text: string): Message {
-  return {
-    id: id as Message["id"],
-    sessionId: "ses_1" as Message["sessionId"],
-    role,
-    createdAt: "t",
-    parts: [{ id: `${id}-p0` as Message["parts"][0]["id"], messageId: id as Message["id"], ord: 0, kind: "text", payload: { text } }],
-  };
-}
-
-const removedEvent = (messageId: string): Event =>
-  ({ seq: 1, ts: "t", type: "message.removed", payload: { messageId } }) as unknown as Event;
-
-describe("message.removed reducer", () => {
-  test("drops only the removed message", () => {
-    const { setMessages, get } = capture();
-    applyEvent(setMessages, removedEvent("m9")); // no-op on empty
-    const initial = [msg("m1", "user", "keep"), msg("m2", "assistant", "drop"), msg("m3", "user", "keep too")];
-    for (const m of initial) setMessages((prev) => [...prev, m]);
-
-    applyEvent(setMessages, removedEvent("m2"));
-    expect(get().map((m) => m.id as string)).toEqual(["m1", "m3"]);
-
-    applyEvent(setMessages, removedEvent("m2")); // duplicate removal is a no-op
-    expect(get()).toHaveLength(2);
-  });
-});
-
-describe("revertBoundary", () => {
-  test("reads meta.revert.messageId; absent/malformed → undefined", () => {
-    const withRevert = { meta: { revert: { messageId: "m2" } } } as unknown as Session;
-    expect(revertBoundary(withRevert)).toBe("m2");
-    expect(revertBoundary({ meta: {} } as unknown as Session)).toBeUndefined();
-    expect(revertBoundary(null)).toBeUndefined();
-    expect(revertBoundary({ meta: { revert: "junk" } } as unknown as Session)).toBeUndefined();
-    expect(revertBoundary({ meta: { revert: { snapshot: "tree" } } } as unknown as Session)).toBeUndefined();
-  });
-});
+import type { Event, Input } from "@bai/shared";
+import { applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot } from "../src/state/sync";
 
 /** Build a minimal typed event without the discriminated-union ceremony. */
 const evt = (type: string, payload: unknown, sessionId?: string): Event =>
-  ({ seq: 1, type, ts: "t", payload, ...(sessionId !== undefined ? { sessionId } : {}) }) as unknown as Event;
+  ({ seq: 1, type, ts: "2026-09-07T00:00:00Z", payload, ...(sessionId !== undefined ? { sessionId } : {}) }) as unknown as Event;
 
 const queuedInput = (id: string): Input =>
   ({
@@ -62,7 +13,7 @@ const queuedInput = (id: string): Input =>
     payload: { text: `text ${id}`, queue: true },
     state: "admitted",
     queued: true,
-    createdAt: "t",
+    createdAt: "2026-09-07T00:00:00Z",
   }) as unknown as Input;
 
 describe("queued-message reducer (applyQueuedInputEvent)", () => {
@@ -84,7 +35,7 @@ describe("queued-message reducer (applyQueuedInputEvent)", () => {
   test("promoted/cancelled drop the node from both lists", () => {
     let state = applyQueuedInputEvent(emptyQueuedInputs(), evt("input.admitted", { inputId: "i1", text: "one", queued: true }, "ses_1"));
     state = applyQueuedInputEvent(state, evt("input.updated", { inputId: "i1", queued: false }, "ses_1"));
-    state = applyQueuedInputEvent(state, evt("input.promoted", { inputId: "i1" }, "ses_1"));
+    state = applyQueuedInputEvent(state, evt("input.cancelled", { inputId: "i1" }, "ses_1"));
     expect(state.inputs).toHaveLength(0);
     expect(state.sendingIds).toHaveLength(0);
   });

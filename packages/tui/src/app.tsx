@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { CustomTheme, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
+import type { CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
 import { isThemeId } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
@@ -14,7 +14,7 @@ import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
-import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent } from "./state/sync";
+import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot } from "./state/sync";
 import {
   applySubagentEvent,
   emptySubagentState,
@@ -102,6 +102,12 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const [pendingChildAsks, setPendingChildAsks] = useState<PermissionRequest[]>([]);
   // Pending agent→user question blocks (the `question` tool) — same pattern.
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  // Queued messages for the active session (message-queue feature): admitted
+  // inputs waiting for the session to go idle, plus send-now flips marked
+  // "sending" in place until they promote. Seeded from the snapshot and kept
+  // live by input.admitted/promoted/cancelled/updated; the queued nodes
+  // render at the transcript tail with actions.
+  const [queuedState, setQueuedState] = useState(emptyQueuedInputs());
   // Inline prompt UI state (stage, typed buffers, question progress) —
   // hoisted here and reset when the head ask's id changes, so opening a
   // ctrl-chord dialog (which unmounts the chat view) never loses
@@ -308,9 +314,13 @@ export function App({ client }: { client: BaiClient; version: string }) {
   }, [activeId, sessions]);
 
   // Open the durable session stream whenever a session becomes active.
+  // Keyed on the session ID, not the object reference: a session.updated
+  // patch (title refine, compaction) must NOT tear down the stream and
+  // wipe/reseed the transcript + queued state — metadata flows through the
+  // firehose patch instead.
   useEffect(() => {
     setError(null); // a session switch drops the previous session's error line
-    if (active === null) {
+    if (activeId === undefined) {
       // Draft state (sessions dialog → n, or before the first message): a
       // NEW session — the previous session's transcript and its asks/questions
       // must not linger. The global ask index still shows the blocked
@@ -320,6 +330,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
       setPendingAsks([]);
       setPendingChildAsks([]);
       setPendingQuestions([]);
+      setQueuedState(emptyQueuedInputs());
       return;
     }
     const ctrl = new AbortController();
@@ -328,12 +339,13 @@ export function App({ client }: { client: BaiClient; version: string }) {
     setPendingAsks([]); // session switch: the new session's asks arrive below
     setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
+    setQueuedState(emptyQueuedInputs());
     void (async () => {
       try {
         // Snapshot first, then follow the durable stream from its frontier.
         // followSession resumes from the cursor on drops (idle timeouts,
         // restarts) — replaying from 0 would duplicate the snapshot instead.
-        const snap = await client.historySnapshot(active.id);
+        const snap = await client.historySnapshot(activeId);
         if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
         setMessages(snap.messages);
         // A run may already be draining (mid-run switch, or the snapshot was
@@ -344,7 +356,12 @@ export function App({ client }: { client: BaiClient; version: string }) {
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
         setPendingQuestions(snap.pendingQuestions ?? []);
-        await followSession(client, active.id, {
+        // Queued messages pending at snapshot time (the replayed
+        // input.* events cover anything admitted after the cursor).
+        // Admitted steer inputs seed as "sending" — they promote at the
+        // next boundary.
+        setQueuedState(queuedInputsFromSnapshot(snap.pendingInputs));
+        await followSession(client, activeId, {
           from: snap.afterSeq,
           signal: ctrl.signal,
           onEvent: (evt) => {
@@ -363,6 +380,13 @@ export function App({ client }: { client: BaiClient; version: string }) {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
               setPendingQuestions((list) => applyQuestionEvent(list, evt));
+            } else if (
+              evt.type === "input.admitted" ||
+              evt.type === "input.promoted" ||
+              evt.type === "input.cancelled" ||
+              evt.type === "input.updated"
+            ) {
+              setQueuedState((state) => applyQueuedInputEvent(state, evt));
             }
           },
           onDrop: () => {}, // silent reconnect; the cursor guarantees no gaps
@@ -372,7 +396,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
       }
     })();
     return () => ctrl.abort();
-  }, [active, client]);
+  }, [activeId, client]);
 
   // ctrl+c is global in BOTH modes (even over dialogs — dialogs ignore ctrl
   // keys): first press arms, second interrupts a running drain or quits.
@@ -668,13 +692,21 @@ export function App({ client }: { client: BaiClient; version: string }) {
                 onOpenModels={openModelsDialog}
                 onOpenAgents={openAgentsDialog}
                 onOpenSessions={openSessionsDialog}
-                subagents={subagents}
-                pendingAsks={pendingAsks}
-                pendingChildAsks={pendingChildAsks}
-                pendingQuestions={pendingQuestions}
-                askUi={askUiState.ui}
-                setAskUi={setAskUi}
-              />
+                 subagents={subagents}
+                 pendingAsks={pendingAsks}
+                 pendingChildAsks={pendingChildAsks}
+                 pendingQuestions={pendingQuestions}
+                 askUi={askUiState.ui}
+                 setAskUi={setAskUi}
+                 queuedInputs={queuedState.inputs}
+                 sendingIds={queuedState.sendingIds}
+                 onSendQueued={(input) => void client.sendInputNow(input.sessionId, input.id)}
+                 onCancelQueued={(input) => void client.cancelInput(input.sessionId, input.id)}
+                 onEditQueued={(input) => {
+                   void client.cancelInput(input.sessionId, input.id);
+                   setComposerSeed({ sessionId: input.sessionId, text: input.payload.text });
+                 }}
+               />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}
             {view === "jobs" && <PlaceholderView title="Jobs" phase={5} />}

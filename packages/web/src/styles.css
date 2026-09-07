@@ -1107,6 +1107,65 @@ select:focus-visible,
   cursor: default;
 }
 
+/* Queued messages (message-queue feature): admitted inputs waiting for the
+   session to go idle. A dimmed, dashed variant of the user bubble — visibly
+   pending, not yet part of the transcript — with a queued chip and
+   always-visible per-node actions (send now / edit / cancel). */
+.message.user.queued {
+  border-style: dashed;
+  border-color: var(--border);
+  opacity: 0.85;
+}
+
+.queued-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.queued-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Send-now flip: the node is leaving the queue — accent tint while it
+   waits to promote into a real transcript message. */
+.queued-chip.sending {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.queued-spacer {
+  flex: 1;
+}
+
+.queued-action {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.queued-action:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 /* --- Markdown bodies (assistant replies + thinking) ---------------------- */
 /* The <Markdown> component (markdown.tsx) renders under .md. Structure
    comes from the markdown AST; everything visual lives here so the

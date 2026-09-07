@@ -7,6 +7,7 @@ import {
   type Event,
   type EventType,
   type Input,
+  type InputId,
   type JobKind,
   type Message,
   type MessageId,
@@ -382,6 +383,31 @@ export class Service {
     return input;
   }
 
+  /**
+   * Send-now (opencode parity): flip a pending queued input to steer
+   * semantics and wake the coordinator — it promotes immediately when idle,
+   * or at the next provider-turn boundary mid-run. The `input.updated`
+   * event drops the node from every surface's queued list.
+   */
+  sendInputNow(sessionId: SessionId, inputId: InputId): Input {
+    const input = this.deps.store.inputs.sendNow(sessionId, inputId);
+    if (input === undefined) throw new Error(`Unknown or non-pending input: ${inputId}`);
+    this.emitDurable(sessionId, "input.updated", { inputId, sessionId, queued: false });
+    this.coordinator.wake(sessionId);
+    return input;
+  }
+
+  /**
+   * Cancel ONE pending input (queued or steering) — it never runs. The
+   * `input.cancelled` event drops the node from every surface's list.
+   */
+  cancelInput(sessionId: SessionId, inputId: InputId): Input {
+    const input = this.deps.store.inputs.cancelInput(sessionId, inputId);
+    if (input === undefined) throw new Error(`Unknown or non-pending input: ${inputId}`);
+    this.emitDurable(sessionId, "input.cancelled", { inputId, sessionId });
+    return input;
+  }
+
   interrupt(sessionId: SessionId): void {
     this.coordinator.interrupt(sessionId);
   }
@@ -413,6 +439,7 @@ export class Service {
     runActive: boolean;
     pendingPermissions: PermissionRequest[];
     pendingQuestions: QuestionRequest[];
+    pendingInputs: Input[];
   } {
     return {
       ...this.deps.store.sessionSnapshot(sessionId),

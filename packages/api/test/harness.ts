@@ -34,7 +34,10 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
+  // Mutable: configStore.update reassigns it so putConfig writes are visible
+  // to every reader (the registry, the drain, later GETs) — deepMerge alone
+  // returns a fresh object and the write would be lost.
+  let config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
     cachePath: join(dir, "models-cache.json"),
@@ -75,8 +78,9 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     configStore: {
       get: () => config,
       // Minimal stand-in for the real ConfigStore: deep-merge the patch
-      // (arrays replaced) so config-mutation tests observe their writes.
-      update: (patch: ConfigPatch) => deepMerge(config, patch),
+      // (arrays replaced) and REASSIGN so config-mutation tests observe
+      // their writes.
+      update: (patch: ConfigPatch) => (config = deepMerge(config, patch)),
     } as unknown as ApiDeps["configStore"],
     jobs,
     providers,

@@ -7,8 +7,9 @@ import type {
   CustomTheme,
   CustomThemeInput,
   EnqueueJobBody,
-  Event,
-  Job,
+   Event,
+   Input,
+   Job,
   Message,
   PermissionRequest,
   PutAgentBody,
@@ -97,7 +98,9 @@ export class BaiClient {
    * Snapshot-then-stream bootstrap: full history plus the event-log cursor to
    * pass as `after` when opening the session stream (no replay duplicates).
    * `runActive` reports a run already in flight at snapshot time;
-   * `pendingPermissions` carries asks raised before this surface connected.
+   * `pendingPermissions` carries asks raised before this surface connected;
+   * `pendingInputs` seeds the queued-message list (admitted, not yet
+   * promoted).
    */
   async historySnapshot(
     id: string,
@@ -107,6 +110,7 @@ export class BaiClient {
     runActive: boolean;
     pendingPermissions: PermissionRequest[];
     pendingQuestions: QuestionRequest[];
+    pendingInputs: Input[];
   }> {
     const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);
@@ -119,6 +123,26 @@ export class BaiClient {
       json: body,
     });
     if (!res.ok) throw new Error(`submit failed: ${res.status}`);
+  }
+
+  /**
+   * Send-now on a pending queued input: flips it to steer semantics — it
+   * promotes at the next safe boundary (immediately when idle, mid-run at
+   * the next provider-turn boundary otherwise).
+   */
+  async sendInputNow(id: string, inputId: string): Promise<void> {
+    const res = await this.rpc().session[":id"].input[":inputId"].send.$post({
+      param: { id: encodeURIComponent(id), inputId: encodeURIComponent(inputId) },
+    });
+    if (!res.ok) throw new Error(`input send failed: ${res.status}`);
+  }
+
+  /** Cancel a pending input (queued or steering) — it never runs. */
+  async cancelInput(id: string, inputId: string): Promise<void> {
+    const res = await this.rpc().session[":id"].input[":inputId"].cancel.$post({
+      param: { id: encodeURIComponent(id), inputId: encodeURIComponent(inputId) },
+    });
+    if (!res.ok) throw new Error(`input cancel failed: ${res.status}`);
   }
 
   async interrupt(id: string): Promise<void> {

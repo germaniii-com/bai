@@ -85,6 +85,12 @@ export interface Input {
   sessionId: SessionId;
   payload: PromptPayload;
   state: InputState;
+  /**
+   * Delivery mode (opencode parity): true → the input waits in the queue
+   * until the session would otherwise go idle (promoted one at a time);
+   * false → steer semantics (promotes at the next safe boundary).
+   */
+  queued: boolean;
   createdAt: string;
 }
 

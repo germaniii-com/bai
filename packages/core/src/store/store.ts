@@ -1,5 +1,5 @@
 import { checkpointAndClose, openDb, type SqliteDb } from "./db";
-import type { Message, SessionId } from "@bai/shared";
+import type { Input, Message, SessionId } from "@bai/shared";
 import { AssetsRepo } from "./assets";
 import { EventsRepo } from "./events";
 import { InputsRepo } from "./inputs";
@@ -49,13 +49,15 @@ export class Store {
    * Consistent snapshot for snapshot-then-stream surfaces: full history plus
    * the event-log frontier to resume the session stream from. Both reads share
    * one transaction — reading them separately races an in-flight run (either a
-   * missing message or a replayed duplicate).
+   * missing message or a replayed duplicate). `pendingInputs` seeds the
+   * surfaces' queued-message lists (admitted, not yet promoted).
    */
-  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number } {
+  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number; pendingInputs: Input[] } {
     return this.db.transaction(
       () => ({
         messages: this.messages.history(sessionId),
         afterSeq: this.events.latestSeq(sessionId),
+        pendingInputs: this.inputs.pendingBySession(sessionId),
       }),
     )();
   }

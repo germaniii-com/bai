@@ -128,4 +128,12 @@ export const MIGRATIONS: string[] = [
   // message rides `error` (NULL for successful calls), so analytics can graph
   // error volume/rate per bucket and per model. Failed rows carry zero tokens.
   `ALTER TABLE usage ADD COLUMN error TEXT;`,
+  // 005 — message-queue delivery (steer vs queue, opencode parity): the
+  // queue flag leaves the payload JSON for a queryable column so the drain
+  // can select steers and queued heads without parsing JSON. Existing rows
+  // backfill from the payload flag.
+  `
+  ALTER TABLE inputs ADD COLUMN queued INTEGER NOT NULL DEFAULT 0;
+  UPDATE inputs SET queued = 1 WHERE json_extract(payload, '$.queue') = 1;
+  `,
 ];

@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
-import { Check, Copy, GitFork, Undo2, X } from "lucide-react";
+import { Check, Copy, GitFork, Hourglass, Undo2, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
+import type { AgentInfo, Input, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -67,6 +67,11 @@ export function ChatPane({
   onRevertMessage,
   onRestoreRevert,
   revertBusy,
+  queuedInputs = [],
+  sendingIds = [],
+  onSendQueued,
+  onCancelQueued,
+  onEditQueued,
 }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
@@ -113,6 +118,17 @@ export function ChatPane({
   onRestoreRevert?: () => void;
   /** True while a revert/restore request is in flight (disables the buttons). */
   revertBusy?: boolean;
+  // ---- queued messages (message-queue feature) ---------------------------
+  /** Pending queued inputs of the active session (admitted, not yet promoted). */
+  queuedInputs?: Input[];
+  /** Ids flipped to steer by send-now — rendered in place as "sending…" until promoted. */
+  sendingIds?: string[];
+  /** Send now: flip the queued input to steer (promotes at the next safe boundary). */
+  onSendQueued?: (input: Input) => void;
+  /** Cancel: drop the queued input — it never runs. */
+  onCancelQueued?: (input: Input) => void;
+  /** Edit: cancel the queued input and reseed the composer with its text. */
+  onEditQueued?: (input: Input) => void;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -150,6 +166,41 @@ export function ChatPane({
             </button>
           </div>
         )}
+        {/* Queued messages (message-queue feature): admitted inputs waiting
+            for the session to go idle — future transcript entries, rendered
+            dimmed with a queued chip and per-node actions (opencode's
+            followup-dock actions, Cursor's queued-node placement). A
+            send-now flip re-chips the node "sending…" IN PLACE (no
+            vanish-then-reshow gap) until it promotes into a real message. */}
+        {queuedInputs.map((input) => {
+          const sending = sendingIds.includes(input.id);
+          return (
+            <article key={input.id} className="message user queued" aria-label={sending ? "Sending message" : "Queued message"}>
+              <p>{input.payload.text}</p>
+              <div className="queued-row">
+                <span className={sending ? "queued-chip sending" : "queued-chip"}>
+                  <Hourglass size={11} aria-hidden="true" /> {sending ? "sending…" : "queued"}
+                </span>
+                <span className="queued-spacer" />
+                {!sending && onSendQueued !== undefined && (
+                  <button type="button" className="queued-action" onClick={() => onSendQueued(input)}>
+                    send now
+                  </button>
+                )}
+                {!sending && onEditQueued !== undefined && (
+                  <button type="button" className="queued-action" onClick={() => onEditQueued(input)}>
+                    edit
+                  </button>
+                )}
+                {!sending && onCancelQueued !== undefined && (
+                  <button type="button" className="queued-action" onClick={() => onCancelQueued(input)}>
+                    cancel
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
         {waiting && (
           <div className="message assistant">
             <div className="typing" role="status" aria-label="assistant is thinking">
@@ -228,6 +279,16 @@ export function ChatPane({
             >
               <FolderGlyph />
               <span className="chip-label">{hubContextLabel(active)}</span>
+            </span>
+          )}
+          {queuedInputs.length > sendingIds.length && (
+            // The queued indicator (message-queue feature): a count chip in
+            // the hub status row — the nodes themselves live at the
+            // transcript tail. Send-now flips don't count (they're leaving
+            // the queue).
+            <span className="composer-chip static queued-chip" title="Messages waiting in the queue">
+              <Hourglass size={11} aria-hidden="true" />
+              <span className="chip-label">{queuedInputs.length - sendingIds.length} queued</span>
             </span>
           )}
           <span className="composer-spacer" />

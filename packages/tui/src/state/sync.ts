@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AskOutcome, Event, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId } from "@bai/shared";
+import type { AskOutcome, Event, Input, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list. */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -138,6 +138,78 @@ export function applyQuestionEvent(list: QuestionRequest[], evt: Event): Questio
     return list.filter((r) => r.id !== requestId);
   }
   return list;
+}
+
+/**
+ * The queued-message list state (message-queue feature): pending inputs in
+ * admission order, plus the ids flipped to steer by send-now — those stay
+ * in the list (rendered in place with a "sending…" chip) until the
+ * `input.promoted` event lands them as real transcript messages, so a
+ * send-now never makes the message vanish mid-flight.
+ */
+export interface QueuedInputsState {
+  inputs: Input[];
+  sendingIds: string[];
+}
+
+export function emptyQueuedInputs(): QueuedInputsState {
+  return { inputs: [], sendingIds: [] };
+}
+
+/**
+ * Pure reducer for the queued-message list over session-stream events
+ * (message-queue feature, mirrors the web's helper): an admitted QUEUED
+ * input appends as a pending node (dedup — replay may redeliver); a
+ * send-now flip (`input.updated` with queued: false) marks it sending IN
+ * PLACE (no vanish-then-reshow gap); promoted/cancelled drop it. Steer
+ * admissions (input.admitted with queued: false) are ignored — they
+ * promote within one drain cycle and a flash node on every normal submit
+ * would be noise.
+ */
+export function applyQueuedInputEvent(state: QueuedInputsState, evt: Event): QueuedInputsState {
+  if (evt.type === "input.admitted") {
+    const { inputId, text, queued } = evt.payload;
+    if (!queued) return state;
+    if (state.inputs.some((i) => i.id === inputId)) return state;
+    return {
+      ...state,
+      inputs: [
+        ...state.inputs,
+        {
+          id: inputId,
+          sessionId: (evt.sessionId ?? "") as SessionId,
+          payload: { text, queue: true },
+          state: "admitted",
+          queued: true,
+          createdAt: evt.ts,
+        },
+      ],
+    };
+  }
+  if (evt.type === "input.updated") {
+    const { inputId, queued } = evt.payload;
+    if (queued) return state;
+    if (!state.inputs.some((i) => i.id === inputId)) return state; // no text to render
+    if (state.sendingIds.includes(inputId)) return state;
+    return { ...state, sendingIds: [...state.sendingIds, inputId] };
+  }
+  if (evt.type === "input.promoted" || evt.type === "input.cancelled") {
+    const { inputId } = evt.payload;
+    return {
+      inputs: state.inputs.filter((i) => i.id !== inputId),
+      sendingIds: state.sendingIds.filter((id) => id !== inputId),
+    };
+  }
+  return state;
+}
+
+/** Seed the queued state from a session snapshot's pending inputs. */
+export function queuedInputsFromSnapshot(pending: Input[] | undefined): QueuedInputsState {
+  const inputs = pending ?? [];
+  return {
+    inputs,
+    sendingIds: inputs.filter((i) => !i.queued).map((i) => i.id),
+  };
 }
 
 /**
