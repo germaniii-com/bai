@@ -51,6 +51,7 @@ export function SettingsNav({
           type="button"
           className={selected === entry.id ? "provider-item active" : "provider-item"}
           onClick={() => onSelect(entry.id)}
+          aria-current={selected === entry.id ? "page" : undefined}
         >
           <span className="title">{entry.title}</span>
           <span className="dim">{entry.dim}</span>
@@ -117,7 +118,7 @@ export function SettingsPane({
   if (section === "user") {
     return (
       <div className="settings">
-        {error !== null && <div className="error">{error}</div>}
+        {error !== null && <div className="error" role="alert">{error}</div>}
         {notice !== null && <div className="notice">{notice}</div>}
         <UserPane client={client} userName={userName} mutate={mutate} />
       </div>
@@ -134,7 +135,7 @@ export function SettingsPane({
 
   return (
     <div className="settings">
-      {error !== null && <div className="error">{error}</div>}
+      {error !== null && <div className="error" role="alert">{error}</div>}
       {notice !== null && <div className="notice">{notice}</div>}
       {section === "general" ? (
         <GeneralPane
@@ -362,6 +363,8 @@ function ProvidersPane({
               type="button"
               className={expanded === p.id ? "provider-item active" : "provider-item"}
               onClick={() => setExpanded(expanded === p.id ? null : p.id)}
+              aria-expanded={expanded === p.id}
+              aria-controls={`provider-detail-${p.id}`}
             >
               <span className="title">{p.name}</span>
               <span className="dim">{p.adapter}</span>
@@ -371,7 +374,7 @@ function ProvidersPane({
                 </span>
               )}
             </button>
-            {expanded === p.id && <ProviderDetail provider={p} client={client} mutate={mutate} />}
+            {expanded === p.id && <div id={`provider-detail-${p.id}`}><ProviderDetail provider={p} client={client} mutate={mutate} /></div>}
           </div>
         ))}
       </div>

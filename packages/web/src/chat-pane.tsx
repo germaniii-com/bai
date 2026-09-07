@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Check, Copy, GitFork, Undo2, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Message, ProviderListResponse, Session } from "@bai/shared";
@@ -11,6 +11,7 @@ import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
+import { IconButton } from "./ui";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -123,10 +124,10 @@ export function ChatPane({
 
   return (
     <main className="chat">
-      <div className="messages">
+      <div className="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text">
         {visible.length === 0 && revertedCount === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
         {visible.map((m) => (
-          <div key={m.id} className={`message ${m.role}`}>
+           <article key={m.id} className={`message ${m.role}`} aria-label={`${m.role === "user" ? "You" : "Assistant"} message`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
             {m.role === "assistant" && toolCalls(m).length > 0 && (
               <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} />
@@ -136,7 +137,7 @@ export function ChatPane({
             {m.role === "user" && (onForkMessage !== undefined || onRevertMessage !== undefined) && (
               <UserMessageActions message={m} onFork={onForkMessage} onRevert={onRevertMessage} />
             )}
-          </div>
+           </article>
         ))}
         {revertedCount > 0 && onRestoreRevert !== undefined && (
           <div className="revert-banner" role="status">
@@ -160,7 +161,7 @@ export function ChatPane({
           </div>
         )}
       </div>
-      {error !== null && <div className="error">{error}</div>}
+      {error !== null && <div className="error" role="alert">{error}</div>}
       {pendingAsk !== undefined && (
         // The inline ask panel (opencode's above-the-input placement): a
         // normal layout child between transcript and composer — no overlay,
@@ -282,36 +283,33 @@ function UserMessageActions({
   };
   return (
     <div className="message-actions">
-      <button
-        type="button"
-        className="message-action"
-        onClick={() => void copy()}
-        aria-label={copied ? "copied" : "copy message"}
-        title={copied ? "Copied" : "Copy message"}
-      >
-        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-      </button>
+       <IconButton
+         className="message-action"
+         label={copied ? "Copied" : "Copy message"}
+         hint={copied ? "Copied" : "Copy message"}
+         onClick={() => void copy()}
+       >
+         {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+       </IconButton>
       {onFork !== undefined && (
-        <button
-          type="button"
-          className="message-action"
-          onClick={() => onFork(message)}
-          aria-label="fork from here"
-          title="Fork from here — new session with the earlier history, composer prefilled"
-        >
-          <GitFork size={13} aria-hidden="true" />
-        </button>
+         <IconButton
+           className="message-action"
+           label="Fork from here"
+           hint="Fork from here — new session with the earlier history, composer prefilled"
+           onClick={() => onFork(message)}
+         >
+           <GitFork size={13} aria-hidden="true" />
+         </IconButton>
       )}
       {onRevert !== undefined && (
-        <button
-          type="button"
-          className="message-action"
-          onClick={() => onRevert(message)}
-          aria-label="revert to here"
-          title="Revert — undo this message, everything after it, and their file changes"
-        >
-          <Undo2 size={13} aria-hidden="true" />
-        </button>
+         <IconButton
+           className="message-action"
+           label="Revert to here"
+           hint="Revert — undo this message, everything after it, and their file changes"
+           onClick={() => onRevert(message)}
+         >
+           <Undo2 size={13} aria-hidden="true" />
+         </IconButton>
       )}
     </div>
   );
@@ -324,14 +322,16 @@ function UserMessageActions({
  * switches because the thinking parts live in the message history itself.
  */function ThinkingNode({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const lineCount = text.split("\n").length;
   return (
     <div className="thinking-node">
       <button
         type="button"
         className="thinking-toggle"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+         onClick={() => setOpen((v) => !v)}
+         aria-expanded={open}
+         aria-controls={bodyId}
       >
         <Chevron open={open} />
         <span>
@@ -339,7 +339,7 @@ function UserMessageActions({
         </span>
       </button>
       {open && (
-        <div className="thinking-body">
+         <div id={bodyId} className="thinking-body">
           <Markdown text={text} />
         </div>
       )}
@@ -410,6 +410,7 @@ function ToolNodes({
               className="tool-toggle"
               onClick={() => toggle(c.callId)}
               aria-expanded={open}
+              aria-controls={`tool-body-${c.callId}`}
             >
               <ToolStatusIcon status={status} asking={asking} /> {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
@@ -429,7 +430,7 @@ function ToolNodes({
             ) : (
               open &&
               (c.result !== undefined || perm !== undefined || c.questions !== undefined) && (
-                <div className={`tool-body ${c.result?.isError === true ? "tool-body-error" : ""}`}>
+                 <div id={`tool-body-${c.callId}`} className={`tool-body ${c.result?.isError === true ? "tool-body-error" : ""}`}>
                   {perm !== undefined && (
                     <div className="ask-review">
                       <div className="ask-review-verdict">

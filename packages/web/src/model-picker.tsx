@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
+import { IconButton, useDialogFocus } from "./ui";
 
 /**
  * Chat-header model picker: a button showing the current model; clicking it
@@ -117,6 +118,8 @@ function ModelModal({
   const [accountId, setAccountId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef);
 
   // Engagement refetch on open (TUI ctrl+p parity): every open pulls fresh
   // data; the firehose keeps it live between opens.
@@ -209,6 +212,8 @@ function ModelModal({
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="model-modal"
         role="dialog"
         aria-modal="true"
@@ -217,9 +222,9 @@ function ModelModal({
       >
         <div className="model-modal-head">
           <strong>Pick a model</strong>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="close">
+          <IconButton className="modal-close" label="Close model picker" hint="Close model picker" onClick={onClose}>
             <X size={16} aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
         {list === null ? (
           <p className="dim modal-loading">Loading providers…</p>
@@ -305,7 +310,7 @@ function ModelModal({
             </div>
           </div>
         )}
-        {error !== null && <div className="error">{error}</div>}
+        {error !== null && <div className="error" role="alert">{error}</div>}
       </div>
     </div>
   );

@@ -70,6 +70,6 @@ describe("ThemePicker", () => {
     stdin.write("\r"); // enter confirms
     await tick();
     unmount();
-    expect(picked).toEqual(["nord"]);
+    expect(picked).toEqual(["catppuccin-latte"]);
   });
 });

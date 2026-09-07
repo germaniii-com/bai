@@ -155,7 +155,7 @@ function DirEntries({
     ? state.entries
     : state.entries.filter((entry) => !entry.name.startsWith("."));
   return (
-    <ul className="tree-entries" role="group">
+    <ul className="tree-entries">
       {visible.map((entry) => {
         const path = joinPath(dir, entry.name);
         if (entry.type === "dir") {
@@ -171,19 +171,22 @@ function DirEntries({
                 style={{ paddingLeft: `${8 + depth * 14}px` }}
                 onClick={() => onToggle(path)}
                 aria-expanded={isOpen}
+                aria-controls={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
               >
                 <FolderIcon open={isOpen} />
                 <span className="tree-name">{entry.name}</span>
               </button>
               {isOpen && (
-                <DirEntries
+                  <div id={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}>
+                  <DirEntries
                   dir={path}
                   depth={depth + 1}
                   dirs={dirs}
                   expanded={expanded}
                   onToggle={onToggle}
                   showDotfiles={showDotfiles}
-                />
+                  />
+                  </div>
               )}
             </li>
           );

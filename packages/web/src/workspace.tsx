@@ -44,6 +44,7 @@ export function WorkspaceNav({
           className={selected === w ? "workspace-item active" : "workspace-item"}
           onClick={() => onSelect(w)}
           title={w}
+          aria-current={selected === w ? "page" : undefined}
         >
           <span className="ws-item-head">
             <FolderGlyph />

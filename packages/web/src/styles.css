@@ -27,6 +27,15 @@
   --on-accent: #ffffff;
   --on-danger: #ffffff;
   --inset: #27272a;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --text-caption: 11px;
+  --text-meta: 12px;
+  --text-control: 13px;
+  --text-body: 15px;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --focus-ring: var(--accent);
 }
 
 [data-theme="light"] { color-scheme: light; --bg: #f4f4f5; --panel: #ffffff; --border: #e4e4e7; --text: #18181b; --dim: #71717a; --accent: #3b82f6; --user: #16a34a; --success: #16a34a; --danger: #dc2626; --warning: #eab308; --secondary: #06b6d4; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #e4e4e7; }
@@ -68,8 +77,88 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-150%);
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.skip-link:focus { transform: translateY(0); }
+
+.icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible { color: var(--text); background: var(--panel); }
+.icon-button:disabled { opacity: .45; cursor: default; }
+.icon-button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 2px);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 20;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--text-meta);
+  line-height: var(--leading-tight);
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+.icon-button:hover::after,
+.icon-button:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+
+.type-caption { font-size: var(--text-caption); line-height: var(--leading-tight); }
+.type-meta { font-size: var(--text-meta); line-height: var(--leading-normal); }
+.type-control { font-size: var(--text-control); line-height: var(--leading-normal); }
+
+@media (pointer: coarse) {
+  .icon-button { min-width: 44px; min-height: 44px; }
 }
 
 .app {
@@ -239,7 +328,7 @@ body {
 
 .dim {
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--text-meta);
 }
 
 .new-session {
@@ -756,8 +845,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+   width: 32px;
+   height: 32px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -765,6 +854,10 @@ body {
   color: var(--dim);
   cursor: pointer;
   font: inherit;
+}
+
+@media (pointer: coarse) {
+  .message-action { width: 44px; height: 44px; }
 }
 
 .message-action:hover {
@@ -881,7 +974,7 @@ body {
 }
 
 .md code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   color: var(--user);
   background: color-mix(in srgb, var(--user) 12%, transparent);
@@ -1215,6 +1308,9 @@ body {
   margin-bottom: 10px;
   font-size: 13px;
   cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  width: 100%;
 }
 
 /* Agents & tools editors (main pane; the lists render in the nested
@@ -1248,8 +1344,8 @@ body {
 }
 
 .agent-form textarea.code {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
   white-space: pre;
   overflow-x: auto;
 }
@@ -1766,6 +1862,11 @@ button.composer-chip:hover {
   color: var(--text);
   padding: 6px 10px;
   font: inherit;
+}
+
+.question-custom-label {
+  font-size: var(--text-meta);
+  color: var(--dim);
 }
 
 .modal-close:hover {

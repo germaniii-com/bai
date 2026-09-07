@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Plus, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
+import { IconButton, useDialogFocus } from "./ui";
 
 interface Completion {
   base: string;
@@ -48,6 +49,8 @@ export function AddWorkspaceModal({
   // Navigation clicks move the explorer themselves — the next completion
   // (from the input change they caused) must not re-sync it.
   const skipSyncRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef);
 
   // Debounced completion for the typed path (no focus gate — the explorer
   // must keep updating when focus moves to the columns).
@@ -285,6 +288,8 @@ export function AddWorkspaceModal({
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="ws-modal"
         role="dialog"
         aria-modal="true"
@@ -293,9 +298,9 @@ export function AddWorkspaceModal({
       >
         <div className="model-modal-head">
           <strong>Add a Workspace</strong>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="close">
-            <X size={16} aria-hidden="true" />
-          </button>
+           <IconButton className="modal-close" label="Close workspace picker" hint="Close workspace picker" onClick={onClose}>
+             <X size={16} aria-hidden="true" />
+           </IconButton>
         </div>
         <div className="ws-modal-body">
           <input
@@ -391,7 +396,7 @@ export function AddWorkspaceModal({
               </div>
             </div>
           </div>
-          {error !== null && <div className="error">{error}</div>}
+          {error !== null && <div className="error" role="alert">{error}</div>}
         </div>
         <div className="ws-modal-foot">
           {canCreate && (

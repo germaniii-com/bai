@@ -18,8 +18,8 @@ function blockVars(id: string): Record<string, string> {
   const match = css.match(new RegExp(`\\[data-theme="${id}"\\]\\s*\\{([^}]*)\\}`));
   if (match === null) throw new Error(`no [data-theme="${id}"] block in styles.css`);
   const vars: Record<string, string> = {};
-  for (const m of match[1].matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) {
-    vars[m[1]] = m[2].toLowerCase();
+  for (const m of match[1]!.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) {
+    vars[m[1]!] = m[2]!.toLowerCase();
   }
   return vars;
 }
@@ -71,12 +71,19 @@ describe("theme CSS blocks", () => {
     const root = css.match(/:root\s*\{([^}]*)\}/);
     expect(root).not.toBeNull();
     const rootVars: Record<string, string> = {};
-    for (const m of root![1].matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) {
-      rootVars[m[1]] = m[2].toLowerCase();
+    for (const m of root![1]!.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) {
+      rootVars[m[1]!] = m[2]!.toLowerCase();
     }
     const dark = blockVars("dark");
     for (const [, varName] of SLOT_TO_VAR) {
       expect(rootVars[varName]).toBe(dark[varName]);
     }
+  });
+
+  test("stylesheet contains global focus and typography contracts", () => {
+    expect(css).toContain("--font-sans:");
+    expect(css).toContain("--font-mono:");
+    expect(css).toMatch(/button:focus-visible[\s\S]*outline: 3px solid/);
+    expect(css).toContain(".icon-button::after");
   });
 });

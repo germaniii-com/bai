@@ -66,12 +66,14 @@ function PermissionAsk({
   // dead-button the second ask. Keyed by id the latch dies with its ask;
   // a failed reply clears it (re-arm → retry).
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const busy = busyId === (request.id as string);
 
   const reply = async (status: "approved" | "rejected", scope: "once" | "always", feedback?: string) => {
     if (busy) return;
     const id = request.id as string;
     setBusyId(id);
+    setError(null);
     try {
       await client.replyPermission(id, {
         status,
@@ -81,6 +83,7 @@ function PermissionAsk({
     } catch {
       // The ask stays visible on failure (server unreachable) — retryable.
       setBusyId((current) => (current === id ? null : current));
+      setError("The response could not be sent. Check the connection and try again.");
       return;
     }
     onDone();
@@ -110,6 +113,7 @@ function PermissionAsk({
         {queued > 0 && <span className="ask-queued">· {queued} more queued</span>}
       </div>
       {context !== undefined && <p className="perm-context dim">{context}</p>}
+      {error !== null && <p className="error" role="alert">{error}</p>}
       <p className="perm-tool">
         tool: <strong>{request.tool}</strong>
       </p>
@@ -204,12 +208,14 @@ function QuestionAsk({
   // request id so a next question block — which can mount as a prop swap,
   // not an unmount — never inherits this block's latch.
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const busy = busyId === (request.id as string);
 
   const act = (fn: () => Promise<void>) => {
     if (busy) return;
     const id = request.id as string;
     setBusyId(id);
+    setError(null);
     void (async () => {
       try {
         await fn();
@@ -218,6 +224,7 @@ function QuestionAsk({
         // old unconditional finally-pop hid a still-pending block, and the
         // rejection escaped as an unhandled error.
         setBusyId((current) => (current === id ? null : current));
+        setError("The response could not be sent. Check the connection and try again.");
         return;
       }
       onDone();
@@ -289,7 +296,11 @@ function QuestionAsk({
             />
             <span>Other…</span>
           </label>
+          <label className="question-custom-label" htmlFor={`question-custom-${request.id}-${qi}`}>
+            Your answer
+          </label>
           <input
+            id={`question-custom-${request.id}-${qi}`}
             className="question-custom"
             placeholder="Type your own answer…"
             value={customs[qi] ?? ""}
@@ -297,6 +308,7 @@ function QuestionAsk({
           />
         </fieldset>
       ))}
+      {error !== null && <p className="error" role="alert">{error}</p>}
       <div className="perm-actions">
         <button type="button" className="perm-primary" disabled={busy} onClick={() => void submit()}>
           Submit answers

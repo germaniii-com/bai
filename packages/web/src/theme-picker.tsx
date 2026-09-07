@@ -8,6 +8,7 @@ import {
   type CustomThemeInput,
   type ThemeColors,
 } from "@bai/shared";
+import { IconButton, useDialogFocus } from "./ui";
 
 /**
  * Theme selector modal (germaniii.com's ThemeSelectorModal): a grid of
@@ -72,7 +73,9 @@ export function ThemeSelectorModal({
   // parent re-render (new inline onClose identity) can't cancel a pending
   // transition.
   const onCloseRef = useRef(onClose);
+  const dialogRef = useRef<HTMLDivElement>(null);
   onCloseRef.current = onClose;
+  useDialogFocus(phase !== "hidden", dialogRef);
 
   // open → entering (the entering effect below carries the timer).
   useEffect(() => {
@@ -152,6 +155,8 @@ export function ThemeSelectorModal({
     <>
       <div className="modal-overlay" onClick={onClose} />
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className={
           phase === "entering"
             ? "theme-modal-wrap entering"
@@ -166,13 +171,14 @@ export function ThemeSelectorModal({
         <div className="theme-modal">
           <div className="model-modal-head">
             <h3>{view === "form" ? "Custom theme" : "Choose a theme"}</h3>
-            <button
-              className="modal-close"
-              onClick={() => (view === "form" ? setView("grid") : onClose())}
-              aria-label={view === "form" ? "Back to themes" : "Close theme selector"}
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
+             <IconButton
+               className="modal-close"
+               hint={view === "form" ? "Back to themes" : "Close theme selector"}
+               label={view === "form" ? "Back to themes" : "Close theme selector"}
+               onClick={() => (view === "form" ? setView("grid") : onClose())}
+             >
+               <X size={18} aria-hidden="true" />
+             </IconButton>
           </div>
 
           {view === "form" ? (
@@ -204,7 +210,7 @@ export function ThemeSelectorModal({
                   </label>
                 ))}
               </div>
-              {error !== null && <div className="error">{error}</div>}
+               {error !== null && <div className="error" role="alert">{error}</div>}
               <div className="theme-form-actions">
                 <button type="button" className="theme-form-cancel" onClick={() => setView("grid")}>
                   cancel

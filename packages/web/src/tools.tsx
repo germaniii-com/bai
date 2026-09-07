@@ -40,7 +40,8 @@ export function ToolsNav({
           key={t.name}
           type="button"
           className={selected === t.name ? "provider-item active" : "provider-item"}
-          onClick={() => onSelect(t.name)}
+           onClick={() => onSelect(t.name)}
+           aria-current={selected === t.name ? "page" : undefined}
         >
           <span className="title">{t.name}</span>
           <span className="dim">{t.origin}</span>

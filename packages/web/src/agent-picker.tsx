@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session } from "@bai/shared";
+import { IconButton, useDialogFocus } from "./ui";
 
 /**
  * Chat-header agent picker (TUI ctrl+a parity): a button showing the
@@ -85,6 +86,8 @@ function AgentModal({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef);
 
   // Engagement refetch on open (ModelModal parity): every open pulls fresh
   // data; the firehose keeps it live between opens.
@@ -130,6 +133,8 @@ function AgentModal({
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="model-modal agent-modal"
         role="dialog"
         aria-modal="true"
@@ -138,9 +143,9 @@ function AgentModal({
       >
         <div className="model-modal-head">
           <strong>Pick an agent</strong>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="close">
+          <IconButton className="modal-close" label="Close agent picker" hint="Close agent picker" onClick={onClose}>
             <X size={16} aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
         <div className="agent-modal-list">
           {sorted.length === 0 && <p className="dim col-hint">No agents yet — create one under Agents.</p>}
@@ -169,7 +174,7 @@ function AgentModal({
             );
           })}
         </div>
-        {error !== null && <div className="error">{error}</div>}
+        {error !== null && <div className="error" role="alert">{error}</div>}
       </div>
     </div>
   );

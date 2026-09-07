@@ -8,6 +8,8 @@ import {
   slugifyThemeId,
   THEME_COLORS,
   THEME_OPTIONS,
+  contrastRatio,
+  themeContrastFailures,
   type ThemeColors,
   type ThemeId,
 } from "../src";
@@ -39,7 +41,7 @@ describe("theme catalog", () => {
   test("every theme defines every slot with a valid hex color", () => {
     for (const [id, colors] of Object.entries(THEME_COLORS)) {
       for (const slot of SLOTS) {
-        expect([id, slot], colors[slot]).toMatch(HEX);
+        expect(colors[slot]).toMatch(HEX);
       }
     }
   });
@@ -54,6 +56,31 @@ describe("theme catalog", () => {
   test("default theme is a known dark theme", () => {
     expect(DEFAULT_THEME).toBe("dark");
     expect(THEME_OPTIONS.find((o) => o.value === DEFAULT_THEME)?.mode).toBe("dark");
+  });
+});
+
+describe("WCAG contrast helpers", () => {
+  test("calculates the canonical black/white contrast ratio", () => {
+    expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 5);
+  });
+
+  test("reports invalid custom text roles with their ratios", () => {
+    const failures = themeContrastFailures({
+      surface: "#ffffff",
+      surfaceSecondary: "#ffffff",
+      background: "#ffffff",
+      text: "#000000",
+      textMuted: "#777777",
+      border: "#000000",
+      success: "#008000",
+      danger: "#ff0000",
+      warning: "#000000",
+      primary: "#000000",
+      secondary: "#000000",
+      accent: "#000000",
+    });
+    expect(failures.some((failure) => failure.role === "muted text on surface")).toBe(true);
+    expect(failures.every((failure) => failure.ratio < failure.required)).toBe(true);
   });
 });
 

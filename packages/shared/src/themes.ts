@@ -457,6 +457,44 @@ export function hexLuminance(hex: string): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+/** WCAG 2.x relative luminance (sRGB linearized, unlike hexLuminance). */
+export function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+  const linear = channels.map((channel) => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * (linear[0] ?? 0) + 0.7152 * (linear[1] ?? 0) + 0.0722 * (linear[2] ?? 0);
+}
+
+/** WCAG contrast ratio, expressed as a value from 1 to 21. */
+export function contrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export interface ThemeContrastFailure {
+  role: string;
+  ratio: number;
+  required: number;
+}
+
+/** Validate the text roles shared by the web custom-theme editor. */
+export function themeContrastFailures(colors: ThemeColors): ThemeContrastFailure[] {
+  const checks: Array<[string, string, string, number]> = [
+    ["text on surface", colors.text, colors.surface, 4.5],
+    ["text on panel", colors.text, colors.surfaceSecondary, 4.5],
+    ["muted text on surface", colors.textMuted, colors.surface, 4.5],
+    ["muted text on panel", colors.textMuted, colors.surfaceSecondary, 4.5],
+    ["accent text on surface", colors.primary, colors.surface, 4.5],
+    ["success text on surface", colors.success, colors.surface, 4.5],
+    ["danger text on surface", colors.danger, colors.surface, 4.5],
+    ["focus accent on surface", colors.primary, colors.surface, 3],
+  ];
+  return checks.flatMap(([role, foreground, background, required]) => {
+    const ratio = contrastRatio(foreground, background);
+    return ratio >= required ? [] : [{ role, ratio, required }];
+  });
+}
+
 /** Light/dark mode derived from the surface color (no mode field to maintain). */
 export function modeForColors(colors: ThemeColors): "light" | "dark" {
   return hexLuminance(colors.surface) > 0.5 ? "light" : "dark";

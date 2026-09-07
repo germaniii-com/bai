@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
 import { BaiClient, followGlobal, followSession } from "@bai/api/client";
 import type { MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, messageText } from "./state";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
@@ -536,6 +536,10 @@ export function App() {
 
   /** Save a custom theme from the picker's form, then select it. */
   const saveCustomTheme = async (input: CustomThemeInput): Promise<CustomTheme> => {
+    const failures = themeContrastFailures(input.colors);
+    if (failures.length > 0) {
+      throw new Error(`Theme does not meet WCAG AA contrast: ${failures.map((failure) => `${failure.role} (${failure.ratio.toFixed(2)}:1)`).join(", ")}`);
+    }
     const id = slugifyThemeId(input.name);
     const saved = await client.putCustomTheme(id, input);
     await refreshCustomThemes();
@@ -545,6 +549,7 @@ export function App() {
 
   return (
     <ThemeProvider theme={theme} customColors={customTheme?.colors}>
+    <a className="skip-link" href="#main-content">Skip to main content</a>
     <div className="app">
       {/* Pending asks render INLINE inside the chat pane (no overlay, no
           dim) — the app stays fully navigable while a run is blocked. The
@@ -567,7 +572,7 @@ export function App() {
                 : section === "tools"
                   ? "Tools"
                   : "Chat"}
-        </div>
+         </div>
         {section === "chat" && (
           <>
             {/* Draft state: no session row exists until the first message is
@@ -579,7 +584,9 @@ export function App() {
               {sessions.filter((s) => s.meta.parent === undefined).map((s) => (
                 <button
                   key={s.id}
-                  className={active?.id === s.id ? "session active" : "session"}
+                   className={active?.id === s.id ? "session active" : "session"}
+                   aria-current={active?.id === s.id ? "page" : undefined}
+                   title={s.title.length > 0 ? s.title : "Untitled session"}
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
@@ -606,7 +613,8 @@ export function App() {
               type="button"
               className="workspace-item workspace-active-head"
               title={`${effectiveWorkspacePath} — switch workspace`}
-              onClick={() => selectWorkspace(null)}
+               onClick={() => selectWorkspace(null)}
+               aria-label={`Switch workspace from ${wsBasename(effectiveWorkspacePath)}`}
             >
               <span className="ws-item-head">
                 <FolderGlyph />
@@ -629,7 +637,8 @@ export function App() {
               {workspaceSessions.filter((s) => s.meta.parent === undefined).map((s) => (
                 <button
                   key={s.id}
-                  className={active?.id === s.id ? "session active" : "session"}
+                   className={active?.id === s.id ? "session active" : "session"}
+                   aria-current={active?.id === s.id ? "page" : undefined}
                   onClick={() => setActive(s)}
                 >
                   <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
@@ -674,7 +683,7 @@ export function App() {
       </aside>
 
       {section === "settings" ? (
-        <main className="settings-pane">
+          <main id="main-content" className="settings-pane">
           <SettingsPane
             client={client}
             list={list}
@@ -692,11 +701,11 @@ export function App() {
           />
         </main>
       ) : section === "agents" ? (
-        <main className="agents-pane">
+        <main id="main-content" className="agents-pane">
           {notice !== null && (
-            <div className="notice" role="status" onClick={() => setNotice(null)}>
+             <button type="button" className="notice" role="status" onClick={() => setNotice(null)} aria-label="Dismiss notification">
               {notice}
-            </div>
+             </button>
           )}
           {creatingAgent ? (
             <AgentCreateForm
@@ -716,12 +725,12 @@ export function App() {
           )}
         </main>
       ) : section === "tools" ? (
-        <main className="agents-pane">
-          {notice !== null && (
-            <div className="notice" role="status" onClick={() => setNotice(null)}>
-              {notice}
-            </div>
-          )}
+        <main id="main-content" className="agents-pane">
+           {notice !== null && (
+             <button type="button" className="notice" role="status" onClick={() => setNotice(null)} aria-label="Dismiss notification">
+               {notice}
+             </button>
+           )}
           {creatingTool ? (
             <ToolCreateForm
               existing={tools.map((t) => t.name)}
@@ -739,7 +748,7 @@ export function App() {
           )}
         </main>
       ) : section === "workspace" && effectiveWorkspacePath === null ? (
-        <main className="chat">
+        <main id="main-content" className="chat">
           <p className="dim empty">Select or add a workspace to start.</p>
         </main>
       ) : (

@@ -40,7 +40,8 @@ export function AgentsNav({
           key={a.name}
           type="button"
           className={selected === a.name ? "provider-item active" : "provider-item"}
-          onClick={() => onSelect(a.name)}
+           onClick={() => onSelect(a.name)}
+           aria-current={selected === a.name ? "page" : undefined}
         >
           <span className="title">{a.name}</span>
           <span className="dim">
