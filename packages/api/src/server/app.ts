@@ -29,6 +29,7 @@ import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
 import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, readFile, statPath } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
+import { shellAvailable } from "./shell";
 import { staticHandler } from "./static";
 import { deleteCustomTheme, listCustomThemes, saveCustomTheme } from "./themes";
 
@@ -135,6 +136,14 @@ function buildApi(deps: ApiDeps) {
     .get("/event", (c) =>
       streamSSE(c, (stream) => runFirehose(stream, { bus: deps.bus, version: deps.version })),
     )
+
+    // --- shell (web terminal) ---
+    // Capability probe for the UI's availability check. The terminal itself
+    // rides the /api/shell/ws WebSocket upgrade, intercepted in the mode's
+    // fetch wrapper (cli/modes/web.ts) — Bun's server.upgrade() is only
+    // reachable there. Auth for the upgrade: loopback bypasses; beyond
+    // loopback the pairing token is required as ?token= (shell.ts).
+    .get("/shell", (c) => c.json({ ok: true, available: shellAvailable() }))
 
     // --- permissions ---
     // Global pending-ask index (any session): the surfaces' indicator seed

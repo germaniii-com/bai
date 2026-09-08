@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
+import { shellAuthorized, shellWebSocketHandlers, type ShellSocketData } from "@bai/api";
 import type { Booted } from "../boot";
 import { serverStatePath } from "../paths";
 
@@ -18,14 +19,38 @@ export interface ServeResult {
   port: number;
 }
 
+/**
+ * The fetch wrapper: intercepts the shell WebSocket upgrade before Hono —
+ * Bun's `server.upgrade()` is only reachable here (Hono's fetch handler has
+ * no server reference). Everything else rides the normal app fetch.
+ */
+function shellAwareFetch(
+  booted: Booted,
+): (req: Request, server: ReturnType<typeof Bun.serve>) => Response | Promise<Response> {
+  return (req, server) => {
+    const path = new URL(req.url).pathname;
+    if (path === "/api/shell/ws") {
+      if (!shellAuthorized(req, { token: booted.token, loopbackBind: booted.loopbackBind })) {
+        return new Response("unauthorized", { status: 401 });
+      }
+      if (!server.upgrade(req, { data: { session: null } satisfies ShellSocketData })) {
+        return new Response("websocket upgrade failed", { status: 400 });
+      }
+      return undefined as unknown as Response; // upgraded — Bun ignores this
+    }
+    return booted.app.fetch(req, server);
+  };
+}
+
 /** Serve the app: preferred port (config/--port, default 9640), else ephemeral. */
 export function serve(booted: Booted, hostname: string): ServeResult {
   const preferred = booted.config.server.port ?? PREFERRED_PORT;
+  const websocket = shellWebSocketHandlers();
   try {
-    const server = Bun.serve({ port: preferred, hostname, idleTimeout: IDLE_TIMEOUT_SECONDS, fetch: booted.app.fetch });
+    const server = Bun.serve({ port: preferred, hostname, idleTimeout: IDLE_TIMEOUT_SECONDS, fetch: shellAwareFetch(booted), websocket });
     return { server, url: `http://${displayHost(hostname)}:${server.port ?? preferred}`, port: server.port ?? preferred };
   } catch {
-    const server = Bun.serve({ port: 0, hostname, idleTimeout: IDLE_TIMEOUT_SECONDS, fetch: booted.app.fetch });
+    const server = Bun.serve({ port: 0, hostname, idleTimeout: IDLE_TIMEOUT_SECONDS, fetch: shellAwareFetch(booted), websocket });
     // Bun always assigns a real port for TCP listeners (typed optional for Unix sockets).
     const port = server.port ?? 0;
     return { server, url: `http://${displayHost(hostname)}:${port}`, port };

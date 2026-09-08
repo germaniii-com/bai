@@ -514,6 +514,18 @@ export class BaiClient {
 
   // --- SSE streams ---
 
+  /**
+   * The shell WebSocket URL (web terminal). Browser WebSockets cannot set
+   * Authorization headers, so a configured token rides as `?token=` — the
+   * server compares it constant-time (loopback binds bypass auth entirely).
+   */
+  shellWsUrl(): string {
+    const base = this.opts.baseURL.replace(/\/$/, "").replace(/^http/, "ws");
+    return this.opts.token !== undefined
+      ? `${base}/api/shell/ws?token=${encodeURIComponent(this.opts.token)}`
+      : `${base}/api/shell/ws`;
+  }
+
   /** Durable per-session stream (replay-then-live) starting after `after`. */
   sessionEvents(id: string, opts: { after?: number; signal?: AbortSignal } = {}): AsyncGenerator<Event> {
     const after = opts.after ?? 0;

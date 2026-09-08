@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Video, Wrench } from "lucide-react";
+import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -20,6 +20,7 @@ import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
 import { AnalyticsPane } from "./analytics";
+import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
 
@@ -28,7 +29,14 @@ import { Toast, type Notice } from "./toast";
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "tools" | "analytics" | "image" | "video" | "settings";
+type Section = "chat" | "workspace" | "agents" | "tools" | "analytics" | "image" | "video" | "shell" | "settings";
+
+/**
+ * Sections that render without the nested sidebar (single-pane views — no
+ * contextual nav content, so the main pane gets the full width). Add or
+ * remove section names here to change which views hide the sidebar.
+ */
+const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics"];
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
@@ -625,6 +633,9 @@ export function App() {
       case "analytics":
         pushRoute({ section: "analytics" });
         break;
+      case "shell":
+        pushRoute({ section: "shell" });
+        break;
       // Image/Video are disabled rail placeholders — never navigable (D9).
       case "image":
       case "video":
@@ -680,7 +691,9 @@ export function App() {
           ? { section: "tools", name: effectiveToolId, creating: creatingTool }
           : section === "analytics"
             ? { section: "analytics" }
-            : section === "workspace"
+            : section === "shell"
+              ? { section: "shell" }
+              : section === "workspace"
             ? {
                 section: "workspace",
                 wsPath: effectiveWorkspacePath,
@@ -929,6 +942,13 @@ export function App() {
   // count so a blocked run is never visible.
   const askPanelVisible = section === "chat" || (section === "workspace" && effectiveWorkspacePath !== null);
 
+  // Shell and Analytics are single-pane sections — no nested nav content,
+  // so the sidebar is hidden and the pane gets the width (SIDEBAR_HIDDEN,
+  // top of file). Computed before the JSX: inside the aside's children TS
+  // narrows `section`, which would flag this same comparison as
+  // unreachable there.
+  const showNestedPanel = !SIDEBAR_HIDDEN.includes(section);
+
   // Effective theme: a custom theme (config id matching a loaded theme
   // file) applies its palette inline; built-ins resolve through the catalog
   // (unknown ids fall back to the default). ThemeProvider applies it to
@@ -1026,6 +1046,9 @@ export function App() {
         onThemePicker={() => setThemePickerOpen(true)}
       />
 
+      {/* Shell and Analytics are single-pane sections — no nested nav
+          content, so the sidebar is hidden and the pane gets the width. */}
+      {showNestedPanel && (
       <aside className="nested-panel">
         <div className="nested-title">
           {section === "settings"
@@ -1036,9 +1059,7 @@ export function App() {
                 ? "Agents"
                 : section === "tools"
                   ? "Tools"
-                  : section === "analytics"
-                    ? "Analytics"
-                    : "Chat"}
+                  : "Chat"}
          </div>
         {section === "chat" && (
           <>
@@ -1149,6 +1170,7 @@ export function App() {
           />
         )}
       </aside>
+      )}
 
       {section === "settings" ? (
           <main id="main-content" className="settings-pane">
@@ -1209,6 +1231,10 @@ export function App() {
       ) : section === "analytics" ? (
         <main id="main-content" className="settings-pane">
           <AnalyticsPane client={client} themeColors={themeColors} />
+        </main>
+      ) : section === "shell" ? (
+        <main id="main-content" className="shell-main">
+          <ShellPane client={client} themeColors={themeColors} />
         </main>
       ) : section === "workspace" && effectiveWorkspacePath === null ? (
         <main id="main-content" className="chat">
@@ -1361,6 +1387,10 @@ function MasterNav({
         <Palette className="nav-icon" aria-hidden="true" />
         <span className="nav-label">Theme</span>
       </button>
+      {/* Shell sits directly above Settings — a pinned utility like Theme. */}
+      <MasterItem section="shell" label="Shell" active={section === "shell"} onNavigate={onNavigate}>
+        <Terminal className="nav-icon" aria-hidden="true" />
+      </MasterItem>
       <MasterItem section="settings" label="Settings" active={section === "settings"} onNavigate={onNavigate}>
         <SlidersHorizontal className="nav-icon" aria-hidden="true" />
       </MasterItem>

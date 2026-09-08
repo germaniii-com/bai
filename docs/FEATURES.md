@@ -401,6 +401,49 @@ and user-defined themes as plain JSON files.
 
 ---
 
+## 🖥️ Shell (web terminal) — shipped
+
+A real terminal in the browser: the Shell item in the web nav (between Theme
+and Settings) opens a persistent interactive bash on the server machine.
+
+**What you can do today**
+
+- **Persistent shell sessions**: one bash per browser connection — `cd`,
+  env vars, and shell state persist across commands; navigating away or
+  refreshing ends the session, and reconnecting spawns a fresh one
+- **Full terminal semantics**: the server bridges the shell through a real
+  PTY (a tiny python3 `pty.fork` select-loop — no native modules, so the
+  single-executable build is unaffected), so line editing, ANSI colors,
+  tab completion, and ctrl-c all work; the client renders with xterm.js,
+  themed from the active bai palette
+- **Auth stance**: loopback binds (`bai --web`) open the shell directly;
+  beyond loopback (`bai --host`) the WebSocket upgrade requires the pairing
+  token as `?token=` (browser WebSockets cannot set Authorization headers),
+  compared constant-time — no token configured → the shell is refused
+  (fail closed), and the pane explains why
+- Deep-linkable at `/shell`; the pane shows connection status and
+  auto-reconnects with backoff if the server drops
+
+**Under the hood**
+
+- `api/src/server/shell.ts`: the PTY bridge + `ShellSession` (one
+  `Bun.spawn` per connection; stdin EOF and SIGTERM both tear the shell
+  down — no orphans) and the Bun `websocket` handlers
+- The WS upgrade is intercepted in the web mode's fetch wrapper
+  (`cli/src/modes/web.ts`) before Hono — Bun's `server.upgrade()` is only
+  reachable there; `GET /api/shell` is the capability probe the UI uses
+- Terminal resize rides a 6-byte binary control packet (NUL+0xFF magic —
+  a pair terminal input never starts with) through the bridge, which sets
+  the pty size via `TIOCSWINSZ`; the kernel SIGWINCHs the running programs
+- Fallbacks: no python3 on Linux → `script(1)` bridges the PTY; no bridge
+  at all → bare pipes (the shell works, minus echo/colors/interrupt/resize)
+
+**Coming next**
+
+- Shell output scrollback persistence across reconnects
+
+---
+
 ## Cross-cutting
 
 - **Sync** — every feature streams through the same durable per-session

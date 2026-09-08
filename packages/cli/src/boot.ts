@@ -40,6 +40,8 @@ export interface Booted {
   core: Service;
   app: ReturnType<typeof createApp>;
   token?: string;
+  /** True unless bound beyond loopback (--host) — gates the shell WS upgrade. */
+  loopbackBind: boolean;
   /** Drain runs and close the DB. The HTTP server is owned by the mode. */
   stop(): Promise<void>;
 }
@@ -182,6 +184,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     core,
     app,
     ...(token !== undefined ? { token } : {}),
+    loopbackBind: args.mode !== "host",
     stop: async () => {
       core.coordinator.interruptAll();
       // Fail pending agent→user questions so no tool promise hangs.
