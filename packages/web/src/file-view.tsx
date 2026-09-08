@@ -5,16 +5,20 @@ import { FileCode, FileText, FileVideo, Image as ImageIcon, RotateCw, X } from "
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { Markdown } from "./markdown";
 import { Button } from "./components";
 
 /**
  * The Files view of the workspace section: a tab bar of opened files over a
  * read-only preview area. Text/code files render as source in a locally
- * bundled Monaco editor; images, PDFs, and videos render in their native
- * elements fed by blob URLs. Tab LIST state lives in App (tabs survive
- * Chat⇄Files switches); fetched CONTENT is cached here per tab and
- * refetched when the view remounts — files are small (server caps: 1 MB
- * text / 64 MB media), so the refetch is invisible in practice.
+ * bundled Monaco editor; markdown files offer a Preview ⇄ Raw toggle
+ * (rendered via the shared Markdown component ⇄ source); images, PDFs, and
+ * videos render in their native elements fed by blob URLs — PDFs ride the
+ * browser's built-in PDF viewer (the blob's application/pdf MIME engages
+ * it). Tab LIST state lives in App (tabs survive Chat⇄Files switches);
+ * fetched CONTENT is cached here per tab and refetched when the view
+ * remounts — files are small (server caps: 1 MB text / 64 MB media), so the
+ * refetch is invisible in practice.
  *
  * The server sanitizes mimes (never text/html or text/javascript), so
  * blob URLs are safe to hand to <img>/<video>/<iframe>: html/xml/js files
@@ -22,11 +26,17 @@ import { Button } from "./components";
  */
 
 /** How a file previews, decided client-side by extension (mirrors the
- * server's media map — everything non-media arrives as text/plain). */
-type FileKind = "text" | "image" | "pdf" | "video";
+ * server's media map — everything non-media arrives as text/plain).
+ * Markdown is a text file with a rendered Preview mode. */
+type FileKind = "text" | "markdown" | "image" | "pdf" | "video";
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg"]);
 const VIDEO_EXT = new Set(["mp4", "m4v", "webm", "mov", "ogv", "mkv"]);
+/** Every markdown-family extension the preview renders (md, mdx, mmd, …). */
+const MARKDOWN_EXT = new Set([
+  "md", "mdx", "mmd", "markdown", "mdown", "mkdn", "mkd", "mdwn",
+  "mdtxt", "mdtext", "rmd", "litmd",
+]);
 
 export function fileKind(path: string): FileKind {
   const dot = path.lastIndexOf(".");
@@ -34,6 +44,7 @@ export function fileKind(path: string): FileKind {
   if (IMAGE_EXT.has(ext)) return "image";
   if (ext === "pdf") return "pdf";
   if (VIDEO_EXT.has(ext)) return "video";
+  if (MARKDOWN_EXT.has(ext)) return "markdown";
   return "text";
 }
 
@@ -45,7 +56,9 @@ const LANG_BY_EXT: Record<string, string> = {
   css: "css", scss: "scss", less: "less",
   html: "html", htm: "html",
   xml: "xml", svg: "xml", xsl: "xml",
-  md: "markdown", markdown: "markdown", mdx: "mdx",
+  md: "markdown", markdown: "markdown", mdx: "markdown", mmd: "markdown",
+  mdown: "markdown", mkdn: "markdown", mkd: "markdown", mdwn: "markdown",
+  mdtxt: "markdown", mdtext: "markdown", rmd: "markdown", litmd: "markdown",
   py: "python", pyi: "python",
   rb: "ruby", rs: "rust", go: "go", java: "java", kt: "kotlin", kts: "kotlin",
   c: "c", h: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", hh: "cpp",
@@ -110,6 +123,9 @@ export function FileView({
   onCloseTab: (path: string) => void;
 }) {
   const [entries, setEntries] = useState<Map<string, FileEntry>>(new Map());
+  // Per-file markdown view mode (Preview ⇄ Raw) — preserved across tab
+  // switches, defaults to Preview, reset with the cache on workspace switch.
+  const [mdView, setMdView] = useState<Map<string, "preview" | "raw">>(new Map());
   const urlsRef = useRef<Set<string>>(new Set());
   // The Monaco theme name — defined from the palette data (themes.ts), so a
   // theme switch re-skins the live editor with no CSS-read race. The
@@ -161,14 +177,22 @@ export function FileView({
           const res = await client.readFile(root, path);
           const kind = fileKind(path);
           let built: FetchedEntry;
-          if (kind === "text") {
+          if (kind === "text" || kind === "markdown") {
             const text = await res.text();
             // Cheap binary sniff: NUL bytes in the head mean the "text" file
             // is actually binary (e.g. .wasm) — no mojibake preview.
             const binary = text.slice(0, 1000).includes("\u0000");
             built = binary ? { status: "ok", kind: "binary" } : { status: "ok", kind: "text", text };
           } else {
-            const url = URL.createObjectURL(await res.blob());
+            const blob = await res.blob();
+            // The browser's built-in PDF viewer engages on the blob's MIME
+            // type — coerce it defensively in case a downstream proxy
+            // stripped the server's application/pdf.
+            const typed =
+              kind === "pdf" && blob.type !== "application/pdf"
+                ? blob.slice(0, blob.size, "application/pdf")
+                : blob;
+            const url = URL.createObjectURL(typed);
             urlsRef.current.add(url);
             built = { status: "ok", kind, url };
           }
@@ -193,6 +217,7 @@ export function FileView({
   // Workspace switch: drop the whole cache (App also resets the tab list).
   useEffect(() => {
     setEntries(new Map());
+    setMdView(new Map());
   }, [root]);
 
   // Prune cache entries whose tab closed (blob URLs revoke via the
@@ -239,6 +264,19 @@ export function FileView({
   }, [themeColors]);
 
   const entry = activeFile !== null ? entries.get(activeFile) : undefined;
+  // Markdown files view as rendered Preview by default; the per-file choice
+  // (Preview ⇄ Raw) survives tab switches.
+  const mdMode =
+    activeFile !== null ? (mdView.get(activeFile) ?? "preview") : "preview";
+  const setMdMode = (path: string, mode: "preview" | "raw"): void => {
+    setMdView((prev) => new Map(prev).set(path, mode));
+  };
+  const isMarkdown =
+    activeFile !== null &&
+    fileKind(activeFile) === "markdown" &&
+    entry !== undefined &&
+    entry.status === "ok" &&
+    entry.kind === "text";
 
   // In-place content application: whenever the active entry's text changes
   // (tab switch or a live refetch), push it into the model directly.
@@ -288,6 +326,30 @@ export function FileView({
           );
         })}
       </div>
+      {isMarkdown && activeFile !== null && (
+        <div className="file-view-bar">
+          <div className="pane-switch" role="tablist" aria-label="Markdown view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mdMode === "preview"}
+              className={mdMode === "preview" ? "active" : undefined}
+              onClick={() => setMdMode(activeFile, "preview")}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mdMode === "raw"}
+              className={mdMode === "raw" ? "active" : undefined}
+              onClick={() => setMdMode(activeFile, "raw")}
+            >
+              Raw
+            </button>
+          </div>
+        </div>
+      )}
       <div className="file-preview">
         {activeFile === null ? (
           <p className="dim empty">No file open — pick a file from the tree.</p>
@@ -311,46 +373,56 @@ export function FileView({
             </Button>
           </div>
         ) : entry.kind === "text" ? (
-          <div className="file-editor">
-            <Editor
-              value={entry.text}
-              language={monacoLanguage(activeFile)}
-              theme={monacoTheme}
-              loading={<p className="dim empty">Loading editor…</p>}
-              onMount={(editor) => {
-                editorRef.current = editor;
-                // Insurance for remounts (Chat⇄Files switches): re-measure
-                // once the flex layout has settled. The rAF can outlive the
-                // editor (a loading-state pass disposes it) — a disposed
-                // layout() must not crash the app.
-                requestAnimationFrame(() => {
-                  try {
-                    editor.layout();
-                  } catch {
-                    // disposed mid-flight — the next mount measures itself
-                  }
-                });
-              }}
-              options={{
-                readOnly: true,
-                domReadOnly: true,
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: "on",
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                wordWrap: "on",
-                stickyScroll: { enabled: false },
-                contextmenu: false,
-                padding: { top: 10, bottom: 10 },
-              }}
-            />
-          </div>
+          isMarkdown && mdMode === "preview" ? (
+            // Rendered markdown (the shared chat renderer — GFM tables,
+            // task lists, fenced code with language labels).
+            <div className="file-md">
+              <Markdown text={entry.text} />
+            </div>
+          ) : (
+            <div className="file-editor">
+              <Editor
+                value={entry.text}
+                language={monacoLanguage(activeFile)}
+                theme={monacoTheme}
+                loading={<p className="dim empty">Loading editor…</p>}
+                onMount={(editor) => {
+                  editorRef.current = editor;
+                  // Insurance for remounts (Chat⇄Files switches): re-measure
+                  // once the flex layout has settled. The rAF can outlive the
+                  // editor (a loading-state pass disposes it) — a disposed
+                  // layout() must not crash the app.
+                  requestAnimationFrame(() => {
+                    try {
+                      editor.layout();
+                    } catch {
+                      // disposed mid-flight — the next mount measures itself
+                    }
+                  });
+                }}
+                options={{
+                  readOnly: true,
+                  domReadOnly: true,
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: "on",
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  wordWrap: "on",
+                  stickyScroll: { enabled: false },
+                  contextmenu: false,
+                  padding: { top: 10, bottom: 10 },
+                }}
+              />
+            </div>
+          )
         ) : entry.kind === "binary" ? (
           <p className="dim empty">Binary file — no preview.</p>
         ) : entry.kind === "image" ? (
           <img className="file-media" src={entry.url} alt={basename(activeFile)} />
         ) : entry.kind === "pdf" ? (
+          // The browser's built-in PDF viewer (the blob carries
+          // application/pdf — see the fetch coercion above).
           <iframe className="file-frame" src={entry.url} title={basename(activeFile)} />
         ) : (
           <video className="file-media" src={entry.url} controls />
@@ -363,7 +435,7 @@ export function FileView({
 function TabIcon({ kind }: { kind: FileKind }) {
   if (kind === "image") return <ImageIcon className="tree-icon" aria-hidden="true" />;
   if (kind === "video") return <FileVideo className="tree-icon" aria-hidden="true" />;
-  if (kind === "pdf") return <FileText className="tree-icon" aria-hidden="true" />;
+  if (kind === "pdf" || kind === "markdown") return <FileText className="tree-icon" aria-hidden="true" />;
   return <FileCode className="tree-icon" aria-hidden="true" />;
 }
 

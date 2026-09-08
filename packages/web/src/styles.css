@@ -823,6 +823,26 @@ select:focus-visible,
   overflow: hidden;
 }
 
+/* Markdown viewer toolbar: the Preview ⇄ Raw segmented control (right-aligned). */
+.file-view-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+/* Rendered markdown preview — the shared .md renderer in a scrollable,
+   full-width page (raw source stays one toggle away). */
+.file-md {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg);
+}
+
 .file-media {
   flex: 1;
   min-height: 0;
