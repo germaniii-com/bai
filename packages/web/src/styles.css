@@ -2281,6 +2281,30 @@ button.composer-chip:hover {
   padding: 0 6px 10px;
 }
 
+/* The model modal's one search bar (TUI SelectDialog parity): sits above
+   the three columns and filters MODELS only — the provider column cascades
+   to providers offering a match (accounts follow the selected provider).
+   `type="search"` gives the native clear affordance. */
+.model-search {
+  display: block;
+  margin: 10px 16px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.model-search::placeholder {
+  color: var(--dim);
+}
+
+.model-search:focus-visible {
+  outline-offset: 0;
+}
+
 .col-hint {
   padding: 6px 8px;
 }

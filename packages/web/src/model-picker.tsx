@@ -124,6 +124,12 @@ export function ModelModal({
   const [providerId, setProviderId] = useState<string | null>(null);
   // null = "Server default" (server resolves the provider's default account).
   const [accountId, setAccountId] = useState<string | null>(null);
+  // The one search bar (TUI SelectDialog parity): filters MODELS only —
+  // case-insensitive substring over the model's label OR id — and the
+  // provider column cascades to providers offering at least one match
+  // (accounts follow the selected provider). State dies with the modal (it
+  // unmounts on close), so the filter never lingers between opens.
+  const [modelFilter, setModelFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -150,14 +156,26 @@ export function ModelModal({
   const providers =
     list === null ? [] : sortProviders(list.providers.filter((p) => p.connected));
 
-  // Default selection: the provider backing the current model, else the
-  // first connected one that actually offers models.
+  // The search (TUI SelectDialog filter semantics): case-insensitive
+  // substring over the model's label OR id. Non-empty, the provider column
+  // cascades to providers offering at least one matching model.
+  const query = modelFilter.trim().toLowerCase();
+  const modelMatches = (m: ModelInfo): boolean =>
+    m.label.toLowerCase().includes(query) || m.id.toLowerCase().includes(query);
+  const visibleProviders = query.length > 0 ? providers.filter((p) => p.models.some(modelMatches)) : providers;
+
+  // Default selection: an explicit pick that is still visible wins; else the
+  // provider backing the current model (when visible); else the first
+  // visible one that actually offers models. Scoped to the VISIBLE list so
+  // a search that hides the picked/current provider falls back to a
+  // matching one (the explicit pick returns when the search clears).
   const currentProviderId = current.split("/")[0];
   const effectiveProviderId =
-    providerId ??
-    (providers.some((p) => p.id === currentProviderId)
-      ? currentProviderId
-      : (providers.find((p) => p.models.length > 0)?.id ?? providers[0]?.id ?? null));
+    providerId !== null && visibleProviders.some((p) => p.id === providerId)
+      ? providerId
+      : visibleProviders.some((p) => p.id === currentProviderId)
+        ? currentProviderId
+        : (visibleProviders.find((p) => p.models.length > 0)?.id ?? visibleProviders[0]?.id ?? null);
   const provider = providers.find((p) => p.id === effectiveProviderId);
 
   // Scroll the active provider row into view — the default selection (the
@@ -214,7 +232,8 @@ export function ModelModal({
     }
   };
 
-  // Label-sorted; with preferZdr the ZDR-capable models float first.
+  // Label-sorted; with preferZdr the ZDR-capable models float first. The
+  // search narrows this to the matches (empty query → everything).
   const models: ModelInfo[] =
     provider === undefined
       ? []
@@ -222,6 +241,7 @@ export function ModelModal({
           [...provider.models].sort((a, b) => a.label.localeCompare(b.label)),
           preferZdr === true,
         );
+  const visibleModels = query.length > 0 ? models.filter(modelMatches) : models;
 
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
@@ -243,11 +263,26 @@ export function ModelModal({
         {list === null ? (
           <p className="dim modal-loading">Loading providers…</p>
         ) : (
-          <div className="model-columns">
-            <div className="model-col">
-              <div className="model-col-head">provider</div>
-              <div className="model-col-list">
-                {providers.map((p) => (
+          <>
+            {/* The one search bar (TUI type-to-filter parity): filters
+                MODELS only; the provider column cascades to providers
+                offering a match, accounts follow the selected provider. */}
+            <input
+              className="model-search"
+              type="search"
+              placeholder="Filter models…"
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              aria-label="Filter models"
+            />
+            <div className="model-columns">
+              <div className="model-col">
+                <div className="model-col-head">provider</div>
+                <div className="model-col-list">
+                  {query.length > 0 && visibleProviders.length === 0 && (
+                    <p className="dim col-hint">No matches.</p>
+                  )}
+                  {visibleProviders.map((p) => (
                   <button
                     key={p.id}
                     type="button"
@@ -295,8 +330,19 @@ export function ModelModal({
             <div className="model-col">
               <div className="model-col-head">model</div>
               <div className="model-col-list">
-                {models.length === 0 && <p className="dim col-hint">No models.</p>}
-                {models.map((m) => {
+                {query.length > 0 && visibleProviders.length === 0 ? (
+                  // No provider offers a match — the cascade emptied both
+                  // columns; one message covers them.
+                  <p className="dim col-hint">No matches.</p>
+                ) : (
+                  <>
+                    {models.length === 0 && <p className="dim col-hint">No models.</p>}
+                    {models.length > 0 && visibleModels.length === 0 && (
+                      <p className="dim col-hint">No matches.</p>
+                    )}
+                  </>
+                )}
+                {visibleModels.map((m) => {
                   const isCurrent = provider !== undefined && provider.id === currentProviderId && m.id === current;
                   const parts: string[] = [];
                   if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
@@ -323,6 +369,7 @@ export function ModelModal({
               </div>
             </div>
           </div>
+          </>
         )}
         {error !== null && <div className="error" role="alert">{error}</div>}
       </div>
