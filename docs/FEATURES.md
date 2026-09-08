@@ -46,6 +46,16 @@ The conversation modality and bai's default session type.
   titles, categories, and ids
 - Per-session model override, live from any surface (`config.updated` /
   `provider.updated` propagate instantly)
+- **Context tracker** (pi/opencode parity): the composer hub shows the
+  session's live context usage — `45k (23%)` in the TUI's commands row, a
+  chip on the web's composer status row — tone-shifted as the window fills
+  (warning >70%, danger >90%), `?/200k` after compaction until the next
+  model response. One durable `run.usage` event per provider turn keeps
+  every surface in sync
+- **Compact overlay dialogs** (TUI): the session/theme/model pickers and the
+  ctrl+p supermenu float as centered panels over the live conversation —
+  the transcript stays visible and streaming behind them (opencode's dialog
+  model); the agent/skills/subagent managers remain full-screen
 - Headless mode: `bai --one-shot "prompt" --format json` streams NDJSON and
   exits when the run goes idle
 

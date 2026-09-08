@@ -1,4 +1,4 @@
-import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, PartId, PromptPayload, QuestionReview, SessionId } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import { applyDiscipline } from "./context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
@@ -104,6 +104,8 @@ interface RunContext {
   provider: Provider;
   providerId: string;
   model: string;
+  /** The full catalog id the session/agent/config asked for ("stub/echo"). */
+  modelId: string;
   reasoning: boolean | undefined;
   contextWindow: number | undefined;
   credentials: ResolvedCredentials;
@@ -398,7 +400,16 @@ export class RunCoordinator {
         }
 
         if (usage?.inputTokens !== undefined) {
-          this.recordUsage(sessionId, usage);
+          this.recordUsage(sessionId, usage, run.modelId, run.contextWindow);
+          // The context tracker's live feed (durable — replay heals drops):
+          // one event per provider turn with the full breakdown + window.
+          this.emitDurable(sessionId, "run.usage", {
+            usage: {
+              ...usage,
+              model: run.modelId,
+              ...(run.contextWindow !== undefined ? { contextWindow: run.contextWindow } : {}),
+            },
+          });
           // D26: every provider call records a usage row. All dimensions are
           // in scope here — the run context (agent/provider/model/account) and
           // the session row (workspace = cwd).
@@ -539,6 +550,7 @@ export class RunCoordinator {
       provider,
       providerId,
       model,
+      modelId,
       reasoning,
       contextWindow,
       credentials,
@@ -592,12 +604,24 @@ export class RunCoordinator {
     return typeof id === "string" && id.length > 0 ? (id as MessageId) : undefined;
   }
 
-  /** Persist the latest provider-reported usage — the compaction trigger input. */
-  private recordUsage(sessionId: SessionId, usage: { inputTokens?: number; outputTokens?: number }): void {
+  /**
+   * Persist the latest provider-reported usage — the compaction trigger
+   * input AND the context tracker's snapshot seed (surfaces read it via
+   * `sessionSnapshot().usage` without waiting for the next turn). The full
+   * breakdown + window/model ride along so the tracker never needs the
+   * provider catalog.
+   */
+  private recordUsage(sessionId: SessionId, usage: StreamUsage, modelId: string, contextWindow: number | undefined): void {
     const existing = this.deps.store.sessions.get(sessionId);
     if (existing === undefined) return;
-    const meta = { ...(existing.meta as Record<string, unknown>), lastUsage: usage };
-    // Quiet bookkeeping — no session.updated spam; surfaces read usage via meta.
+    const meta = { ...(existing.meta as Record<string, unknown>) };
+    meta.lastUsage = {
+      ...usage,
+      model: modelId,
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+    } satisfies SessionUsage;
+    // Quiet bookkeeping — no session.updated spam; surfaces read usage via
+    // meta (snapshot) and the run.usage event.
     this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
   }
 
@@ -759,6 +783,12 @@ export class RunCoordinator {
       const meta: Record<string, unknown> = { ...(existing.meta as Record<string, unknown>), compactionMessageId: message.id };
       delete meta.lastUsage; // re-arm the trigger
       this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
+      // The tracker's post-compaction semantics (pi parity): context tokens
+      // are unknown until the next turn re-reports — a token-less event
+      // renders `?/window` instead of a stale pre-compaction percentage.
+      this.emitDurable(sessionId, "run.usage", {
+        usage: contextWindow !== undefined ? { contextWindow } : {},
+      });
     } catch (err) {
       // D26: a failure at/after the stream call is a failed provider call —
       // record it (resolveTitleModel failures made no call, so no row).

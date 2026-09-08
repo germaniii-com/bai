@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
-import { listWindow } from "../components/dialog";
+import { isMouseInput, listWindow } from "../components/dialog";
 import { deleteWord } from "../state/composer";
 import { flattenSections, paletteSections, type CommandSpec } from "../state/commands";
 import { useTheme } from "../theme";
@@ -29,12 +29,18 @@ export function CommandPalette({
   specs,
   onRun,
   onClose,
+  windowSize = WINDOW,
+  deferInput = false,
 }: {
   specs: CommandSpec[];
   /** Receives the highlighted command's id (enter / batched enter). */
   onRun: (id: string) => void;
   /** esc — close without running anything. */
   onClose: () => void;
+  /** Sliding-window size — the overlay shell caps it to the terminal height. */
+  windowSize?: number;
+  /** True while another App-level overlay dialog owns the keyboard. */
+  deferInput?: boolean;
 }) {
   const t = useTheme();
   const [filter, setFilter] = useState("");
@@ -58,6 +64,7 @@ export function CommandPalette({
   const cursorEntry = commandEntries[Math.min(clamped, commandEntries.length - 1)] ?? 0;
 
   useInput((ch, key) => {
+    if (isMouseInput(ch)) return; // clicks/wheel never type into the filter
     if (key.escape) return onClose();
     if (key.upArrow) return setIndex((i) => Math.max(0, i - 1));
     if (key.downArrow) return setIndex((i) => Math.min(flat.length - 1, i + 1));
@@ -105,15 +112,26 @@ export function CommandPalette({
       setFilter(newQuery);
       setIndex(0);
     }
-  });
+  },
+    { isActive: !deferInput },
+  );
 
   // Sliding window of RENDER LINES around the highlight (SelectDialog's
   // listbox scroll).
-  const { start, end } = listWindow(cursorEntry, entries.length, WINDOW);
+  const { start, end } = listWindow(cursorEntry, entries.length, windowSize);
   const windowed = entries.slice(start, end);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
+    // Opaque surface: as an overlay panel the palette must paint over the
+    // chat behind it (Ink has no alpha).
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={t.border}
+      borderBackgroundColor={t.background}
+      backgroundColor={t.background}
+      paddingX={1}
+    >
       <Text bold color={t.accent}>
         commands
       </Text>

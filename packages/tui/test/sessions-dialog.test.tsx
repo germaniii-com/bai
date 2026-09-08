@@ -202,4 +202,21 @@ describe("SessionsView dialog (ctrl+s)", () => {
     deep.unmount();
     expect(picked).toEqual(["ses_25"]);
   });
+
+  test("windowSize caps the list (the overlay shell's height budget)", async () => {
+    const many = Array.from(
+      { length: 30 },
+      (_, i) => session(`ses_${String(i).padStart(2, "0")}`, `Chat ${i}`),
+    );
+    const { lastFrame, unmount } = render(
+      <SessionsView sessions={many} windowSize={4} onPick={() => {}} onNew={() => {}} onDone={() => {}} />,
+    );
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("Chat 0");
+    expect(frame).toContain("Chat 3");
+    expect(frame).not.toContain("Chat 4");
+    expect(frame).toContain("↓ 26 more");
+  });
 });

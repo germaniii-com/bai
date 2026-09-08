@@ -10,6 +10,29 @@
  *  generation, compaction summaries) are real spend, tagged for filtering. */
 export type UsageKind = "run" | "title" | "compaction";
 
+/**
+ * The latest provider-reported usage of a session — the context tracker's
+ * data shape everywhere (the `run.usage` event payload, `session.meta.
+ * lastUsage`, and the history snapshot's `usage` field). All token fields
+ * optional (providers vary); `contextWindow`/`model` ride along so surfaces
+ * never need the provider catalog to render a percentage. After compaction
+ * core emits a token-less row (only `contextWindow`) — "unknown until the
+ * next turn", pi's `?` semantics.
+ */
+export interface SessionUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Subset of outputTokens (thinking) — never added on top. */
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite1hTokens?: number;
+  /** The model's context window at the time of the turn. */
+  contextWindow?: number;
+  /** Catalog id of the model that reported the usage. */
+  model?: string;
+}
+
 /** Time-bucket size for the analytics series (UTC; RFC3339 substr). */
 export type UsageGranularity = "day" | "month" | "year";
 

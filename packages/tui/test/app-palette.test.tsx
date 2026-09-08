@@ -97,4 +97,56 @@ describe("App supermenu (ctrl+p)", () => {
       unmount();
     }
   }, 30000);
+
+  test("the palette floats over the live chat; the chat goes silent while it's open", async () => {
+    const { stdin, lastFrame, stdout, unmount } = render(<App client={client} version="test" />);
+    const frames = stdout.frames;
+    try {
+      await tick(200); // startup fetches + firehose hello
+
+      // ctrl+p: the palette renders as an OVERLAY — the chat underneath
+      // stays mounted and visible in the same frame (the hub's draft label
+      // at the panel's left + the commands row below it; the wider panel
+      // covers the empty-transcript line itself on the 100-col terminal).
+      const markP = frames.length;
+      stdin.write("\x10"); // ctrl+p
+      const palette = await waitForAnyFrame(
+        () => frames.slice(markP),
+        (f) => f.includes("commands") && f.includes("Suggested"),
+      );
+      expect(palette).toContain("new session");
+      expect(palette).toContain("i input · j/k scroll");
+
+      // Typing goes to the palette's filter; the chat behind must NOT react
+      // ("i" in NORMAL mode would enter INPUT — the hub's commands row would
+      // swap to the input-mode hints; the status badge itself is occluded by
+      // the floating panel, the commands row is not).
+      stdin.write("i");
+      const filtered = await waitForAnyFrame(
+        () => frames.slice(markP),
+        (f) => f.includes("filter: i"),
+      );
+      expect(filtered).toContain("i input · j/k scroll");
+      expect(filtered).not.toContain("enter send · esc normal");
+
+      // esc closes the overlay; the chat is live again — "i" now enters
+      // INPUT mode (the hub's typing affordance appears).
+      const markE = frames.length; // palette is on screen here
+      stdin.write("\x1b");
+      await waitForAnyFrame(
+        () => frames.slice(markE),
+        (f) => !f.includes("type to filter"),
+      );
+      const markI = frames.length;
+      stdin.write("i");
+      const inputMode = await waitForAnyFrame(
+        () => frames.slice(markI),
+        (f) => f.includes("enter send"),
+      );
+      expect(inputMode).toContain("›");
+      expect(inputMode).not.toContain("type to filter");
+    } finally {
+      unmount();
+    }
+  }, 30000);
 });

@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
-import type { Input, Message, PermissionRequest, QuestionRequest, Session } from "@bai/shared";
+import type { Input, Message, PermissionRequest, QuestionRequest, Session, SessionUsage } from "@bai/shared";
+import { contextTracker } from "@bai/shared";
 import type { Mode } from "../app";
 import { buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
 import type { PickerOption } from "../state/providers";
@@ -70,6 +71,8 @@ export function ChatView({
   modelLabel,
   agent,
   footerRows,
+  usage = null,
+  deferInput = false,
   onEnterInput,
   onExitInput,
   onSessionCreated,
@@ -108,6 +111,13 @@ export function ChatView({
   agent: string;
   /** Rows the App footer renders below this view — anchors the hub chip hit-testing. */
   footerRows: number;
+  /** The session's latest provider-reported usage — the hub's context tracker. */
+  usage?: SessionUsage | null;
+  /** True while an App-level overlay dialog is open: this view stays mounted
+   *  (the transcript keeps streaming behind the dialog) but must go silent —
+   *  Ink delivers input to every mounted handler, so keys/mouse/paste would
+   *  double-handle. */
+  deferInput?: boolean;
   /** Switch to INPUT mode (i/a/Enter in NORMAL; paste implies typing). */
   onEnterInput: () => void;
   /** Back to NORMAL (esc in INPUT). */
@@ -597,12 +607,13 @@ export function ChatView({
   // Paste implies typing intent: NORMAL mode switches to INPUT first
   // (idempotent when already there), so pasted content is always editable.
   usePaste((pasted) => {
-    if (askPending) return; // the prompt owns typing while it's up
+    if (askPending || deferInput) return; // the prompt owns typing while it's up; overlays own everything
     onEnterInput();
     setEditor((e) => insert(e, sanitize(pasted)));
   });
 
-  useInput((ch, key) => {
+  useInput(
+    (ch, key) => {
     // SGR mouse events arrive as literal input (ESC stripped): press
     // `ESC[<button;col;rowM`, release `…m`. Coordinates are 1-based. Works
     // even while busy — reading history during a run.
@@ -875,7 +886,11 @@ export function ChatView({
         setEditor((e) => insertMultiline(e, tail));
       }
     }
-  });
+  },
+    // Deferred while an App-level overlay dialog is open: the view stays
+    // mounted behind it, and Ink would deliver every key/mouse event twice.
+    { isActive: !deferInput },
+  );
 
   const len = focusItems.length;
   // Clamp for rendering: the measured content height can lag one commit behind
@@ -914,6 +929,10 @@ export function ChatView({
     agent,
     model: modelLabel,
   });
+
+  // Context tracker readout (shared/src/display.ts): `45.2k (23%)` with the
+  // pi thresholds — undefined until the session's first usage lands.
+  const tracker = contextTracker(usage);
 
   // Message-actions options: Restore leads when a revert is pending (the
   // dialog is reachable on any user message — the boundary itself is hidden).
@@ -1216,10 +1235,12 @@ export function ChatView({
       {msgActions !== null ? (
         // The message-actions modal (opencode's DialogMessage): takes the
         // composer hub's slot like the inline ask prompts; its own useInput
-        // owns arrows/enter/esc/filter while the chat defers.
+        // owns arrows/enter/esc/filter while the chat defers. Deferred too
+        // while an App-level overlay is open (both would hear every key).
         <SelectDialog
           title="Message Actions"
           options={messageActionOptions}
+          deferInput={deferInput}
           onPick={(value) => {
             const message = msgActionsMessage;
             if (message === undefined) return setMsgActions(null);
@@ -1238,6 +1259,7 @@ export function ChatView({
         <SelectDialog
           title="Queued Message"
           options={queuedActionOptions}
+          deferInput={deferInput}
           onPick={(value) => {
             const input = queuedActionsInput;
             if (input === undefined) return setQueuedActions(null);
@@ -1258,6 +1280,7 @@ export function ChatView({
           ui={askUi ?? emptyAskUi()}
           onUi={setAskUi ?? (() => {})}
           queued={askQueued}
+          deferInput={deferInput}
           onDone={headFromChild ? (onChildAskDone ?? (() => {})) : (onPermissionDone ?? (() => {}))}
         />
       ) : headQuestion !== undefined ? (
@@ -1268,6 +1291,7 @@ export function ChatView({
           ui={askUi ?? emptyAskUi()}
           onUi={setAskUi ?? (() => {})}
           queued={askQueued}
+          deferInput={deferInput}
           onDone={onQuestionDone ?? (() => {})}
         />
       ) : (
@@ -1279,6 +1303,7 @@ export function ChatView({
           runActive={runActive}
           layout={hubLayout}
           queuedCount={queuedInputs.length - sendingIds.length}
+          context={tracker}
         />
       )}
     </Box>

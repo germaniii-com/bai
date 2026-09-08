@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import React from "react";
-import type { Session, SessionId } from "@bai/shared";
+import type { Session, SessionId, SessionUsage } from "@bai/shared";
+import { contextTracker } from "@bai/shared";
 import { ComposerHub } from "../src/components/composer";
 import { layoutHubStatus } from "../src/state/hub";
 
@@ -76,5 +77,64 @@ describe("ComposerHub render", () => {
     const frame = lastFrame() ?? "";
     unmount();
     expect(frame).toContain("esc stop");
+  });
+
+  test("context tracker: appended to the commands row in both modes", async () => {
+    const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000 };
+    const tracker = contextTracker(usage);
+    expect(tracker).toBeDefined();
+    // INPUT mode (short hint row): the full label fits the 100-col test
+    // terminal. NORMAL mode's long hint row truncates the tail first — the
+    // designed narrow-terminal behavior — so only the segment's head survives.
+    const inputLayout = layoutHubStatus({ width: 60, session: session(), mode: "input", agent: "build", model: "stub/echo" });
+    const { lastFrame, unmount } = render(
+      <ComposerHub
+        editor={{ text: "", cursor: 0 }}
+        mode="input"
+        busy={false}
+        escArmed={false}
+        runActive={false}
+        layout={inputLayout}
+        context={tracker}
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain("· 45k (23%)");
+    unmount();
+
+    const normalLayout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });
+    const normal = render(
+      <ComposerHub
+        editor={{ text: "", cursor: 0 }}
+        mode="normal"
+        busy={false}
+        escArmed={false}
+        runActive={false}
+        layout={normalLayout}
+        context={tracker}
+      />,
+    );
+    await tick();
+    expect(normal.lastFrame() ?? "").toContain("· 4");
+    normal.unmount();
+  });
+
+  test("context tracker: absent when there is no usage yet", async () => {
+    const layout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });
+    const { lastFrame, unmount } = render(
+      <ComposerHub
+        editor={{ text: "", cursor: 0 }}
+        mode="normal"
+        busy={false}
+        escArmed={false}
+        runActive={false}
+        layout={layout}
+      />,
+    );
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).not.toContain("45k");
+    expect(frame).not.toContain("?/");
   });
 });

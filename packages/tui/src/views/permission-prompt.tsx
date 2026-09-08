@@ -35,6 +35,7 @@ export function PermissionPrompt({
   onUi,
   queued = 0,
   onDone,
+  deferInput = false,
 }: {
   client: BaiClient;
   request: PermissionRequest;
@@ -47,6 +48,9 @@ export function PermissionPrompt({
   /** Asks waiting behind this one (queue indicator). */
   queued?: number;
   onDone: () => void;
+  /** True while an App-level overlay dialog owns the keyboard — plain keys
+   *  must not answer the ask from behind the dialog. */
+  deferInput?: boolean;
 }) {
   // Request-scoped busy latch: the id the reply was sent for, not a bare
   // boolean. Consecutive asks swap the `request` prop on the SAME mounted
@@ -68,8 +72,9 @@ export function PermissionPrompt({
       .finally(() => onDone());
   };
 
-  useInput((ch, key) => {
-    if (busy) return;
+  useInput(
+    (ch, key) => {
+      if (busy) return;
     if (ui.stage === "reject") {
       if (key.escape) return reply("rejected", "once"); // esc = reject without a message
       if (key.return) return reply("rejected", "once", ui.message.trim().length > 0 ? ui.message.trim() : undefined);
@@ -93,7 +98,11 @@ export function PermissionPrompt({
     if (ch === "d") return onUi((prev) => ({ ...prev, stage: "reject" }));
     // esc never answers an ask — the run stays blocked until a real choice
     // (chat's esc keeps its interrupt-arming semantics meanwhile).
-  });
+  },
+    // Deferred while an App-level overlay dialog owns the keyboard — plain
+    // keys must not answer the ask from behind the dialog.
+    { isActive: !deferInput },
+  );
 
   const detail = request.detail;
   const diffLines = detail?.diff !== undefined ? detail.diff.split("\n") : [];

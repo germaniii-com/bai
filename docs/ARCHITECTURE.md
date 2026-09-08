@@ -298,6 +298,9 @@ Event types (initial set): `session.created|updated`, `input.admitted`,
 `input.promoted|cancelled|updated` (message-queue lifecycle),
 `message.created`, `message.part.updated`, `message.part.delta`,
 `message.removed` (revert cleanup), `run.started|finished`,
+`run.usage` (one durable event per provider turn — the context tracker's
+live feed; carries the full token breakdown + the model's context window;
+after compaction a token-less row means "unknown until the next turn"),
 `permission.asked|replied`, `job.updated`, `asset.created`,
 `config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
 `server.hello`. Live-only events (`config.updated`, `provider.updated`,
@@ -542,6 +545,22 @@ Runs under Bun directly — no build step.
 - Root component + view-state enum (`chat`, `sessions`, `gallery`, `jobs`,
   `settings`) + focus-state routing; components are sub-components; overlay
   dialogs intercept keys before global bindings.
+- **Dialog model (opencode's overlay split):** the pickers + palette
+  (sessions, themes, provider/model wizard, ctrl+p) render as compact
+  floating overlays (`components/dialog-overlay.tsx` — absolute-positioned
+  panel, ¼ from the top, width 60, list window capped to ~60% of the
+  terminal) over the LIVE view: the chat stays mounted and visible behind
+  (transparent backdrop — Ink has no alpha) and keeps streaming. The
+  workspace-like managers (agents, skills, subagents) keep the full-screen
+  render-branch swap. While an overlay is open the chat goes silent
+  (`deferInput` → `useInput` `isActive` gating) — Ink delivers input to
+  every mounted handler, so ungated keys would double-handle.
+- **Context tracker** (the composer hub's commands-row tail, pi/opencode
+  parity): the session's live context usage — `45k (23%)`, tone-shifted at
+  70/90% of the window, `?/200k` after compaction. Data: the durable
+  `run.usage` event per provider turn + the snapshot's `usage` seed
+  (`meta.lastUsage`); the math is pure in `shared/src/display.ts`
+  (`contextTracker`), shared verbatim with the web chip.
 - **Supermenu** (`ctrl+p`, `views/command-palette.tsx` + `state/commands.ts`):
   the single entry point for app commands — a searchable palette with
   category headers and a contextual Suggested section (opencode's command

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import React from "react";
 import type { PickerOption } from "../src/state/providers";
-import { SelectDialog } from "../src/components/dialog";
+import { PromptDialog, SelectDialog, isMouseInput } from "../src/components/dialog";
 
 /**
  * The shared select dialog (providers / accounts / the flat model list): ctrl+j/k
@@ -121,5 +121,47 @@ describe("SelectDialog ctrl+j/k navigation", () => {
     const frame = lastFrame() ?? "";
     unmount();
     expect(frame).toContain("filter: a");
+  });
+});
+
+describe("mouse input is blocked (never types into the dialog)", () => {
+  test("isMouseInput matches the SGR shapes (click + wheel, ESC prefix optional)", () => {
+    expect(isMouseInput("[<0;10;5M")).toBe(true); // left click (ESC stripped by ink)
+    expect(isMouseInput("\x1b[<0;10;5M")).toBe(true); // with ESC prefix
+    expect(isMouseInput("[<64;10;5M")).toBe(true); // wheel up
+    expect(isMouseInput("[<65;10;5m")).toBe(true); // wheel release
+    expect(isMouseInput("a")).toBe(false);
+    expect(isMouseInput("ab")).toBe(false);
+    expect(isMouseInput(undefined)).toBe(false);
+    expect(isMouseInput("[<0;10;5X")).toBe(false); // not a mouse terminator
+  });
+
+  test("a click's SGR sequence never lands in the SelectDialog filter", async () => {
+    const { stdin, lastFrame, unmount } = render(
+      <SelectDialog title="pick" options={options} onPick={() => {}} onClose={() => {}} />,
+    );
+    await tick();
+    // SGR click as ink delivers it (ESC prefix stripped) — the coordinates
+    // must not type into the filter.
+    stdin.write("[<0;10;5M");
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("type to filter");
+    expect(frame).not.toContain("filter:");
+    expect(frame).not.toContain("0;10;5");
+  });
+
+  test("a click's SGR sequence never lands in the PromptDialog text", async () => {
+    const { stdin, lastFrame, unmount } = render(
+      <PromptDialog title="input" placeholder="type here" onSubmit={() => {}} onClose={() => {}} />,
+    );
+    await tick();
+    stdin.write("[<0;10;5M");
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("type here");
+    expect(frame).not.toContain("0;10;5");
   });
 });

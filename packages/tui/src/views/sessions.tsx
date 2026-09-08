@@ -21,6 +21,7 @@ export function SessionsView({
   onPick,
   onNew,
   onDone,
+  windowSize,
 }: {
   sessions: Session[];
   /** Currently open session — marked and pre-selected in the list. */
@@ -32,6 +33,8 @@ export function SessionsView({
   onNew: () => void;
   /** esc — close the dialog. */
   onDone: () => void;
+  /** Sliding-window size (overlay height cap). */
+  windowSize?: number;
 }) {
   const options = sessions.map((s) => {
     const asks = askIndex?.get(s.id) ?? 0;
@@ -56,6 +59,7 @@ export function SessionsView({
       options={options}
       initialIndex={initialIndex}
       emptyHint="none yet — ctrl+n to start one"
+      windowSize={windowSize}
       actions={[{ key: "n", label: "new", onAction: () => onNew() }]}
       onPick={(id) => {
         const picked = sessions.find((s) => s.id === id);

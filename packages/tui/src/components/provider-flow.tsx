@@ -41,6 +41,7 @@ export function ProviderFlow({
   initialStep,
   onDone,
   onRefresh,
+  windowSize,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
@@ -52,6 +53,8 @@ export function ProviderFlow({
   onDone: () => void;
   /** Refetch providers after account mutations (app owns the state). */
   onRefresh: () => void;
+  /** Sliding-window size for the picker steps (overlay height cap). */
+  windowSize?: number;
 }) {
   const [step, setStep] = useState<Step>(initialStep ?? { kind: "providers" });
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +121,7 @@ export function ProviderFlow({
         key="providers"
         title="Providers"
         options={providerOptions(list.providers)}
+        windowSize={windowSize}
         onPick={(value) => setStep({ kind: "accounts", providerId: value })}
         onClose={onDone}
       />
@@ -132,6 +136,7 @@ export function ProviderFlow({
           key={`accounts:${provider.id}`}
           title={`Accounts · ${provider.name}`}
           options={accountOptions(provider)}
+          windowSize={windowSize}
           actions={[
             { key: "a", label: "add", onAction: () => setStep({ kind: "add-id", providerId: provider.id }) },
             {
@@ -228,6 +233,7 @@ export function ProviderFlow({
           key={`models:${provider.id}:${step.accountId ?? ""}`}
           title={`Models · ${provider.name}${step.accountId !== undefined ? ` · ${step.accountId}` : ""}`}
           options={modelOptions(provider, preferZdr === true)}
+          windowSize={windowSize}
           onPick={(value) => {
             if (value === "__custom__") {
               setStep({ kind: "custom-model", providerId: provider.id, accountId: step.accountId });
@@ -247,6 +253,7 @@ export function ProviderFlow({
         key="all-models"
         title="Models"
         options={allModelOptions(list.providers, preferZdr === true)}
+        windowSize={windowSize}
         onPick={(value) => {
           if (value === "__custom__") {
             setStep({ kind: "custom-model" });

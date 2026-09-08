@@ -26,6 +26,7 @@ export function QuestionPrompt({
   onUi,
   queued = 0,
   onDone,
+  deferInput = false,
 }: {
   client: BaiClient;
   request: QuestionRequest;
@@ -36,6 +37,9 @@ export function QuestionPrompt({
   /** Asks waiting behind this one (queue indicator). */
   queued?: number;
   onDone: () => void;
+  /** True while an App-level overlay dialog owns the keyboard — plain keys
+   *  must not answer the question from behind the dialog. */
+  deferInput?: boolean;
 }) {
   // Request-scoped busy latch (see permission-prompt.tsx): keyed by the
   // request id so a next question block — which can mount as a prop swap,
@@ -155,7 +159,11 @@ export function QuestionPrompt({
       return;
     }
     if (ui.dismissArmed) onUi((prev) => ({ ...prev, dismissArmed: false }));
-  });
+  },
+    // Deferred while an App-level overlay dialog owns the keyboard — plain
+    // keys must not answer the question from behind the dialog.
+    { isActive: !deferInput },
+  );
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>

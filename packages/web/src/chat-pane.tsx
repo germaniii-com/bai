@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, GitFork, GraduationCap, Hourglass, Undo2, X } from "lucide-react";
+import { Check, Copy, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import type { AgentInfo, Input, Message, ProviderListResponse, Session } from "@bai/shared";
+import type { AgentInfo, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
+import { contextTracker, formatTokens } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -26,6 +27,26 @@ function hubContextLabel(active: Session | null): string {
     return parts[parts.length - 1] ?? cwd;
   }
   return `${active.workbench} · ${active.title.length > 0 ? active.title : "(untitled)"}`;
+}
+
+/**
+ * The context chip's tooltip — the exact numbers behind the compact label
+ * (same token sum the tracker label uses: input + output + cache reads +
+ * cache writes; reasoning excluded as an output subset).
+ */
+function contextChipTitle(usage: SessionUsage | null | undefined): string {
+  if (usage === undefined || usage === null) return "";
+  const tokens =
+    (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
+  const tokensKnown = usage.inputTokens !== undefined || usage.outputTokens !== undefined;
+  if (!tokensKnown) {
+    return usage.contextWindow !== undefined
+      ? "Context usage unknown until the next model response (post-compaction)."
+      : "";
+  }
+  if (usage.contextWindow === undefined) return `${formatTokens(tokens)} tokens in context`;
+  const pct = Math.round((tokens / usage.contextWindow) * 100);
+  return `${formatTokens(tokens)} of ${formatTokens(usage.contextWindow)} tokens (${pct}% of context window)`;
 }
 
 /**
@@ -73,6 +94,7 @@ export function ChatPane({
    onCancelQueued,
    onEditQueued,
    onLearn,
+   usage = null,
  }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
@@ -137,6 +159,8 @@ export function ChatPane({
    * chip (draft state — the Skills page covers fresh learns).
    */
   onLearn?: (request: string) => void;
+  /** The session's latest provider-reported usage — the context tracker chip. */
+  usage?: SessionUsage | null;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -146,6 +170,9 @@ export function ChatPane({
   const visible = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
   const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
   const [learnOpen, setLearnOpen] = useState(false);
+  // Context tracker readout (shared/src/display.ts — TUI parity): undefined
+  // until the session's first usage lands.
+  const tracker = contextTracker(usage);
 
   return (
     <main className="chat">
@@ -298,6 +325,18 @@ export function ChatPane({
             <span className="composer-chip static queued-chip" title="Messages waiting in the queue">
               <Hourglass size={11} aria-hidden="true" />
               <span className="chip-label">{queuedInputs.length - sendingIds.length} queued</span>
+            </span>
+          )}
+          {tracker !== undefined && (
+            // The context tracker (pi/opencode parity): the session's live
+            // context usage as a static chip — `45k (23%)`, tone-shifted at
+            // the 70/90% thresholds; the tooltip carries the exact numbers.
+            <span
+              className={`composer-chip static context-chip${tracker.tone !== "dim" ? ` ${tracker.tone}` : ""}`}
+              title={contextChipTitle(usage)}
+            >
+              <Gauge size={11} aria-hidden="true" />
+              <span className="chip-label">{tracker.label}</span>
             </span>
           )}
           <span className="composer-spacer" />

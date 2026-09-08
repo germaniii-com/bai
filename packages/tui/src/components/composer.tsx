@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { Editor } from "../state/composer";
 import type { HubStatusLayout } from "../state/hub";
 import type { Mode } from "../app";
+import type { ContextTrackerView } from "@bai/shared";
 import { useTheme } from "../theme";
 
 /**
@@ -32,6 +33,7 @@ export function ComposerHub({
   runActive,
   layout,
   queuedCount = 0,
+  context,
 }: {
   editor: Editor;
   mode: Mode;
@@ -44,6 +46,9 @@ export function ComposerHub({
   layout: HubStatusLayout;
   /** Pending queued messages (message-queue feature) — the commands-row indicator. */
   queuedCount?: number;
+  /** Context tracker readout (shared/display.ts contextTracker) — the
+   *  commands-row tail: ` · 45.2k (23%)`, tone-colored (pi's thresholds). */
+  context?: ContextTrackerView;
 }) {
   const t = useTheme();
   const queuedHint = queuedCount > 0 ? `⏳ ${queuedCount} queued · ` : "";
@@ -51,6 +56,7 @@ export function ComposerHub({
     mode === "input"
       ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word`
       : `${queuedHint}${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
+  const contextColor = context === undefined ? undefined : context.tone === "danger" ? t.danger : context.tone === "warning" ? t.warning : t.dim;
   return (
     <Box
       flexDirection="column"
@@ -97,9 +103,15 @@ export function ComposerHub({
           <Text color={t.secondary}>{layout.modelText}</Text>
         )}
       </Text>
-      {/* Row 3 — commands: the old footer hint line, now part of the hub. */}
+      {/* Row 3 — commands: the old footer hint line, now part of the hub.
+          The context tracker rides the tail (opencode's hint-row placement):
+          ` · 45.2k (23%)`, tone-colored, in BOTH modes; it truncates first
+          on narrow terminals (wrap="truncate" cuts the end). */}
       <Text color={t.dim} wrap="truncate">
         {commands}
+        {context !== undefined && contextColor !== undefined && (
+          <Text color={contextColor}> · {context.label}</Text>
+        )}
       </Text>
     </Box>
   );

@@ -6,7 +6,6 @@ import { useTheme } from "../theme";
 
 /** Options rendered around the highlight when the list is longer than this. */
 const WINDOW = 12;
-
 /**
  * Sliding list window `[start, end)` keeping `index` in view — the listbox
  * scroll every picker dialog uses (the highlight never leaves the viewport;
@@ -16,6 +15,17 @@ export function listWindow(index: number, count: number, size: number): { start:
   const clampedSize = Math.max(1, Math.min(size, count));
   const start = Math.max(0, Math.min(index - Math.floor(clampedSize / 2), count - clampedSize));
   return { start, end: start + clampedSize };
+}
+
+/**
+ * Mouse SGR sequences (`[<0;10;5M` — ink's parser strips the ESC prefix;
+ * wheel events share the shape with button codes 64/65) must never reach the
+ * dialogs' batched-typing branches: the control-char strip there would leave
+ * the coordinates to type into the filter. The chat view parses the same
+ * shape for its own hit-testing; dialogs just drop it.
+ */
+export function isMouseInput(ch: string | undefined): boolean {
+  return ch !== undefined && /^\x1b?\[<\d+;\d+;\d+[Mm]$/.test(ch);
 }
 
 export interface DialogAction {
@@ -46,6 +56,8 @@ export function SelectDialog({
   initialIndex = 0,
   emptyHint = "none yet — ctrl+a to add",
   onHighlight,
+  windowSize = WINDOW,
+  deferInput = false,
 }: {
   title: string;
   options: PickerOption[];
@@ -59,6 +71,11 @@ export function SelectDialog({
   emptyHint?: string;
   /** Live-preview callback: fires whenever the highlighted value changes. */
   onHighlight?: (value: string) => void;
+  /** Sliding-window size — the overlay shell caps it to the terminal height. */
+  windowSize?: number;
+  /** True while an App-level overlay dialog owns the keyboard (Ink delivers
+   *  input to every mounted handler — this one must go silent). */
+  deferInput?: boolean;
 }) {
   const t = useTheme();
   const [filter, setFilter] = useState("");
@@ -81,9 +98,11 @@ export function SelectDialog({
     if (highlightedValue !== undefined) onHighlightRef.current?.(highlightedValue);
   }, [highlightedValue]);
 
-  useInput((ch, key) => {
-    if (key.escape) return onClose();
-    if (key.upArrow) return setIndex((i) => Math.max(0, i - 1));
+  useInput(
+    (ch, key) => {
+      if (isMouseInput(ch)) return; // clicks/wheel never type into the filter
+      if (key.escape) return onClose();
+      if (key.upArrow) return setIndex((i) => Math.max(0, i - 1));
     if (key.downArrow) return setIndex((i) => Math.min(visible.length - 1, i + 1));
     if (key.backspace || key.delete) {
       setFilter((f) => f.slice(0, -1));
@@ -142,10 +161,14 @@ export function SelectDialog({
       setFilter(newQuery);
       setIndex(0);
     }
-  });
+  },
+    // Deferred while an App-level overlay owns the keyboard (hub-slot
+    // dialogs stay mounted behind it — Ink would deliver every key twice).
+    { isActive: !deferInput },
+  );
 
   // Sliding window around the highlight.
-  const { start, end } = listWindow(clamped, visible.length, WINDOW);
+  const { start, end } = listWindow(clamped, visible.length, windowSize);
   const windowed = visible.slice(start, end);
 
   const hints = [
@@ -156,7 +179,17 @@ export function SelectDialog({
   ];
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
+    // Opaque surface: as an overlay panel the dialog must paint over the
+    // chat behind it (Ink has no alpha — an unpainted interior would let
+    // the transcript bleed through).
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={t.border}
+      borderBackgroundColor={t.background}
+      backgroundColor={t.background}
+      paddingX={1}
+    >
       <Text bold color={t.accent}>
         {title}
       </Text>
@@ -195,6 +228,7 @@ export function PromptDialog({
   optional = false,
   onSubmit,
   onClose,
+  deferInput = false,
 }: {
   title: string;
   placeholder?: string;
@@ -203,14 +237,18 @@ export function PromptDialog({
   optional?: boolean;
   onSubmit: (value: string) => void;
   onClose: () => void;
+  /** True while an App-level overlay dialog owns the keyboard. */
+  deferInput?: boolean;
 }) {
   const t = useTheme();
   const [text, setText] = useState("");
 
-  useInput((ch, key) => {
-    if (key.escape) return onClose();
-    if (key.return) {
-      const value = text.trim();
+  useInput(
+    (ch, key) => {
+      if (isMouseInput(ch)) return; // clicks never type into the text
+      if (key.escape) return onClose();
+      if (key.return) {
+        const value = text.trim();
       if (value.length > 0 || optional) onSubmit(value);
       return;
     }
@@ -236,10 +274,19 @@ export function PromptDialog({
       }
       if (tail.length > 0) setText((t) => t + tail);
     }
-  });
+  },
+    { isActive: !deferInput },
+  );
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={t.border}
+      borderBackgroundColor={t.background}
+      backgroundColor={t.background}
+      paddingX={1}
+    >
       <Text bold color={t.accent}>
         {title}
       </Text>

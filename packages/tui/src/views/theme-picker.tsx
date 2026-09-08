@@ -18,6 +18,7 @@ export function ThemePicker({
   onPreview,
   onPick,
   onClose,
+  windowSize,
 }: {
   /** The active theme id (config value; may be a custom theme's file stem). */
   current: string | undefined;
@@ -29,6 +30,8 @@ export function ThemePicker({
   onPick: (value: string) => void;
   /** esc — restore and close. */
   onClose: () => void;
+  /** Sliding-window size (overlay height cap). */
+  windowSize?: number;
 }) {
   const options = [
     ...THEME_OPTIONS.map((t) => ({ value: t.value, label: t.label, hint: t.mode })),
@@ -50,6 +53,7 @@ export function ThemePicker({
       title="Themes"
       options={options}
       initialIndex={initialIndex}
+      windowSize={windowSize}
       onHighlight={onPreview}
       onPick={onPick}
       onClose={onClose}

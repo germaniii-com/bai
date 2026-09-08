@@ -1,5 +1,6 @@
 import type { AssetId, InputId, JobId, MessageId, PartId, PermissionRequestId, QuestionRequestId, SessionId } from "./ids";
 import type { Asset, Job, Message, PermissionRequest, QuestionRequest, Session, TodoItem } from "./domain";
+import type { SessionUsage } from "./usage";
 
 /** Modality names — the workbench registry keys. */
 export type WorkbenchName = "chat" | "code" | "image" | "video";
@@ -47,6 +48,14 @@ export interface EventPayloads {
   "run.finished": { aborted?: boolean; error?: string };
   /** A transient provider API failure triggered an auto-retry (pre-stream only). */
   "run.retry": { attempt: number; maxAttempts: number; error: string };
+  /**
+   * One provider turn's reported usage — the context tracker's live feed
+   * (durable: replay heals drops). Emitted after every run turn with the
+   * full token breakdown + the model's context window; after compaction a
+   * token-less row (`usage: { contextWindow }`) means "unknown until the
+   * next turn". Mirrors `session.meta.lastUsage` (which it also updates).
+   */
+  "run.usage": { usage: SessionUsage };
   "permission.asked": { request: PermissionRequest };
   "permission.replied": { requestId: PermissionRequestId; status: PermissionRequest["status"] };
   /** The agent asks the user questions mid-run (the `question` tool). */
@@ -85,6 +94,7 @@ export const EVENT_TYPES = Object.keys({
   "run.started": 1,
   "run.finished": 1,
   "run.retry": 1,
+  "run.usage": 1,
   "permission.asked": 1,
   "permission.replied": 1,
   "question.asked": 1,

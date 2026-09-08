@@ -17,6 +17,7 @@ import type {
   LearnSkillBody,
   QuestionRequest,
   Session,
+  SessionUsage,
   SkillInfo,
   SkillUsageQuery,
   SkillUsageResponse,
@@ -106,7 +107,8 @@ export class BaiClient {
    * `runActive` reports a run already in flight at snapshot time;
    * `pendingPermissions` carries asks raised before this surface connected;
    * `pendingInputs` seeds the queued-message list (admitted, not yet
-   * promoted).
+   * promoted); `usage` seeds the context tracker (null before the first
+   * turn or post-compaction).
    */
   async historySnapshot(
     id: string,
@@ -117,6 +119,7 @@ export class BaiClient {
     pendingPermissions: PermissionRequest[];
     pendingQuestions: QuestionRequest[];
     pendingInputs: Input[];
+    usage: SessionUsage | null;
   }> {
     const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);

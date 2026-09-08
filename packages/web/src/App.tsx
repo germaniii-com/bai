@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
+import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
@@ -127,6 +127,11 @@ export function App() {
   // live by input.admitted/promoted/cancelled/updated; the queued nodes
   // render at the transcript tail with actions.
   const [queuedState, setQueuedState] = useState(emptyQueuedInputs());
+  // The active session's latest provider-reported usage — the composer hub's
+  // context tracker chip. Seeded from the snapshot (meta.lastUsage) and kept
+  // live by the durable run.usage events (one per provider turn; the
+  // compaction clearing event renders `?` until the next turn).
+  const [usage, setUsage] = useState<SessionUsage | null>(null);
   // Live subagent tracking for the chat pane's task nodes (TUI parity):
   // children of the active session, fed from the firehose — live status
   // (asking/running) and the child session ids the inline transcripts open.
@@ -396,31 +401,35 @@ export function App() {
       setSentPending(false);
       setPendingAsks([]);
       setPendingChildAsks([]);
-      setPendingQuestions([]);
-      setQueuedState(emptyQueuedInputs());
-      return;
-    }
-    const ctrl = new AbortController();
-    streamCtrl.current = ctrl;
-    setMessages([]); // switching sessions: drop the old transcript immediately
-    setRunActive(false); // a mid-run switch can't see the earlier run.started
-    setSentPending(false);
-    setPendingAsks([]); // session switch: the new session's asks arrive below
-    setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
     setQueuedState(emptyQueuedInputs());
-    void (async () => {
-      try {
-        // Snapshot first, then follow the durable stream from its frontier.
-        // followSession resumes from the cursor on drops (idle timeouts,
-        // restarts) — replaying from 0 would duplicate the snapshot instead.
-        const snap = await client.historySnapshot(activeId);
-        if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
-        setMessages(snap.messages);
-        // A run may already be draining (mid-run switch, or the snapshot was
-        // taken right after our own submit) — its run.started predates the
-        // cursor, so the snapshot is the only reliable signal.
-        setRunActive(snap.runActive === true);
+    setUsage(null); // draft state: no session, no usage
+    return;
+  }
+  const ctrl = new AbortController();
+  streamCtrl.current = ctrl;
+  setMessages([]); // switching sessions: drop the old transcript immediately
+  setRunActive(false); // a mid-run switch can't see the earlier run.started
+  setSentPending(false);
+  setPendingAsks([]); // session switch: the new session's asks arrive below
+  setPendingChildAsks([]); // subagent asks of the previous parent are gone
+  setPendingQuestions([]);
+  setQueuedState(emptyQueuedInputs());
+  void (async () => {
+    try {
+      // Snapshot first, then follow the durable stream from its frontier.
+      // followSession resumes from the cursor on drops (idle timeouts,
+      // restarts) — replaying from 0 would duplicate the snapshot instead.
+      const snap = await client.historySnapshot(activeId);
+      if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
+      setMessages(snap.messages);
+      // A run may already be draining (mid-run switch, or the snapshot was
+      // taken right after our own submit) — its run.started predates the
+      // cursor, so the snapshot is the only reliable signal.
+      setRunActive(snap.runActive === true);
+      // The context tracker seeds from meta.lastUsage (no wait for the next
+      // turn); live run.usage events take over from here.
+      setUsage(snap.usage ?? null);
         // Asks/questions raised before this surface connected (snapshot is
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
@@ -451,6 +460,10 @@ export function App() {
               // backoff. Cosmetic toast; the final failure still surfaces
               // via run.finished {error}.
               pushNotice(`API error, retrying (${evt.payload.attempt}/${evt.payload.maxAttempts})…`, "info");
+            } else if (evt.type === "run.usage") {
+              // The context tracker's live feed (one event per provider
+              // turn; the compaction clearing event carries no tokens).
+              setUsage(evt.payload.usage);
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -1106,6 +1119,7 @@ export function App() {
       onSendQueued={(input) => void sendQueued(input)}
       onCancelQueued={(input) => void cancelQueued(input)}
       onEditQueued={editQueued}
+      usage={usage}
       // Learn chip: only with an open session (drafts use the Skills page's
       // Learn form — a fresh learn session there has the same effect).
       onLearn={active !== null ? (request) => void learn(request) : undefined}

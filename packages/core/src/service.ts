@@ -19,6 +19,7 @@ import {
   type RevertState,
   type Session,
   type SessionId,
+  type SessionUsage,
   type WorkbenchName,
   type AgentInfo,
   type LearnSkillBody,
@@ -491,12 +492,18 @@ export class Service {
     pendingPermissions: PermissionRequest[];
     pendingQuestions: QuestionRequest[];
     pendingInputs: Input[];
+    /** The session's latest provider-reported usage (meta.lastUsage) — the
+     *  context tracker's seed; null before the first turn or post-compaction. */
+    usage: SessionUsage | null;
   } {
+    const session = this.deps.store.sessions.get(sessionId);
+    const lastUsage = (session?.meta as { lastUsage?: unknown } | undefined)?.lastUsage;
     return {
       ...this.deps.store.sessionSnapshot(sessionId),
       runActive: this.coordinator.isActive(sessionId),
       pendingPermissions: this.deps.store.permissions.pendingBySession(sessionId),
       pendingQuestions: this.questions.pendingBySession(sessionId),
+      usage: isSessionUsage(lastUsage) ? lastUsage : null,
     };
   }
 
@@ -860,4 +867,14 @@ export class Service {
   version(): string {
     return this.deps.version;
   }
+}
+
+/**
+ * meta.lastUsage shape guard for the snapshot seed. Every field of
+ * SessionUsage is optional, so the legacy pre-tracker shape
+ * (`{inputTokens, outputTokens}`) validates as-is — only non-objects
+ * (absent, null, garbage) are rejected.
+ */
+function isSessionUsage(value: unknown): value is SessionUsage {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

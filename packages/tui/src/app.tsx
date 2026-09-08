@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session } from "@bai/shared";
+import type { CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session, SessionUsage } from "@bai/shared";
 import { isThemeId } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
@@ -15,6 +15,7 @@ import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
+import { DialogOverlay, overlayWindowSize } from "./components/dialog-overlay";
 import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot } from "./state/sync";
 import {
   applySubagentEvent,
@@ -54,6 +55,14 @@ type DialogOpen =
   | { kind: "sessions" }
   | { kind: "themes" }
   | { kind: "subagents"; index: number };
+
+/**
+ * Dialog kinds that render as compact floating overlays over the live view
+ * (opencode's Dialog shell — the chat stays mounted and visible behind).
+ * The rest (agents, skills, subagents) keep the full-screen render-branch
+ * swap: they are workspace-like views, not pickers.
+ */
+const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes"]);
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -113,6 +122,11 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // live by input.admitted/promoted/cancelled/updated; the queued nodes
   // render at the transcript tail with actions.
   const [queuedState, setQueuedState] = useState(emptyQueuedInputs());
+  // The active session's latest provider-reported usage — the composer hub's
+  // context tracker. Seeded from the snapshot (meta.lastUsage) and kept live
+  // by the durable run.usage events (one per provider turn; the compaction
+  // clearing event renders `?` until the next turn).
+  const [usage, setUsage] = useState<SessionUsage | null>(null);
   // Inline prompt UI state (stage, typed buffers, question progress) —
   // hoisted here and reset when the head ask's id changes, so opening a
   // ctrl-chord dialog (which unmounts the chat view) never loses
@@ -337,6 +351,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
       setPendingChildAsks([]);
       setPendingQuestions([]);
       setQueuedState(emptyQueuedInputs());
+      setUsage(null); // draft state: no session, no usage
       return;
     }
     const ctrl = new AbortController();
@@ -358,6 +373,9 @@ export function App({ client }: { client: BaiClient; version: string }) {
         // taken right after our own submit) — its run.started predates the
         // cursor, so the snapshot is the only reliable signal.
         setRunActive(snap.runActive === true);
+        // The context tracker seeds from meta.lastUsage (no wait for the
+        // next turn); live run.usage events take over from here.
+        setUsage(snap.usage ?? null);
         // Asks/questions raised before this surface connected (snapshot is
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
@@ -389,6 +407,10 @@ export function App({ client }: { client: BaiClient; version: string }) {
               // backoff. Footer status line; the final failure still
               // surfaces via run.finished {error}.
               setRetryStatus(`API error, retrying (${evt.payload.attempt}/${evt.payload.maxAttempts})…`);
+            } else if (evt.type === "run.usage") {
+              // The context tracker's live feed (one event per provider
+              // turn; the compaction clearing event carries no tokens).
+              setUsage(evt.payload.usage);
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -574,6 +596,18 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // tuiTheme). Recolors the whole tree via ThemeProvider.
   const theme = tuiTheme(previewTheme ?? configTheme);
 
+  // Dialog rendering split (opencode's overlay model): the PICKERS + palette
+  // float as compact overlays over the LIVE view (the chat stays mounted and
+  // visible behind); the workspace-like managers (agents, skills, subagents)
+  // keep the full-screen render-branch swap. While an overlay is open the
+  // chat stays mounted but DEFERRED — Ink delivers input to every mounted
+  // useInput handler, so the chat (and its inline prompts) must go silent.
+  const overlayDialog =
+    dialog !== null && OVERLAY_DIALOG_KINDS.has(dialog.kind) ? dialog : null;
+  const fullDialog =
+    dialog !== null && !OVERLAY_DIALOG_KINDS.has(dialog.kind) ? dialog : null;
+  const overlayListRows = overlayWindowSize(rows);
+
   return (
     // Fixed root height = terminal viewport: views flex inside it and the
     // composer/footer stay pinned to the bottom regardless of content size.
@@ -591,100 +625,37 @@ export function App({ client }: { client: BaiClient; version: string }) {
       backgroundColor={theme.background}
     >
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        {dialog !== null && dialog.kind === "palette" ? (
-          // Supermenu (ctrl+p): the searchable command registry — category
-          // headers, contextual Suggested section, type-to-filter. Enter
-          // dispatches through runCommand (the palette is replaced when a
-          // command opens its own dialog); esc closes.
-          <CommandPalette specs={commandSpecs} onRun={runCommand} onClose={() => setDialog(null)} />
-        ) : dialog !== null && dialog.kind === "sessions" ? (
-          // Session picker dialog: pick → open the session and
-          // close; n → draft state (no session until the first prompt);
-          // esc → back to the chat underneath.
-          <SessionsView
-            sessions={sessions.filter((s) => s.meta.parent === undefined)}
-            activeId={active?.id}
-            askIndex={askIndex}
-            onPick={(s) => {
-              setDialog(null);
-              setActive(s);
-            }}
-            onNew={() => {
-              setDialog(null);
-              setActive(null);
-              setMode("input");
-            }}
-            onDone={closeDialog}
-          />
-        ) : dialog !== null && dialog.kind === "themes" ? (
-          // Theme picker dialog: cursor movement live-previews the
-          // highlighted theme App-wide; enter persists it via config (every
-          // surface follows via config.updated), esc restores the previous.
-          // Custom themes (~/.config/bai/themes/*.json) list after the
-          // built-ins.
-          <ThemePicker
-            current={configTheme}
-            customThemes={customThemes}
-            onPreview={setPreviewTheme}
-            onPick={(value) => {
-              setPreviewTheme(null);
-              setConfigTheme(value); // optimistic — config.updated confirms
-              setDialog(null);
-              client.putConfig({ theme: value }).catch((err) =>
-                setError(err instanceof Error ? err.message : String(err)),
-              );
-            }}
-            onClose={() => {
-              setPreviewTheme(null);
-              setDialog(null);
-            }}
-          />
-        ) : dialog !== null && dialog.kind === "subagents" ? (
-          // Subagent output dialog (click a task node / enter on a focused
-          // message): the child's live transcript; ←/→ cycles subagents,
-          // ↑ (at top) or esc exits, a pending ask reviews inline.
-          <SubagentDialog
-            client={client}
-            children={subagentRows(subagents)}
-            index={dialog.index}
-            onNavigate={(delta) =>
-              setDialog({ kind: "subagents", index: cycleSubagentIndex(dialog.index, delta, subagentRows(subagents).length) })
-            }
-            onExit={() => setDialog(null)}
-          />
-        ) : dialog !== null && dialog.kind === "skills" ? (
-          // Skills manager: browse, view, $EDITOR-edit, create, delete, and
-          // learn (l spawns a learn session and switches to it).
-          <SkillsDialog
-            client={client}
-            catalogTick={catalogTick}
-            onLearned={(session) => {
-              setDialog(null);
-              setActive(session);
-              void refreshSessions();
-            }}
-            onDone={closeDialog}
-          />
-        ) : dialog !== null && dialog.kind !== "agents" && providers !== null ? (
-          // Re-open with the list already loaded: render it instantly and
-          // surface the engagement refetch as a hint — the dialog state
-          // survives and the list updates in place when the fetch lands.
-          // ProviderFlow unmounts between openings, so its step state
-          // restarts at `initialStep` each time.
-          <Box flexDirection="column">
-            {providersFetching && <Text color={theme.dim}>updating providers…</Text>}
-            <ProviderFlow
+        {fullDialog !== null ? (
+          // Full-screen dialogs (the workspace-like managers) keep the
+          // render-branch swap: the view underneath unmounts while open.
+          fullDialog.kind === "subagents" ? (
+            // Subagent output dialog (click a task node / enter on a focused
+            // message): the child's live transcript; ←/→ cycles subagents,
+            // ↑ (at top) or esc exits, a pending ask reviews inline.
+            <SubagentDialog
               client={client}
-              list={providers}
-              active={active}
-              preferZdr={configPreferZdr}
-              initialStep={dialog}
-              onDone={closeDialog}
-              onRefresh={() => void refreshProviders()}
+              children={subagentRows(subagents)}
+              index={fullDialog.index}
+              onNavigate={(delta) =>
+                setDialog({ kind: "subagents", index: cycleSubagentIndex(fullDialog.index, delta, subagentRows(subagents).length) })
+              }
+              onExit={() => setDialog(null)}
             />
-          </Box>
-        ) : dialog !== null ? (
-          dialog.kind === "agents" ? (
+          ) : fullDialog.kind === "skills" ? (
+            // Skills manager: browse, view, $EDITOR-edit, create, delete, and
+            // learn (l spawns a learn session and switches to it).
+            <SkillsDialog
+              client={client}
+              catalogTick={catalogTick}
+              onLearned={(session) => {
+                setDialog(null);
+                setActive(session);
+                void refreshSessions();
+              }}
+              onDone={closeDialog}
+            />
+          ) : (
+            // Agent manager (kind "agents" — the only remaining full kind).
             <AgentManager
               client={client}
               active={active}
@@ -692,8 +663,6 @@ export function App({ client }: { client: BaiClient; version: string }) {
               catalogTick={catalogTick}
               onDone={closeDialog}
             />
-          ) : (
-            <Text color={theme.dim}>loading providers…</Text>
           )
         ) : (
           <>
@@ -707,6 +676,11 @@ export function App({ client }: { client: BaiClient; version: string }) {
                 modelLabel={modelLabel}
                 agent={activeAgent}
                 footerRows={footerRows}
+                usage={usage}
+                // Overlay dialogs float OVER the live chat: it stays mounted
+                // (transcript keeps streaming behind) but must go silent —
+                // Ink delivers input to every mounted handler.
+                deferInput={overlayDialog !== null}
                 onEnterInput={() => setMode("input")}
                 onExitInput={() => setMode("normal")}
                 onSessionCreated={(s) => {
@@ -770,6 +744,104 @@ export function App({ client }: { client: BaiClient; version: string }) {
           </Text>
         )}
       </Box>
+
+      {/* Overlay dialogs (opencode's Dialog shell): compact floating panels
+          over the LIVE view — the chat stays mounted and visible behind
+          (transparent backdrop; Ink has no alpha). The list window shrinks
+          with the terminal so the panel never overflows it. */}
+      {overlayDialog !== null && (
+        <DialogOverlay columns={columns} rows={rows}>
+          {overlayDialog.kind === "palette" ? (
+            // Supermenu (ctrl+p): the searchable command registry — category
+            // headers, contextual Suggested section, type-to-filter. Enter
+            // dispatches through runCommand (the palette is replaced when a
+            // command opens its own dialog); esc closes.
+            <CommandPalette
+              specs={commandSpecs}
+              onRun={runCommand}
+              onClose={() => setDialog(null)}
+              windowSize={overlayListRows}
+            />
+          ) : overlayDialog.kind === "sessions" ? (
+            // Session picker: pick → open the session and close; n → draft
+            // state (no session until the first prompt); esc → back to the
+            // chat underneath.
+            <SessionsView
+              sessions={sessions.filter((s) => s.meta.parent === undefined)}
+              activeId={active?.id}
+              askIndex={askIndex}
+              windowSize={overlayListRows}
+              onPick={(s) => {
+                setDialog(null);
+                setActive(s);
+              }}
+              onNew={() => {
+                setDialog(null);
+                setActive(null);
+                setMode("input");
+              }}
+              onDone={closeDialog}
+            />
+          ) : overlayDialog.kind === "themes" ? (
+            // Theme picker: cursor movement live-previews the highlighted
+            // theme App-wide; enter persists it via config (every surface
+            // follows via config.updated), esc restores the previous.
+            // Custom themes (~/.config/bai/themes/*.json) list after the
+            // built-ins.
+            <ThemePicker
+              current={configTheme}
+              customThemes={customThemes}
+              windowSize={overlayListRows}
+              onPreview={setPreviewTheme}
+              onPick={(value) => {
+                setPreviewTheme(null);
+                setConfigTheme(value); // optimistic — config.updated confirms
+                setDialog(null);
+                client.putConfig({ theme: value }).catch((err) =>
+                  setError(err instanceof Error ? err.message : String(err)),
+                );
+              }}
+              onClose={() => {
+                setPreviewTheme(null);
+                setDialog(null);
+              }}
+            />
+          ) : overlayDialog.kind === "providers" || overlayDialog.kind === "all-models" ? (
+            providers !== null ? (
+              // Provider wizard / flat model list. Re-open with the list
+              // already loaded renders instantly; the engagement refetch
+              // surfaces as a hint — the list updates in place when the
+              // fetch lands. ProviderFlow unmounts between openings, so its
+              // step state restarts at `initialStep` each time.
+              <Box flexDirection="column">
+                {providersFetching && <Text color={theme.dim}>updating providers…</Text>}
+                <ProviderFlow
+                  client={client}
+                  list={providers}
+                  active={active}
+                  preferZdr={configPreferZdr}
+                  initialStep={overlayDialog}
+                  windowSize={overlayListRows}
+                  onDone={closeDialog}
+                  onRefresh={() => void refreshProviders()}
+                />
+              </Box>
+            ) : (
+              // First open before the (on-demand) provider list has landed.
+              <Box
+                flexDirection="column"
+                borderStyle="round"
+                borderColor={theme.border}
+                borderBackgroundColor={theme.background}
+                backgroundColor={theme.background}
+                paddingX={1}
+              >
+                <Text color={theme.dim}>loading providers…</Text>
+              </Box>
+            )
+          ) : null}
+        </DialogOverlay>
+      )}
     </Box>
     </ThemeProvider>
   );
