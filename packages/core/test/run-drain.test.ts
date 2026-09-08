@@ -57,7 +57,9 @@ class FailingProvider implements Provider {
   }
 
   async stream(_req: LlmRequest): Promise<ProviderStream> {
-    throw new Error("provider exploded");
+    // Non-transient 400 shape: the auto-retry loop (provider/retry.ts) must
+    // not delay this drain-error path with backoff.
+    throw Object.assign(new Error("provider exploded"), { status: 400 });
   }
 }
 

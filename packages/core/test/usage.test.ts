@@ -171,7 +171,7 @@ class FailingStreamProvider implements Provider {
   }
 
   async stream(_req: LlmRequest): Promise<ProviderStream> {
-    throw new Error("400 Provider returned error");
+    throw Object.assign(new Error("400 Provider returned error"), { status: 400 });
   }
 }
 

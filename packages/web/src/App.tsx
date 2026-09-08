@@ -181,7 +181,7 @@ export function App() {
   // click to dismiss). Settings keeps its inline banner.
   const [notice, setNotice] = useState<Notice | null>(null);
   /** Toast feedback from the agents/tools panes (kind defaults to success). */
-  const pushNotice = useCallback((message: string, kind: "success" | "error" = "success") => {
+  const pushNotice = useCallback((message: string, kind: "success" | "error" | "info" = "success") => {
     setNotice({ message, kind });
   }, []);
   // Independent catalogs: agents and tools each own their fetch/refresh —
@@ -434,6 +434,11 @@ export function App() {
             } else if (evt.type === "run.finished") {
               setRunActive(false);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
+            } else if (evt.type === "run.retry") {
+              // Transient provider failure — the run loop is retrying with
+              // backoff. Cosmetic toast; the final failure still surfaces
+              // via run.finished {error}.
+              pushNotice(`API error, retrying (${evt.payload.attempt}/${evt.payload.maxAttempts})…`, "info");
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {

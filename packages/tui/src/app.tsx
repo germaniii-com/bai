@@ -69,6 +69,9 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const [active, setActive] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Transient auto-retry status ("API error, retrying 2/3…") — set by
+  // run.retry, cleared by the next run.started/run.finished.
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderListResponse | null>(null);
   const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
@@ -320,6 +323,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // firehose patch instead.
   useEffect(() => {
     setError(null); // a session switch drops the previous session's error line
+    setRetryStatus(null);
     if (activeId === undefined) {
       // Draft state (sessions dialog → n, or before the first message): a
       // NEW session — the previous session's transcript and its asks/questions
@@ -373,9 +377,16 @@ export function App({ client }: { client: BaiClient; version: string }) {
             if (evt.type === "run.started") {
               setRunActive(true);
               setError(null);
+              setRetryStatus(null);
             } else if (evt.type === "run.finished") {
               setRunActive(false);
+              setRetryStatus(null);
               if (evt.payload.error !== undefined) setError(`run failed: ${evt.payload.error}`);
+            } else if (evt.type === "run.retry") {
+              // Transient provider failure — the run loop is retrying with
+              // backoff. Footer status line; the final failure still
+              // surfaces via run.finished {error}.
+              setRetryStatus(`API error, retrying (${evt.payload.attempt}/${evt.payload.maxAttempts})…`);
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -546,6 +557,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
   // chip hit-testing to rows - footerRows).
   const footerRows =
     (error !== null ? 1 : 0) +
+    (retryStatus !== null ? 1 : 0) +
     (setupHint ? 1 : 0) +
     (askPending ? 1 : 0) +
     (quitArmed ? 1 : 0);
@@ -722,6 +734,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
           derives its chip hit-testing row from it. */}
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color={theme.danger}>error: {error}</Text>}
+        {retryStatus !== null && <Text color={theme.warning}>{retryStatus}</Text>}
         {setupHint && <Text color={theme.warning}>no provider connected · ctrl+p → Connect provider</Text>}
         {askPending && (
           // opencode's footer counter: asks block their session's run, so

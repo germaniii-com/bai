@@ -10,6 +10,7 @@ import { readRevert, SNAPSHOT_TOOLS } from "./revert";
 import type { Snapshot } from "./snapshot";
 import type { PermissionGate } from "./permissions/ask";
 import type { ProviderRegistry, ResolvedCredentials } from "./provider/registry";
+import { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sleepInterruptible } from "./provider/retry";
 import type { Provider, ProviderStream, StreamEvent, StreamUsage, ToolDef } from "./provider/types";
 import { mergeUsage } from "./provider/types";
 import type { Store } from "./store/store";
@@ -295,23 +296,45 @@ export class RunCoordinator {
         applyDiscipline(history);
         const outbound = renderOutbound(history, { system });
 
-        let stream: ProviderStream;
-        try {
-          stream = await run.provider.stream({
-            model: run.model,
-            sessionId,
-            messages: outbound,
-            ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
-            auth: run.auth,
-            // Reasoning models: enable extended thinking so reasoning tokens flow
-            // (chat turns; adapters skip thinking on agentic turns themselves).
-            ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
-            signal,
-          });
-        } catch (err) {
+        // Auto-retry transient pre-stream API failures (429/408/5xx/network):
+        // up to MAX_API_RETRIES total attempts, honoring Retry-After when the
+        // provider sends it, else fixed short backoff. Nothing has streamed or
+        // persisted before `stream()` resolves, so a retry is always safe here.
+        // Non-transient errors (401/403/400/404) and aborts fail immediately.
+        let stream: ProviderStream | undefined;
+        let lastErr: unknown;
+        for (let attempt = 1; attempt <= MAX_API_RETRIES; attempt++) {
+          try {
+            stream = await run.provider.stream({
+              model: run.model,
+              sessionId,
+              messages: outbound,
+              ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+              auth: run.auth,
+              // Reasoning models: enable extended thinking so reasoning tokens flow
+              // (chat turns; adapters skip thinking on agentic turns themselves).
+              ...(run.reasoning && toolDefs.length === 0 ? { params: { thinking: { type: "enabled", budget_tokens: 2048 } } } : {}),
+              signal,
+            });
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (signal.aborted || attempt === MAX_API_RETRIES || !isRetryableApiError(err)) break;
+            // Tell surfaces a retry is coming (durable so reconnecting
+            // surfaces still see it), then back off — abortable mid-wait.
+            this.emitDurable(sessionId, "run.retry", {
+              attempt: attempt + 1,
+              maxAttempts: MAX_API_RETRIES,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            if (!(await sleepInterruptible(retryAfterMs(err) ?? RETRY_DELAYS_MS[attempt - 1] ?? 1000, signal))) break;
+          }
+        }
+        if (stream === undefined) {
           // D26: the call failed before any tokens streamed (provider 4xx/5xx,
           // bad model id, …) — record the failure, then propagate (wake turns
-          // it into run.finished {error}). Aborts are not failures.
+          // it into run.finished {error}). Aborts are not failures. One row
+          // per failed turn: only the final attempt is recorded.
           if (!signal.aborted) {
             this.recordLlmError({
               sessionId,
@@ -321,10 +344,10 @@ export class RunCoordinator {
               providerId: run.providerId,
               model: run.model,
               accountId: run.credentials.accountId,
-              error: err,
+              error: lastErr,
             });
           }
-          throw err;
+          throw lastErr;
         }
 
         const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());

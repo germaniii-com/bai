@@ -45,6 +45,8 @@ export interface EventPayloads {
   "message.removed": { messageId: MessageId };
   "run.started": Record<string, never>;
   "run.finished": { aborted?: boolean; error?: string };
+  /** A transient provider API failure triggered an auto-retry (pre-stream only). */
+  "run.retry": { attempt: number; maxAttempts: number; error: string };
   "permission.asked": { request: PermissionRequest };
   "permission.replied": { requestId: PermissionRequestId; status: PermissionRequest["status"] };
   /** The agent asks the user questions mid-run (the `question` tool). */
@@ -80,6 +82,7 @@ export const EVENT_TYPES = Object.keys({
   "message.removed": 1,
   "run.started": 1,
   "run.finished": 1,
+  "run.retry": 1,
   "permission.asked": 1,
   "permission.replied": 1,
   "question.asked": 1,
