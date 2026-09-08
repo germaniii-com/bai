@@ -23,6 +23,7 @@ const release = process.argv.includes("--release");
 const entrypoint = new URL("../packages/cli/src/index.ts", import.meta.url).pathname;
 const distDir = new URL("../dist/", import.meta.url).pathname;
 const webDist = new URL("../packages/web/dist", import.meta.url).pathname;
+const bundledSkills = new URL("../packages/core/skills", import.meta.url).pathname;
 
 /** All 8 cross-compile targets (bun build --compile matrix). */
 const RELEASE_TARGETS = [
@@ -55,6 +56,7 @@ async function compileOne(target: string | undefined): Promise<void> {
   // paths.webDistDir() (import.meta.dir + ../../web/dist) resolves unchanged
   // inside the binary — mirroring go:embed all:dist.
   const hasWebAssets = existsSync(`${webDist}/index.html`);
+  const hasSkills = existsSync(bundledSkills);
   const outfile =
     target === undefined
       ? `${distDir}bai`
@@ -75,7 +77,12 @@ async function compileOne(target: string | undefined): Promise<void> {
     compile: {
       ...(target !== undefined ? { target } : {}),
       outfile,
-      ...(hasWebAssets ? { assets: ["packages/web/dist"] } : {}),
+      // Embedded assets preserve their repo-relative paths (the analog of
+      // go:embed): the SPA under packages/web/dist, bundled skills under
+      // packages/core/skills (resolved at runtime by skills/bundled.ts).
+      ...((hasWebAssets || hasSkills)
+        ? { assets: [...(hasWebAssets ? ["packages/web/dist"] : []), ...(hasSkills ? ["packages/core/skills"] : [])] }
+        : {}),
     },
   });
 

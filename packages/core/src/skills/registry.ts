@@ -166,7 +166,15 @@ export class SkillRegistry {
       } catch {
         continue; // no SKILL.md (or unreadable) — not a skill directory
       }
-      const skill = parseSkillMarkdown(source, name, skillMd, scanLinkedFiles(skillDir));
+      let skill: SkillInfo | undefined;
+      try {
+        skill = parseSkillMarkdown(source, name, skillMd, scanLinkedFiles(skillDir));
+      } catch (err) {
+        // Malformed YAML must never take down the boot (one bad file is
+        // skipped with a warning — the agent registry's same stance).
+        console.warn(`[bai] skill ignored (unparseable frontmatter): ${name}/SKILL.md: ${err instanceof Error ? err.message : err}`);
+        continue;
+      }
       if (skill === undefined) {
         console.warn(`[bai] skill ignored (missing/invalid frontmatter or empty body): ${name}/SKILL.md`);
         continue;

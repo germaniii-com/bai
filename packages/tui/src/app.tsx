@@ -7,6 +7,7 @@ import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
 import { PlaceholderView } from "./views/placeholder";
 import { AgentManager } from "./views/agent-manager";
+import { SkillsDialog } from "./views/skills";
 import { SubagentDialog } from "./views/subagent-dialog";
 import { ThemePicker } from "./views/theme-picker";
 import { CommandPalette } from "./views/command-palette";
@@ -49,6 +50,7 @@ type DialogOpen =
   | { kind: "providers" }
   | { kind: "all-models" }
   | { kind: "agents" }
+  | { kind: "skills" }
   | { kind: "sessions" }
   | { kind: "themes" }
   | { kind: "subagents"; index: number };
@@ -276,7 +278,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
           if (providersLoadedRef.current) void refreshProviders();
           void refreshSessions();
         }
-        if (evt.type === "agents.updated" || evt.type === "tools.updated") {
+        if (evt.type === "agents.updated" || evt.type === "tools.updated" || evt.type === "skills.updated") {
           setCatalogTick((t) => t + 1);
         }
         if (evt.type === "session.updated") {
@@ -442,6 +444,9 @@ export function App({ client }: { client: BaiClient; version: string }) {
   const openAgentsDialog = useCallback(() => {
     setDialog({ kind: "agents" });
   }, []);
+  const openSkillsDialog = useCallback(() => {
+    setDialog({ kind: "skills" });
+  }, []);
   const openSessionsDialog = useCallback(() => {
     setDialog({ kind: "sessions" });
   }, []);
@@ -483,6 +488,8 @@ export function App({ client }: { client: BaiClient; version: string }) {
           return openProvidersDialog();
         case "agent.switch":
           return openAgentsDialog();
+        case "skill.manage":
+          return openSkillsDialog();
         case "theme.switch":
           return openThemesDialog();
         case "view.gallery":
@@ -501,7 +508,7 @@ export function App({ client }: { client: BaiClient; version: string }) {
           return exit();
       }
     },
-    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openThemesDialog, exit],
+    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openSkillsDialog, openThemesDialog, exit],
   );
 
   useInput((ch, key) => {
@@ -644,6 +651,19 @@ export function App({ client }: { client: BaiClient; version: string }) {
               setDialog({ kind: "subagents", index: cycleSubagentIndex(dialog.index, delta, subagentRows(subagents).length) })
             }
             onExit={() => setDialog(null)}
+          />
+        ) : dialog !== null && dialog.kind === "skills" ? (
+          // Skills manager: browse, view, $EDITOR-edit, create, delete, and
+          // learn (l spawns a learn session and switches to it).
+          <SkillsDialog
+            client={client}
+            catalogTick={catalogTick}
+            onLearned={(session) => {
+              setDialog(null);
+              setActive(session);
+              void refreshSessions();
+            }}
+            onDone={closeDialog}
           />
         ) : dialog !== null && dialog.kind !== "agents" && providers !== null ? (
           // Re-open with the list already loaded: render it instantly and

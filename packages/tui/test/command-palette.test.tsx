@@ -36,7 +36,7 @@ describe("CommandPalette", () => {
     // fold (the "↓ more" marker).
     expect(frame).toContain("Session");
     expect(frame).toContain("Model");
-    expect(frame).toContain("View");
+    expect(frame).toContain("Skills");
     expect(frame).not.toContain("System");
     expect(frame).toContain("↓ more");
     expect(cursorLabel(frame)).toBe("Switch session");
@@ -152,7 +152,7 @@ describe("CommandPalette", () => {
     await tick();
     const filtered = frame3() ?? "";
     expect(filtered).toContain("filter: mod");
-    expect(filtered).toContain("1/10");
+    expect(filtered).toContain("1/11");
     expect(filtered).not.toContain("Suggested");
     expect(cursorLabel(filtered)).toBe("Switch model");
     unmount3();

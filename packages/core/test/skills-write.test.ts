@@ -121,3 +121,131 @@ describe("skills.writeFile tool", () => {
     expect(t.skills.get("book")?.linkedFiles).toEqual([]);
   });
 });
+
+describe("skills.patch tool", () => {
+  let t: TestCore;
+
+  beforeEach(() => {
+    t = makeCore();
+    t.skills.put("book", {
+      description: "A distilled book.",
+      body: "# Book\n\n## Core Models\n\nReplication is the heart of distributed storage.\n\n## Pitfalls\n\nClocks lie.",
+    });
+  });
+
+  afterEach(() => {
+    t.store.close();
+  });
+
+  const ctx = () => ({
+    sessionId: t.core.createSession({ workbench: "chat" }).id,
+    signal: new AbortController().signal,
+    emitLive: () => {},
+  });
+
+  test("surgical SKILL.md edit preserves frontmatter and refreshes the cache", async () => {
+    const result = await t.tools.execute(
+      "skills.patch",
+      { skill: "book", oldString: "Clocks lie.", newString: "Clocks lie, and networks partition." },
+      ctx(),
+    );
+    expect(result.content).toContain("1 replacement");
+    // The raw file kept its frontmatter; the body changed.
+    const raw = readFileSync(t.skills.fileFor("book"), "utf8");
+    expect(raw).toContain("description: A distilled book.");
+    expect(raw).toContain("Clocks lie, and networks partition.");
+    // The registry's parsed cache refreshed.
+    expect(t.skills.get("book")?.body).toContain("Clocks lie, and networks partition.");
+  });
+
+  test("patches a linked file", async () => {
+    await t.tools.execute("skills.writeFile", { skill: "book", path: "references/ch01.md", content: "old text" }, ctx());
+    await t.tools.execute(
+      "skills.patch",
+      { skill: "book", path: "references/ch01.md", oldString: "old text", newString: "new text" },
+      ctx(),
+    );
+    expect(readFileSync(join(t.skills.dirFor("book"), "references", "ch01.md"), "utf8")).toBe("new text");
+  });
+
+  test("empty newString deletes the match; replaceAll replaces every occurrence", async () => {
+    await t.tools.execute("skills.patch", { skill: "book", oldString: "Clocks lie.", newString: "" }, ctx());
+    expect(t.skills.get("book")?.body).not.toContain("Clocks lie.");
+
+    await t.tools.execute("skills.writeFile", { skill: "book", path: "references/dup.md", content: "x\nx\nx" }, ctx());
+    await t.tools.execute(
+      "skills.patch",
+      { skill: "book", path: "references/dup.md", oldString: "x", newString: "y", replaceAll: true },
+      ctx(),
+    );
+    expect(readFileSync(join(t.skills.dirFor("book"), "references", "dup.md"), "utf8")).toBe("y\ny\ny");
+  });
+
+  test("rejections: unknown skill, missing oldString, no match, ambiguous, identical, structure break", async () => {
+    const ctxv = ctx();
+    await expect(t.tools.execute("skills.patch", { skill: "ghost", oldString: "a", newString: "b" }, ctxv)).rejects.toThrow(
+      "Unknown skill",
+    );
+    await expect(t.tools.execute("skills.patch", { skill: "book", newString: "b" }, ctxv)).rejects.toThrow("oldString is required");
+    await expect(t.tools.execute("skills.patch", { skill: "book", oldString: "nope", newString: "b" }, ctxv)).rejects.toThrow(
+      "Could not find oldString",
+    );
+    await expect(
+      t.tools.execute("skills.patch", { skill: "book", oldString: "e", newString: "f" }, ctxv),
+    ).rejects.toThrow(/matches for oldString/);
+    await expect(t.tools.execute("skills.patch", { skill: "book", oldString: "same", newString: "same" }, ctxv)).rejects.toThrow(
+      "identical",
+    );
+    // A patch that destroys the frontmatter is rejected BEFORE writing.
+    await expect(
+      t.tools.execute("skills.patch", { skill: "book", oldString: "---\ndescription: A distilled book.\n---", newString: "gone" }, ctxv),
+    ).rejects.toThrow("break SKILL.md structure");
+    expect(readFileSync(t.skills.fileFor("book"), "utf8")).toContain("description: A distilled book.");
+  });
+});
+
+describe("skills.delete tool", () => {
+  let t: TestCore;
+
+  beforeEach(() => {
+    t = makeCore();
+    t.skills.put("doomed", { description: "Doomed skill.", body: "# Doomed" });
+  });
+
+  afterEach(() => {
+    t.store.close();
+  });
+
+  const ctx = () => ({
+    sessionId: t.core.createSession({ workbench: "chat" }).id,
+    signal: new AbortController().signal,
+    emitLive: () => {},
+  });
+
+  test("whole-skill delete removes the directory; the deletion is final", async () => {
+    const result = await t.tools.execute("skills.delete", { skill: "doomed" }, ctx());
+    expect(result.content).toContain("deleted");
+    expect(existsSync(t.skills.dirFor("doomed"))).toBe(false);
+    expect(t.skills.get("doomed")).toBeUndefined();
+    await expect(t.tools.execute("skills.delete", { skill: "doomed" }, ctx())).rejects.toThrow("Unknown skill");
+  });
+
+  test("single-file delete removes the file and prunes the empty dir", async () => {
+    await t.tools.execute("skills.writeFile", { skill: "doomed", path: "references/temp.md", content: "x" }, ctx());
+    await t.tools.execute("skills.delete", { skill: "doomed", path: "references/temp.md" }, ctx());
+    expect(existsSync(join(t.skills.dirFor("doomed"), "references", "temp.md"))).toBe(false);
+    expect(existsSync(join(t.skills.dirFor("doomed"), "references"))).toBe(false); // pruned
+    expect(t.skills.get("doomed")?.linkedFiles).toEqual([]);
+  });
+
+  test("rejections: unknown skill, unknown file, traversal", async () => {
+    const ctxv = ctx();
+    await expect(t.tools.execute("skills.delete", { skill: "ghost" }, ctxv)).rejects.toThrow("Unknown skill");
+    await expect(t.tools.execute("skills.delete", { skill: "doomed", path: "references/nope.md" }, ctxv)).rejects.toThrow(
+      "not found",
+    );
+    await expect(t.tools.execute("skills.delete", { skill: "doomed", path: "../escape.md" }, ctxv)).rejects.toThrow(
+      "path must be relative",
+    );
+  });
+});

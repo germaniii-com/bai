@@ -141,4 +141,39 @@ describe("skill API", () => {
     });
     expect(bad.status).toBe(400);
   });
+
+  test("linked-file endpoints: read, write, delete — with guards", async () => {
+    stack.core.putSkill("book", { description: "A book skill.", body: "# Book" });
+
+    // Write → read round-trip.
+    const put = await app.request("/api/skill/book/file?path=references/ch01.md", {
+      method: "PUT",
+      body: JSON.stringify({ content: "# Chapter 1\n\nDistilled." }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(put.status).toBe(201);
+    const get = await app.request("/api/skill/book/file?path=references/ch01.md");
+    expect(get.status).toBe(200);
+    expect(((await get.json()) as { content: string }).content).toBe("# Chapter 1\n\nDistilled.");
+    // The registry's linkedFiles refreshed.
+    expect(stack.core.getSkill("book")?.linkedFiles).toContain("references/ch01.md");
+
+    // Delete → gone.
+    const del = await app.request("/api/skill/book/file?path=references/ch01.md", { method: "DELETE" });
+    expect(del.status).toBe(200);
+    expect((await app.request("/api/skill/book/file?path=references/ch01.md")).status).toBe(400);
+
+    // Guards: unknown skill → 404; traversal → 400.
+    expect(
+      (await app.request("/api/skill/ghost/file?path=references/x.md")).status,
+    ).toBe(404);
+    expect(
+      (await app.request("/api/skill/book/file?path=../escape.md")).status,
+    ).toBe(400);
+    expect(
+      (await app.request("/api/skill/book/file?path=notices/x.md")).status,
+    ).toBe(400);
+    // Missing path param → 400 (schema requires it).
+    expect((await app.request("/api/skill/book/file")).status).toBe(400);
+  });
 });

@@ -15,9 +15,11 @@ import {
   Store,
   ToolLoader,
   ToolRegistry,
+  bundledSkillsDir,
   createDefaultWorkbenches,
   loadConfig,
   snapshotDir,
+  syncBundledSkills,
   type JobExecutor,
 } from "@bai/core";
 import { createApp } from "@bai/api";
@@ -146,8 +148,22 @@ export async function boot(args: CliArgs): Promise<Booted> {
 
   // File-defined skills (~/.config/bai/skills/<name>/SKILL.md), hot-reloaded;
   // changes broadcast live so every surface refetches without a restart.
+  // Bundled skills (the repo's skills/ dir) seed into it first, with
+  // provenance: user edits freeze a skill, user deletions stick forever.
+  const skillsDir = path.join(configDir(), "skills");
+  const bundled = bundledSkillsDir();
+  if (bundled !== undefined) {
+    const sync = syncBundledSkills({
+      bundledDir: bundled,
+      skillsDir,
+      optOutFile: path.join(configDir(), ".no-bundled-skills"),
+    });
+    if (sync.copied.length > 0 || sync.updated.length > 0) {
+      console.log(`[bai] bundled skills: ${sync.copied.length} copied, ${sync.updated.length} updated`);
+    }
+  }
   const skills = new SkillRegistry({
-    dir: path.join(configDir(), "skills"),
+    dir: skillsDir,
     onChange: () => {
       bus.publish({ seq: 0, type: "skills.updated", ts: new Date().toISOString(), payload: {} });
     },

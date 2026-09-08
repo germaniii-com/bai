@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   systemClock,
@@ -55,11 +55,12 @@ import { planWriteTool } from "./tools/plan-write";
 import { planExitTool } from "./tools/plan-exit";
 import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import { skillsViewTool } from "./tools/skills";
-import { skillsSaveTool, skillsWriteFileTool } from "./tools/skills-write";
+import { skillsSaveTool, skillsWriteFileTool, skillsPatchTool, skillsDeleteTool } from "./tools/skills-write";
 import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { SkillRegistry } from "./skills/registry";
+import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
 
 export interface ServiceDeps {
@@ -157,6 +158,8 @@ export class Service {
       // reason — a knowledge-base learn writes dozens of chapter files.
       skillsSaveTool({ skills: deps.skills }),
       skillsWriteFileTool({ skills: deps.skills }),
+      skillsPatchTool({ skills: deps.skills }),
+      skillsDeleteTool({ skills: deps.skills }),
     ]);
     // The task tool spawns subagent sessions (tools/task.ts). Registered last
     // so it can close over the coordinator; its description embeds the agent
@@ -602,6 +605,53 @@ export class Service {
 
   deleteSkill(name: string): boolean {
     return this.deps.skills.remove(name);
+  }
+
+  /** Read one linked supporting file of a skill (guarded path). */
+  skillFile(name: string, filePath: string): string {
+    const guard = this.guardLinkedFile(name, filePath);
+    return readFileSync(guard, "utf8");
+  }
+
+  /** Write one linked supporting file (guarded path; refreshes linkedFiles). */
+  putSkillFile(name: string, filePath: string, content: string): void {
+    if (content.length === 0 || content.length > 200_000) {
+      throw new Error("content must be between 1 and 200,000 characters.");
+    }
+    const guard = this.guardLinkedFile(name, filePath);
+    mkdirSync(path.dirname(guard), { recursive: true });
+    writeFileSync(guard, content);
+    this.deps.skills.scan();
+  }
+
+  /** Delete one linked supporting file (guarded path; prunes empty dirs). */
+  deleteSkillFile(name: string, filePath: string): void {
+    const guard = this.guardLinkedFile(name, filePath);
+    rmSync(guard, { force: true });
+    // Prune now-empty support subdirectories (rmdirSync throws on non-empty).
+    const skillDir = this.deps.skills.dirFor(name);
+    let current = path.dirname(guard);
+    while (current !== skillDir && current.startsWith(skillDir + path.sep)) {
+      try {
+        rmdirSync(current);
+      } catch {
+        break;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    this.deps.skills.scan();
+  }
+
+  /** Shared linked-file guard: skill must exist, path must be support-scoped. */
+  private guardLinkedFile(name: string, filePath: string): string {
+    if (this.deps.skills.get(name) === undefined) {
+      throw new Error(`Unknown skill: ${name}`);
+    }
+    const guard = resolveLinkedPath(this.deps.skills.dirFor(name), filePath);
+    if (!guard.ok) throw new Error(guard.error);
+    return guard.resolved;
   }
 
   /** Per-skill usage totals (successful views) for the detail pane. */

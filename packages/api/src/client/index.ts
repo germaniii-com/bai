@@ -419,6 +419,44 @@ export class BaiClient {
     return (await res.json()).session;
   }
 
+  /** Read one linked supporting file of a skill (guarded path). */
+  async getSkillFile(name: string, filePath: string): Promise<string> {
+    const res = await this.rpc().skill[":name"].file.$get({
+      param: { name: encodeURIComponent(name) },
+      query: { path: filePath },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `get skill file failed: ${res.status}`);
+    }
+    return (await res.json()).content;
+  }
+
+  /** Write one linked supporting file (hot-reloads the skill's linkedFiles). */
+  async putSkillFile(name: string, filePath: string, content: string): Promise<void> {
+    const res = await this.rpc().skill[":name"].file.$put({
+      param: { name: encodeURIComponent(name) },
+      query: { path: filePath },
+      json: { content },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `put skill file failed: ${res.status}`);
+    }
+  }
+
+  /** Delete one linked supporting file. */
+  async deleteSkillFile(name: string, filePath: string): Promise<void> {
+    const res = await this.rpc().skill[":name"].file.$delete({
+      param: { name: encodeURIComponent(name) },
+      query: { path: filePath },
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `delete skill file failed: ${res.status}`);
+    }
+  }
+
   // --- tools ---
 
   async listTools(): Promise<ToolListEntry[]> {

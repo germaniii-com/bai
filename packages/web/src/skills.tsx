@@ -188,6 +188,14 @@ function SkillForm({
   const [body, setBody] = useState(skill.body);
   const [usage, setUsage] = useState<SkillUsageTotals | null>(null);
   const [busy, setBusy] = useState(false);
+  // Linked-file editing: click a file to load it into the inline editor;
+  // "+ add file" writes a new one. Paths are validated client-side and
+  // (authoritatively) server-side by the same support-dir rules.
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [addingFile, setAddingFile] = useState(false);
+  const [newPath, setNewPath] = useState("");
+  const [newContent, setNewContent] = useState("");
 
   // Per-skill usage totals (views · sessions · last used) — a fresh fetch
   // per form instance (keyed by skill name), refreshed after each save.
@@ -201,6 +209,74 @@ function SkillForm({
       }
     })();
   }, [client, skill.name]);
+
+  const openLinkedFile = async (file: string): Promise<void> => {
+    setAddingFile(false);
+    setOpenFile(file);
+    setFileContent(null);
+    try {
+      setFileContent(await client.getSkillFile(skill.name, file));
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+      setOpenFile(null);
+    }
+  };
+
+  const saveLinkedFile = async (): Promise<void> => {
+    if (openFile === null || fileContent === null) return;
+    setBusy(true);
+    try {
+      await client.putSkillFile(skill.name, openFile, fileContent);
+      await refresh();
+      onNotice(`saved ${openFile}`);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteLinkedFile = async (): Promise<void> => {
+    if (openFile === null) return;
+    setBusy(true);
+    try {
+      await client.deleteSkillFile(skill.name, openFile);
+      setOpenFile(null);
+      setFileContent(null);
+      await refresh();
+      onNotice(`deleted ${openFile}`);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createLinkedFile = async (): Promise<void> => {
+    const path = newPath.trim();
+    if (!/^(references|templates|scripts|assets)\//.test(path) || path.includes("..")) {
+      onNotice("path must start with references/, templates/, scripts/, or assets/ (no ..)", "error");
+      return;
+    }
+    if (newContent.trim().length === 0) {
+      onNotice("content must be non-empty", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await client.putSkillFile(skill.name, path, newContent);
+      setAddingFile(false);
+      setNewPath("");
+      setNewContent("");
+      await refresh();
+      onNotice(`created ${path}`);
+      await openLinkedFile(path);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const save = async (): Promise<void> => {
     setBusy(true);
@@ -270,16 +346,72 @@ function SkillForm({
         instructions <span className="dim">(the markdown body of SKILL.md — hot-reloaded on save)</span>
         <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14} required />
       </label>
-      {skill.linkedFiles.length > 0 && (
+      <label>
+        linked files <span className="dim">(references/, templates/, scripts/, assets/ — the agent reads them via skills.view(name, path))</span>
+        <div className="skill-linked-files">
+          {skill.linkedFiles.map((f) => (
+            <button
+              key={f}
+              type="button"
+              className={openFile === f ? "skill-file active" : "skill-file"}
+              onClick={() => void openLinkedFile(f)}
+            >
+              <code>{f}</code>
+            </button>
+          ))}
+          <button type="button" className="skill-file add" onClick={() => { setAddingFile(true); setOpenFile(null); }}>
+            + add file
+          </button>
+        </div>
+      </label>
+      {openFile !== null && fileContent !== null && (
         <label>
-          linked files <span className="dim">(read-only here — the agent reads them via skills.view(name, path); edit on disk)</span>
-          <ul className="skill-linked-files">
-            {skill.linkedFiles.map((f) => (
-              <li key={f}>
-                <code>{f}</code>
-              </li>
-            ))}
-          </ul>
+          editing <code>{openFile}</code>
+          <textarea
+            className="code"
+            value={fileContent}
+            onChange={(e) => setFileContent(e.target.value)}
+            rows={12}
+            spellCheck={false}
+          />
+          <div className="agents-actions">
+            <button type="button" disabled={busy} onClick={() => void saveLinkedFile()}>
+              save file
+            </button>
+            <button type="button" className="danger" disabled={busy} onClick={() => void deleteLinkedFile()}>
+              delete file
+            </button>
+            <button type="button" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
+              close
+            </button>
+          </div>
+        </label>
+      )}
+      {addingFile && (
+        <label>
+          new file path <span className="dim">(must start with references/, templates/, scripts/, or assets/)</span>
+          <input
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+            placeholder="references/api.md"
+            spellCheck={false}
+          />
+          <textarea
+            className="code"
+            value={newContent}
+            onChange={(e) => setNewContent(e.target.value)}
+            rows={8}
+            placeholder="File content…"
+            spellCheck={false}
+          />
+          <div className="agents-actions">
+            <button type="button" disabled={busy} onClick={() => void createLinkedFile()}>
+              create file
+            </button>
+            <button type="button" disabled={busy} onClick={() => setAddingFile(false)}>
+              cancel
+            </button>
+          </div>
         </label>
       )}
       <div className="agents-actions">

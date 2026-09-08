@@ -9,6 +9,10 @@ build: ## build the bai single executable (bun --compile, SPA embedded)
 		rm -rf dist/web && cp -R packages/web/dist dist/web; \
 		echo "web SPA staged → dist/web (served by the binary on bun < 1.4)"; \
 	fi
+	@if [ -d packages/core/skills ]; then \
+		rm -rf dist/skills && cp -R packages/core/skills dist/skills; \
+		echo "bundled skills staged → dist/skills (seeded on boot on bun < 1.4)"; \
+	fi
 
 run: build ## build and start the TUI
 	./dist/$(BINARY)

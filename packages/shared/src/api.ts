@@ -113,6 +113,18 @@ export const learnSkillSchema = z.object({
 
 export type LearnSkillBody = z.infer<typeof learnSkillSchema>;
 
+/** PUT /api/skill/:name/file?path=… — write one linked supporting file. */
+export const putSkillFileSchema = z.object({
+  content: z.string().min(1).max(200_000),
+});
+
+export type PutSkillFileBody = z.infer<typeof putSkillFileSchema>;
+
+/** The `path` query param shared by the /skill/:name/file routes. */
+export const skillFilePathSchema = z.object({
+  path: z.string().min(1).max(1024),
+});
+
 /** GET /api/usage/analytics — dimension filters + time bucketing (see usage.ts). */
 export const usageAnalyticsQuerySchema = z.object({
   from: z.string().max(40).optional(), // inclusive RFC3339 lower bound

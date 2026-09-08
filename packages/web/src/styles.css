@@ -1694,20 +1694,35 @@ select:focus-visible,
   border-color: var(--danger);
 }
 
-/* Skill form: the read-only linked-files list (references/templates/scripts/assets). */
+/* Skill form: the linked-files list (references/templates/scripts/assets). */
 .skill-linked-files {
-  margin: 0;
-  padding: 0;
-  list-style: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.skill-linked-files code {
-  font-family: var(--font-mono);
+.skill-file {
+  font: inherit;
   font-size: var(--text-meta);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
   color: var(--text);
+  cursor: pointer;
+}
+
+.skill-file code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.skill-file.active {
+  border-color: var(--accent, var(--text));
+}
+
+.skill-file.add {
+  color: var(--dim);
 }
 
 .typing .dot {

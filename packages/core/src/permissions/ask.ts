@@ -39,6 +39,11 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   // permission asks.
   "skills.save": "allow",
   "skills.writeFile": "allow",
+  // Surgical edits + deletion stay rooted inside the skills dir (symlink/
+  // skills-root guards in the tool); deleting a bundled skill is sticky —
+  // the sync manifest never reseeds it.
+  "skills.patch": "allow",
+  "skills.delete": "allow",
   // The agent asking the user questions / tracking todos IS the interaction —
   // gating it behind a permission ask would deadlock the conversation.
   question: "allow",

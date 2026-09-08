@@ -13,6 +13,7 @@ import {
   promptPayloadSchema,
   putAccountSchema,
   putAgentSchema,
+  putSkillFileSchema,
   putSkillSchema,
   putToolSchema,
   questionRejectSchema,
@@ -22,6 +23,7 @@ import {
   forkSessionSchema,
   setSessionAgentSchema,
   setSessionModelSchema,
+  skillFilePathSchema,
   skillUsageQuerySchema,
   usageAnalyticsQuerySchema,
   type InputId,
@@ -273,6 +275,36 @@ function buildApi(deps: ApiDeps) {
         return c.json({ ok: true });
       } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    // Linked supporting files (references/templates/scripts/assets) — the
+    // path rides the query string so /skill/:name stays the only param route.
+    .get("/skill/:name/file", zValidator("query", skillFilePathSchema), (c) => {
+      try {
+        const content = deps.core.skillFile(c.req.param("name"), c.req.valid("query").path);
+        return c.json({ content });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: message }, message.includes("Unknown skill") ? 404 : 400);
+      }
+    })
+    .put("/skill/:name/file", zValidator("query", skillFilePathSchema), zValidator("json", putSkillFileSchema), (c) => {
+      try {
+        deps.core.putSkillFile(c.req.param("name"), c.req.valid("query").path, c.req.valid("json").content);
+        deps.core.emitLive("skills.updated", {});
+        return c.json({ ok: true }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/skill/:name/file", zValidator("query", skillFilePathSchema), (c) => {
+      try {
+        deps.core.deleteSkillFile(c.req.param("name"), c.req.valid("query").path);
+        deps.core.emitLive("skills.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: message }, message.includes("Unknown skill") ? 404 : 400);
       }
     })
 
