@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { File, Folder, FolderOpen } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
+import { ListItem } from "./components";
 
 interface FsEntry {
   name: string;
@@ -205,17 +206,15 @@ function DirEntries({
               {/* No caret — the folder icon carries the state: FolderOpen
                   when expanded, Folder when closed (shape swap only, no
                   tint; aria-expanded keeps it programmatically). */}
-              <button
-                type="button"
-                className="tree-row"
-                style={{ paddingLeft: `${8 + depth * 14}px` }}
+              <ListItem
+                inline
+                icon={<FolderIcon open={isOpen} />}
+                title={entry.name}
                 onClick={() => onToggle(path)}
+                style={{ paddingLeft: `${8 + depth * 14}px` }}
                 aria-expanded={isOpen}
                 aria-controls={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
-              >
-                <FolderIcon open={isOpen} />
-                <span className="tree-name">{entry.name}</span>
-              </button>
+              />
               {isOpen && (
                   <div id={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}>
                   <DirEntries
@@ -239,17 +238,16 @@ function DirEntries({
         return (
           <li key={path}>
             {onOpenFile !== undefined ? (
-              <button
-                type="button"
-                className={active ? "tree-row file active" : "tree-row file"}
-                style={{ paddingLeft: `${8 + depth * 14}px` }}
+              <ListItem
+                inline
+                icon={<FileIcon />}
+                title={entry.name}
+                selected={active}
                 onClick={() => onOpenFile(path)}
                 aria-current={active ? "true" : undefined}
-                title={`Open ${path}`}
-              >
-                <FileIcon />
-                <span className="tree-name">{entry.name}</span>
-              </button>
+                hint={`Open ${path}`}
+                style={{ paddingLeft: `${8 + depth * 14}px` }}
+              />
             ) : (
               <span className="tree-row file" style={{ paddingLeft: `${8 + depth * 14}px` }}>
                 <FileIcon />
@@ -263,17 +261,17 @@ function DirEntries({
   );
 }
 
-/** Lucide icons — sized by .tree-icon CSS; open state is the shape swap. */
+/** Lucide icons — sized to the row's icon slot; open state is the shape swap. */
 function FolderIcon({ open }: { open: boolean }) {
   return open ? (
-    <FolderOpen className="tree-icon" aria-hidden="true" />
+    <FolderOpen size={14} aria-hidden="true" />
   ) : (
-    <Folder className="tree-icon" aria-hidden="true" />
+    <Folder size={14} aria-hidden="true" />
   );
 }
 
 function FileIcon() {
-  return <File className="tree-icon" aria-hidden="true" />;
+  return <File size={14} aria-hidden="true" />;
 }
 
 function joinPath(dir: string, name: string): string {

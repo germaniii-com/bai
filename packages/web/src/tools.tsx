@@ -3,6 +3,7 @@ import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
 import { isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { Button, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -36,24 +37,20 @@ export function ToolsNav({
     return a.name.localeCompare(b.name);
   });
   return (
-    <div className="settings-nav">
-      <button type="button" className="new-session" disabled={busy} onClick={onCreate}>
-        + new tool
-      </button>
+    <SubNav>
+      <SubNavCreate label="+ New tool" disabled={busy} onClick={onCreate} />
       {sorted.map((t) => (
-        <button
+        <SubNavItem
           key={t.name}
-          type="button"
-          className={selected === t.name ? "provider-item active" : "provider-item"}
-           onClick={() => onSelect(t.name)}
-           aria-current={selected === t.name ? "page" : undefined}
-        >
-          <span className="title">{t.name}</span>
-          <span className="dim">{t.origin}</span>
-        </button>
+          title={t.name}
+          subtitle={t.origin}
+          selected={selected === t.name}
+          onClick={() => onSelect(t.name)}
+          ariaCurrent={selected === t.name ? "page" : undefined}
+        />
       ))}
       {sorted.length === 0 && <p className="dim">No tools yet.</p>}
-    </div>
+    </SubNav>
   );
 }
 
@@ -104,10 +101,9 @@ export function ToolCreateForm({
         void submit();
       }}
     >
-      <h3>New tool</h3>
-      <label>
-        name <span className="dim">(the filename stem — ~/.config/bai/tools/&lt;name&gt;.ts)</span>
-        <input
+      <SectionHeader title="New tool" />
+      <Field label="Name" hint="(the filename stem — ~/.config/bai/tools/<name>.ts)">
+        <TextInput
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -118,18 +114,18 @@ export function ToolCreateForm({
           maxLength={64}
           spellCheck={false}
         />
-      </label>
+      </Field>
       {error !== null && <div className="error">{error}</div>}
-      <p className="dim">
+      <p className="section-lede">
         Created from a starter template — the code is editable right after creating and hot-registers on save.
       </p>
       <div className="agents-actions">
-        <button type="submit" disabled={busy}>
-          create
-        </button>
-        <button type="button" disabled={busy} onClick={onCancel}>
-          cancel
-        </button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Create
+        </Button>
+        <Button variant="ghost" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
       </div>
     </form>
   );
@@ -258,19 +254,24 @@ function ToolForm({
         void save();
       }}
     >
-      <h3>
-        {tool.name} <span className="dim">({tool.origin})</span>
-      </h3>
+      <SectionHeader
+        title={
+          <>
+            {tool.name} <span className="dim">({tool.origin})</span>
+          </>
+        }
+      />
       {isBuiltin && (
-        <p className="dim">
+        <p className="section-lede">
           Built-in tool — editing saves an override that replaces the built-in until the file is deleted (which restores it).
         </p>
       )}
       {isBuiltinOverride && (
-        <p className="dim">This file overrides the built-in "{tool.name}" — "reset to default" deletes it and restores the original.</p>
+        <p className="section-lede">
+          This file overrides the built-in "{tool.name}" — "Reset to default" deletes it and restores the original.
+        </p>
       )}
-      <label>
-        code <span className="dim">(~/.config/bai/tools/{tool.name}.ts — hot-reloaded on save)</span>
+      <Field label="Code" hint={`(~/.config/bai/tools/${tool.name}.ts — hot-reloaded on save)`}>
         <div className="tool-editor">
           <Editor
             value={code}
@@ -291,21 +292,20 @@ function ToolForm({
             }}
           />
         </div>
-      </label>
+      </Field>
       <div className="agents-actions">
-        <button type="submit" disabled={busy}>
-          save
-        </button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Save
+        </Button>
         {!isBuiltin && (
-          <button
-            type="button"
-            className="danger"
+          <Button
+            variant="danger"
             disabled={busy}
             onClick={() => void remove()}
             title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
           >
-            {isBuiltinOverride ? "reset to default" : "delete"}
-          </button>
+            {isBuiltinOverride ? "Reset to default" : "Delete"}
+          </Button>
         )}
       </div>
     </form>

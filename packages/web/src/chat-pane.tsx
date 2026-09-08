@@ -12,7 +12,8 @@ import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
-import { IconButton, useDialogFocus } from "./ui";
+import { IconButton } from "./ui";
+import { Button, Chip, Field, Modal, Textarea } from "./components";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -197,9 +198,9 @@ export function ChatPane({
             <span>
               {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — sending a new message commits this
             </span>
-            <button type="button" onClick={onRestoreRevert} disabled={revertBusy === true}>
-              restore
-            </button>
+            <Button size="sm" variant="outline" onClick={onRestoreRevert} disabled={revertBusy === true}>
+              Restore
+            </Button>
           </div>
         )}
         {/* Queued messages (message-queue feature): admitted inputs waiting
@@ -214,24 +215,24 @@ export function ChatPane({
             <article key={input.id} className="message user queued" aria-label={sending ? "Sending message" : "Queued message"}>
               <p>{input.payload.text}</p>
               <div className="queued-row">
-                <span className={sending ? "queued-chip sending" : "queued-chip"}>
+                <Chip className={sending ? "sending" : "warning"}>
                   <Hourglass size={11} aria-hidden="true" /> {sending ? "sending…" : "queued"}
-                </span>
+                </Chip>
                 <span className="queued-spacer" />
                 {!sending && onSendQueued !== undefined && (
-                  <button type="button" className="queued-action" onClick={() => onSendQueued(input)}>
-                    send now
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => onSendQueued(input)}>
+                    Send now
+                  </Button>
                 )}
                 {!sending && onEditQueued !== undefined && (
-                  <button type="button" className="queued-action" onClick={() => onEditQueued(input)}>
-                    edit
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => onEditQueued(input)}>
+                    Edit
+                  </Button>
                 )}
                 {!sending && onCancelQueued !== undefined && (
-                  <button type="button" className="queued-action" onClick={() => onCancelQueued(input)}>
-                    cancel
-                  </button>
+                  <Button size="sm" variant="ghost" onClick={() => onCancelQueued(input)}>
+                    Cancel
+                  </Button>
                 )}
               </div>
             </article>
@@ -283,61 +284,55 @@ export function ChatPane({
           {runActive && active !== null ? (
             // Stop replaces send while the model is responding; the partial
             // reply stays in history after the interrupt.
-            <button
-              type="button"
-              className="stop"
+            <Button
+              variant="danger"
+              size="lg"
               onClick={() => void client.interrupt(active.id)}
               aria-label="stop generating"
             >
-              stop
-            </button>
+              Stop
+            </Button>
           ) : (
-            <button type="submit" disabled={draft.trim().length === 0}>
-              send
-            </button>
+            <Button type="submit" variant="primary" size="lg" disabled={draft.trim().length === 0}>
+              Send
+            </Button>
           )}
         </div>
         <div className="composer-row composer-status">
           {active !== null && typeof active.cwd === "string" && active.cwd.length > 0 ? (
-            <button
-              type="button"
-              className="composer-chip"
-              title={`${active.cwd} — switch workspace`}
-              onClick={onSwitchWorkspace}
-            >
+            <Chip interactive hint={`${active.cwd} — switch workspace`} onClick={onSwitchWorkspace}>
               <FolderGlyph />
               <span className="chip-label">{hubContextLabel(active)}</span>
-            </button>
+            </Chip>
           ) : (
-            <span
-              className="composer-chip static"
-              title={active === null ? "Draft — the session is created with your first message" : undefined}
+            <Chip
+              hint={active === null ? "Draft — the session is created with your first message" : undefined}
             >
               <FolderGlyph />
               <span className="chip-label">{hubContextLabel(active)}</span>
-            </span>
+            </Chip>
           )}
           {queuedInputs.length > sendingIds.length && (
             // The queued indicator (message-queue feature): a count chip in
             // the hub status row — the nodes themselves live at the
             // transcript tail. Send-now flips don't count (they're leaving
             // the queue).
-            <span className="composer-chip static queued-chip" title="Messages waiting in the queue">
+            <Chip className="warning" hint="Messages waiting in the queue">
               <Hourglass size={11} aria-hidden="true" />
               <span className="chip-label">{queuedInputs.length - sendingIds.length} queued</span>
-            </span>
+            </Chip>
           )}
           {tracker !== undefined && (
             // The context tracker (pi/opencode parity): the session's live
             // context usage as a static chip — `45k (23%)`, tone-shifted at
             // the 70/90% thresholds; the tooltip carries the exact numbers.
-            <span
-              className={`composer-chip static context-chip${tracker.tone !== "dim" ? ` ${tracker.tone}` : ""}`}
-              title={contextChipTitle(usage)}
+            <Chip
+              className={tracker.tone !== "dim" ? tracker.tone : undefined}
+              hint={contextChipTitle(usage)}
             >
               <Gauge size={11} aria-hidden="true" />
               <span className="chip-label">{tracker.label}</span>
-            </span>
+            </Chip>
           )}
           <span className="composer-spacer" />
           {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
@@ -345,15 +340,14 @@ export function ChatPane({
           )}
           {providersFetching && <span className="dim">updating…</span>}
           {onLearn !== undefined && (
-            <button
-              type="button"
-              className="composer-chip"
-              title="Learn a skill — distill a workflow, docs, or this conversation into a reusable skill"
+            <Chip
+              interactive
+              hint="Learn a skill — distill a workflow, docs, or this conversation into a reusable skill"
               onClick={() => setLearnOpen(true)}
             >
               <GraduationCap size={11} aria-hidden="true" />
-              <span className="chip-label">learn</span>
-            </button>
+              <span className="chip-label">Learn</span>
+            </Chip>
           )}
           <AgentPicker
             client={client}
@@ -390,6 +384,7 @@ export function ChatPane({
  * learn — sources (paths, URLs), requirements, or nothing to distill THIS
  * conversation. Submitting hands the request to the caller, which composes
  * the standards-guided learn prompt and sends it as a normal user turn.
+ * Built on the shared <Modal> (overlay/esc/backdrop/focus-trap included).
  */
 function LearnModal({
   onSubmitLearn,
@@ -399,68 +394,48 @@ function LearnModal({
   onClose: () => void;
 }) {
   const [request, setRequest] = useState("");
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(true, dialogRef);
-
-  // esc closes (backdrop click and the × button are wired in the JSX).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="model-modal learn-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Learn a skill"
-        onClick={(e) => e.stopPropagation()}
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        <>
+          <GraduationCap size={14} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
+        </>
+      }
+      ariaLabel="Learn a skill"
+    >
+      <form
+        className="agent-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmitLearn(request.trim());
+        }}
       >
-        <div className="model-modal-head">
-          <strong>
-            <GraduationCap size={14} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
-          </strong>
-          <IconButton className="modal-close" label="Close learn dialog" hint="Close learn dialog" onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </IconButton>
+        <Field label="What would you like to learn?" hint="(leave empty to distill this conversation)">
+          <Textarea
+            value={request}
+            onChange={(e) => setRequest(e.target.value)}
+            rows={5}
+            autoFocus
+            maxLength={8000}
+            placeholder="e.g. the release workflow we just did — or ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api"
+          />
+        </Field>
+        <p className="section-lede">
+          The agent gathers the sources with its tools and saves the skill via skills.save — it shows up on the
+          Skills page when done.
+        </p>
+        <div className="agents-actions">
+          <Button type="submit" variant="primary">
+            Learn it
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
         </div>
-        <form
-          className="agent-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSubmitLearn(request.trim());
-          }}
-        >
-          <label>
-            what would you like to learn? <span className="dim">(leave empty to distill this conversation)</span>
-            <textarea
-              value={request}
-              onChange={(e) => setRequest(e.target.value)}
-              rows={5}
-              autoFocus
-              maxLength={8000}
-              placeholder="e.g. the release workflow we just did — or ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api"
-            />
-          </label>
-          <p className="dim">
-            The agent gathers the sources with its tools and saves the skill via skills.save — it shows up on the
-            Skills page when done.
-          </p>
-          <div className="agents-actions">
-            <button type="submit">learn it</button>
-            <button type="button" onClick={onClose}>
-              cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 

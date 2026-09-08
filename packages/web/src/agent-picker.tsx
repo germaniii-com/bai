@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session } from "@bai/shared";
-import { IconButton, useDialogFocus } from "./ui";
+import { ListItem, Modal } from "./components";
 
 /**
  * Chat-header agent picker (TUI ctrl+a parity): a button showing the
@@ -67,7 +67,12 @@ export function AgentPicker({
   );
 }
 
-function AgentModal({
+/**
+ * The agent picker modal, exported for capture-mode reuse (Settings →
+ * General's default-agent trigger — the same pattern as ModelModal's
+ * `onPick`).
+ */
+export function AgentModal({
   client,
   agents,
   active,
@@ -75,36 +80,40 @@ function AgentModal({
   refreshAgents,
   current,
   onClose,
+  onPick,
 }: {
   client: BaiClient;
   agents: AgentInfo[];
   active: Session | null;
   configDefaultAgent?: string;
-  refreshAgents: () => Promise<void>;
+  /** Engagement refetch on open; optional for capture-mode callers that
+   * already keep the catalog live (Settings' firehose-fed list). */
+  refreshAgents?: () => Promise<void>;
   current: string;
   onClose: () => void;
+  /**
+   * Capture mode (Settings' default-agent picker): clicking an agent
+   * resolves the selection through `onPick` instead of applying it to the
+   * session/config. The caller owns what happens with the choice.
+   */
+  onPick?: (name: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(true, dialogRef);
 
   // Engagement refetch on open (ModelModal parity): every open pulls fresh
   // data; the firehose keeps it live between opens.
   useEffect(() => {
-    void refreshAgents();
+    if (refreshAgents !== undefined) void refreshAgents();
   }, [refreshAgents]);
 
-  // esc closes (backdrop click and the × button are wired in the JSX).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const apply = async (name: string): Promise<void> => {
+    // Capture mode: hand the choice to the caller (no session/config write).
+    if (onPick !== undefined) {
+      onPick(name);
+      onClose();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -131,51 +140,31 @@ function AgentModal({
   });
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="model-modal agent-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pick an agent"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="model-modal-head">
-          <strong>Pick an agent</strong>
-          <IconButton className="modal-close" label="Close agent picker" hint="Close agent picker" onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </IconButton>
-        </div>
-        <div className="agent-modal-list">
-          {sorted.length === 0 && <p className="dim col-hint">No agents yet — create one under Agents.</p>}
-          {sorted.map((a) => {
-            const isCurrent = a.name === current;
-            const isDefault = a.name === configDefaultAgent;
-            return (
-              <button
-                key={a.name}
-                type="button"
-                className={isCurrent ? "model-row active" : "model-row"}
-                disabled={busy}
-                onClick={() => void apply(a.name)}
-              >
-                <span className="title">{a.name}</span>
-                <span className="dim">
-                  {a.source}
-                  {a.tools.length > 0 ? ` · ${a.tools.length} tool${a.tools.length === 1 ? "" : "s"}` : " · no tools"}
-                  {isDefault ? " · default" : ""}
-                </span>
-                {a.description !== undefined && a.description.length > 0 && (
-                  <span className="dim agent-desc">{a.description}</span>
-                )}
-                {isCurrent && <span className="current-badge">current</span>}
-              </button>
-            );
-          })}
-        </div>
-        {error !== null && <div className="error" role="alert">{error}</div>}
+    <Modal open onClose={onClose} title="Pick an agent" ariaLabel="Pick an agent" size="sm" bodyClassName="unpadded">
+      <div className="agent-modal-list">
+        {sorted.length === 0 && <p className="dim col-hint">No agents yet — create one under Agents.</p>}
+        {sorted.map((a) => {
+          const isCurrent = a.name === current;
+          const isDefault = a.name === configDefaultAgent;
+          const metaLine =
+            a.source +
+            (a.tools.length > 0 ? ` · ${a.tools.length} tool${a.tools.length === 1 ? "" : "s"}` : " · no tools") +
+            (isDefault ? " · default" : "");
+          return (
+            <ListItem
+              key={a.name}
+              title={a.name}
+              subtitle={
+                a.description !== undefined && a.description.length > 0 ? `${metaLine} · ${a.description}` : metaLine
+              }
+              disabled={busy}
+              onClick={() => void apply(a.name)}
+              trailing={isCurrent ? <span className="li-badge accent">current</span> : undefined}
+            />
+          );
+        })}
       </div>
-    </div>
+      {error !== null && <div className="error" role="alert">{error}</div>}
+    </Modal>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Folder } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { AddWorkspaceModal } from "./add-workspace-modal";
+import { ListItem, SubNavCreate } from "./components";
 
 /**
  * Workspace nested-sidebar list: registered workspace folder paths (from
@@ -29,29 +30,20 @@ export function WorkspaceNav({
 
   return (
     <div className="workspace-nav">
-      <button
-        type="button"
-        className="new-session add-workspace-btn"
-        onClick={() => setModalOpen(true)}
-      >
-        + Add a Workspace
-      </button>
+      <SubNavCreate className="add-workspace-btn" label="+ Add a Workspace" onClick={() => setModalOpen(true)} />
       {workspaces.length === 0 && <p className="dim">No workspaces yet.</p>}
       {workspaces.map((w) => (
-        <button
+        <ListItem
           key={w}
-          type="button"
-          className={selected === w ? "workspace-item active" : "workspace-item"}
+          accentBar
+          icon={<FolderGlyph />}
+          title={basename(w)}
+          subtitle={w}
+          selected={selected === w}
           onClick={() => onSelect(w)}
-          title={w}
-          aria-current={selected === w ? "page" : undefined}
-        >
-          <span className="ws-item-head">
-            <FolderGlyph />
-            <span className="title">{basename(w)}</span>
-          </span>
-          <span className="dim path">{w}</span>
-        </button>
+          hint={w}
+          ariaCurrent={selected === w ? "page" : undefined}
+        />
       ))}
       {modalOpen && (
         <AddWorkspaceModal

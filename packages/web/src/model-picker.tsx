@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
-import { IconButton, useDialogFocus } from "./ui";
+import { ListItem, Modal } from "./components";
 
 /**
  * Chat-header model picker: a button showing the current model; clicking it
@@ -132,23 +132,12 @@ export function ModelModal({
   const [modelFilter, setModelFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(true, dialogRef);
 
   // Engagement refetch on open (TUI ctrl+p parity): every open pulls fresh
   // data; the firehose keeps it live between opens.
   useEffect(() => {
     void refreshProviders();
   }, [refreshProviders]);
-
-  // esc closes (backdrop click and the × button are wired in the JSX).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   // Connected providers only (the composer hub picks a model to USE; account
   // setup lives in Settings → Model Providers). Connected first, stub last —
@@ -184,7 +173,7 @@ export function ModelModal({
   // (e.g. right after a click).
   useEffect(() => {
     document
-      .querySelector(".model-col-list .model-row.active")
+      .querySelector(".model-col-list .list-item.selected")
       ?.scrollIntoView({ block: "nearest" });
   }, [effectiveProviderId]);
 
@@ -244,86 +233,61 @@ export function ModelModal({
   const visibleModels = query.length > 0 ? models.filter(modelMatches) : models;
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="model-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pick a model"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="model-modal-head">
-          <strong>Pick a model</strong>
-          <IconButton className="modal-close" label="Close model picker" hint="Close model picker" onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </IconButton>
-        </div>
-        {list === null ? (
-          <p className="dim modal-loading">Loading providers…</p>
-        ) : (
-          <>
-            {/* The one search bar (TUI type-to-filter parity): filters
-                MODELS only; the provider column cascades to providers
-                offering a match, accounts follow the selected provider. */}
-            <input
-              className="model-search"
-              type="search"
-              placeholder="Filter models…"
-              value={modelFilter}
-              onChange={(e) => setModelFilter(e.target.value)}
-              aria-label="Filter models"
-            />
-            <div className="model-columns">
-              <div className="model-col">
-                <div className="model-col-head">provider</div>
-                <div className="model-col-list">
-                  {query.length > 0 && visibleProviders.length === 0 && (
-                    <p className="dim col-hint">No matches.</p>
-                  )}
-                  {visibleProviders.map((p) => (
-                  <button
+    <Modal open onClose={onClose} title="Pick a model" ariaLabel="Pick a model" bodyClassName="unpadded">
+      {list === null ? (
+        <p className="dim modal-loading">Loading providers…</p>
+      ) : (
+        <>
+          {/* The one search bar (TUI type-to-filter parity): filters
+              MODELS only; the provider column cascades to providers
+              offering a match, accounts follow the selected provider. */}
+          <input
+            className="model-search"
+            type="search"
+            placeholder="Filter models…"
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            aria-label="Filter models"
+          />
+          <div className="model-columns">
+            <div className="model-col">
+              <div className="model-col-head">provider</div>
+              <div className="model-col-list">
+                {query.length > 0 && visibleProviders.length === 0 && (
+                  <p className="dim col-hint">No matches.</p>
+                )}
+                {visibleProviders.map((p) => (
+                  <ListItem
                     key={p.id}
-                    type="button"
-                    className={p.id === effectiveProviderId ? "model-row active" : "model-row"}
+                    title={p.name}
+                    subtitle={p.adapter}
+                    selected={p.id === effectiveProviderId}
                     onClick={() => {
                       setProviderId(p.id);
                       setAccountId(null); // account choices are per-provider
                     }}
-                  >
-                    <span className="title">{p.name}</span>
-                    <span className="dim">{p.adapter}</span>
-                    {p.connected && (
-                      <span className="check" title="connected">
-                        <Check size={12} aria-hidden="true" />
-                      </span>
-                    )}
-                  </button>
+                    trailing={p.connected ? <Check size={12} aria-hidden="true" /> : undefined}
+                  />
                 ))}
               </div>
             </div>
             <div className="model-col">
               <div className="model-col-head">account</div>
               <div className="model-col-list">
-                <button
-                  type="button"
-                  className={effectiveAccountId === null ? "model-row active" : "model-row"}
+                <ListItem
+                  title="Server default"
+                  subtitle="auto-resolve"
+                  selected={effectiveAccountId === null}
                   onClick={() => setAccountId(null)}
-                >
-                  <span className="title">Server default</span>
-                  <span className="dim">auto-resolve</span>
-                </button>
+                />
                 {provider?.accounts.map((a) => (
-                  <button
+                  <ListItem
                     key={a.id}
-                    type="button"
-                    className={effectiveAccountId === a.id ? "model-row active" : "model-row"}
+                    title={a.label}
+                    subtitle={a.source === "env" ? "from environment" : "api key"}
+                    selected={effectiveAccountId === a.id}
                     onClick={() => setAccountId(a.id)}
-                  >
-                    <span className="title">{a.label}</span>
-                    <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
-                  </button>
+                  />
                 ))}
               </div>
             </div>
@@ -348,31 +312,31 @@ export function ModelModal({
                   if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
                   if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
                   return (
-                    <button
+                    <ListItem
                       key={m.id}
-                      type="button"
-                      className="model-row"
+                      title={m.label}
+                      subtitle={parts.length > 0 ? parts.join(" · ") : undefined}
                       disabled={busy}
                       onClick={() => void apply(m.id)}
-                    >
-                      <span className="title">{m.label}</span>
-                      {parts.length > 0 && <span className="dim">{parts.join(" · ")}</span>}
-                      {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
-                        <span className="zdr-badge" title="zero data retention capable">
-                          zdr
-                        </span>
-                      )}
-                      {isCurrent && <span className="current-badge">current</span>}
-                    </button>
+                      trailing={
+                        <>
+                          {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
+                            <span className="li-badge success" title="zero data retention capable">
+                              zdr
+                            </span>
+                          )}
+                          {isCurrent && <span className="li-badge accent">current</span>}
+                        </>
+                      }
+                    />
                   );
                 })}
               </div>
             </div>
           </div>
-          </>
-        )}
-        {error !== null && <div className="error" role="alert">{error}</div>}
-      </div>
-    </div>
+        </>
+      )}
+      {error !== null && <div className="error" role="alert">{error}</div>}
+    </Modal>
   );
 }

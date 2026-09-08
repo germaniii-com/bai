@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -9,6 +9,12 @@ import type {
 } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
+import { AgentModal } from "./agent-picker";
+import { ModelModal } from "./model-picker";
+import { Button, Card, Combobox, Field, PageHeader, SectionHeader, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
+
+/** Toast feedback callback — kind defaults to success (see toast.tsx). */
+type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
  * Settings, divided into sections (the nested sidebar's entries): User,
@@ -16,7 +22,9 @@ import { sortProviders } from "./provider-utils";
  * heading-content page in the main pane:
  *
  * - User — display name (injected into every agent's <env> block).
- * - General — default agent + default model (what new sessions resolve).
+ * - General — theme, default agent + default model (what new sessions
+ *   resolve) — both picked through the SAME modals the chat header uses
+ *   (AgentModal / ModelModal), so one picker everywhere.
  * - Model Providers — the prefer-ZDR preference, ALL catalog providers as
  *   expandable cards (accounts, remove, add-account), and the Image/Video
  *   Gen defaults (provider · account · model).
@@ -24,7 +32,7 @@ import { sortProviders } from "./provider-utils";
  * Same endpoints the TUI's ctrl+p wizard uses — add an account here and the
  * TUI's picker picks it up live via provider.updated; every setting writes
  * the global config layer via PUT /api/config and propagates to all surfaces
- * via config.updated.
+ * via config.updated. Feedback rides the shared toast (no inline banners).
  */
 
 /** The settings sections (the nested sidebar's entries). */
@@ -44,26 +52,24 @@ export function SettingsNav({
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
   ];
   return (
-    <div className="settings-nav">
+    <SubNav>
       {entries.map((entry) => (
-        <button
+        <SubNavItem
           key={entry.id}
-          type="button"
-          className={selected === entry.id ? "provider-item active" : "provider-item"}
+          title={entry.title}
+          subtitle={entry.dim}
+          selected={selected === entry.id}
           onClick={() => onSelect(entry.id)}
-          aria-current={selected === entry.id ? "page" : undefined}
-        >
-          <span className="title">{entry.title}</span>
-          <span className="dim">{entry.dim}</span>
-        </button>
+          ariaCurrent={selected === entry.id ? "page" : undefined}
+        />
       ))}
-    </div>
+    </SubNav>
   );
 }
 
 /**
  * Main pane for the settings section: one section's scrollable
- * heading-content page. Owns the mutation error/notice state.
+ * heading-content page. Mutations report through the shared toast.
  */
 export function SettingsPane({
   client,
@@ -72,6 +78,7 @@ export function SettingsPane({
   fetching,
   section,
   agents,
+  refreshAgents,
   userName,
   preferZdr,
   defaultAgent,
@@ -79,6 +86,7 @@ export function SettingsPane({
   videoGen,
   theme,
   onOpenThemePicker,
+  onNotice,
 }: {
   client: BaiClient;
   /** Null until the first engagement fetch lands (User works without it). */
@@ -87,8 +95,10 @@ export function SettingsPane({
   /** True while a provider-list refetch is in flight (list already shown). */
   fetching: boolean;
   section: SettingsSection;
-  /** Live agent catalog (App-owned) — the default-agent select. */
+  /** Live agent catalog (App-owned) — the default-agent picker. */
   agents: AgentInfo[];
+  /** Agents refetch (the default-agent modal's engagement refresh). */
+  refreshAgents: () => Promise<void>;
   /** Config snapshot for the forms (firehose-refreshed by the caller). */
   userName?: string;
   preferZdr?: boolean;
@@ -99,27 +109,22 @@ export function SettingsPane({
   theme: string;
   /** Open the theme picker modal (App-owned). */
   onOpenThemePicker: () => void;
+  /** Toast feedback (success/error). */
+  onNotice: OnNotice;
 }) {
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
   const mutate = async (fn: () => Promise<void>, okMessage: string): Promise<void> => {
     try {
       await fn();
       await refresh();
-      setError(null);
-      setNotice(okMessage);
+      onNotice(okMessage);
     } catch (err) {
-      setNotice(null);
-      setError(err instanceof Error ? err.message : String(err));
+      onNotice(err instanceof Error ? err.message : String(err), "error");
     }
   };
 
   if (section === "user") {
     return (
       <div className="settings">
-        {error !== null && <div className="error" role="alert">{error}</div>}
-        {notice !== null && <div className="notice">{notice}</div>}
         <UserPane client={client} userName={userName} mutate={mutate} />
       </div>
     );
@@ -135,13 +140,13 @@ export function SettingsPane({
 
   return (
     <div className="settings">
-      {error !== null && <div className="error" role="alert">{error}</div>}
-      {notice !== null && <div className="notice">{notice}</div>}
       {section === "general" ? (
         <GeneralPane
           client={client}
           list={list}
+          refresh={refresh}
           agents={agents}
+          refreshAgents={refreshAgents}
           defaultAgent={defaultAgent}
           preferZdr={preferZdr}
           theme={theme}
@@ -189,29 +194,25 @@ function UserPane({
 
   return (
     <>
-      <h2>User</h2>
-      <form
-        className="settings-card"
-        onSubmit={(e) => {
-          submit(e);
-        }}
-      >
-        <h3>User name</h3>
-        <p className="dim">Injected into every agent's env block — agents address you by it.</p>
+      <PageHeader title="User" />
+      <Card as="form" onSubmit={submit}>
+        <SectionHeader
+          title="User name"
+          lede="Injected into every agent's env block — agents address you by it."
+        />
         <div className="form-grid">
-          <label>
-            display name
-            <input
+          <Field label="Display name">
+            <TextInput
               value={name}
               placeholder="your name…"
               onChange={(e) => setName(e.target.value)}
             />
-          </label>
+          </Field>
         </div>
-        <button type="submit" disabled={name.trim().length === 0}>
-          save name
-        </button>
-      </form>
+        <Button type="submit" variant="primary" disabled={name.trim().length === 0}>
+          Save name
+        </Button>
+      </Card>
     </>
   );
 }
@@ -220,7 +221,9 @@ function UserPane({
 function GeneralPane({
   client,
   list,
+  refresh,
   agents,
+  refreshAgents,
   defaultAgent,
   preferZdr,
   theme,
@@ -229,7 +232,9 @@ function GeneralPane({
 }: {
   client: BaiClient;
   list: ProviderListResponse;
+  refresh: () => Promise<void>;
   agents: AgentInfo[];
+  refreshAgents: () => Promise<void>;
   defaultAgent?: string;
   preferZdr?: boolean;
   theme: string;
@@ -238,10 +243,10 @@ function GeneralPane({
 }) {
   return (
     <>
-      <h2>General</h2>
+      <PageHeader title="General" />
       <ThemeCard theme={theme} onOpenThemePicker={onOpenThemePicker} />
-      <DefaultAgentForm client={client} agents={agents} current={defaultAgent} mutate={mutate} />
-      <DefaultModel client={client} list={list} preferZdr={preferZdr} mutate={mutate} />
+      <DefaultAgentCard client={client} agents={agents} refreshAgents={refreshAgents} current={defaultAgent} mutate={mutate} />
+      <DefaultModelCard client={client} list={list} preferZdr={preferZdr} refresh={refresh} mutate={mutate} />
     </>
   );
 }
@@ -250,77 +255,174 @@ function GeneralPane({
 function ThemeCard({ theme, onOpenThemePicker }: { theme: string; onOpenThemePicker: () => void }) {
   const label = THEME_OPTIONS.find((opt) => opt.value === theme)?.label ?? theme;
   return (
-    <div className="settings-card theme-card">
-      <h3>Theme</h3>
-      <p className="dim">
-        One theme everywhere — the terminal picks it up live (config-updated), and this
-        browser remembers it for the next boot. Current: {label}
-      </p>
-      <button type="button" onClick={onOpenThemePicker}>
-        change theme
-      </button>
-    </div>
+    <Card className="theme-card">
+      <SectionHeader
+        title="Theme"
+        lede={
+          <>
+            One theme everywhere — the terminal picks it up live (config-updated), and this
+            browser remembers it for the next boot. Current: {label}
+          </>
+        }
+      />
+      <div>
+        <Button variant="outline" onClick={onOpenThemePicker}>
+          Change theme
+        </Button>
+      </div>
+    </Card>
   );
 }
 
-/** Default agent for sessions that select none (config agents.default). */
-function DefaultAgentForm({
+/**
+ * Default agent for sessions that select none (config agents.default): a
+ * trigger button opening the SAME AgentModal the chat header uses (capture
+ * mode) — the pick writes the config immediately, no separate save step.
+ */
+function DefaultAgentCard({
   client,
   agents,
+  refreshAgents,
   current,
   mutate,
 }: {
   client: BaiClient;
   agents: AgentInfo[];
+  refreshAgents: () => Promise<void>;
   current?: string;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
-  const [agent, setAgent] = useState(current ?? "build");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const effective = current ?? "build";
 
-  // build first, then file agents alphabetically (same order as the TUI
-  // switcher and the Agents section nav).
-  const sorted = [...agents].sort((a, b) => {
-    if (a.name === "build") return -1;
-    if (b.name === "build") return 1;
-    return a.name.localeCompare(b.name);
-  });
+  return (
+    <Card>
+      <SectionHeader
+        title="Default agent"
+        lede={<>Used by sessions that select none. Current: {current ?? "build (built-in default)"}</>}
+      />
+      <div>
+        <button
+          type="button"
+          className="model-button"
+          onClick={() => setPickerOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`default agent: ${effective}`}
+        >
+          <span className="dim">agent</span>
+          <span className="model-current">{effective}</span>
+          <span className="model-caret" aria-hidden="true">
+            <ChevronDown size={12} />
+          </span>
+        </button>
+      </div>
+      {pickerOpen && (
+        <AgentModal
+          client={client}
+          agents={agents}
+          active={null}
+          configDefaultAgent={current}
+          refreshAgents={refreshAgents}
+          current={effective}
+          onClose={() => setPickerOpen(false)}
+          onPick={(name) => {
+            setPickerOpen(false);
+            void mutate(
+              async () => {
+                await client.putConfig({ agents: { default: name } });
+              },
+              `Default agent set to ${name}`,
+            );
+          }}
+        />
+      )}
+    </Card>
+  );
+}
 
-  const submit = (e: FormEvent): void => {
+/**
+ * Default model (config models.default): a trigger button opening the SAME
+ * ModelModal the chat header uses — with no session open it already writes
+ * the global default (model + optional account pin), so no capture mode is
+ * needed. A free-text field covers catalog-external model ids.
+ */
+function DefaultModelCard({
+  client,
+  list,
+  preferZdr,
+  refresh,
+  mutate,
+}: {
+  client: BaiClient;
+  list: ProviderListResponse;
+  preferZdr?: boolean;
+  refresh: () => Promise<void>;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [custom, setCustom] = useState("");
+  const current = list.default.model ?? "stub/echo";
+
+  const saveCustom = (e: FormEvent): void => {
     e.preventDefault();
+    const value = custom.trim();
+    if (value.length === 0) return;
     void mutate(
       async () => {
-        await client.putConfig({ agents: { default: agent } });
+        await client.putConfig({ models: { default: value } });
       },
-      `Default agent set to ${agent}`,
+      `Default model set to ${value}`,
     );
+    setCustom("");
   };
 
   return (
-    <form
-      className="settings-card"
-      onSubmit={(e) => {
-        submit(e);
-      }}
-    >
-      <h3>Default agent</h3>
-      <p className="dim">
-        Used by sessions that select none. Current: {current ?? "build (built-in default)"}
-      </p>
-      <div className="form-grid">
-        <label>
-          agent
-          <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-            {sorted.map((a) => (
-              <option key={a.name} value={a.name}>
-                {a.name}
-                {a.name === "build" ? " — built-in default" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+    <Card as="form" onSubmit={saveCustom}>
+      <SectionHeader
+        title="Default model"
+        lede={<>Used by new sessions; per-session picks (chat header) override it. Current: {list.default.model ?? "stub/echo"}</>}
+      />
+      <div>
+        <button
+          type="button"
+          className="model-button"
+          onClick={() => setPickerOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`default model: ${current}`}
+        >
+          <span className="dim">model</span>
+          <span className="model-current">{current}</span>
+          <span className="model-caret" aria-hidden="true">
+            <ChevronDown size={12} />
+          </span>
+        </button>
       </div>
-      <button type="submit">save default agent</button>
-    </form>
+      <div className="form-grid">
+        <Field label="Or any model id" hint="(provider/model — for ids outside the catalog)">
+          <TextInput
+            value={custom}
+            placeholder="provider/model"
+            onChange={(e) => setCustom(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div>
+        <Button type="submit" variant="primary" disabled={custom.trim().length === 0}>
+          Save default
+        </Button>
+      </div>
+      {pickerOpen && (
+        <ModelModal
+          client={client}
+          list={list}
+          active={null}
+          preferZdr={preferZdr}
+          refreshProviders={refresh}
+          current={current}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </Card>
   );
 }
 
@@ -349,10 +451,10 @@ function ProvidersPane({
 
   return (
     <>
-      <h2>Model Providers</h2>
+      <PageHeader title="Model Providers" />
       <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
       <h3 className="settings-subheading">LLMs</h3>
-      <p className="dim">
+      <p className="section-lede">
         Every provider the catalog knows — connect one by adding an account. Connected first.
         {fetching ? " updating…" : ""}
       </p>
@@ -409,26 +511,22 @@ function ZdrToggle({
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   return (
-    <label className="settings-toggle">
-      <input
-        type="checkbox"
-        checked={preferZdr === true}
-        onChange={(e) => {
-          const on = e.target.checked;
-          void mutate(
-            async () => {
-              await client.putConfig({ models: { preferZdr: on } });
-            },
-            on ? "Prefer ZDR-capable models: on" : "Prefer ZDR-capable models: off",
-          );
-        }}
-      />
-      <span className="title">Prefer ZDR models</span>
-      <span className="dim">
-        Sorts zero-data-retention-capable models first in the pickers. Capability is bai's
-        curated list; actual ZDR requires an org-level agreement with the provider.
-      </span>
-    </label>
+    <ToggleRow
+      checked={preferZdr === true}
+      title="Prefer ZDR models"
+      description={
+        "Sorts zero-data-retention-capable models first in the pickers. Capability is bai's " +
+        "curated list; actual ZDR requires an org-level agreement with the provider."
+      }
+      onChange={(on) => {
+        void mutate(
+          async () => {
+            await client.putConfig({ models: { preferZdr: on } });
+          },
+          on ? "Prefer ZDR-capable models: on" : "Prefer ZDR-capable models: off",
+        );
+      }}
+    />
   );
 }
 
@@ -444,13 +542,13 @@ function ProviderDetail({
 }) {
   return (
     <div className="provider-detail">
-      <p className="dim">
+      <p className="section-lede">
         {provider.id} · {provider.adapter}
         {provider.baseUrl !== undefined ? ` · ${provider.baseUrl}` : ""}
       </p>
-      <div className={`provider-card ${provider.connected ? "connected" : ""}`}>
+      <Card className={provider.connected ? "connected" : undefined}>
         <div className="provider-head">
-          <strong>accounts</strong>
+          <strong>Accounts</strong>
           {provider.connected && (
             <span className="check">
               <Check size={12} aria-hidden="true" /> connected
@@ -458,7 +556,7 @@ function ProviderDetail({
           )}
         </div>
         {provider.accounts.length === 0 && (
-          <p className="dim">No accounts yet — add one below.</p>
+          <p className="section-lede">No accounts yet — add one below.</p>
         )}
         {provider.accounts.length > 0 && (
           <ul className="accounts">
@@ -470,20 +568,21 @@ function ProviderDetail({
                 </span>
                 <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
                 {a.source === "api" && (
-                  <button
-                    className="danger"
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => {
                       void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
                     }}
                   >
-                    remove
-                  </button>
+                    Remove
+                  </Button>
                 )}
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </Card>
       <AddAccount provider={provider} client={client} mutate={mutate} />
     </div>
   );
@@ -523,49 +622,44 @@ function AddAccount({
   };
 
   return (
-    <form
-      className="add-account"
-      onSubmit={(e) => {
-        submit(e);
-      }}
-    >
-      <h3>Add account · {provider.name}</h3>
-      <p className="dim">Multiple accounts per provider are fine — each keeps its own key. Keys are stored server-side (auth.json, 0600) and never echoed back.</p>
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title={<>Add account · {provider.name}</>}
+        lede="Multiple accounts per provider are fine — each keeps its own key. Keys are stored server-side (auth.json, 0600) and never echoed back."
+      />
       <div className="form-grid">
-        <label>
-          account id
-          <input value={accountId} placeholder="personal, work…" onChange={(e) => setAccountId(e.target.value)} />
-        </label>
-        <label>
-          label
-          <input value={label} placeholder="display name" onChange={(e) => setLabel(e.target.value)} />
-        </label>
-        <label>
-          api key
-          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} />
-        </label>
+        <Field label="Account id">
+          <TextInput value={accountId} placeholder="personal, work…" onChange={(e) => setAccountId(e.target.value)} />
+        </Field>
+        <Field label="Label">
+          <TextInput value={label} placeholder="display name" onChange={(e) => setLabel(e.target.value)} />
+        </Field>
+        <Field label="API key">
+          <TextInput type="password" value={key} onChange={(e) => setKey(e.target.value)} />
+        </Field>
         {/* Catalog providers have known endpoints; config/account-only
             providers without a baseUrl must be told where to send requests. */}
         {provider.baseUrl === undefined && provider.source !== "catalog" && (
-          <label>
-            base url
-            <input value={baseUrl} placeholder="https://…/v1" onChange={(e) => setBaseUrl(e.target.value)} />
-          </label>
+          <Field label="Base URL">
+            <TextInput value={baseUrl} placeholder="https://…/v1" onChange={(e) => setBaseUrl(e.target.value)} />
+          </Field>
         )}
       </div>
-      <button type="submit" disabled={accountId.length === 0 || key.length === 0}>
-        add account
-      </button>
-    </form>
+      <div>
+        <Button type="submit" variant="primary" disabled={accountId.length === 0 || key.length === 0}>
+          Add account
+        </Button>
+      </div>
+    </Card>
   );
 }
 
 /**
  * One media-generation modality's defaults (config imageGen / videoGen):
  * provider (any provider id — media vendors may not be in the LLM catalog,
- * hence the free-text input with a datalist), account (that provider's saved
- * accounts, when known), and model. The workbench executor falls back to
- * this model when a job doesn't name one.
+ * hence the creatable combobox), account (that provider's saved accounts,
+ * creatable — the provider may be typed freely), and model. The workbench
+ * executor falls back to this model when a job doesn't name one.
  */
 function MediaGenForm({
   kind,
@@ -611,120 +705,49 @@ function MediaGenForm({
   };
 
   return (
-    <form
-      className="settings-card media-gen"
-      onSubmit={(e) => {
-        submit(e);
-      }}
-    >
-      <h3>{title}</h3>
-      <p className="dim">
-        Defaults for the {kind === "imageGen" ? "image" : "video"} workbench — jobs without an
-        explicit model use this. Accounts come from the provider's saved keys (LLMs above).
-        Empty fields keep their saved value.
-      </p>
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title={title}
+        lede={
+          <>
+            Defaults for the {kind === "imageGen" ? "image" : "video"} workbench — jobs without an
+            explicit model use this. Accounts come from the provider's saved keys (LLMs above).
+            Empty fields keep their saved value.
+          </>
+        }
+      />
       <div className="form-grid">
-        <label>
-          provider
-          <input
-            list={`${kind}-providers`}
+        <Field label="Provider">
+          <Combobox
+            creatable
             value={provider}
+            onChange={setProvider}
+            options={providerIds.map((id) => ({ value: id, label: id }))}
             placeholder="openai, fal…"
-            onChange={(e) => setProvider(e.target.value)}
+            ariaLabel={`${title} provider`}
+            emptyText="Type a provider id."
           />
-          <datalist id={`${kind}-providers`}>
-            {providerIds.map((id) => (
-              <option key={id} value={id} />
-            ))}
-          </datalist>
-        </label>
-        <label>
-          account
-          <input
-            list={`${kind}-accounts`}
+        </Field>
+        <Field label="Account" hint="(optional)">
+          <Combobox
+            creatable
             value={account}
+            onChange={setAccount}
+            options={accountIds.map((id) => ({ value: id, label: id }))}
             placeholder="provider default"
-            onChange={(e) => setAccount(e.target.value)}
+            ariaLabel={`${title} account`}
+            emptyText="Type an account id."
           />
-          <datalist id={`${kind}-accounts`}>
-            {accountIds.map((id) => (
-              <option key={id} value={id} />
-            ))}
-          </datalist>
-        </label>
-        <label>
-          model
-          <input value={model} placeholder={kind === "imageGen" ? "gpt-image-2…" : "veo-3…"} onChange={(e) => setModel(e.target.value)} />
-        </label>
+        </Field>
+        <Field label="Model">
+          <TextInput value={model} placeholder={kind === "imageGen" ? "gpt-image-2…" : "veo-3…"} onChange={(e) => setModel(e.target.value)} />
+        </Field>
       </div>
-      <button type="submit" disabled={provider.trim().length === 0 || model.trim().length === 0}>
-        save {title.toLowerCase()} default
-      </button>
-    </form>
-  );
-}
-
-function DefaultModel({
-  client,
-  list,
-  preferZdr,
-  mutate,
-}: {
-  client: BaiClient;
-  list: ProviderListResponse;
-  preferZdr?: boolean;
-  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
-}) {
-  const connected = list.providers.filter((p) => p.connected && p.models.length > 0);
-  const [model, setModel] = useState(list.default.model ?? "");
-  const [custom, setCustom] = useState("");
-
-  const save = (value: string): void => {
-    if (value.length === 0) return;
-    void mutate(
-      async () => {
-        await client.putConfig({ models: { default: value } });
-      },
-      `Default model set to ${value}`,
-    );
-  };
-
-  return (
-    <form
-      className="default-model"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(custom.length > 0 ? custom : model);
-      }}
-    >
-      <h3>Default model</h3>
-      <p className="dim">Used by new sessions; per-session picks (chat header) override it. Current: {list.default.model ?? "stub/echo"}</p>
-      <div className="form-grid">
-        <label>
-          from catalog
-          <select value={model} onChange={(e) => { setModel(e.target.value); setCustom(""); }}>
-            <option value="">choose…</option>
-            {connected.map((p) => (
-              <optgroup key={p.id} label={p.name}>
-                {sortModelsZdrFirst(
-                  [...p.models].sort((a, b) => a.label.localeCompare(b.label)),
-                  preferZdr === true,
-                ).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                    {preferZdr === true && isZdrCapableModel(m.id, m.provider) ? " · zdr" : ""}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        <label>
-          or any model id
-          <input value={custom} placeholder="provider/model" onChange={(e) => { setCustom(e.target.value); setModel(""); }} />
-        </label>
+      <div>
+        <Button type="submit" variant="primary" disabled={provider.trim().length === 0 || model.trim().length === 0}>
+          Save {title.toLowerCase()} default
+        </Button>
       </div>
-      <button type="submit" disabled={model.length === 0 && custom.length === 0}>save default</button>
-    </form>
+    </Card>
   );
 }

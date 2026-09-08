@@ -1,0 +1,776 @@
+/*
+ * Shared component library styles (src/components/).
+ *
+ * Every rule here is token-driven: font sizes from the --text-* scale,
+ * spacing from --space-*, radii from --radius-*, control heights from
+ * --control-*. No raw pixel values except inside the tokens themselves
+ * (styles.css :root).
+ *
+ * Responsive + touch behavior is baked in per component:
+ * - 640px is THE mobile breakpoint (matches styles.css's media queries).
+ * - pointer: coarse bumps control heights via the tokens (styles.css).
+ */
+
+/* --- Button ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1;
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+}
+
+.btn-lg {
+  height: var(--control-h-lg);
+  padding: 0 var(--space-4);
+}
+
+/* Variants. */
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+.btn-secondary {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--border);
+  border-color: var(--dim);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--dim);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--border);
+  color: var(--text);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--border);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+/* Loading spinner slot (Button loading prop). */
+.btn-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 700ms linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner { animation: none; }
+}
+
+/* --- Modal -------------------------------------------------------------------
+ * One wrapper for every dialog: overlay + dialog + header (title + close) +
+ * scrollable body + optional footer. Esc, backdrop click, and the focus trap
+ * are the component's job (Modal.tsx). */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: var(--z-modal);
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  width: min(720px, 100%);
+  max-height: min(560px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-sm { width: min(520px, 100%); }
+.modal-lg {
+  width: min(880px, 100%);
+  max-height: min(640px, 90vh);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-body {
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+/* Full-bleed bodies (picker columns, explorer panes) opt out of padding. */
+.modal-body.unpadded {
+  padding: 0;
+  gap: 0;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-foot-spacer {
+  flex: 1;
+}
+
+/* The unified close button (IconButton inside .modal-head). */
+.modal-close {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .modal-overlay { padding: var(--space-2); }
+  .modal,
+  .modal-sm,
+  .modal-lg {
+    width: 100%;
+    max-height: 85vh;
+  }
+  /* Footer actions get full touch targets and wrap. */
+  .modal-foot .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* --- Field / TextInput / Textarea ------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  color: var(--dim);
+  line-height: var(--leading-tight);
+}
+
+.field-hint {
+  font-weight: 400;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+}
+
+/* The shared control skin: inputs, selects, and the combobox field all
+   match --control-h-md so a button beside them is exactly as tall. */
+.input {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--text-md);
+}
+
+textarea.input {
+  height: auto;
+  min-height: 80px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  line-height: var(--leading-normal);
+}
+
+.input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.input::placeholder {
+  color: var(--dim);
+}
+
+.input.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* --- Select (styled native, short static lists) ----------------------------- */
+
+.select {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.select select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  height: var(--control-h-md);
+  padding: 0 calc(var(--space-4) + var(--space-3)) 0 var(--space-3);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.select select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.select .select-caret {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--dim);
+  display: inline-flex;
+  pointer-events: none;
+}
+
+/* --- Combobox (autocomplete; single + multi-chip) --------------------------- */
+
+.combobox {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.combobox-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-h-md);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-2);
+  cursor: text;
+}
+
+.combobox-field:focus-within {
+  border-color: var(--accent);
+}
+
+.combobox-field.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.combobox-input {
+  flex: 1;
+  min-width: 90px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  height: calc(var(--control-h-md) - 6px);
+  padding: 0;
+}
+
+.combobox-input:focus {
+  outline: none;
+}
+
+.combobox-input::placeholder {
+  color: var(--dim);
+}
+
+.combobox-caret {
+  color: var(--dim);
+  display: inline-flex;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.combobox-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  max-height: min(300px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Rows keep their natural height — without this, flex-shrink squeezes
+   options below their content size once the list exceeds max-height and
+   the text overlaps neighboring rows (the pop must scroll, not squeeze). */
+.combobox-pop > * {
+  flex-shrink: 0;
+}
+
+.combobox-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-md);
+  min-height: var(--control-h-sm);
+}
+
+.combobox-option:hover,
+.combobox-option.active {
+  background: var(--border);
+}
+
+.combobox-option.selected {
+  color: var(--accent);
+}
+
+.combobox-option .co-sub {
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+
+.combobox-option .co-check {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--success);
+  display: inline-flex;
+}
+
+.combobox-empty {
+  padding: 6px var(--space-2);
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 640px) {
+  /* The dropdown anchors to the field, which is full-width on phones —
+     it can never overflow the viewport. */
+  .combobox-pop {
+    max-height: min(260px, 45vh);
+  }
+}
+
+/* --- ListItem (the universal row) -------------------------------------------
+ * Covers nav rows (sessions, workspace items), picker rows (model/agent
+ * modals), and inline rows (explorer/tree). One visual language: hover bg,
+ * selected bg, optional accent bar, trailing slot. */
+
+.list-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-md);
+  min-width: 0;
+}
+
+.list-item:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.list-item.selected {
+  background: var(--border);
+}
+
+/* Nav-style selection: the inset accent bar (sessions, workspace items). */
+.list-item.accent-bar.selected {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.list-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.list-item.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.list-item .li-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--dim);
+  display: inline-flex;
+}
+
+.list-item .li-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.list-item .li-title {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-item .li-sub {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-item .li-trailing {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  color: var(--success);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Trailing badges (picker rows' current/zdr marks). */
+.list-item .li-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.list-item .li-badge.accent {
+  color: var(--accent);
+}
+
+.list-item .li-badge.success {
+  color: var(--success);
+}
+
+/* Inline rows keep the trailing slot in-flow (no absolute overlap). */
+.list-item.inline .li-trailing {
+  position: static;
+  margin-left: auto;
+}
+
+@media (pointer: coarse) {
+  .list-item {
+    min-height: 44px;
+  }
+}
+
+/* Mobile: list items inside the horizontal strip containers become
+   single-line rows (replaces the per-class rules that used to live in
+   styles.css's media query). */
+@media (max-width: 640px) {
+  .session-list .list-item,
+  .workspace-nav .list-item,
+  .settings-nav .list-item {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  /* The workspace strip drops the path subtitle (the old .path rule). */
+  .workspace-nav .list-item .li-sub {
+    display: none;
+  }
+}
+
+/* --- Card ------------------------------------------------------------------- */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.card.connected {
+  border-color: var(--success);
+}
+
+/* --- Chip ------------------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  max-width: 100%;
+  min-height: var(--control-h-sm);
+}
+
+.chip.interactive {
+  cursor: pointer;
+}
+
+.chip.interactive:hover {
+  border-color: var(--accent);
+}
+
+.chip.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip.add {
+  color: var(--dim);
+}
+
+.chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip .chip-remove {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.chip .chip-remove:hover {
+  color: var(--danger);
+}
+
+/* Tone variants (status chips: queued, context tracker thresholds). */
+.chip.warning {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+.chip.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.chip.sending {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+/* --- ToggleRow / Checkbox ---------------------------------------------------- */
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  background: var(--panel);
+  cursor: pointer;
+  font: inherit;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle-row .toggle-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggle-row .toggle-desc {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  flex-basis: 100%;
+}
+
+@media (pointer: coarse) {
+  .toggle-row {
+    min-height: 44px;
+  }
+}
+
+.checkbox {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* --- PageHeader / SectionHeader ---------------------------------------------- */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0;
+  flex-wrap: wrap;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: var(--leading-tight);
+}
+
+.section-header {
+  margin: 0;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+}
+
+.section-lede {
+  color: var(--dim);
+  font-size: var(--text-md);
+  margin: 0;
+  line-height: var(--leading-normal);
+}
+
+@media (max-width: 640px) {
+  .page-header h2 { font-size: var(--text-lg); }
+}

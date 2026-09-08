@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Plus, X } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import { IconButton, useDialogFocus } from "./ui";
+import { Button, Modal, TextInput } from "./components";
 
 interface Completion {
   base: string;
@@ -49,8 +49,6 @@ export function AddWorkspaceModal({
   // Navigation clicks move the explorer themselves — the next completion
   // (from the input change they caused) must not re-sync it.
   const skipSyncRef = useRef(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(true, dialogRef);
 
   // Debounced completion for the typed path (no focus gate — the explorer
   // must keep updating when focus moves to the columns).
@@ -80,15 +78,6 @@ export function AddWorkspaceModal({
     }, 250);
     return () => clearTimeout(timer);
   }, [path, client, showDotfiles]);
-
-  // Esc closes (backdrop click and the × button are wired in the JSX).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   // --- left pane: the current directory's folders ---
   const [currentDir, setCurrentDir] = useState<string | null>(null);
@@ -286,155 +275,129 @@ export function AddWorkspaceModal({
     );
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="ws-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add a workspace"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="model-modal-head">
-          <strong>Add a Workspace</strong>
-           <IconButton className="modal-close" label="Close workspace picker" hint="Close workspace picker" onClick={onClose}>
-             <X size={16} aria-hidden="true" />
-           </IconButton>
-        </div>
-        <div className="ws-modal-body">
-          <input
-            className="ws-path-input"
-            value={path}
-            placeholder="/absolute/path — or type to search ~"
-            onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            aria-label="workspace folder path"
-            autoComplete="off"
-            autoFocus
-          />
-          <div className="ws-explorer-bar">
-            <label className="ws-dotfiles-toggle">
-              <input
-                type="checkbox"
-                checked={showDotfiles}
-                onChange={(e) => setShowDotfiles(e.target.checked)}
-              />
-              show dotfiles
-            </label>
-          </div>
-          <div className="ws-explorer">
-            <div className="ws-col">
-              <div className="ws-col-head" title={currentDir ?? undefined}>
-                {currentDir !== null ? basename(currentDir) : "folders"}
-              </div>
-              <div className="ws-col-list">
-                {completionError !== null && <p className="dim col-hint">{completionError}</p>}
-                {leftError !== null && <p className="dim col-hint">{leftError}</p>}
-                {currentDir !== null && (
-                  <>
-                    <button
-                      type="button"
-                      className="ws-row dotdot"
-                      title={parentPath(currentDir)}
-                      onClick={goUp}
-                    >
-                      ..
-                    </button>
-                    {filteredLeft.map((name) => {
-                      const dir = joinPath(currentDir, name);
-                      return (
-                        <button
-                          key={name}
-                          type="button"
-                          className={selectedDir === dir ? "ws-row active" : "ws-row"}
-                          title={dir}
-                          onClick={() => selectLeft(dir)}
-                        >
-                          {name}/
-                        </button>
-                      );
-                    })}
-                    {newFolderRow("left")}
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="ws-col">
-              <div className="ws-col-head" title={selectedDir ?? undefined}>
-                {selectedDir !== null ? basename(selectedDir) : "preview"}
-              </div>
-              <div className="ws-col-list">
-                {selectedDir === null && (
-                  <p className="dim col-hint">Click a folder to preview.</p>
-                )}
-                {rightError !== null && <p className="dim col-hint">{rightError}</p>}
-                {selectedDir !== null &&
-                  rightError === null &&
-                  rightEntries.length === 0 && <p className="dim col-hint">No subfolders.</p>}
-                {selectedDir !== null &&
-                  rightEntries.map((name) => {
-                    const dir = joinPath(selectedDir, name);
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        className="ws-row"
-                        title={dir}
-                        onClick={() => drillIn(dir)}
-                      >
-                        {name}/
-                      </button>
-                    );
-                  })}
-                {selectedDir !== null && newFolderRow("right")}
-              </div>
-            </div>
-          </div>
-          {error !== null && <div className="error" role="alert">{error}</div>}
-        </div>
-        <div className="ws-modal-foot">
+    <Modal
+      open
+      onClose={onClose}
+      title="Add a Workspace"
+      ariaLabel="Add a workspace"
+      footer={
+        <>
           {canCreate && (
             <>
-              <button
-                type="button"
-                className="ws-create"
-                disabled={busy}
-                onClick={() => {
-                  void createAndAdd();
-                }}
-              >
+              <Button variant="outline" disabled={busy} onClick={() => void createAndAdd()}>
                 + Create New Folder
-              </button>
+              </Button>
               <span className="dim">inside your home directory</span>
             </>
           )}
-          <span className="ws-foot-spacer" />
-          <button
-            type="button"
-            className="ws-add"
-            disabled={path.trim().length === 0 || busy}
-            onClick={() => {
-              void submit();
-            }}
+          <span className="modal-foot-spacer" />
+          <Button
+            variant="primary"
+            disabled={path.trim().length === 0}
+            loading={busy}
+            onClick={() => void submit()}
           >
-            {busy ? (
-              "working…"
-            ) : (
+            <Plus size={14} aria-hidden="true" />
+            Add Workspace
+          </Button>
+        </>
+      }
+    >
+      <TextInput
+        mono
+        value={path}
+        placeholder="/absolute/path — or type to search ~"
+        onChange={(e) => setPath(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        aria-label="workspace folder path"
+        autoComplete="off"
+        autoFocus
+      />
+      <div className="ws-explorer-bar">
+        <label className="ws-dotfiles-toggle">
+          <input
+            type="checkbox"
+            checked={showDotfiles}
+            onChange={(e) => setShowDotfiles(e.target.checked)}
+          />
+          show dotfiles
+        </label>
+      </div>
+      <div className="ws-explorer">
+        <div className="ws-col">
+          <div className="ws-col-head" title={currentDir ?? undefined}>
+            {currentDir !== null ? basename(currentDir) : "folders"}
+          </div>
+          <div className="ws-col-list">
+            {completionError !== null && <p className="dim col-hint">{completionError}</p>}
+            {leftError !== null && <p className="dim col-hint">{leftError}</p>}
+            {currentDir !== null && (
               <>
-                <Plus size={14} aria-hidden="true" />
-                Add Workspace
+                <button
+                  type="button"
+                  className="ws-row dotdot"
+                  title={parentPath(currentDir)}
+                  onClick={goUp}
+                >
+                  ..
+                </button>
+                {filteredLeft.map((name) => {
+                  const dir = joinPath(currentDir, name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      className={selectedDir === dir ? "ws-row active" : "ws-row"}
+                      title={dir}
+                      onClick={() => selectLeft(dir)}
+                    >
+                      {name}/
+                    </button>
+                  );
+                })}
+                {newFolderRow("left")}
               </>
             )}
-          </button>
+          </div>
+        </div>
+        <div className="ws-col">
+          <div className="ws-col-head" title={selectedDir ?? undefined}>
+            {selectedDir !== null ? basename(selectedDir) : "preview"}
+          </div>
+          <div className="ws-col-list">
+            {selectedDir === null && (
+              <p className="dim col-hint">Click a folder to preview.</p>
+            )}
+            {rightError !== null && <p className="dim col-hint">{rightError}</p>}
+            {selectedDir !== null &&
+              rightError === null &&
+              rightEntries.length === 0 && <p className="dim col-hint">No subfolders.</p>}
+            {selectedDir !== null &&
+              rightEntries.map((name) => {
+                const dir = joinPath(selectedDir, name);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    className="ws-row"
+                    title={dir}
+                    onClick={() => drillIn(dir)}
+                  >
+                    {name}/
+                  </button>
+                );
+              })}
+            {selectedDir !== null && newFolderRow("right")}
+          </div>
         </div>
       </div>
-    </div>
+      {error !== null && <div className="error" role="alert">{error}</div>}
+    </Modal>
   );
 }
 

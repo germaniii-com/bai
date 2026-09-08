@@ -29,13 +29,66 @@
   --inset: #27272a;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --text-caption: 11px;
-  --text-meta: 12px;
-  --text-control: 13px;
-  --text-body: 15px;
+
+  /* --- design tokens (the UI standardization scale) ----------------------- */
+
+  /* Typography scale — the only font sizes components may use. */
+  --text-xs: 11px;   /* captions, badges, column heads */
+  --text-sm: 12px;   /* meta, labels, hints */
+  --text-md: 13px;   /* controls, dense body */
+  --text-lg: 15px;   /* body, section headings */
+  --text-xl: 20px;   /* page titles, KPI values */
+  /* Legacy aliases — kept so the incremental migration can move one rule at
+     a time; removed once no raw rule references them. */
+  --text-caption: var(--text-xs);
+  --text-meta: var(--text-sm);
+  --text-control: var(--text-md);
+  --text-body: var(--text-lg);
+
+  /* Spacing scale (4px base) — the only padding/margin/gap values. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Border-radius scale. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* Control heights — buttons and inputs share one height per size, so a
+     button can never drift taller than the text input beside it. */
+  --control-h-sm: 28px;
+  --control-h-md: 34px;
+  --control-h-lg: 40px;
+
+  /* Elevation. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.18);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.25);
+  --shadow-lg: 0 6px 24px rgb(0 0 0 / 0.3);
+
+  /* Layers + overlay. */
+  --z-modal: 50;
+  --z-toast: 1000;
+  --overlay-bg: rgba(4, 6, 10, 0.6);
+
   --leading-tight: 1.25;
   --leading-normal: 1.5;
   --focus-ring: var(--accent);
+}
+
+/* Touch: every control meets the 44px target on coarse pointers (HIG). */
+@media (pointer: coarse) {
+  :root {
+    --control-h-sm: 36px;
+    --control-h-md: 40px;
+    --control-h-lg: 44px;
+  }
 }
 
 [data-theme="light"] { color-scheme: light; --bg: #f4f4f5; --panel: #ffffff; --border: #e4e4e7; --text: #18181b; --dim: #71717a; --accent: #3b82f6; --user: #16a34a; --success: #16a34a; --danger: #dc2626; --warning: #eab308; --secondary: #06b6d4; --on-accent: #ffffff; --on-danger: #ffffff; --inset: #e4e4e7; }
@@ -152,10 +205,6 @@ select:focus-visible,
 }
 .icon-button:hover::after,
 .icon-button:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-
-.type-caption { font-size: var(--text-caption); line-height: var(--leading-tight); }
-.type-meta { font-size: var(--text-meta); line-height: var(--leading-normal); }
-.type-control { font-size: var(--text-control); line-height: var(--leading-normal); }
 
 @media (pointer: coarse) {
   .icon-button { min-width: 44px; min-height: 44px; }
@@ -349,54 +398,11 @@ select:focus-visible,
   min-height: 0;
 }
 
-.workspace-item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-  max-width: 100%;
-}
-
-.workspace-item:hover {
-  background: var(--border);
-}
-
-.workspace-item.active {
-  background: var(--border);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.workspace-item .ws-item-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-
 .ws-item-icon {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   color: var(--dim);
-}
-
-.workspace-item .title {
-  font-weight: 600;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Active-mode head: the selected workspace, clickable to switch back to
@@ -406,20 +412,13 @@ select:focus-visible,
   top: 8px;
   right: 8px;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* Keep the head's title row clear of the ⇄ glyph so long names truncate
    before reaching it. */
-.workspace-active-head .ws-item-head {
+.workspace-active-head .li-head {
   padding-right: 22px;
-}
-
-.workspace-item .path {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .add-workspace-btn {
@@ -428,40 +427,6 @@ select:focus-visible,
 
 /* --- add-workspace modal: path input + two-column explorer --- */
 
-.ws-modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: min(680px, 100%);
-  max-height: min(560px, 90vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.ws-modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 16px;
-  min-height: 0;
-}
-
-.ws-path-input {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  font-size: 13px;
-}
-
-.ws-path-input:focus {
-  outline: 1px solid var(--accent);
-}
-
-/* Explorer toolbar (dotfiles toggle). */
 .ws-explorer-bar {
   display: flex;
   justify-content: flex-end;
@@ -600,61 +565,6 @@ select:focus-visible,
   cursor: default;
 }
 
-.ws-modal-foot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-}
-
-.ws-foot-spacer {
-  flex: 1;
-}
-
-.ws-create {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--accent);
-  border-radius: 8px;
-  padding: 7px 12px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.ws-create:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.ws-create:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.ws-add {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-weight: 600;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-
-.ws-add:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 /* --- file tree (right sidebar, workspace section) --- */
 
 .file-tree {
@@ -714,29 +624,20 @@ select:focus-visible,
   border-radius: 6px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 .tree-row:hover {
   background: var(--border);
 }
 
-/* File rows open the viewer — same affordance as dir rows, plus an accent
-   tint on the viewer's active file. */
+/* Display-only fallback row (no onOpenFile wired). */
 .tree-row.file {
-  cursor: pointer;
+  cursor: default;
 }
 
-.tree-row.file:hover {
-  background: var(--border);
-}
-
-.tree-row.file.active {
-  color: var(--accent);
-}
-
-/* Folder/file glyph — distinguishes row types at a glance; the open state
-   is the FolderOpen shape swap (no tint). */
+/* Folder/file/tab glyph — 14px dim icon slot (file tree rows and the
+   file viewer's tab icons). */
 .tree-icon {
   width: 14px;
   height: 14px;
@@ -942,61 +843,16 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   max-width: 480px;
   text-align: center;
-}
-
-.viewer-message button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  padding: 5px 12px;
-  cursor: pointer;
-}
-
-.viewer-message button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .session-list {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.session {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.session.active {
-  background: var(--border);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.session .title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  gap: var(--space-1);
 }
 
 .chat {
@@ -1016,15 +872,20 @@ select:focus-visible,
 }
 
 .message {
-  max-width: 720px;
+  /* Full pane width — the transcript spans the chat surface (no centered
+     column cap). */
+  min-width: 0;
 }
 
-/* Role is conveyed by shape, not labels: user messages get the bordered
-   bubble (mirroring the TUI's green box), assistant messages render plain. */
+/* Role is conveyed by shape, not labels: user messages get a subtle
+   accent-tinted bubble — the outline follows the ACTIVE THEME's accent
+   (the old hardcoded success-green outline clashed with every non-green
+   theme); assistant messages render plain. */
 .message.user {
-  border: 1px solid var(--user);
-  border-radius: 10px;
-  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
 }
 
 .message.user p {
@@ -1054,6 +915,15 @@ select:focus-visible,
 .message.user:focus-within .message-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Touch has no hover — the per-message actions stay visible on coarse
+   pointers (the mobile gap: hidden actions were unreachable on phones). */
+@media (pointer: coarse) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .message-action {
@@ -1086,34 +956,12 @@ select:focus-visible,
 .revert-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 720px;
-  padding: 6px 12px;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
   border: 1px dashed var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--dim);
-  font-size: 12px;
-}
-
-.revert-banner button {
-  margin-left: auto;
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-
-.revert-banner button:hover {
-  border-color: var(--accent);
-}
-
-.revert-banner button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  font-size: var(--text-sm);
 }
 
 /* Queued messages (message-queue feature): admitted inputs waiting for the
@@ -1133,46 +981,8 @@ select:focus-visible,
   margin-top: 6px;
 }
 
-.queued-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px;
-  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  color: var(--warning);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Send-now flip: the node is leaving the queue — accent tint while it
-   waits to promote into a real transcript message. */
-.queued-chip.sending {
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
-
 .queued-spacer {
   flex: 1;
-}
-
-.queued-action {
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-
-.queued-action:hover {
-  border-color: var(--accent);
-  color: var(--text);
 }
 
 /* --- Markdown bodies (assistant replies + thinking) ---------------------- */
@@ -1568,23 +1378,12 @@ select:focus-visible,
 
 /* Agents & tools management pane: two-tab list + form/code editor. */
 .agents-pane {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px;
+  padding: var(--space-3);
   overflow-y: auto;
-}
-
-.notice {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-bottom: 10px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--text);
-  text-align: left;
-  width: 100%;
 }
 
 /* Toast (agents/tools mutation feedback) — fixed bottom-right, auto-dismiss;
@@ -1638,91 +1437,34 @@ select:focus-visible,
 }
 
 /* Agents & tools editors (main pane; the lists render in the nested
-   sidebar using the shared settings-nav/provider-item styles). */
+   sidebar using the shared settings-nav/provider-item styles). Controls
+   come from the shared component library (.field/.input/.btn). */
 .agent-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
+  width: 100%;
 }
 
 .agent-form h3 {
   margin: 0;
 }
 
-.agent-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--dim);
-}
-
-.agent-form input,
-.agent-form textarea {
-  font: inherit;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
-}
-
-.agent-form textarea.code {
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  white-space: pre;
-  overflow-x: auto;
-}
-
 .agents-actions {
   display: flex;
-  gap: 8px;
-}
-
-.agents-actions button {
-  font: inherit;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.agents-actions button.danger {
-  color: var(--danger);
-  border-color: var(--danger);
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 /* Skill form: the linked-files list (references/templates/scripts/assets). */
 .skill-linked-files {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
-.skill-file {
-  font: inherit;
-  font-size: var(--text-meta);
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.skill-file code {
+.skill-linked-files code {
   font-family: var(--font-mono);
-  color: var(--text);
-}
-
-.skill-file.active {
-  border-color: var(--accent, var(--text));
-}
-
-.skill-file.add {
-  color: var(--dim);
 }
 
 .typing .dot {
@@ -1811,45 +1553,22 @@ select:focus-visible,
 
 .composer-input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
+/* The composer input shares the lg control height with its Send/Stop
+   button — one token, so they can never drift apart. */
 .composer-input-row input {
   flex: 1;
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  height: var(--control-h-lg);
+  padding: 0 var(--space-3);
   font: inherit;
-}
-
-.composer-input-row input:focus {
-  outline: 1px solid var(--accent);
-}
-
-/* Scope the accent styling to the send/stop row — the picker buttons and
-   chips are also <button>s inside .composer and style themselves. */
-.composer-input-row button {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: 10px;
-  padding: 0 18px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.composer-input-row button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Stop button (replaces send while the model responds). */
-.composer-input-row button.stop {
-  background: var(--danger);
-  color: var(--on-danger);
+  font-size: var(--text-md);
 }
 
 /* Status/commands rows: contextual chip left, pickers right (status);
@@ -1867,54 +1586,8 @@ select:focus-visible,
   flex: 1;
 }
 
-.composer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--dim);
-  border-radius: 8px;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  max-width: 280px;
-}
-
-button.composer-chip:hover {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-/* Informational variant (draft label / plain chat session): not a control. */
-.composer-chip.static {
-  cursor: default;
-}
-
-/* Context tracker chip (pi/opencode parity): the session's live context
-   usage. Dim at rest; tone-shifts at the 70/90% thresholds like the TUI. */
-.composer-chip.context-chip.warning {
-  color: var(--warning);
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-}
-
-.composer-chip.context-chip.danger {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-}
-
-.composer-chip .chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer-chip .ws-item-icon {
-  flex-shrink: 0;
-}
-
-/* Model picker: a button that opens the three-column modal. */
+/* Model picker trigger: a chip-style button that opens the picker modal
+   (chat header + Settings' default agent/model cards). */
 .model-button {
   display: inline-flex;
   align-items: center;
@@ -1922,10 +1595,11 @@ button.composer-chip:hover {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 8px;
-  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   cursor: pointer;
   max-width: 320px;
 }
@@ -1948,45 +1622,14 @@ button.composer-chip:hover {
 
 /* --- model modal: provider → accounts → models --- */
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(4, 6, 10, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 50;
-}
-
-.model-modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: min(760px, 100%);
-  max-height: min(520px, 90vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
+/* The theme picker (the one modal still on its own phase-machine wrapper)
+   reuses this header pattern. */
 .model-modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
-}
-
-.modal-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-  padding: 0 4px;
 }
 
 /* --- permission modal: allow once / allow always / reject --- */
@@ -2034,25 +1677,6 @@ button.composer-chip:hover {
 .perm-context {
   margin: 0;
   color: var(--secondary);
-}
-
-.perm-modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: min(720px, 100%);
-  max-height: min(560px, 90vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.perm-body {
-  padding: 14px 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .perm-tool {
@@ -2158,36 +1782,7 @@ button.composer-chip:hover {
 .perm-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-}
-
-.perm-actions button {
-  font: inherit;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.perm-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.perm-actions .perm-primary {
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.perm-actions .perm-danger {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.perm-actions .perm-ghost {
-  color: var(--dim);
+  gap: var(--space-2);
 }
 
 /* --- question modal: agent → user asks --- */
@@ -2236,12 +1831,8 @@ button.composer-chip:hover {
   color: var(--dim);
 }
 
-.modal-close:hover {
-  color: var(--text);
-}
-
 .modal-loading {
-  padding: 24px 16px;
+  padding: var(--space-6) var(--space-4);
 }
 
 .model-columns {
@@ -2264,11 +1855,11 @@ button.composer-chip:hover {
 }
 
 .model-col-head {
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
-  padding: 10px 12px 6px;
+  padding: var(--space-3) var(--space-3) var(--space-2);
 }
 
 .model-col-list {
@@ -2278,7 +1869,7 @@ button.composer-chip:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0 6px 10px;
+  padding: 0 var(--space-2) var(--space-3);
 }
 
 /* The model modal's one search bar (TUI SelectDialog parity): sits above
@@ -2287,13 +1878,13 @@ button.composer-chip:hover {
    `type="search"` gives the native clear affordance. */
 .model-search {
   display: block;
-  margin: 10px 16px;
-  padding: 6px 10px;
-  font-size: 13px;
+  margin: var(--space-3) var(--space-4);
+  padding: 6px var(--space-3);
+  font-size: var(--text-md);
   color: var(--text);
   background: var(--inset);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   min-width: 0;
 }
 
@@ -2306,74 +1897,11 @@ button.composer-chip:hover {
 }
 
 .col-hint {
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
 }
 
-.model-row {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 7px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-}
-
-.model-row:hover:not(:disabled) {
-  background: var(--border);
-}
-
-.model-row.active {
-  background: var(--border);
-}
-
-.model-row:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.model-row .check {
-  position: absolute;
-  top: 7px;
-  right: 8px;
-  color: var(--success);
-  font-weight: 700;
-}
-
-.model-row .current-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: var(--accent);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* ZDR-capable badge (model picker rows; shown when models.preferZdr is on).
-   Sits left of the current badge so both can coexist on one row. */
-.model-row .zdr-badge {
-  position: absolute;
-  top: 8px;
-  right: 52px;
-  color: var(--success);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* --- agent picker modal: single-column agent list (narrower than the
-   model modal; reuses .model-modal / .model-row chrome) --- */
-
-.agent-modal {
-  width: min(520px, 100%);
-}
+/* --- agent picker modal: single-column agent list (the shared Modal at
+   size "sm"; the list fills the unpadded body) --- */
 
 .agent-modal-list {
   flex: 1;
@@ -2382,14 +1910,7 @@ button.composer-chip:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 6px 10px;
-}
-
-.agent-modal-list .agent-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  padding: var(--space-2) var(--space-2) var(--space-3);
 }
 
 .hint {
@@ -2411,41 +1932,13 @@ button.composer-chip:hover {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.settings h2 {
-  margin: 4px 0;
-}
-
-.settings h3 {
-  margin: 0 0 4px;
-  font-size: 15px;
-}
-
-.notice {
-  color: var(--user);
-  font-size: 13px;
-}
-
-.provider-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.provider-card.connected {
-  border-color: var(--success);
+  gap: var(--space-4);
 }
 
 .provider-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -2467,7 +1960,7 @@ button.composer-chip:hover {
 .accounts li {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
   border-top: 1px solid var(--border);
   padding-top: 6px;
@@ -2478,109 +1971,29 @@ button.composer-chip:hover {
   min-width: 140px;
 }
 
-.accounts .danger {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--danger);
-  border-radius: 6px;
-  padding: 2px 10px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-
-.add-account,
-.default-model,
-.settings-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .form-grid label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
   color: var(--dim);
-}
-
-.form-grid input,
-.form-grid select {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.add-account button,
-.default-model button,
-.settings-card button[type="submit"] {
-  align-self: flex-start;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.add-account button:disabled,
-.default-model button:disabled,
-.settings-card button[type="submit"]:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* --- settings sections (User / General / Model Providers) ---------------- */
 
 .settings-subheading {
-  margin: 18px 0 4px;
-  font-size: 11px;
+  margin: var(--space-5) 0 var(--space-1);
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
-}
-
-.settings-toggle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--panel);
-  cursor: pointer;
-}
-
-.settings-toggle input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.settings-toggle .title {
-  font-weight: 600;
-}
-
-.settings-toggle .dim {
-  flex-basis: 100%;
 }
 
 .provider-accordion {
@@ -2588,7 +2001,7 @@ button.composer-chip:hover {
   flex-direction: column;
   gap: 2px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 6px;
   background: var(--panel);
 }
@@ -2607,59 +2020,38 @@ button.composer-chip:hover {
 
 /* --- analytics (usage KPIs + charts) ------------------------------------- */
 
+/* Full-width dashboard container — analytics is a data surface, not a form:
+   it spans the whole main pane (the settings container's 760px cap is for
+   forms). KPIs/charts stretch; on phones the grid rules below stack them. */
+.analytics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+}
+
 .analytics-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: var(--space-2);
 }
 
-.analytics-filters select {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 6px 8px;
-  font: inherit;
-  font-size: 12px;
-  max-width: 180px;
-}
-
-.analytics-filters button {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.analytics-filters button:disabled {
-  opacity: 0.4;
-  cursor: default;
+/* Chart titles (the Card provides the box). */
+.chart-card h3 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-md);
 }
 
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.kpi-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--panel);
+  gap: var(--space-3);
 }
 
 .kpi-label {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2667,23 +2059,10 @@ button.composer-chip:hover {
 }
 
 .kpi-value {
-  font-size: 20px;
+  font-size: var(--text-xl);
   font-weight: 700;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-}
-
-.chart-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--panel);
-  margin-bottom: 14px;
-}
-
-.chart-card h3 {
-  margin: 0 0 10px;
-  font-size: 13px;
 }
 
 .chart-card .recharts-legend-item-text {
@@ -2803,32 +2182,6 @@ button.composer-chip:hover {
   .theme-modal-wrap.exiting {
     animation: none;
   }
-}
-
-/* The settings-card-style theme launcher inside General. */
-.theme-card button {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font: inherit;
-}
-
-.theme-card button:hover {
-  border-color: var(--accent);
-}
-
-.theme-card .theme-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .theme-modal {
@@ -2965,8 +2318,8 @@ button.composer-chip:hover {
 .theme-form-colors label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
   color: var(--dim);
 }
 
@@ -2975,7 +2328,7 @@ button.composer-chip:hover {
   height: 34px;
   padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg);
   cursor: pointer;
 }
@@ -2983,32 +2336,7 @@ button.composer-chip:hover {
 .theme-form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-}
-
-.theme-form-actions button {
-  font: inherit;
-  padding: 8px 16px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.theme-form-cancel {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-}
-
-.theme-form-save {
-  border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.theme-form-save:disabled {
-  opacity: 0.4;
-  cursor: default;
+  gap: var(--space-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3028,29 +2356,16 @@ button.composer-chip:hover {
 
   /* Composer hub: tighter padding, smaller chips, rows wrap. */
   .composer {
-    padding: 8px 10px;
-    gap: 6px;
+    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
   }
 
-  .composer-chip {
+  .composer .chip {
     max-width: 160px;
-    padding: 2px 8px;
   }
 
-  .composer-input-row button {
-    padding: 0 14px;
-  }
-
-  /* Three columns stay side by side, horizontally scrollable. */
-  .modal-overlay {
-    padding: 8px;
-  }
-
-  .model-modal {
-    width: 100%;
-    max-height: 85vh;
-  }
-
+  /* Three columns stay side by side, horizontally scrollable (the shared
+     Modal's mobile rules live in components.css). */
   .model-columns {
     overflow-x: auto;
   }
@@ -3128,10 +2443,6 @@ button.composer-chip:hover {
     flex: 1;
   }
 
-  .session {
-    white-space: nowrap;
-  }
-
   .settings-nav {
     flex-direction: row;
     flex: 1;
@@ -3151,7 +2462,8 @@ button.composer-chip:hover {
   }
 
   /* Workspace: nav becomes part of the horizontal strip; the file tree is
-     a desktop affordance — hidden on phones for v1. */
+     a desktop affordance — hidden on phones for v1. (The list items inside
+     the strips get their mobile layout from components.css.) */
   .workspace-nav {
     flex-direction: row;
     flex: 1;
@@ -3159,22 +2471,7 @@ button.composer-chip:hover {
     align-items: center;
   }
 
-  .workspace-item {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-
-  .workspace-item .path {
-    display: none;
-  }
-
   /* Add-workspace modal: keep the two columns side by side, tighter. */
-  .ws-modal-body {
-    padding: 10px 12px;
-  }
-
   .ws-explorer {
     min-height: 200px;
   }
@@ -3184,9 +2481,9 @@ button.composer-chip:hover {
   }
 
   /* Analytics: filters wrap tighter; KPI grid and charts stack. */
-  .analytics-filters select {
+  .analytics-filters .select,
+  .analytics-filters .combobox {
     flex: 1 1 140px;
-    max-width: none;
   }
 
   .kpi-grid {

@@ -20,6 +20,7 @@ import type {
   UsageGranularity,
 } from "@bai/shared";
 import { useUsage } from "./use-usage";
+import { Button, Card, Combobox, PageHeader, Select, type ComboboxOption } from "./components";
 
 /**
  * The Analytics page (D26 data): KPI cards + four charts over the usage
@@ -59,6 +60,11 @@ function fmtPercent(n: number): string {
 /** ISO date (UTC) N days before now — the range presets' inclusive `from`. */
 function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
+/** Facet filter options: the "All …" empty value leads, then the facet values. */
+function facetOptions(values: string[], allLabel: string): ComboboxOption[] {
+  return [{ value: "", label: allLabel }, ...values.map((v) => ({ value: v, label: v }))];
 }
 
 type Range = "7d" | "30d" | "90d" | "all";
@@ -168,8 +174,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
   if (usage === null) {
     return (
-      <div className="settings">
-        <h2>Analytics</h2>
+      <div className="analytics">
+        <PageHeader title="Analytics" />
         <p className="dim">{refreshing ? "loading…" : "No usage data available."}</p>
       </div>
     );
@@ -177,8 +183,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
   if (usage.kpis.requests === 0) {
     return (
-      <div className="settings">
-        <h2>Analytics</h2>
+      <div className="analytics">
+        <PageHeader title="Analytics" />
         <p className="dim empty">
           No usage recorded yet — token spend, cache rates, and per-model charts appear here once agents run.
         </p>
@@ -215,11 +221,15 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
   const axisColor = themeColors.textMuted;
 
   return (
-    <div className="settings">
-      <h2>
-        Analytics
-        {refreshing && <span className="dim"> · refreshing…</span>}
-      </h2>
+    <div className="analytics">
+      <PageHeader
+        title={
+          <>
+            Analytics
+            {refreshing && <span className="dim"> · refreshing…</span>}
+          </>
+        }
+      />
 
       {/* --- filters --- */}
       <div className="analytics-filters">
@@ -237,75 +247,85 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             </button>
           ))}
         </div>
-        <select value={range} onChange={(e) => setRange(e.target.value as Range)} aria-label="Date range">
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="all">All time</option>
-        </select>
-        <select value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="Agent filter">
-          <option value="">All agents</option>
-          {usage.facets.agents.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <select value={workspace} onChange={(e) => setWorkspace(e.target.value)} aria-label="Workspace filter">
-          <option value="">All workspaces</option>
-          {usage.facets.workspaces.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
-        <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Provider filter">
-          <option value="">All providers</option>
-          {usage.facets.providers.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account filter">
-          <option value="">All accounts</option>
-          {usage.facets.accounts.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model filter">
-          <option value="">All models</option>
-          {usage.facets.models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Call kind filter">
-          <option value="">All calls</option>
-          <option value="run">Runs only</option>
-          <option value="title">Titles only</option>
-          <option value="compaction">Compactions only</option>
-        </select>
-        <button type="button" onClick={() => void refresh()} disabled={refreshing}>
-          refresh
-        </button>
+        <Select
+          value={range}
+          onChange={(v) => setRange(v as Range)}
+          ariaLabel="Date range"
+          options={[
+            { value: "7d", label: "Last 7 days" },
+            { value: "30d", label: "Last 30 days" },
+            { value: "90d", label: "Last 90 days" },
+            { value: "all", label: "All time" },
+          ]}
+        />
+        <Combobox
+          value={agent}
+          onChange={setAgent}
+          ariaLabel="Agent filter"
+          options={facetOptions(usage.facets.agents, "All agents")}
+          placeholder="All agents"
+          emptyText="No agents in this window."
+        />
+        <Combobox
+          value={workspace}
+          onChange={setWorkspace}
+          ariaLabel="Workspace filter"
+          options={facetOptions(usage.facets.workspaces, "All workspaces")}
+          placeholder="All workspaces"
+          emptyText="No workspaces in this window."
+        />
+        <Combobox
+          value={provider}
+          onChange={setProvider}
+          ariaLabel="Provider filter"
+          options={facetOptions(usage.facets.providers, "All providers")}
+          placeholder="All providers"
+          emptyText="No providers in this window."
+        />
+        <Combobox
+          value={account}
+          onChange={setAccount}
+          ariaLabel="Account filter"
+          options={facetOptions(usage.facets.accounts, "All accounts")}
+          placeholder="All accounts"
+          emptyText="No accounts in this window."
+        />
+        <Combobox
+          value={model}
+          onChange={setModel}
+          ariaLabel="Model filter"
+          options={facetOptions(usage.facets.models, "All models")}
+          placeholder="All models"
+          emptyText="No models in this window."
+        />
+        <Select
+          value={kind}
+          onChange={setKind}
+          ariaLabel="Call kind filter"
+          options={[
+            { value: "", label: "All calls" },
+            { value: "run", label: "Runs only" },
+            { value: "title", label: "Titles only" },
+            { value: "compaction", label: "Compactions only" },
+          ]}
+        />
+        <Button variant="primary" size="sm" onClick={() => void refresh()} disabled={refreshing}>
+          Refresh
+        </Button>
       </div>
 
       {/* --- KPI cards --- */}
       <div className="kpi-grid">
         {kpis.map((k) => (
-          <div key={k.label} className="kpi-card">
+          <Card key={k.label} className="kpi-card">
             <span className="kpi-label">{k.label}</span>
             <span className="kpi-value">{k.value}</span>
-          </div>
+          </Card>
         ))}
       </div>
 
       {/* --- usage by model: table + stacked bars (hover: $ and tokens/day) --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Usage by model</h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usageData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -369,10 +389,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
 
       {/* --- request volume by model: shaded lines --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Request volume by model</h3>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={volumeData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -406,10 +426,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             ))}
           </AreaChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
       {/* --- token breakdown: prompt / reasoning / completion --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Token breakdown</h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart
@@ -437,10 +457,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             <Bar dataKey="completion" name="Completion" stackId="tokens" fill={themeColors.success} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
       {/* --- prompt token caching: cached vs uncached --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Prompt token caching</h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usage.cacheSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -464,10 +484,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             <Bar dataKey="uncached" name="Uncached" stackId="cache" fill={themeColors.warning} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
       {/* --- errors: failed vs successful calls per bucket --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Errors</h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart
@@ -498,10 +518,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             <Bar dataKey="errors" name="Errors" stackId="calls" fill={themeColors.danger} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
       {/* --- skill activity: skills.view calls (skill_events store) --- */}
-      <div className="chart-card">
+      <Card className="chart-card">
         <h3>Skill activity</h3>
         {skillUsage === null ? (
           <p className="dim">No skill activity data.</p>
@@ -556,7 +576,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             </table>
           </>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

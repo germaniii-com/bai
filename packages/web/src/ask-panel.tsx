@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { PermissionRequest, QuestionRequest } from "@bai/shared";
+import { Button } from "./components";
 
 /**
  * The merged, prioritized pending ask App hands to the chat pane:
@@ -155,35 +156,30 @@ function PermissionAsk({
             autoFocus
           />
           <div className="perm-actions">
-            <button
-              type="button"
-              className="perm-danger"
+            <Button
+              variant="danger"
+              size="sm"
               disabled={busy}
               onClick={() => void reply("rejected", "once", message.trim().length > 0 ? message.trim() : undefined)}
             >
               Reject
-            </button>
-            <button type="button" className="perm-ghost" disabled={busy} onClick={() => setRejecting(false)}>
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setRejecting(false)}>
               Back
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="perm-actions">
-          <button type="button" className="perm-primary" disabled={busy} onClick={() => void reply("approved", "once")}>
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void reply("approved", "once")}>
             Allow once
-          </button>
-          <button
-            type="button"
-            className="perm-allow-always"
-            disabled={busy}
-            onClick={() => void reply("approved", "always")}
-          >
+          </Button>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => void reply("approved", "always")}>
             Allow always (this session)
-          </button>
-          <button type="button" className="perm-danger" disabled={busy} onClick={() => setRejecting(true)}>
+          </Button>
+          <Button variant="danger" size="sm" disabled={busy} onClick={() => setRejecting(true)}>
             Reject…
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -310,12 +306,12 @@ function QuestionAsk({
       ))}
       {error !== null && <p className="error" role="alert">{error}</p>}
       <div className="perm-actions">
-        <button type="button" className="perm-primary" disabled={busy} onClick={() => void submit()}>
+        <Button variant="primary" size="sm" disabled={busy} onClick={() => void submit()}>
           Submit answers
-        </button>
-        <button type="button" className="perm-danger" disabled={busy} onClick={() => void dismiss()}>
+        </Button>
+        <Button variant="danger" size="sm" disabled={busy} onClick={() => void dismiss()}>
           Dismiss
-        </button>
+        </Button>
       </div>
     </div>
   );

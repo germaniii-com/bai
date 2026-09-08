@@ -5,6 +5,7 @@ import { FileCode, FileText, FileVideo, Image as ImageIcon, RotateCw, X } from "
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { Button } from "./components";
 
 /**
  * The Files view of the workspace section: a tab bar of opened files over a
@@ -295,8 +296,9 @@ export function FileView({
         ) : entry.status === "error" ? (
           <div className="viewer-message" role="alert">
             <p>Cannot open {basename(activeFile)}: {entry.message}</p>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() =>
                 setEntries((prev) => {
                   const next = new Map(prev);
@@ -305,8 +307,8 @@ export function FileView({
                 })
               }
             >
-              <RotateCw size={12} aria-hidden="true" /> retry
-            </button>
+              <RotateCw size={12} aria-hidden="true" /> Retry
+            </Button>
           </div>
         ) : entry.kind === "text" ? (
           <div className="file-editor">

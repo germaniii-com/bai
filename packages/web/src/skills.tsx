@@ -4,13 +4,14 @@ import type { BaiClient } from "@bai/api/client";
 import type { ProviderListResponse, SkillInfo, SkillUsageTotals } from "@bai/shared";
 import { isValidSkillName } from "@bai/shared";
 import { ModelModal } from "./model-picker";
+import { Button, Chip, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
- * Skills section, split for the two-level nav: `SkillsNav` renders the
- * nested sidebar (create button + skill list), the main pane is either the
+ * Skills section, split for the two-level nav: `SkillsNav` renders the nested
+ * sidebar (create button + skill list), the main pane is either the
  * `SkillCreateForm` (name first, SKILL.md written on submit) or the
  * `SkillForm` editor for the selected skill. Saving writes the file via the
  * API — the server hot-reloads it, so the next agent turn sees the change.
@@ -32,24 +33,20 @@ export function SkillsNav({
 }) {
   const sorted = [...skills].sort((a, b) => a.name.localeCompare(b.name));
   return (
-    <div className="settings-nav">
-      <button type="button" className="new-session" disabled={busy} onClick={onCreate}>
-        + new skill
-      </button>
+    <SubNav>
+      <SubNavCreate label="+ New skill" disabled={busy} onClick={onCreate} />
       {sorted.map((s) => (
-        <button
+        <SubNavItem
           key={s.name}
-          type="button"
-          className={selected === s.name ? "provider-item active" : "provider-item"}
+          title={s.name}
+          subtitle={s.tags !== undefined && s.tags.length > 0 ? s.tags.slice(0, 3).join(", ") : "skill"}
+          selected={selected === s.name}
           onClick={() => onSelect(s.name)}
-          aria-current={selected === s.name ? "page" : undefined}
-        >
-          <span className="title">{s.name}</span>
-          <span className="dim">{s.tags !== undefined && s.tags.length > 0 ? s.tags.slice(0, 3).join(", ") : "skill"}</span>
-        </button>
+          ariaCurrent={selected === s.name ? "page" : undefined}
+        />
       ))}
       {sorted.length === 0 && <p className="dim">No skills yet.</p>}
-    </div>
+    </SubNav>
   );
 }
 
@@ -103,10 +100,9 @@ export function SkillCreateForm({
         void submit();
       }}
     >
-      <h3>New skill</h3>
-      <label>
-        name <span className="dim">(the directory stem — ~/.config/bai/skills/&lt;name&gt;/SKILL.md)</span>
-        <input
+      <SectionHeader title="New skill" />
+      <Field label="Name" hint="(the directory stem — ~/.config/bai/skills/<name>/SKILL.md)">
+        <TextInput
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -117,22 +113,22 @@ export function SkillCreateForm({
           maxLength={64}
           spellCheck={false}
         />
-      </label>
+      </Field>
       {error !== null && <div className="error">{error}</div>}
-      <p className="dim">
+      <p className="section-lede">
         Created from a starter template — description, tags, and the instructions are editable right after creating.
         The agent loads the skill on demand via skills.view.
       </p>
       <div className="agents-actions">
-        <button type="submit" disabled={busy}>
-          create
-        </button>
-        <button type="button" disabled={busy} onClick={onLearn}>
-          learn with AI instead
-        </button>
-        <button type="button" disabled={busy} onClick={onCancel}>
-          cancel
-        </button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Create
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={onLearn}>
+          Learn with AI instead
+        </Button>
+        <Button variant="ghost" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
       </div>
     </form>
   );
@@ -321,83 +317,90 @@ function SkillForm({
         void save();
       }}
     >
-      <h3>
-        {skill.name} <span className="dim">(skill)</span>
-      </h3>
+      <SectionHeader
+        title={
+          <>
+            {skill.name} <span className="dim">(skill)</span>
+          </>
+        }
+      />
       {usage !== null && (
-        <p className="dim">
+        <p className="section-lede">
           {usage.views} view{usage.views === 1 ? "" : "s"} · {usage.sessions} session{usage.sessions === 1 ? "" : "s"}
           {usage.lastUsedAt !== undefined ? ` · last used ${new Date(usage.lastUsedAt).toLocaleString()}` : " · never used"}
         </p>
       )}
-      <label>
-        description <span className="dim">(one sentence — the first ~60 chars show in the agent's skill index)</span>
-        <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} required />
-      </label>
-      <label>
-        version <span className="dim">(optional)</span>
-        <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1.0.0" maxLength={20} />
-      </label>
-      <label>
-        tags <span className="dim">(comma-separated, optional)</span>
-        <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="research, papers" />
-      </label>
-      <label>
-        instructions <span className="dim">(the markdown body of SKILL.md — hot-reloaded on save)</span>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14} required />
-      </label>
-      <label>
-        linked files <span className="dim">(references/, templates/, scripts/, assets/ — the agent reads them via skills.view(name, path))</span>
+      <Field
+        label="Description"
+        hint="(one sentence — the first ~60 chars show in the agent's skill index)"
+      >
+        <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} required />
+      </Field>
+      <Field label="Version" hint="(optional)">
+        <TextInput value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1.0.0" maxLength={20} />
+      </Field>
+      <Field label="Tags" hint="(comma-separated, optional)">
+        <TextInput value={tags} onChange={(e) => setTags(e.target.value)} placeholder="research, papers" />
+      </Field>
+      <Field label="Instructions" hint="(the markdown body of SKILL.md — hot-reloaded on save)">
+        <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14} required />
+      </Field>
+      <Field
+        label="Linked files"
+        hint="(references/, templates/, scripts/, assets/ — the agent reads them via skills.view(name, path))"
+      >
         <div className="skill-linked-files">
           {skill.linkedFiles.map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={openFile === f ? "skill-file active" : "skill-file"}
-              onClick={() => void openLinkedFile(f)}
-            >
+            <Chip key={f} interactive selected={openFile === f} onClick={() => void openLinkedFile(f)}>
               <code>{f}</code>
-            </button>
+            </Chip>
           ))}
-          <button type="button" className="skill-file add" onClick={() => { setAddingFile(true); setOpenFile(null); }}>
-            + add file
-          </button>
+          <Chip interactive add onClick={() => { setAddingFile(true); setOpenFile(null); }}>
+            + Add file
+          </Chip>
         </div>
-      </label>
+      </Field>
       {openFile !== null && fileContent !== null && (
-        <label>
-          editing <code>{openFile}</code>
-          <textarea
-            className="code"
+        <Field
+          label={
+            <>
+              Editing <code>{openFile}</code>
+            </>
+          }
+        >
+          <Textarea
+            mono
             value={fileContent}
             onChange={(e) => setFileContent(e.target.value)}
             rows={12}
             spellCheck={false}
           />
           <div className="agents-actions">
-            <button type="button" disabled={busy} onClick={() => void saveLinkedFile()}>
-              save file
-            </button>
-            <button type="button" className="danger" disabled={busy} onClick={() => void deleteLinkedFile()}>
-              delete file
-            </button>
-            <button type="button" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
-              close
-            </button>
+            <Button variant="secondary" disabled={busy} onClick={() => void saveLinkedFile()}>
+              Save file
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={() => void deleteLinkedFile()}>
+              Delete file
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
+              Close
+            </Button>
           </div>
-        </label>
+        </Field>
       )}
       {addingFile && (
-        <label>
-          new file path <span className="dim">(must start with references/, templates/, scripts/, or assets/)</span>
-          <input
+        <Field
+          label="New file path"
+          hint="(must start with references/, templates/, scripts/, or assets/)"
+        >
+          <TextInput
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
             placeholder="references/api.md"
             spellCheck={false}
           />
-          <textarea
-            className="code"
+          <Textarea
+            mono
             value={newContent}
             onChange={(e) => setNewContent(e.target.value)}
             rows={8}
@@ -405,22 +408,22 @@ function SkillForm({
             spellCheck={false}
           />
           <div className="agents-actions">
-            <button type="button" disabled={busy} onClick={() => void createLinkedFile()}>
-              create file
-            </button>
-            <button type="button" disabled={busy} onClick={() => setAddingFile(false)}>
-              cancel
-            </button>
+            <Button variant="secondary" disabled={busy} onClick={() => void createLinkedFile()}>
+              Create file
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setAddingFile(false)}>
+              Cancel
+            </Button>
           </div>
-        </label>
+        </Field>
       )}
       <div className="agents-actions">
-        <button type="submit" disabled={busy}>
-          save
-        </button>
-        <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>
-          delete
-        </button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Save
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+          Delete
+        </Button>
       </div>
     </form>
   );
@@ -491,16 +494,19 @@ export function SkillLearnForm({
         void submit();
       }}
     >
-      <h3>
-        <GraduationCap size={16} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
-      </h3>
-      <p className="dim">
+      <SectionHeader
+        title={
+          <>
+            <GraduationCap size={16} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
+          </>
+        }
+      />
+      <p className="section-lede">
         An agent gathers the sources you describe and authors the skill for you. Point it at a directory, a URL,
         pasted material, or a workflow — requirements after a source are honored ("focus on the auth flow").
       </p>
-      <label>
-        what would you like to learn?
-        <textarea
+      <Field label="What would you like to learn?">
+        <Textarea
           value={request}
           onChange={(e) => {
             setRequest(e.target.value);
@@ -512,22 +518,21 @@ export function SkillLearnForm({
           maxLength={8000}
           placeholder="e.g. the REST client in ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api, skip the deprecated endpoints"
         />
-      </label>
-      <label>
-        model <span className="dim">(the learn session runs on it — optional)</span>
+      </Field>
+      <Field label="Model" hint="(the learn session runs on it — optional)">
         <button type="button" className="model-button" onClick={() => setPickerOpen(true)} aria-haspopup="dialog">
           <Sparkles size={12} aria-hidden="true" />
           <span className="model-current">{model ?? configDefault ?? "server default"}</span>
         </button>
-      </label>
+      </Field>
       {error !== null && <div className="error">{error}</div>}
       <div className="agents-actions">
-        <button type="submit" disabled={busy}>
-          {busy ? "starting…" : "learn it"}
-        </button>
-        <button type="button" disabled={busy} onClick={onBack}>
-          create manually instead
-        </button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Learn it
+        </Button>
+        <Button variant="ghost" disabled={busy} onClick={onBack}>
+          Create manually instead
+        </Button>
       </div>
       {pickerOpen && (
         <ModelModal

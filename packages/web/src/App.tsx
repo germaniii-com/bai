@@ -25,6 +25,7 @@ import { AnalyticsPane } from "./analytics";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
+import { ListItem, NavItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -1164,16 +1165,16 @@ export function App() {
             </button>
             <nav className="session-list">
               {sessions.filter((s) => s.meta.parent === undefined).map((s) => (
-                <button
+                <ListItem
                   key={s.id}
-                   className={active?.id === s.id ? "session active" : "session"}
-                   aria-current={active?.id === s.id ? "page" : undefined}
-                   title={s.title.length > 0 ? s.title : "Untitled session"}
+                  accentBar
+                  title={s.title.length > 0 ? s.title : "(untitled)"}
+                  subtitle={s.workbench}
+                  selected={active?.id === s.id}
+                  hint={s.title.length > 0 ? s.title : "Untitled session"}
                   onClick={() => pushRoute({ section: "chat", sessionId: s.id }, s)}
-                >
-                  <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
-                  <span className="dim">{s.workbench}</span>
-                </button>
+                  ariaCurrent={active?.id === s.id ? "page" : undefined}
+                />
               ))}
             </nav>
           </>
@@ -1191,22 +1192,20 @@ export function App() {
           <>
             {/* Active-mode head: the selected workspace's title + path.
                 Clicking it swaps the panel back to the picker list. */}
-            <button
-              type="button"
-              className="workspace-item workspace-active-head"
-              title={`${effectiveWorkspacePath} — switch workspace`}
-               onClick={() => selectWorkspace(null)}
-               aria-label={`Switch workspace from ${wsBasename(effectiveWorkspacePath)}`}
-            >
-              <span className="ws-item-head">
-                <FolderGlyph />
-                <span className="title">{wsBasename(effectiveWorkspacePath)}</span>
-              </span>
-              <span className="dim path">{effectiveWorkspacePath}</span>
-              <span className="switch" aria-hidden="true">
-                ⇄
-              </span>
-            </button>
+            <ListItem
+              accentBar
+              className="workspace-active-head"
+              icon={<FolderGlyph />}
+              title={wsBasename(effectiveWorkspacePath)}
+              subtitle={effectiveWorkspacePath}
+              hint={`${effectiveWorkspacePath} — switch workspace`}
+              onClick={() => selectWorkspace(null)}
+              trailing={
+                <span className="switch" aria-hidden="true">
+                  ⇄
+                </span>
+              }
+            />
             {/* Draft state: the code session (rooted at this workspace) is
                 created by submit() on the first message. */}
             <button
@@ -1222,19 +1221,18 @@ export function App() {
                 <p className="dim">No sessions in this workspace yet.</p>
               )}
               {workspaceSessions.filter((s) => s.meta.parent === undefined).map((s) => (
-                <button
+                <ListItem
                   key={s.id}
-                   className={active?.id === s.id ? "session active" : "session"}
-                   aria-current={active?.id === s.id ? "page" : undefined}
+                  accentBar
+                  title={s.title.length > 0 ? s.title : "(untitled)"}
+                  selected={active?.id === s.id}
                   onClick={() =>
                     pushRoute(
                       { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: s.id },
                       s,
                     )
                   }
-                >
-                  <span className="title">{s.title.length > 0 ? s.title : "(untitled)"}</span>
-                </button>
+                />
               ))}
             </nav>
           </>
@@ -1284,6 +1282,7 @@ export function App() {
             fetching={providersFetching}
             section={settingsSection}
             agents={agents}
+            refreshAgents={refreshAgents}
             userName={configUserName}
             preferZdr={configPreferZdr}
             defaultAgent={configDefaultAgent}
@@ -1291,6 +1290,7 @@ export function App() {
             videoGen={configVideoGen}
             theme={theme}
             onOpenThemePicker={() => setThemePickerOpen(true)}
+            onNotice={pushNotice}
           />
         </main>
       ) : section === "agents" ? (
@@ -1305,6 +1305,7 @@ export function App() {
             <AgentsPane
               client={client}
               agents={agents}
+              tools={tools}
               selectedId={effectiveAgentId}
               activeSessionId={active?.id ?? null}
               refresh={refreshAgents}
@@ -1497,32 +1498,27 @@ function MasterNav({
         {/* Same asset as the favicon (public/icon.svg) — one logo, one truth. */}
         <img src="/icon.svg" alt="bai" className="brand-mark" />
       <div className="master-items">
-        <MasterItem section="chat" label="Chat" active={section === "chat"} onNavigate={onNavigate} badge={askBadge}>
-          <MessageCircle className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="workspace" label="Workspace" active={section === "workspace"} onNavigate={onNavigate}>
-          <Folder className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="image" label="Image Gen" disabled onNavigate={onNavigate}>
-          <Image className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="video" label="Video Gen" disabled onNavigate={onNavigate}>
-          <Video className="nav-icon" aria-hidden="true" />
-        </MasterItem>
+        <NavItem
+          icon={<MessageCircle className="nav-icon" aria-hidden="true" />}
+          label="Chat"
+          active={section === "chat"}
+          onClick={() => onNavigate("chat")}
+          badge={askBadge}
+        />
+        <NavItem
+          icon={<Folder className="nav-icon" aria-hidden="true" />}
+          label="Workspace"
+          active={section === "workspace"}
+          onClick={() => onNavigate("workspace")}
+        />
+        <NavItem icon={<Image className="nav-icon" aria-hidden="true" />} label="Image Gen" disabled onClick={() => onNavigate("image")} />
+        <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" disabled onClick={() => onNavigate("video")} />
         {/* Workbenches above the line, agent machinery below it. */}
         <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
-        <MasterItem section="agents" label="Agents" active={section === "agents"} onNavigate={onNavigate}>
-          <Cpu className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="tools" label="Tools" active={section === "tools"} onNavigate={onNavigate}>
-          <Wrench className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="skills" label="Skills" active={section === "skills"} onNavigate={onNavigate}>
-          <Zap className="nav-icon" aria-hidden="true" />
-        </MasterItem>
-        <MasterItem section="analytics" label="Analytics" active={section === "analytics"} onNavigate={onNavigate}>
-          <ChartColumn className="nav-icon" aria-hidden="true" />
-        </MasterItem>
+        <NavItem icon={<Cpu className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
+        <NavItem icon={<Wrench className="nav-icon" aria-hidden="true" />} label="Tools" active={section === "tools"} onClick={() => onNavigate("tools")} />
+        <NavItem icon={<Zap className="nav-icon" aria-hidden="true" />} label="Skills" active={section === "skills"} onClick={() => onNavigate("skills")} />
+        <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
       </div>
       <div className="master-spacer" />
       <button type="button" className="master-item" aria-label="Choose a theme" onClick={onThemePicker}>
@@ -1530,61 +1526,9 @@ function MasterNav({
         <span className="nav-label">Theme</span>
       </button>
       {/* Shell sits directly above Settings — a pinned utility like Theme. */}
-      <MasterItem section="shell" label="Shell" active={section === "shell"} onNavigate={onNavigate}>
-        <Terminal className="nav-icon" aria-hidden="true" />
-      </MasterItem>
-      <MasterItem section="settings" label="Settings" active={section === "settings"} onNavigate={onNavigate}>
-        <SlidersHorizontal className="nav-icon" aria-hidden="true" />
-      </MasterItem>
+      <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
+      <NavItem icon={<SlidersHorizontal className="nav-icon" aria-hidden="true" />} label="Settings" active={section === "settings"} onClick={() => onNavigate("settings")} />
     </nav>
-  );
-}
-
-function MasterItem({
-  section,
-  label,
-  active = false,
-  disabled = false,
-  onNavigate,
-  badge = 0,
-  children,
-}: {
-  section: Section;
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onNavigate: (s: Section) => void;
-  /** Pending-ask count badge (Chat only; 0 = hidden). */
-  badge?: number;
-  children: ReactNode;
-}) {
-  const className = disabled ? "master-item" : active ? "master-item active" : "master-item";
-  if (disabled) {
-    // Phase placeholders: non-interactive, dimmed, "soon" badge (the TUI's
-    // PlaceholderView stance — D9 honesty).
-    return (
-      <button type="button" className={className} disabled title={`${label} — coming in a later phase`}>
-        {children}
-        <span className="nav-label">{label}</span>
-        <span className="soon">soon</span>
-      </button>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={className}
-      aria-current={active ? "page" : undefined}
-      onClick={() => onNavigate(section)}
-    >
-      {children}
-      <span className="nav-label">{label}</span>
-      {badge > 0 && (
-        <span className="nav-badge" aria-label={`${badge} pending ask${badge === 1 ? "" : "s"}`}>
-          {badge}
-        </span>
-      )}
-    </button>
   );
 }
 

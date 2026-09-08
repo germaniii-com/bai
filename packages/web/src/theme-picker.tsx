@@ -9,6 +9,7 @@ import {
   type ThemeColors,
 } from "@bai/shared";
 import { IconButton, useDialogFocus } from "./ui";
+import { Button } from "./components";
 
 /**
  * Theme selector modal (germaniii.com's ThemeSelectorModal): a grid of
@@ -191,6 +192,7 @@ export function ThemeSelectorModal({
                 <label>
                   name
                   <input
+                    className="input"
                     value={name}
                     placeholder="my theme…"
                     onChange={(e) => setName(e.target.value)}
@@ -212,17 +214,17 @@ export function ThemeSelectorModal({
               </div>
                {error !== null && <div className="error" role="alert">{error}</div>}
               <div className="theme-form-actions">
-                <button type="button" className="theme-form-cancel" onClick={() => setView("grid")}>
-                  cancel
-                </button>
-                <button
-                  type="button"
-                  className="theme-form-save"
-                  disabled={name.trim().length === 0 || busy}
+                <Button variant="outline" onClick={() => setView("grid")}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={name.trim().length === 0}
+                  loading={busy}
                   onClick={() => void submitCustom()}
                 >
-                  {busy ? "saving…" : "save theme"}
-                </button>
+                  Save theme
+                </Button>
               </div>
             </div>
           ) : (
