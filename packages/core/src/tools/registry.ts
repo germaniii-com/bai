@@ -8,6 +8,8 @@ export interface ToolContext {
   sessionId: SessionId;
   cwd?: string;
   signal: AbortSignal;
+  /** Name of the agent executing this call (run context) — analytics attribution. */
+  agent?: string;
   /** Emit a live-only event (firehose). */
   emitLive(type: EventType, payload: unknown): void;
   /**

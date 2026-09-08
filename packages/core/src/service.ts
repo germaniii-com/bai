@@ -21,9 +21,17 @@ import {
   type SessionId,
   type WorkbenchName,
   type AgentInfo,
+  type LearnSkillBody,
   type PutAgentBody,
+  type PutSkillBody,
+  type SkillInfo,
+  type SkillUsageQuery,
+  type SkillUsageResponse,
+  type SkillUsageTotals,
   type ToolListEntry,
+  buildLearnRequest,
   isValidToolName,
+  LEARN_AGENT_NAME,
 } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import type { Bus } from "./event/bus";
@@ -46,9 +54,12 @@ import { fsGrepTool } from "./tools/fs-grep";
 import { planWriteTool } from "./tools/plan-write";
 import { planExitTool } from "./tools/plan-exit";
 import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
+import { skillsViewTool } from "./tools/skills";
+import { skillsSaveTool, skillsWriteFileTool } from "./tools/skills-write";
 import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
+import type { SkillRegistry } from "./skills/registry";
 import type { Workbench } from "./workbench/types";
 
 export interface ServiceDeps {
@@ -61,6 +72,8 @@ export interface ServiceDeps {
   workbenches: Workbench[];
   jobs: JobQueue;
   agents: AgentRegistry;
+  /** File-defined skills (~/.config/bai/skills/<name>/SKILL.md), hot-reloaded. */
+  skills: SkillRegistry;
   toolLoader: ToolLoader;
   config(): Config;
   version: string;
@@ -108,6 +121,7 @@ export class Service {
       providers: deps.providers,
       tools: deps.tools,
       agents: deps.agents,
+      skills: deps.skills,
       permissions: this.permissions,
       defaultModel: () => deps.config().models.default ?? "stub/echo",
       defaultAgent: () => deps.config().agents?.default,
@@ -135,6 +149,14 @@ export class Service {
       fsGrepTool(),
       planWriteTool(deps.plansDir),
       planExitTool(this.questions),
+      // Progressive disclosure: the index rides the system prompt of agents
+      // whose tool set includes this tool; every call lands in skill_events.
+      skillsViewTool({ skills: deps.skills, usage: deps.store.skillUsage, clock: this.clock }),
+      // Skill authoring (the learn flow): root-restricted to the skills dir
+      // inside the tools (plan.write stance) and auto-allowed for the same
+      // reason — a knowledge-base learn writes dozens of chapter files.
+      skillsSaveTool({ skills: deps.skills }),
+      skillsWriteFileTool({ skills: deps.skills }),
     ]);
     // The task tool spawns subagent sessions (tools/task.ts). Registered last
     // so it can close over the coordinator; its description embeds the agent
@@ -561,6 +583,60 @@ export class Service {
   /** Agent file path for surface-side editing (e.g. $EDITOR in the TUI). */
   agentFile(name: string): string {
     return this.deps.agents.fileFor(name);
+  }
+
+  // --- skills ---
+
+  listSkills(): SkillInfo[] {
+    return this.deps.skills.list();
+  }
+
+  getSkill(name: string): SkillInfo | undefined {
+    return this.deps.skills.get(name);
+  }
+
+  /** Create or replace a skill's SKILL.md (surfaces write files through here). */
+  putSkill(name: string, body: PutSkillBody): SkillInfo {
+    return this.deps.skills.put(name, body);
+  }
+
+  deleteSkill(name: string): boolean {
+    return this.deps.skills.remove(name);
+  }
+
+  /** Per-skill usage totals (successful views) for the detail pane. */
+  skillUsage(name: string): SkillUsageTotals {
+    return this.deps.store.skillUsage.forSkill(name);
+  }
+
+  /** Skill usage analytics aggregation (GET /api/skill/usage). */
+  skillUsageAnalytics(query: SkillUsageQuery): SkillUsageResponse {
+    return this.deps.store.skillUsage.analytics(query);
+  }
+
+  /**
+   * Spawn a learn session (hermes /learn parity, no slash command): a real
+   * chat session on the learn agent whose first turn is the standards-guided
+   * learn request. The session is visible and cancellable — the drain runs
+   * it like any other (the "background job" is a session). The explicit
+   * title skips LLM title refinement (the request text would make a poor
+   * title seed).
+   */
+  learnSkill(body: LearnSkillBody): Session {
+    const request = body.request.trim();
+    const session = this.createSession({
+      workbench: "chat",
+      title: `Learn: ${request.slice(0, 80)}${request.length > 80 ? "…" : ""}`,
+    });
+    this.setSessionAgent(session.id, { agent: LEARN_AGENT_NAME });
+    if (body.model !== undefined && body.model.trim().length > 0) {
+      this.setSessionModel(session.id, {
+        model: body.model.trim(),
+        ...(body.account !== undefined && body.account.trim().length > 0 ? { account: body.account.trim() } : {}),
+      });
+    }
+    this.submitPrompt(session.id, { text: buildLearnRequest(request) });
+    return this.getSession(session.id) ?? session;
   }
 
   // --- custom tools ---

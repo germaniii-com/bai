@@ -11,6 +11,7 @@ import {
   JobQueue,
   ProviderRegistry,
   Service,
+  SkillRegistry,
   Store,
   ToolLoader,
   ToolRegistry,
@@ -62,6 +63,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     builtinFallback: (name) => core.builtinFallback(name),
   });
   const agents = new AgentRegistry({ dir: join(dir, "agents"), debounceMs: 50 });
+  const skills = new SkillRegistry({ dir: join(dir, "skills"), debounceMs: 50 });
   const core = new Service({
     store,
     bus,
@@ -71,6 +73,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     workbenches,
     jobs,
     agents,
+    skills,
     toolLoader,
     config: () => config,
     version: "test",
@@ -102,6 +105,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     deps,
     cleanup: () => {
       agents.stop();
+      skills.stop();
       toolLoader.stop();
       store.close();
       rmSync(dir, { recursive: true, force: true });

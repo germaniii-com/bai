@@ -162,6 +162,8 @@ describe("plan agent flow (end-to-end)", () => {
     const plan = list.find((a) => a.name === "plan");
     const chat = list.find((a) => a.name === "chat");
     expect(plan?.tools).toEqual(["fs.read", "fs.list", "fs.glob", "fs.grep", "plan.write", "question", "todo", "plan.exit"]);
-    expect(chat?.tools).toEqual(["web.search", "web.fetch", "question"]);
+    // The chat agent is the all-in-one orchestrator: every registered tool
+    // (fs/bash/web/task/skills/…), subagent hygiene handled at spawn time.
+    expect(chat?.tools).toEqual(["*"]);
   });
 });

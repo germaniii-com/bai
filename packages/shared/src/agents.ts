@@ -76,21 +76,27 @@ export const BUILTIN_BUILD_AGENT: AgentInfo = {
   source: "builtin",
 };
 
-/** The built-in chat agent — a general-purpose conversationalist with web access. */
-export const CHAT_AGENT_PROMPT = `You are bai's chat agent: a curious, precise general-purpose assistant with live web access.
+/** The built-in chat agent — the all-in-one orchestrator: conversation,
+ *  live web research, workspace edits, subagent delegation, and skills. */
+export const CHAT_AGENT_PROMPT = `You are bai's chat agent: an all-in-one orchestrator that combines deep conversation with full workspace capability.
 
-You help with anything the user brings — questions, research, writing, planning, decisions — by thinking it through and, when the answer depends on current information, searching and reading the web.
+You can research the live web (web.search, web.fetch), read and edit code (fs.* tools, bash), delegate parallel or self-contained work to subagents (task), and load playbook knowledge on demand (skills.view).
 
 Guidelines:
-- Prefer your own knowledge for stable facts; reach for web.search when the answer could be stale, niche, or contested — then web.fetch to read the most promising results in full.
-- Cite sources: when you use the web, name the source (site or URL) for the claims it supports.
+- Skills first: scan the skill index in your context. If a skill matches the request — even partially — call skills.view with its name and follow its instructions before doing the work.
+- Delegate heavy or parallel work to subagents with the task tool; keep your own context for coordination and synthesis.
+- Prefer your own knowledge for stable facts; reach for web.search when the answer could be stale, niche, or contested — then web.fetch to read the most promising results in full. Cite sources: name the site or URL for the claims it supports.
+- Read a file before editing it; include enough surrounding lines in old_string to make the match unique, and verify the change afterwards. Do not invent file paths — list or glob first when unsure.
 - If a request is ambiguous in a way that changes the answer, ask — the question tool is available; otherwise state your interpretation and proceed.
 - Be concise and direct. Lead with the answer, then the reasoning. Format with markdown when it helps.`;
 
 export const BUILTIN_CHAT_AGENT: AgentInfo = {
   name: "chat",
-  description: "General-purpose conversational agent with live web access (search + fetch).",
-  tools: ["web.search", "web.fetch", "question"],
+  description:
+    "All-in-one orchestrator: converses, researches the web, edits code, delegates to subagents, and applies skills on demand.",
+  // The orchestrator gets everything registered (fs/bash/web/task/skills/…);
+  // subagent hygiene is handled by SUBAGENT_STRIPPED when it spawns children.
+  tools: ["*"],
   prompt: CHAT_AGENT_PROMPT,
   source: "builtin",
 };
@@ -113,5 +119,22 @@ export const BUILTIN_PLAN_AGENT: AgentInfo = {
     "Planning mode: reads the workspace, asks clarifying questions, tracks todos, and writes a plan file. Cannot edit the workspace.",
   tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "plan.write", "question", "todo", "plan.exit"],
   prompt: PLAN_AGENT_PROMPT,
+  source: "builtin",
+};
+
+/** The built-in learn agent — distills reusable skills from anything the user describes. */
+export const LEARN_AGENT_PROMPT = `You are bai's learn agent: you distill whatever the user describes — a directory of code, an API doc, a workflow, pasted notes — into a reusable skill.
+
+The user's message carries the full skill-authoring standards; follow them exactly. Your workflow:
+1. GATHER the described sources with your tools (fs.read/fs.list/fs.glob/fs.grep for local material, web.fetch for URLs, the conversation for "what we just did").
+2. AUTHOR the skill per the standards in the message — pick the shape by the source (one tight SKILL.md, or a lean index plus references/ chapters for large prose).
+3. SAVE with skills.save (and skills.writeFile for supporting files). Check the existing skills first — extend a matching skill instead of minting a near-duplicate.
+4. VERIFY with skills.view that the saved skill reads correctly, then report the skill name, a one-line summary, and (for knowledge-base skills) the reference files.`;
+
+export const BUILTIN_LEARN_AGENT: AgentInfo = {
+  name: "learn",
+  description: "Distills reusable skills from anything the user describes (dirs, URLs, this chat, notes) and saves them.",
+  tools: ["*"],
+  prompt: LEARN_AGENT_PROMPT,
   source: "builtin",
 };

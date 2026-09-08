@@ -1,5 +1,5 @@
-import { useId, useState } from "react";
-import { Check, Copy, GitFork, Hourglass, Undo2, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Check, Copy, GitFork, GraduationCap, Hourglass, Undo2, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Input, Message, ProviderListResponse, Session } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
@@ -11,7 +11,7 @@ import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
-import { IconButton } from "./ui";
+import { IconButton, useDialogFocus } from "./ui";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -67,12 +67,13 @@ export function ChatPane({
   onRevertMessage,
   onRestoreRevert,
   revertBusy,
-  queuedInputs = [],
-  sendingIds = [],
-  onSendQueued,
-  onCancelQueued,
-  onEditQueued,
-}: {
+   queuedInputs = [],
+   sendingIds = [],
+   onSendQueued,
+   onCancelQueued,
+   onEditQueued,
+   onLearn,
+ }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
   list: ProviderListResponse | null;
@@ -129,6 +130,13 @@ export function ChatPane({
   onCancelQueued?: (input: Input) => void;
   /** Edit: cancel the queued input and reseed the composer with its text. */
   onEditQueued?: (input: Input) => void;
+  /**
+   * Learn (hermes /learn parity, no slash command): open the learn modal and
+   * submit the standards-guided learn request as a normal user turn in THIS
+   * session (empty request = distill this conversation). Undefined hides the
+   * chip (draft state — the Skills page covers fresh learns).
+   */
+  onLearn?: (request: string) => void;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -137,6 +145,7 @@ export function ChatPane({
   const boundaryIdx = boundary === undefined ? -1 : messages.findIndex((m) => m.id === boundary);
   const visible = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
   const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
+  const [learnOpen, setLearnOpen] = useState(false);
 
   return (
     <main className="chat">
@@ -296,6 +305,17 @@ export function ChatPane({
             <span className="hint">no provider connected</span>
           )}
           {providersFetching && <span className="dim">updating…</span>}
+          {onLearn !== undefined && (
+            <button
+              type="button"
+              className="composer-chip"
+              title="Learn a skill — distill a workflow, docs, or this conversation into a reusable skill"
+              onClick={() => setLearnOpen(true)}
+            >
+              <GraduationCap size={11} aria-hidden="true" />
+              <span className="chip-label">learn</span>
+            </button>
+          )}
           <AgentPicker
             client={client}
             agents={agents}
@@ -313,7 +333,95 @@ export function ChatPane({
           />
         </div>
       </form>
+      {learnOpen && onLearn !== undefined && (
+        <LearnModal
+          onSubmitLearn={(request) => {
+            setLearnOpen(false);
+            onLearn(request);
+          }}
+          onClose={() => setLearnOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * The learn modal (hermes /learn parity, no slash command): describe what to
+ * learn — sources (paths, URLs), requirements, or nothing to distill THIS
+ * conversation. Submitting hands the request to the caller, which composes
+ * the standards-guided learn prompt and sends it as a normal user turn.
+ */
+function LearnModal({
+  onSubmitLearn,
+  onClose,
+}: {
+  onSubmitLearn: (request: string) => void;
+  onClose: () => void;
+}) {
+  const [request, setRequest] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef);
+
+  // esc closes (backdrop click and the × button are wired in the JSX).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="model-modal learn-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Learn a skill"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="model-modal-head">
+          <strong>
+            <GraduationCap size={14} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
+          </strong>
+          <IconButton className="modal-close" label="Close learn dialog" hint="Close learn dialog" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </IconButton>
+        </div>
+        <form
+          className="agent-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmitLearn(request.trim());
+          }}
+        >
+          <label>
+            what would you like to learn? <span className="dim">(leave empty to distill this conversation)</span>
+            <textarea
+              value={request}
+              onChange={(e) => setRequest(e.target.value)}
+              rows={5}
+              autoFocus
+              maxLength={8000}
+              placeholder="e.g. the release workflow we just did — or ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api"
+            />
+          </label>
+          <p className="dim">
+            The agent gathers the sources with its tools and saves the skill via skills.save — it shows up on the
+            Skills page when done.
+          </p>
+          <div className="agents-actions">
+            <button type="submit">learn it</button>
+            <button type="button" onClick={onClose}>
+              cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

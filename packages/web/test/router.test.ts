@@ -97,6 +97,13 @@ describe("parseRoute", () => {
     expect(parseRoute("/tools/fs.read", "")).toEqual({ section: "tools", name: "fs.read", creating: false });
   });
 
+  test("skills: list, new, detail; extra segments → list", () => {
+    expect(parseRoute("/skills", "")).toEqual({ section: "skills", name: null, creating: false });
+    expect(parseRoute("/skills/new", "")).toEqual({ section: "skills", name: null, creating: true });
+    expect(parseRoute("/skills/arxiv", "")).toEqual({ section: "skills", name: "arxiv", creating: false });
+    expect(parseRoute("/skills/arxiv/extra", "")).toEqual({ section: "skills", name: null, creating: false });
+  });
+
   test("analytics: single page, no sub-state", () => {
     expect(parseRoute("/analytics", "")).toEqual({ section: "analytics" });
   });
@@ -120,6 +127,9 @@ describe("routeToPath", () => {
     roundTrip({ section: "agents", name: null, creating: true });
     roundTrip({ section: "agents", name: "coder", creating: false });
     roundTrip({ section: "tools", name: "fs.read", creating: false });
+    roundTrip({ section: "skills", name: null, creating: false });
+    roundTrip({ section: "skills", name: null, creating: true });
+    roundTrip({ section: "skills", name: "arxiv", creating: false });
     roundTrip({ section: "analytics" });
   });
 
@@ -130,6 +140,8 @@ describe("routeToPath", () => {
     expect(routeToPath({ section: "settings", settingsSection: "general" })).toBe("/settings/general");
     expect(routeToPath({ section: "agents", name: null, creating: true })).toBe("/agents/new");
     expect(routeToPath({ section: "tools", name: "fs.read", creating: false })).toBe("/tools/fs.read");
+    expect(routeToPath({ section: "skills", name: "arxiv", creating: false })).toBe("/skills/arxiv");
+    expect(routeToPath({ section: "skills", name: null, creating: true })).toBe("/skills/new");
     expect(routeToPath({ section: "analytics" })).toBe("/analytics");
   });
 

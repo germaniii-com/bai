@@ -7,6 +7,8 @@ export * from "./events";
 export * from "./config";
 export * from "./providers";
 export * from "./agents";
+export * from "./skills";
+export * from "./learn";
 export * from "./tools";
 export * from "./api";
 export * from "./zdr";

@@ -136,4 +136,25 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE inputs ADD COLUMN queued INTEGER NOT NULL DEFAULT 0;
   UPDATE inputs SET queued = 1 WHERE json_extract(payload, '$.queue') = 1;
   `,
+  // 006 — skill usage analytics: one append-only row per `skills.view` tool
+  // call (a full SKILL.md view or a linked-file read). Plain aggregate data
+  // like the usage table: not event-sourced, no bus integration; surfaces
+  // read it through the skill-usage analytics API. Failed lookups record
+  // ok = 0 plus the error message (the D26 failed-call precedent).
+  `
+  CREATE TABLE IF NOT EXISTS skill_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    skill TEXT NOT NULL,
+    agent TEXT,
+    file_path TEXT,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_skill_events_skill ON skill_events(skill, created_at);
+  CREATE INDEX IF NOT EXISTS idx_skill_events_created ON skill_events(created_at);
+  `,
 ];

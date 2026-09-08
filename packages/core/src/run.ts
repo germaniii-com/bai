@@ -6,6 +6,8 @@ import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import { renderOutbound, isToolCallPayload } from "./run/history";
 import { buildEnvBlock } from "./run/env";
+import { buildSkillsBlock } from "./run/skills";
+import type { SkillRegistry } from "./skills/registry";
 import { readRevert, SNAPSHOT_TOOLS } from "./revert";
 import type { Snapshot } from "./snapshot";
 import type { PermissionGate } from "./permissions/ask";
@@ -51,6 +53,8 @@ export interface RunCoordinatorDeps {
   providers: ProviderRegistry;
   tools: ToolRegistry;
   agents: AgentRegistry;
+  /** File-defined skills — the system prompt's `## Skills` index source. */
+  skills: SkillRegistry;
   permissions: PermissionGate;
   /** Resolves the effective default model id, e.g. "stub/echo". */
   defaultModel(): string;
@@ -274,6 +278,16 @@ export class RunCoordinator {
             ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
             now: this.deps.clock.iso(),
           }),
+          // The skills index rides along only when the agent can actually
+          // call skills.view (hermes' conditional injection) — index and
+          // tool appear (and disappear) together. Agents that can also SAVE
+          // skills get the compact authoring guidance (hermes
+          // SKILLS_GUIDANCE pattern) so natural-language learning works.
+          ...(run.toolDefs.some((d) => d.name === "skills.view")
+            ? [buildSkillsBlock(this.deps.skills.list(), {
+                canAuthor: run.toolDefs.some((d) => d.name === "skills.save"),
+              })]
+            : []),
           ...(finalStep ? [STEPS_NOTICE] : []),
         ];
 
@@ -417,7 +431,7 @@ export class RunCoordinator {
           break;
         }
 
-        const outcomes = await this.executeCalls(sessionId, assistant.id, calls, signal);
+        const outcomes = await this.executeCalls(sessionId, assistant.id, calls, signal, run.agent.name);
 
         // Steer promotion at the provider-turn boundary (mid-generation
         // injection, opencode's safe boundary): newly admitted steer inputs
@@ -877,10 +891,12 @@ export class RunCoordinator {
     assistantId: MessageId,
     calls: ParsedCall[],
     signal: AbortSignal,
+    agentName: string,
   ): Promise<Array<"executed" | "denied">> {
     const session = this.deps.store.sessions.get(sessionId);
     const ctx: ToolContext = {
       sessionId,
+      agent: agentName,
       ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
       signal,
       emitLive: (type: EventType, payload: unknown) => this.emitLive(type, payload),

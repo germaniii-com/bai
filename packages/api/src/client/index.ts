@@ -13,8 +13,14 @@ import type {
   Message,
   PermissionRequest,
   PutAgentBody,
+  PutSkillBody,
+  LearnSkillBody,
   QuestionRequest,
   Session,
+  SkillInfo,
+  SkillUsageQuery,
+  SkillUsageResponse,
+  SkillUsageTotals,
   ToolListEntry,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
@@ -351,6 +357,66 @@ export class BaiClient {
       throw new Error(errBody?.error ?? `delete agent failed: ${res.status}`);
     }
     return true;
+  }
+
+  // --- skills ---
+
+  async listSkills(): Promise<SkillInfo[]> {
+    const res = await this.rpc().skill.$get();
+    if (!res.ok) throw new Error(`list skills failed: ${res.status}`);
+    return (await res.json()).skills;
+  }
+
+  /** Skill detail + per-skill usage totals (undefined when the skill doesn't exist). */
+  async getSkill(name: string): Promise<{ skill: SkillInfo; usage: SkillUsageTotals } | undefined> {
+    const res = await this.rpc().skill[":name"].$get({ param: { name: encodeURIComponent(name) } });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`get skill failed: ${res.status}`);
+    return await res.json();
+  }
+
+  /** Create or replace a skill (server writes the SKILL.md file; hot-reload does the rest). */
+  async putSkill(name: string, body: PutSkillBody): Promise<SkillInfo> {
+    const res = await this.rpc().skill[":name"].$put({
+      param: { name: encodeURIComponent(name) },
+      json: body,
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `put skill failed: ${res.status}`);
+    }
+    return (await res.json()).skill;
+  }
+
+  async deleteSkill(name: string): Promise<boolean> {
+    const res = await this.rpc().skill[":name"].$delete({ param: { name: encodeURIComponent(name) } });
+    if (res.status === 404) return false;
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `delete skill failed: ${res.status}`);
+    }
+    return true;
+  }
+
+  /** Skill usage analytics (the Analytics page's skill-activity card). */
+  async skillUsage(query: SkillUsageQuery = {}): Promise<SkillUsageResponse> {
+    const res = await this.rpc().skill.usage.$get({ query });
+    if (!res.ok) throw new Error(`skill usage failed: ${res.status}`);
+    return res.json();
+  }
+
+  /**
+   * Spawn a learn session (the Skills page's "Learn with AI"): a visible
+   * chat session on the learn agent whose first turn distills the request
+   * into a skill. Returns the session — surfaces navigate to it to watch.
+   */
+  async learnSkill(body: LearnSkillBody): Promise<Session> {
+    const res = await this.rpc().skill.learn.$post({ json: body });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(errBody?.error ?? `learn skill failed: ${res.status}`);
+    }
+    return (await res.json()).session;
   }
 
   // --- tools ---

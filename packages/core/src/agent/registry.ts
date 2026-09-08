@@ -5,6 +5,7 @@ import {
   agentFrontmatterSchema,
   BUILTIN_BUILD_AGENT,
   BUILTIN_CHAT_AGENT,
+  BUILTIN_LEARN_AGENT,
   BUILTIN_PLAN_AGENT,
   isValidAgentName,
   type AgentFrontmatter,
@@ -13,7 +14,7 @@ import {
 } from "@bai/shared";
 
 /** Built-ins beyond `build` — always present, never file-shadowable. */
-const BUILTIN_AGENTS = [BUILTIN_BUILD_AGENT, BUILTIN_CHAT_AGENT, BUILTIN_PLAN_AGENT];
+const BUILTIN_AGENTS = [BUILTIN_BUILD_AGENT, BUILTIN_CHAT_AGENT, BUILTIN_PLAN_AGENT, BUILTIN_LEARN_AGENT];
 
 function builtinFor(name: string): AgentInfo | undefined {
   return BUILTIN_AGENTS.find((a) => a.name === name);

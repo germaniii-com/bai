@@ -96,7 +96,8 @@ function accountLabel(
   return provider?.accounts.find((a) => a.id === meta.account)?.label ?? meta.account;
 }
 
-function ModelModal({
+/** The three-column picker modal, exported for capture-mode reuse (the Learn form). */
+export function ModelModal({
   client,
   list,
   active,
@@ -104,6 +105,7 @@ function ModelModal({
   refreshProviders,
   current,
   onClose,
+  onPick,
 }: {
   client: BaiClient;
   list: ProviderListResponse | null;
@@ -112,6 +114,12 @@ function ModelModal({
   refreshProviders: () => Promise<void>;
   current: string;
   onClose: () => void;
+  /**
+   * Capture mode (the Learn form): clicking a model resolves the selection
+   * through `onPick` instead of applying it to the session/config. The
+   * caller owns what happens with the choice.
+   */
+  onPick?: (modelId: string, accountId: string | null) => void;
 }) {
   const [providerId, setProviderId] = useState<string | null>(null);
   // null = "Server default" (server resolves the provider's default account).
@@ -173,6 +181,12 @@ function ModelModal({
       : null);
 
   const apply = async (modelId: string): Promise<void> => {
+    // Capture mode: hand the choice to the caller (no session/config write).
+    if (onPick !== undefined) {
+      onPick(modelId, effectiveAccountId);
+      onClose();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

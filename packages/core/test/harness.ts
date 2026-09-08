@@ -11,6 +11,7 @@ import {
   JobQueue,
   ProviderRegistry,
   Service,
+  SkillRegistry,
   Snapshot,
   Store,
   ToolLoader,
@@ -38,6 +39,7 @@ export interface TestCore {
   tools: ToolRegistry;
   toolLoader: ToolLoader;
   agents: AgentRegistry;
+  skills: SkillRegistry;
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -94,6 +96,14 @@ export function makeCore(): TestCore {
       bus.publish({ seq: 0, type: "agents.updated", ts: new Date().toISOString(), payload: {} });
     },
   });
+  const skills = new SkillRegistry({
+    dir: join(dir, "skills"),
+    debounceMs: 50,
+    // Mirror boot.ts: skill-set changes broadcast live.
+    onChange: () => {
+      bus.publish({ seq: 0, type: "skills.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
   const core = new Service({
     store,
     bus,
@@ -103,6 +113,7 @@ export function makeCore(): TestCore {
     workbenches,
     jobs,
     agents,
+    skills,
     toolLoader,
     config: testConfig,
     version: "test",
@@ -111,7 +122,7 @@ export function makeCore(): TestCore {
     // data dir; sessions without a cwd never touch it.
     snapshot: new Snapshot(join(dir, "snapshot")),
   });
-  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents };
+  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents, skills };
 }
 
 export function sleep(ms: number): Promise<void> {

@@ -10,6 +10,7 @@ import {
   JobQueue,
   ProviderRegistry,
   Service,
+  SkillRegistry,
   Snapshot,
   Store,
   ToolLoader,
@@ -143,6 +144,15 @@ export async function boot(args: CliArgs): Promise<Booted> {
     },
   });
 
+  // File-defined skills (~/.config/bai/skills/<name>/SKILL.md), hot-reloaded;
+  // changes broadcast live so every surface refetches without a restart.
+  const skills = new SkillRegistry({
+    dir: path.join(configDir(), "skills"),
+    onChange: () => {
+      bus.publish({ seq: 0, type: "skills.updated", ts: new Date().toISOString(), payload: {} });
+    },
+  });
+
   const core = new Service({
     store,
     bus,
@@ -152,6 +162,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     workbenches,
     jobs,
     agents,
+    skills,
     toolLoader,
     config: () => configStore.get(),
     version: VERSION,
@@ -190,6 +201,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
       // Fail pending agent→user questions so no tool promise hangs.
       core.questions.stop();
       agents.stop();
+      skills.stop();
       toolLoader.stop();
       store.close();
     },

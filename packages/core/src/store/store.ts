@@ -8,6 +8,7 @@ import { KvRepo } from "./kv";
 import { MessagesRepo, PartsRepo } from "./messages";
 import { PermissionsRepo } from "./permissions";
 import { SessionsRepo } from "./sessions";
+import { SkillUsageRepo } from "./skill-usage";
 import { UsageRepo } from "./usage";
 
 /**
@@ -25,6 +26,7 @@ export class Store {
   readonly assets: AssetsRepo;
   readonly kv: KvRepo;
   readonly usage: UsageRepo;
+  readonly skillUsage: SkillUsageRepo;
   private readonly db: SqliteDb;
 
   constructor(file: string) {
@@ -39,6 +41,7 @@ export class Store {
     this.assets = new AssetsRepo(this.db);
     this.kv = new KvRepo(this.db);
     this.usage = new UsageRepo(this.db);
+    this.skillUsage = new SkillUsageRepo(this.db);
   }
 
   close(): void {

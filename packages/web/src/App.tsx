@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench } from "lucide-react";
+import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, ThemeColors, ThemeId } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
+import { useSkills } from "./use-skills";
 import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
 import { parseRoute, routeToPath, type Route } from "./router";
 import { ThemeProvider } from "./theme";
@@ -19,6 +20,7 @@ import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
+import { SkillsNav, SkillsPane, SkillCreateForm, SkillLearnForm } from "./skills";
 import { AnalyticsPane } from "./analytics";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -29,7 +31,7 @@ import { Toast, type Notice } from "./toast";
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "tools" | "analytics" | "image" | "video" | "shell" | "settings";
+type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "analytics" | "image" | "video" | "shell" | "settings";
 
 /**
  * Sections that render without the nested sidebar (single-pane views — no
@@ -189,6 +191,7 @@ export function App() {
   // engagement, and reconnect healing.
   const { agents, refresh: refreshAgents } = useAgents(client);
   const { tools, refresh: refreshTools } = useTools(client);
+  const { skills, refresh: refreshSkills } = useSkills(client);
   // Selections per section; stale ids (deleted elsewhere) resolve to null
   // against the live lists — the settings pattern.
   const [selectedAgent, setSelectedAgent] = useState<string | null>(
@@ -197,10 +200,16 @@ export function App() {
   const [selectedTool, setSelectedTool] = useState<string | null>(
     bootRoute.section === "tools" ? bootRoute.name : null,
   );
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(
+    bootRoute.section === "skills" ? bootRoute.name : null,
+  );
   // Creation flows: true while the create form (pre-filled, editable name)
   // is open in the main pane — no file is written until the form submits.
   const [creatingAgent, setCreatingAgent] = useState(bootRoute.section === "agents" && bootRoute.creating);
   const [creatingTool, setCreatingTool] = useState(bootRoute.section === "tools" && bootRoute.creating);
+  const [creatingSkill, setCreatingSkill] = useState(bootRoute.section === "skills" && bootRoute.creating);
+  // The Skills page's "Learn with AI" form (swapped in over the create form).
+  const [skillLearnOpen, setSkillLearnOpen] = useState(false);
 
   const refreshCustomThemes = useCallback(async () => {
     try {
@@ -350,6 +359,9 @@ export function App() {
         if (evt.type === "tools.updated") {
           void refreshTools();
         }
+        if (evt.type === "skills.updated") {
+          void refreshSkills();
+        }
         // A subagent's permission ask pops the same modal a parent ask
         // gets — otherwise the child would sit blocked with no dialog.
         if (evt.type === "permission.asked" || evt.type === "permission.replied") {
@@ -366,7 +378,7 @@ export function App() {
         setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
     });
     return unsubscribe;
-  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools]);
+  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools, refreshSkills]);
 
   // The active session's ID — the session stream effect keys on this (not
   // the object reference) so session.updated patches don't tear it down.
@@ -497,6 +509,16 @@ export function App() {
     workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
   const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
   const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
+  const effectiveSkillId = skills.some((s) => s.name === selectedSkill) ? selectedSkill : null;
+  // The active session's resolved agent (meta → config default → build) —
+  // the learn chip's in-session-vs-spawn decision.
+  const activeAgentName =
+    typeof (active?.meta as { agent?: unknown } | undefined)?.agent === "string"
+      ? (active?.meta as { agent: string }).agent
+      : (configDefaultAgent ?? "build");
+  const activeAgent = agents.find((a) => a.name === activeAgentName);
+  const canAuthorSkills =
+    activeAgent !== undefined && (activeAgent.tools.includes("*") || activeAgent.tools.includes("skills.save"));
   // File-watch closure inputs: the viewed root and the session-cwd lookup
   // (patch paths are relative to the OWNING session's cwd — subagents
   // inherit the parent's; unknown sessions fall back to the viewed root).
@@ -527,7 +549,11 @@ export function App() {
       // Engagement refetch: tools changed anywhere → fresh list.
       void refreshTools();
     }
-  }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools]);
+    if (next === "skills") {
+      // Engagement refetch: skills changed anywhere → fresh list.
+      void refreshSkills();
+    }
+  }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools, refreshSkills]);
 
   // Deep-link engagement: landing directly on Settings (refresh, shared
   // link) must fetch the catalogs the pane renders — the provider list is
@@ -561,6 +587,10 @@ export function App() {
       if (route.section === "tools") {
         setSelectedTool(route.name);
         setCreatingTool(route.creating);
+      }
+      if (route.section === "skills") {
+        setSelectedSkill(route.name);
+        setCreatingSkill(route.creating);
       }
       if (session !== undefined) {
         // Explicit session (sidebar click, fork, kept on section switch).
@@ -635,6 +665,9 @@ export function App() {
       case "tools":
         pushRoute({ section: "tools", name: effectiveToolId, creating: false });
         break;
+      case "skills":
+        pushRoute({ section: "skills", name: effectiveSkillId, creating: false });
+        break;
       case "analytics":
         pushRoute({ section: "analytics" });
         break;
@@ -694,7 +727,9 @@ export function App() {
         ? { section: "agents", name: effectiveAgentId, creating: creatingAgent }
         : section === "tools"
           ? { section: "tools", name: effectiveToolId, creating: creatingTool }
-          : section === "analytics"
+          : section === "skills"
+            ? { section: "skills", name: effectiveSkillId, creating: creatingSkill }
+            : section === "analytics"
             ? { section: "analytics" }
             : section === "shell"
               ? { section: "shell" }
@@ -812,10 +847,20 @@ export function App() {
     pushRoute({ section: "tools", name, creating: false });
   };
 
-  const submit = async (): Promise<void> => {
-    const text = draft.trim();
+  /** Write a starter SKILL.md for the (form-validated) name, then select it. */
+  const createSkill = async (name: string): Promise<void> => {
+    await client.putSkill(name, {
+      description: `What the ${name} skill does, in one sentence.`,
+      body: `# ${name}\n\nDescribe the workflow here: when to use it, the steps to follow, and how to verify the result.\n\nSupporting files can live in references/, templates/, scripts/, and assets/ — the agent reads them on demand via skills.view(name, path).`,
+    });
+    await refreshSkills();
+    pushRoute({ section: "skills", name, creating: false });
+  };
+
+  const submit = async (override?: string): Promise<void> => {
+    const text = (override ?? draft).trim();
     if (text.length === 0) return;
-    setDraft("");
+    if (override === undefined) setDraft("");
     // Message-queue default (Cursor-style): a submit while the session is
     // draining QUEUES instead of steering — the queued node (fed by the
     // input.admitted event) is the feedback, so the typing dots stay off.
@@ -839,6 +884,33 @@ export function App() {
       await client.submitPrompt(session.id, { text, ...(queuing ? { queue: true } : {}) });
     } catch (err) {
       setSentPending(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Learn (hermes /learn parity, no slash command): run the standards-guided
+   * learn request as a normal user turn. In THIS session when its agent can
+   * author skills (the orchestrator); otherwise spawn a dedicated learn
+   * session and navigate to it. An empty request distills the current
+   * conversation — only meaningful in-session, so the spawn path requires
+   * the user to describe the source.
+   */
+  const learn = async (request: string): Promise<void> => {
+    const trimmed = request.trim();
+    if (canAuthorSkills) {
+      await submit(buildLearnRequest(trimmed));
+      return;
+    }
+    if (trimmed.length === 0) {
+      setError("The current agent can't author skills — describe what to learn and it runs in a fresh learn session.");
+      return;
+    }
+    try {
+      const session = await client.learnSkill({ request: trimmed });
+      pushNotice("started a learn session (the current agent can't author skills)", "info");
+      pushRoute({ section: "chat", sessionId: session.id });
+    } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -1034,6 +1106,9 @@ export function App() {
       onSendQueued={(input) => void sendQueued(input)}
       onCancelQueued={(input) => void cancelQueued(input)}
       onEditQueued={editQueued}
+      // Learn chip: only with an open session (drafts use the Skills page's
+      // Learn form — a fresh learn session there has the same effect).
+      onLearn={active !== null ? (request) => void learn(request) : undefined}
     />
   );
 
@@ -1174,6 +1249,15 @@ export function App() {
             busy={false}
           />
         )}
+        {section === "skills" && (
+          <SkillsNav
+            skills={skills}
+            selected={effectiveSkillId}
+            onSelect={(name) => pushRoute({ section: "skills", name, creating: false })}
+            onCreate={() => pushRoute({ section: "skills", name: null, creating: true })}
+            busy={false}
+          />
+        )}
       </aside>
       )}
 
@@ -1230,6 +1314,42 @@ export function App() {
               refresh={refreshTools}
               onNotice={pushNotice}
               themeColors={themeColors}
+            />
+          )}
+        </main>
+      ) : section === "skills" ? (
+        <main id="main-content" className="agents-pane">
+          {creatingSkill ? (
+            skillLearnOpen ? (
+              <SkillLearnForm
+                client={client}
+                list={list}
+                refreshProviders={refreshProviders}
+                preferZdr={configPreferZdr}
+                configDefault={configDefault}
+                onLearned={async (sessionId) => {
+                  setSkillLearnOpen(false);
+                  setCreatingSkill(false);
+                  pushNotice("learn session started — watch it distill the skill", "info");
+                  pushRoute({ section: "chat", sessionId });
+                }}
+                onBack={() => setSkillLearnOpen(false)}
+              />
+            ) : (
+              <SkillCreateForm
+                existing={skills.map((s) => s.name)}
+                onSubmit={createSkill}
+                onCancel={() => setCreatingSkill(false)}
+                onLearn={() => setSkillLearnOpen(true)}
+              />
+            )
+          ) : (
+            <SkillsPane
+              client={client}
+              skills={skills}
+              selectedId={effectiveSkillId}
+              refresh={refreshSkills}
+              onNotice={pushNotice}
             />
           )}
         </main>
@@ -1382,6 +1502,9 @@ function MasterNav({
         </MasterItem>
         <MasterItem section="tools" label="Tools" active={section === "tools"} onNavigate={onNavigate}>
           <Wrench className="nav-icon" aria-hidden="true" />
+        </MasterItem>
+        <MasterItem section="skills" label="Skills" active={section === "skills"} onNavigate={onNavigate}>
+          <Zap className="nav-icon" aria-hidden="true" />
         </MasterItem>
         <MasterItem section="analytics" label="Analytics" active={section === "analytics"} onNavigate={onNavigate}>
           <ChartColumn className="nav-icon" aria-hidden="true" />

@@ -1694,6 +1694,22 @@ select:focus-visible,
   border-color: var(--danger);
 }
 
+/* Skill form: the read-only linked-files list (references/templates/scripts/assets). */
+.skill-linked-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skill-linked-files code {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text);
+}
+
 .typing .dot {
   width: 7px;
   height: 7px;

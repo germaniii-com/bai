@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -12,7 +12,13 @@ import {
   YAxis,
 } from "recharts";
 import type { BaiClient } from "@bai/api/client";
-import type { ThemeColors, UsageAnalyticsQuery, UsageAnalyticsResponse, UsageGranularity } from "@bai/shared";
+import type {
+  ThemeColors,
+  SkillUsageResponse,
+  UsageAnalyticsQuery,
+  UsageAnalyticsResponse,
+  UsageGranularity,
+} from "@bai/shared";
 import { useUsage } from "./use-usage";
 
 /**
@@ -125,6 +131,30 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
   }, [granularity, range, agent, workspace, provider, account, model, kind]);
 
   const { usage, refreshing, refresh } = useUsage(client, query);
+
+  // Skill activity (the skill_events store) — shares the window + granularity
+  // with the token filters; the LLM-specific dimensions don't apply. A
+  // skills.view call only happens inside a run, so any view implies LLM
+  // usage exists and this card renders below the main charts.
+  const [skillUsage, setSkillUsage] = useState<SkillUsageResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const from = RANGE_DAYS[range];
+        const res = await client.skillUsage({
+          granularity,
+          ...(from !== undefined ? { from: daysAgoIso(from) } : {}),
+        });
+        if (!cancelled) setSkillUsage(res);
+      } catch {
+        if (!cancelled) setSkillUsage(null); // advisory — the card shows its empty stance
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, granularity, range]);
 
   // Model → color assignment, stable across renders (byModel is spend-sorted).
   const modelColor = useMemo(() => {
@@ -468,6 +498,64 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             <Bar dataKey="errors" name="Errors" stackId="calls" fill={themeColors.danger} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* --- skill activity: skills.view calls (skill_events store) --- */}
+      <div className="chart-card">
+        <h3>Skill activity</h3>
+        {skillUsage === null ? (
+          <p className="dim">No skill activity data.</p>
+        ) : skillUsage.kpis.views === 0 ? (
+          <p className="dim empty">No skill views recorded yet — agents load skills via skills.view.</p>
+        ) : (
+          <>
+            <p className="dim">
+              {fmtInt(skillUsage.kpis.views)} view{skillUsage.kpis.views === 1 ? "" : "s"} ·{" "}
+              {fmtInt(skillUsage.kpis.errors)} failed · {fmtInt(skillUsage.kpis.sessions)} session
+              {skillUsage.kpis.sessions === 1 ? "" : "s"}
+            </p>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={skillUsage.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 11 }} width={36} />
+                <Tooltip
+                  content={(props: TooltipProps) => (
+                    <ChartTooltip
+                      {...props}
+                      bg={themeColors.surfaceSecondary}
+                      rows={(props.payload ?? []).map((entry) => ({
+                        name: String(entry.dataKey),
+                        text: `${fmtInt(Number(entry.value ?? 0))} views`,
+                      }))}
+                    />
+                  )}
+                />
+                <Bar dataKey="views" name="Views" fill={themeColors.secondary} />
+              </BarChart>
+            </ResponsiveContainer>
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th>Skill</th>
+                  <th>Views</th>
+                  <th>Sessions</th>
+                  <th>Last used</th>
+                </tr>
+              </thead>
+              <tbody>
+                {skillUsage.bySkill.map((s) => (
+                  <tr key={s.skill}>
+                    <td>{s.skill}</td>
+                    <td>{fmtInt(s.views)}</td>
+                    <td>{fmtInt(s.sessions)}</td>
+                    <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     </div>
   );

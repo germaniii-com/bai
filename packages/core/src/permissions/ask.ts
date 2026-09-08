@@ -30,6 +30,15 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   "fs.read": "allow",
   "fs.list": "allow",
   "fs.glob": "allow",
+  // skills.view reads the user's own skill files (traversal-guarded inside
+  // the tool) — read-only knowledge loading, same stance as fs.read.
+  "skills.view": "allow",
+  // Skill authoring (the learn flow): both tools are root-restricted to
+  // ~/.config/bai/skills inside the tool (the plan.write stance) — a
+  // knowledge-base learn writes dozens of chapter files and must not spam
+  // permission asks.
+  "skills.save": "allow",
+  "skills.writeFile": "allow",
   // The agent asking the user questions / tracking todos IS the interaction —
   // gating it behind a permission ask would deadlock the conversation.
   question: "allow",

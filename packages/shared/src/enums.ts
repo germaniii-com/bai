@@ -64,6 +64,8 @@ export interface EventPayloads {
   "agents.updated": Record<string, never>;
   /** Custom tool set changed (file created/edited/deleted) — live-only, surfaces refetch. */
   "tools.updated": Record<string, never>;
+  /** Skill set changed (SKILL.md created/edited/deleted) — live-only, surfaces refetch. */
+  "skills.updated": Record<string, never>;
   "server.hello": { version: string };
 }
 
@@ -95,6 +97,7 @@ export const EVENT_TYPES = Object.keys({
   "provider.updated": 1,
   "agents.updated": 1,
   "tools.updated": 1,
+  "skills.updated": 1,
   "server.hello": 1,
 } satisfies Record<EventType, 1>) as EventType[];
 

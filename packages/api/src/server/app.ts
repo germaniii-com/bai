@@ -8,10 +8,12 @@ import {
   createSessionSchema,
   customThemeSchema,
   enqueueJobSchema,
+  learnSkillSchema,
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
   putAgentSchema,
+  putSkillSchema,
   putToolSchema,
   questionRejectSchema,
   questionReplySchema,
@@ -20,6 +22,7 @@ import {
   forkSessionSchema,
   setSessionAgentSchema,
   setSessionModelSchema,
+  skillUsageQuerySchema,
   usageAnalyticsQuerySchema,
   type InputId,
   type MessageId,
@@ -225,6 +228,48 @@ function buildApi(deps: ApiDeps) {
       try {
         if (!deps.core.deleteAgent(name)) return c.json({ error: "not_found" }, 404);
         deps.core.emitLive("agents.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+
+    // --- skills (file-defined, hot-reloaded; routes write the SKILL.md files) ---
+    .get("/skill", (c) => c.json({ skills: deps.core.listSkills() }))
+    // Registered BEFORE /skill/:name so "usage" is never captured as a name.
+    .get("/skill/usage", zValidator("query", skillUsageQuerySchema), (c) => {
+      return c.json(deps.core.skillUsageAnalytics(c.req.valid("query")));
+    })
+    // Learn (hermes /learn parity, no slash command): spawn a visible learn
+    // session whose first turn is the standards-guided learn request.
+    .post("/skill/learn", zValidator("json", learnSkillSchema), (c) => {
+      try {
+        const session = deps.core.learnSkill(c.req.valid("json"));
+        return c.json({ session }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .get("/skill/:name", (c) => {
+      const skill = deps.core.getSkill(c.req.param("name"));
+      if (skill === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ skill, usage: deps.core.skillUsage(skill.name) });
+    })
+    .put("/skill/:name", zValidator("json", putSkillSchema), (c) => {
+      const name = c.req.param("name");
+      try {
+        const skill = deps.core.putSkill(name, c.req.valid("json"));
+        deps.core.emitLive("skills.updated", {});
+        return c.json({ skill }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/skill/:name", (c) => {
+      const name = c.req.param("name");
+      try {
+        if (!deps.core.deleteSkill(name)) return c.json({ error: "not_found" }, 404);
+        deps.core.emitLive("skills.updated", {});
         return c.json({ ok: true });
       } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
