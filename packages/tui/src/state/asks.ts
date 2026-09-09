@@ -39,11 +39,15 @@ export function emptyAskUi(): AskUiState {
 
 /**
  * Fresh UI state sized for the given request — question prompts pre-fill
- * one (empty) answer slot per question. Keyed by request id upstream: the
- * id change IS the reset.
+ * one (empty) answer slot per question; a path ask seeds the custom buffer
+ * with the pre-filled path (editable in place). Keyed by request id
+ * upstream: the id change IS the reset.
  */
 export function askUiFor(request: PermissionRequest | QuestionRequest): AskUiState {
-  if ("questions" in request) {
+  if ("path" in request && request.path !== undefined) {
+    return { ...emptyAskUi(), custom: request.path.prefill };
+  }
+  if ("questions" in request && request.questions !== undefined) {
     return { ...emptyAskUi(), answers: request.questions.map(() => []) };
   }
   return emptyAskUi();

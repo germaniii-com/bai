@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Dispatch, SetStateAction } from "react";
 import type { Event, Input, Message, Session } from "@bai/shared";
-import { applyEvent, argsDigest, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, revertBoundary } from "../src/state";
+import { applyEvent, argsDigest, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, revertBoundary, toolCalls } from "../src/state";
 
 /** Collect setMessages updates and expose the final list. */
 function capture() {
@@ -39,6 +39,48 @@ describe("argsDigest (tool-node one-liner)", () => {
     expect(argsDigest("bash", JSON.stringify({ command: "ls -la" }))).toBe("ls -la");
     // A skills tool without a name falls through to the generic digest.
     expect(argsDigest("skills.view", JSON.stringify({}))).toBe("");
+  });
+});
+
+describe("toolCalls (tool-node views)", () => {
+  const part = (id: string, ord: number, kind: Message["parts"][0]["kind"], payload: unknown): Message["parts"][0] => ({
+    id: id as Message["parts"][0]["id"],
+    messageId: "m1" as Message["id"],
+    ord,
+    kind,
+    payload,
+  });
+
+  test("workspace.create results carry the registered path (the Open-workspace action)", () => {
+    const message: Message = {
+      id: "m1" as Message["id"],
+      sessionId: "ses_1" as Message["sessionId"],
+      role: "assistant",
+      createdAt: "t",
+      parts: [
+        part("p1", 0, "tool_call", { callId: "c1", name: "workspace.create", args: '{"path":"my-idea"}' }),
+        part("p2", 1, "tool_result", { callId: "c1", content: "Created workspace", workspace: "/home/u/my-idea" }),
+      ],
+    };
+    const views = toolCalls(message);
+    expect(views).toHaveLength(1);
+    expect(views[0]?.name).toBe("workspace.create");
+    expect(views[0]?.workspace).toBe("/home/u/my-idea");
+    expect(views[0]?.status).toBe("done");
+  });
+
+  test("non-workspace results and malformed payloads carry no workspace", () => {
+    const message: Message = {
+      id: "m1" as Message["id"],
+      sessionId: "ses_1" as Message["sessionId"],
+      role: "assistant",
+      createdAt: "t",
+      parts: [
+        part("p1", 0, "tool_call", { callId: "c1", name: "fs.read", args: '{"path":"x"}' }),
+        part("p2", 1, "tool_result", { callId: "c1", content: "ok", workspace: 42 }),
+      ],
+    };
+    expect(toolCalls(message)[0]?.workspace).toBeUndefined();
   });
 });
 

@@ -52,6 +52,18 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   // plan.exit's gate is the user answering its embedded question.
   "plan.write": "allow",
   "plan.exit": "allow",
+  // Agent authoring (the orchestrator's create/edit-agent capability):
+  // root-restricted to ~/.config/bai/agents by construction (AgentRegistry.put
+  // writes the .md files atomically; built-ins are registry-protected) — the
+  // same stance as skills.save. There is deliberately no agent.delete tool.
+  "agent.view": "allow",
+  "agent.save": "allow",
+  // workspace.create carries its own consent gate: a dedicated path ask
+  // ("Where should the workspace be created?") pre-filled with the agent's
+  // suggestion, freely editable, blocking until confirmed or dismissed —
+  // nothing is created without that confirm. A generic permission dialog
+  // on top would double-ask.
+  "workspace.create": "allow",
 };
 
 /** fs tools whose path argument can be checked against the session cwd. */

@@ -1,4 +1,4 @@
-import { newId, systemClock, type Clock, type Event, type QuestionPrompt, type QuestionRequest, type SessionId } from "@bai/shared";
+import { newId, systemClock, type Clock, type Event, type QuestionPathAsk, type QuestionPrompt, type QuestionRequest, type SessionId } from "@bai/shared";
 import type { Bus } from "../event/bus";
 import type { EventLog } from "../event/log";
 
@@ -55,23 +55,50 @@ export class QuestionService {
       ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
       questions: input.questions,
     };
+    return this.await_(id, request, input.signal);
+  }
+
+  /**
+   * Raise a path ask (one pre-filled editable field + confirm — the
+   * workspace.create flow) and await the answered path. Resolves with the
+   * (possibly edited) path string; rejects with QuestionRejectedError on
+   * dismissal or run interrupt.
+   */
+  askPath(input: { sessionId?: SessionId; path: QuestionPathAsk; signal?: AbortSignal }): Promise<string> {
+    const id = newId.questionRequest();
+    const request: QuestionRequest = {
+      id,
+      ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+      path: input.path,
+    };
+    return this.await_(id, request, input.signal).then((answers) => {
+      const answer = answers[0]?.[0];
+      if (answer === undefined || answer.trim().length === 0) {
+        throw new QuestionRejectedError("The path answer was empty.");
+      }
+      return answer;
+    });
+  }
+
+  /** Shared pending machinery: register, emit asked, resolve/reject on reply/reject/abort. */
+  private await_(id: string, request: QuestionRequest, signal?: AbortSignal): Promise<string[][]> {
     return new Promise<string[][]>((resolve, reject) => {
       const onAbort = () => {
         // The run was interrupted while waiting — clean up like a dismissal.
         if (this.pending.get(id) === undefined) return;
         this.pending.delete(id);
-        input.signal?.removeEventListener("abort", onAbort);
-        this.emit(input.sessionId, "question.rejected", { requestId: id });
+        signal?.removeEventListener("abort", onAbort);
+        this.emit(request.sessionId, "question.rejected", { requestId: id });
         reject(new QuestionRejectedError("The run was interrupted while waiting for an answer."));
       };
-      const entry: Pending = { request, resolve, reject, onAbort, ...(input.signal !== undefined ? { signal: input.signal } : {}) };
+      const entry: Pending = { request, resolve, reject, onAbort, ...(signal !== undefined ? { signal } : {}) };
       this.pending.set(id, entry);
-      if (input.signal?.aborted) {
+      if (signal?.aborted) {
         onAbort();
         return;
       }
-      input.signal?.addEventListener("abort", onAbort, { once: true });
-      this.emit(input.sessionId, "question.asked", { request });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.emit(request.sessionId, "question.asked", { request });
     });
   }
 

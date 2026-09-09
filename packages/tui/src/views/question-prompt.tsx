@@ -49,9 +49,8 @@ export function QuestionPrompt({
   const busy = busyId === (request.id as string);
   const t = useTheme();
 
-  const total = request.questions.length;
-  const q = request.questions[ui.qIndex];
-  if (q === undefined) return null;
+  const total = (request.questions ?? []).length;
+  const q = (request.questions ?? [])[ui.qIndex];
   const selected = ui.answers[ui.qIndex] ?? [];
 
   const submit = (answers: string[][]) => {
@@ -91,6 +90,34 @@ export function QuestionPrompt({
 
   useInput((ch, key) => {
     if (busy) return;
+    if (request.path !== undefined) {
+      // Path-ask editing: the buffer starts pre-filled (askUiFor seeds it).
+      if (key.escape) {
+        // Two-stage dismissal — an accidental esc must not silently drop
+        // the ask (nothing is created on dismiss).
+        if (ui.dismissArmed) return dismiss();
+        onUi((prev) => ({ ...prev, dismissArmed: true }));
+        return;
+      }
+      if (key.return) {
+        const value = (ui.custom ?? "").trim();
+        if (value.length > 0) submit([[value]]);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        onUi((prev) => ({ ...prev, custom: (prev.custom ?? "").slice(0, -1) }));
+        return;
+      }
+      if (key.ctrl && ch === "w") {
+        onUi((prev) => ({ ...prev, custom: deleteWord(prev.custom ?? "") }));
+        return;
+      }
+      if (key.ctrl || key.meta) return;
+      const body = typedChar(ch);
+      if (body.length > 0) onUi((prev) => ({ ...prev, custom: (prev.custom ?? "") + body, dismissArmed: false }));
+      return;
+    }
+    if (q === undefined) return;
     if (ui.custom !== null) {
       // Custom-answer input mode.
       if (key.escape) {
@@ -165,6 +192,33 @@ export function QuestionPrompt({
     { isActive: !deferInput },
   );
 
+  // Path ask (workspace.create): one pre-filled, freely editable field +
+  // confirm — a dedicated render, not the option list. (AFTER useInput —
+  // hooks must run unconditionally.)
+  if (request.path !== undefined) {
+    const value = ui.custom ?? "";
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
+        <Text wrap="truncate">
+          <Text bold color={t.accent}>△ workspace</Text>
+          {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
+        </Text>
+        <Text wrap="wrap" color={t.text}>{request.path.prompt}</Text>
+        {request.path.hint !== undefined && <Text wrap="wrap" color={t.dim}>{request.path.hint}</Text>}
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={t.dim}>folder path (edit freely):</Text>
+          <Text wrap="truncate">
+            <Text color={value.length === 0 ? t.dim : t.text}>{value.length > 0 ? value : "type a path…"}</Text>
+            <Text color={t.accent}>▌</Text>
+          </Text>
+        </Box>
+        <Text color={t.dim} wrap="truncate">enter confirm · esc{ui.dismissArmed ? " again dismiss" : " dismiss"}</Text>
+        {ui.dismissArmed && <Text color={t.warning}>press esc again to dismiss (nothing will be created)</Text>}
+      </Box>
+    );
+  }
+
+  if (q === undefined) return null;
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
       <Text wrap="truncate">

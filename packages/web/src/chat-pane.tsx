@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
+import { Check, Copy, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, formatTokens } from "@bai/shared";
@@ -96,7 +96,9 @@ export function ChatPane({
    onEditQueued,
    onLearn,
    usage = null,
- }: {
+   agentLocked = false,
+   onOpenWorkspace,
+  }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
   list: ProviderListResponse | null;
@@ -162,6 +164,18 @@ export function ChatPane({
   onLearn?: (request: string) => void;
   /** The session's latest provider-reported usage — the context tracker chip. */
   usage?: SessionUsage | null;
+  /**
+   * Pin the agent display (webui Chat section): the chat agent is pinned
+   * server-side at session creation / next message, so the picker is
+   * replaced by a static "agent: chat" chip. The Workspace section keeps
+   * the live picker.
+   */
+  agentLocked?: boolean;
+  /**
+   * "Open workspace" action for workspace.create tool nodes: navigate to the
+   * workspace route for the created folder (App's selectWorkspace).
+   */
+  onOpenWorkspace?: (wsPath: string) => void;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -183,7 +197,7 @@ export function ChatPane({
            <article key={m.id} className={`message ${m.role}`} aria-label={`${m.role === "user" ? "You" : "Assistant"} message`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
             {m.role === "assistant" && toolCalls(m).length > 0 && (
-              <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} />
+              <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} onOpenWorkspace={onOpenWorkspace} />
             )}
             {/* Assistant bodies render markdown; user input stays literal. */}
             {m.role === "assistant" ? <Markdown text={messageText(m)} /> : <p>{messageText(m)}</p>}
@@ -349,13 +363,23 @@ export function ChatPane({
               <span className="chip-label">Learn</span>
             </Chip>
           )}
-          <AgentPicker
-            client={client}
-            agents={agents}
-            active={active}
-            configDefaultAgent={configDefaultAgent}
-            refreshAgents={refreshAgents}
-          />
+          {agentLocked ? (
+            // Webui Chat section: the chat agent is pinned (creation + next
+            // message) — a static chip replaces the picker. The Workspace
+            // section keeps the live picker.
+            <Chip hint="The Chat section always runs the chat agent — the all-in-one orchestrator">
+              <span className="dim">agent</span>
+              <span className="chip-label">chat</span>
+            </Chip>
+          ) : (
+            <AgentPicker
+              client={client}
+              agents={agents}
+              active={active}
+              configDefaultAgent={configDefaultAgent}
+              refreshAgents={refreshAgents}
+            />
+          )}
           <ModelPicker
             client={client}
             list={list}
@@ -545,10 +569,13 @@ function ToolNodes({
   calls,
   subagents,
   client,
+  onOpenWorkspace,
 }: {
   calls: ToolCallView[];
   subagents?: SubagentState;
   client: BaiClient;
+  /** "Open workspace" action for workspace.create results (App navigation). */
+  onOpenWorkspace?: (wsPath: string) => void;
 }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const toggle = (callId: string) => {
@@ -586,8 +613,18 @@ function ToolNodes({
               : perm.message !== undefined
                 ? `rejected — "${perm.message}"`
                 : "rejected";
+        // workspace.create success: an inline "Open workspace" action on the
+        // row — the result's registered folder path navigates to the
+        // workspace route (App's selectWorkspace). Only with a landed,
+        // non-error result (nothing to open before that).
+        const canOpenWs =
+          onOpenWorkspace !== undefined &&
+          c.name === "workspace.create" &&
+          typeof c.workspace === "string" &&
+          c.result !== undefined &&
+          c.result.isError !== true;
         return (
-          <div key={c.callId} className={`tool-node tool-${status}`}>
+          <div key={c.callId} className={`tool-node tool-${status}${canOpenWs ? " tool-node-has-action" : ""}`}>
             <button
               type="button"
               className="tool-toggle"
@@ -606,6 +643,17 @@ function ToolNodes({
               {!asking && live && <span className="dim"> · working…</span>}
               {permVerdict !== undefined && <span className="dim"> · {permVerdict}</span>}
             </button>
+            {canOpenWs && (
+              <button
+                type="button"
+                className="tool-open-ws"
+                onClick={() => onOpenWorkspace(c.workspace as string)}
+                aria-label={`Open workspace ${c.workspace}`}
+              >
+                <FolderOpen size={12} aria-hidden="true" />
+                Open workspace
+              </button>
+            )}
             {open && isTask && child !== undefined ? (
               // Live child transcript (snapshot polling while the task
               // runs; stays reviewable after it finishes).

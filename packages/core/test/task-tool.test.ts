@@ -280,6 +280,11 @@ describe("task tool (subagent spawning)", () => {
     expect(names).not.toContain("task");
     expect(names).not.toContain("question");
     expect(names).not.toContain("plan.exit");
+    // The meta-tools are orchestrator-only — never offered to subagents.
+    expect(names).not.toContain("agent.view");
+    expect(names).not.toContain("agent.save");
+    expect(names).not.toContain("tool.create");
+    expect(names).not.toContain("workspace.create");
   });
 
   test("child sessions cannot execute stripped tools even when hallucinated", async () => {

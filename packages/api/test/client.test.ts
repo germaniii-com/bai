@@ -79,6 +79,14 @@ describe("client ↔ server (integration)", () => {
     expect(await client.health()).toEqual({ ok: true, version: "test" });
   });
 
+  test("createSession pins an agent (the webui chat orchestrator pin)", async () => {
+    const pinned = await client.createSession({ workbench: "chat", agent: "chat" });
+    expect((pinned.meta as { agent?: string }).agent).toBe("chat");
+    // Omitted → no pin (the TUI's default resolution is untouched).
+    const plain = await client.createSession({ workbench: "chat" });
+    expect((plain.meta as { agent?: string }).agent).toBeUndefined();
+  });
+
   test("full chat round trip over the typed client", async () => {
     const session = await client.createSession({ title: "e2e", workbench: "chat" });
     expect(session.id.startsWith("ses_")).toBe(true);

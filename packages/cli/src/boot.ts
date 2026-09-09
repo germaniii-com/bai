@@ -181,6 +181,10 @@ export async function boot(args: CliArgs): Promise<Booted> {
     skills,
     toolLoader,
     config: () => configStore.get(),
+    // Config mutation path for agent tools (workspace.create): the same
+    // ConfigStore.update the PUT /api/config route uses — global layer file,
+    // atomic write, onChange broadcasts config.updated.
+    updateConfig: (patch) => configStore.update(patch),
     version: VERSION,
     plansDir: path.join(configDir(), "plans"),
     snapshot: new Snapshot(snapshotDir(dataDir())),

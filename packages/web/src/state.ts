@@ -265,6 +265,8 @@ export interface ToolCallView {
   questions?: QuestionReview[];
   /** For `task` calls: the child session this result came from. */
   subagent?: { sessionId: string; agent: string };
+  /** For `workspace.create` results: the registered workspace folder path. */
+  workspace?: string;
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
@@ -277,6 +279,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       subagent?: { sessionId: string; agent: string };
       permission?: AskOutcome;
       questions?: QuestionReview[];
+      workspace?: string;
     }
   >();
   for (const p of message.parts) {
@@ -288,6 +291,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       subagent?: { sessionId?: unknown; agent?: unknown };
       permission?: AskOutcome;
       questions?: QuestionReview[];
+      workspace?: unknown;
     } | null;
     if (payload?.callId === undefined) continue;
     const subagent =
@@ -310,12 +314,14 @@ export function toolCalls(message: Message): ToolCallView[] {
       Array.isArray(payload.questions) && payload.questions.length > 0
         ? (payload.questions as QuestionReview[])
         : undefined;
+    const workspace = typeof payload.workspace === "string" && payload.workspace.length > 0 ? payload.workspace : undefined;
     results.set(payload.callId, {
       content,
       isError: payload.isError === true,
       ...(subagent !== undefined ? { subagent } : {}),
       ...(permission !== undefined ? { permission } : {}),
       ...(questions !== undefined ? { questions } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
     });
   }
   const views: ToolCallView[] = [];
@@ -336,6 +342,7 @@ export function toolCalls(message: Message): ToolCallView[] {
             ...(result.subagent !== undefined ? { subagent: result.subagent } : {}),
             ...(result.permission !== undefined ? { permission: result.permission } : {}),
             ...(result.questions !== undefined ? { questions: result.questions } : {}),
+            ...(result.workspace !== undefined ? { workspace: result.workspace } : {}),
           }
         : {}),
     });

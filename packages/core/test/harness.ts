@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -35,6 +35,7 @@ export interface TestCore {
     imageGen?: MediaGenConfig;
     videoGen?: MediaGenConfig;
     permissions: Record<string, "allow" | "ask" | "deny">;
+    workspaces: string[];
   };
   tools: ToolRegistry;
   toolLoader: ToolLoader;
@@ -45,10 +46,13 @@ export interface TestCore {
 /** Full core stack against a throwaway data dir. */
 export function makeCore(): TestCore {
   const dir = mkdtempSync(join(tmpdir(), "bai-test-"));
+  // workspace.create's creation guard roots here — it must EXIST (the real
+  // homedir always does; createFolder realpaths it before walking up).
+  mkdirSync(join(dir, "home"), { recursive: true });
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, user: {}, permissions: {} };
+  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, user: {}, permissions: {}, workspaces: [] };
   const testConfig = () => ({
     ...DEFAULT_CONFIG,
     models: { ...config.models },
@@ -57,6 +61,7 @@ export function makeCore(): TestCore {
     ...(config.imageGen !== undefined ? { imageGen: { ...config.imageGen } } : {}),
     ...(config.videoGen !== undefined ? { videoGen: { ...config.videoGen } } : {}),
     permissions: { ...config.permissions },
+    workspaces: [...config.workspaces],
   });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
@@ -116,6 +121,15 @@ export function makeCore(): TestCore {
     skills,
     toolLoader,
     config: testConfig,
+    // Mirror boot.ts: the config mutation path agent tools use
+    // (workspace.create) — mutate the live test config, return the effective.
+    updateConfig: (patch) => {
+      if (patch.workspaces !== undefined) config.workspaces = [...patch.workspaces];
+      return testConfig();
+    },
+    // workspace.create's creation guard roots here (a throwaway home —
+    // never the real one).
+    homeDir: () => join(dir, "home"),
     version: "test",
     plansDir: join(dir, "plans"),
     // Shadow-repo snapshots (revert's file rollback) — under the throwaway

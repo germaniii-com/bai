@@ -198,8 +198,120 @@ function QuestionAsk({
   queued: number;
   onDone: () => void;
 }) {
-  const [answers, setAnswers] = useState<string[][]>(() => request.questions.map(() => []));
-  const [customs, setCustoms] = useState<string[]>(() => request.questions.map(() => ""));
+  // Path ask (workspace.create): a dedicated panel — one pre-filled,
+  // freely editable text field + confirm. Distinct from the choice block.
+  if (request.path !== undefined) {
+    return <PathAsk client={client} request={request} path={request.path} queued={queued} onDone={onDone} />;
+  }
+  return <ChoiceAsk client={client} request={request} queued={queued} onDone={onDone} />;
+}
+
+/** Path ask — "Where should the workspace be created?" with a pre-filled,
+    freely editable path and Confirm/Cancel. */
+function PathAsk({
+  client,
+  request,
+  path,
+  queued,
+  onDone,
+}: {
+  client: BaiClient;
+  request: QuestionRequest;
+  path: NonNullable<QuestionRequest["path"]>;
+  queued: number;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(path.prefill);
+  // Request-scoped busy latch (see PermissionAsk above).
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const busy = busyId === (request.id as string);
+
+  const act = (fn: () => Promise<void>) => {
+    if (busy) return;
+    const id = request.id as string;
+    setBusyId(id);
+    setError(null);
+    void (async () => {
+      try {
+        await fn();
+      } catch {
+        setBusyId((current) => (current === id ? null : current));
+        setError("The response could not be sent. Check the connection and try again.");
+        return;
+      }
+      onDone();
+    })();
+  };
+
+  const confirm = () =>
+    act(async () => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) throw new Error("empty");
+      await client.replyQuestion(request.id as string, [[trimmed]]);
+    });
+
+  const cancel = () => act(() => client.rejectQuestion(request.id as string));
+
+  return (
+    <div className="ask-panel question" role="region" aria-label="Workspace location">
+      <div className="ask-head">
+        <span className="ask-warn">△</span>
+        <span>Workspace</span>
+        {queued > 0 && <span className="ask-queued">{queued} more queued</span>}
+      </div>
+      <fieldset className="question-block">
+        <legend className="question-header">workspace folder</legend>
+        <p className="question-text">{path.prompt}</p>
+        {path.hint !== undefined && <p className="dim">{path.hint}</p>}
+        <label className="question-custom-label" htmlFor={`path-ask-${request.id}`}>
+          Folder path (edit freely)
+        </label>
+        <input
+          id={`path-ask-${request.id}`}
+          className="question-custom"
+          placeholder="/absolute/path or ~/folder"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (value.trim().length > 0) void confirm();
+            }
+          }}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </fieldset>
+      {error !== null && <p className="error" role="alert">{error}</p>}
+      <div className="perm-actions">
+        <Button variant="primary" size="sm" disabled={busy || value.trim().length === 0} onClick={() => void confirm()}>
+          Confirm
+        </Button>
+        <Button variant="danger" size="sm" disabled={busy} onClick={() => void cancel()}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Choice ask — the radio/checkbox block (the question tool's flow). */
+function ChoiceAsk({
+  client,
+  request,
+  queued,
+  onDone,
+}: {
+  client: BaiClient;
+  request: QuestionRequest;
+  queued: number;
+  onDone: () => void;
+}) {
+  const [answers, setAnswers] = useState<string[][]>(() => (request.questions ?? []).map(() => []));
+  const [customs, setCustoms] = useState<string[]>(() => (request.questions ?? []).map(() => ""));
   // Request-scoped busy latch (see PermissionAsk above): keyed by the
   // request id so a next question block — which can mount as a prop swap,
   // not an unmount — never inherits this block's latch.
@@ -230,7 +342,7 @@ function QuestionAsk({
   const submit = () =>
     act(async () => {
       // A filled custom field replaces that question's selection.
-      const final = request.questions.map((_, i) => {
+      const final = (request.questions ?? []).map((_, i) => {
         const custom = customs[i]?.trim() ?? "";
         return custom.length > 0 ? [custom] : (answers[i] ?? []);
       });
@@ -260,7 +372,7 @@ function QuestionAsk({
         <span>Questions</span>
         {queued > 0 && <span className="ask-queued">{queued} more queued</span>}
       </div>
-      {request.questions.map((q, qi) => (
+      {(request.questions ?? []).map((q, qi) => (
         <fieldset key={qi} className="question-block">
           <legend className="question-header">{q.header}</legend>
           <p className="question-text">

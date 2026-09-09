@@ -1291,6 +1291,38 @@ select:focus-visible,
   color: var(--dim);
 }
 
+/* workspace.create node: the row becomes a flex line so the inline
+   "Open workspace" action sits beside the toggle (not inside it —
+   button-in-button is invalid HTML). */
+.tool-node-has-action {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tool-node-has-action .tool-toggle {
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-open-ws {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.tool-open-ws:hover {
+  text-decoration: underline;
+}
+
 .tool-body {
   white-space: pre-wrap;
   word-break: break-word;

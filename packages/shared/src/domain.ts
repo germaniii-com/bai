@@ -40,10 +40,12 @@ export interface Part {
   /**
    * Shape depends on `kind`: text/thinking → {text}; tool_call →
    * {callId, name, args}; tool_result → {callId, content, isError?, title?,
-   * subagent?, permission?, questions?} where `subagent` links a `task`
-   * result to its child session, `permission` retains an answered
-   * interactive ask and `questions` retains answered Q&A (surfaces render
-   * both as re-openable reviews in the transcript); patch →
+   * subagent?, permission?, questions?, workspace?} where `subagent` links a
+   * `task` result to its child session, `permission` retains an answered
+   * interactive ask, `questions` retains answered Q&A (surfaces render both
+   * as re-openable reviews in the transcript) and `workspace` links a
+   * `workspace.create` result to the registered folder (surfaces render an
+   * open action on the tool node); patch →
    * {hash, files} — the shadow-repo tree hash BEFORE the batch of tool
    * calls ran plus the files that batch changed (revert rolls each file
    * back to its state in that hash; opencode's patch parts, same shape).
@@ -170,11 +172,28 @@ export interface QuestionPrompt {
   multiple?: boolean;
 }
 
+/**
+ * A path ask — one pre-filled, freely editable text field with a confirm
+ * (the workspace.create flow: the agent suggests a folder, the user edits
+ * or confirms). A request carries exactly one of `questions` / `path`.
+ */
+export interface QuestionPathAsk {
+  /** The prompt line, e.g. "Where should the workspace be created?". */
+  prompt: string;
+  /** Pre-filled editable answer (the suggested absolute path). */
+  prefill: string;
+  /** Optional one-liner under the prompt (context for the edit). */
+  hint?: string;
+}
+
 /** A pending question block awaiting user answers. */
 export interface QuestionRequest {
   id: QuestionRequestId;
   sessionId?: SessionId;
-  questions: QuestionPrompt[];
+  /** Choice questions (the radio/checkbox block). */
+  questions?: QuestionPrompt[];
+  /** Path ask: one pre-filled editable text field + confirm. */
+  path?: QuestionPathAsk;
 }
 
 // --- todos (the agent's tracked task list for the session) ---

@@ -6,6 +6,12 @@ export const createSessionSchema = z.object({
   workbench: z.enum(["chat", "code", "image", "video"]).default("chat"),
   cwd: z.string().optional(),
   /**
+   * Agent pinned at creation (resolves exactly like meta.agent). The webui's
+   * Chat section pins "chat" — the orchestrator — at session creation; the
+   * TUI and other surfaces omit it and keep the default resolution.
+   */
+  agent: z.string().max(100).optional(),
+  /**
    * Ephemeral proxy run (bai --one-shot): the session lives in an in-memory
    * store and dies with the process — surfaces never list it, and core skips
    * title generation for it.

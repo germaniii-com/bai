@@ -887,13 +887,21 @@ export function App() {
         // First message lazily creates the session — workspace sessions are
         // code-workbench sessions rooted at the workspace folder path. The
         // server titles it (fallback + LLM refine) from this first prompt.
+        // Chat-section sessions pin the built-in chat agent (the all-in-one
+        // orchestrator) at creation — webui-only; the TUI keeps its own
+        // default resolution.
         session =
           section === "workspace" && effectiveWorkspacePath !== null
             ? await client.createSession({ workbench: "code", cwd: effectiveWorkspacePath })
-            : await client.createSession({ workbench: "chat" });
+            : await client.createSession({ workbench: "chat", agent: "chat" });
         setActive(session);
         if (section === "workspace") void refreshWorkspaceSessions();
         else void refreshSessions();
+      } else if (section === "chat" && activeAgentName !== "chat") {
+        // Pin-on-next-message: chat-section sessions created before the pin
+        // (or switched away) converge on the chat agent at the next send.
+        // The workspace section is untouched — code sessions keep their agent.
+        await client.setSessionAgent(session.id, { agent: "chat" });
       }
       await client.submitPrompt(session.id, { text, ...(queuing ? { queue: true } : {}) });
     } catch (err) {
@@ -1111,6 +1119,14 @@ export function App() {
       startPlaceholder={
         section === "workspace" ? "Describe a task for this workspace…" : "Start a chat…"
       }
+      agentLocked={section === "chat"}
+      onOpenWorkspace={(wsPath) => {
+        // workspace.create node action: refresh config (the tool registered
+        // the folder; cover a dropped config.updated) then navigate to the
+        // workspace route for it.
+        void refreshConfig();
+        selectWorkspace(wsPath);
+      }}
       onForkMessage={forkAtMessage}
       onRevertMessage={revertToMessage}
       onRestoreRevert={restoreRevert}

@@ -389,7 +389,7 @@ describe("QuestionPrompt", () => {
     const { client, replyQuestion } = mockClient();
     const { stdin, unmount } = render(
       <QuestionHarness
-        request={{ ...questionRequest, questions: [questionRequest.questions[0]!] }}
+        request={{ ...questionRequest, questions: [questionRequest.questions![0]!] }}
         client={client}
       />,
     );
@@ -406,7 +406,7 @@ describe("QuestionPrompt", () => {
     const { client, replyQuestion } = mockClient();
     const { stdin, unmount } = render(
       <QuestionHarness
-        request={{ ...questionRequest, questions: [questionRequest.questions[0]!] }}
+        request={{ ...questionRequest, questions: [questionRequest.questions![0]!] }}
         client={client}
       />,
     );
@@ -431,6 +431,76 @@ describe("QuestionPrompt", () => {
     await tick();
     expect(lastFrame() ?? "").toContain("press esc again to dismiss");
     expect(rejectQuestion).not.toHaveBeenCalled();
+    stdin.write("\x1b");
+    await tick();
+    unmount();
+    expect(rejectQuestion).toHaveBeenCalledTimes(1);
+    expect(replyQuestion).not.toHaveBeenCalled();
+  });
+
+  test("path ask: renders pre-filled; enter confirms the suggestion", async () => {
+    const { client, replyQuestion, rejectQuestion } = mockClient();
+    const { stdin, lastFrame, unmount } = render(
+      <QuestionHarness
+        request={{
+          id: "que_9" as QuestionRequest["id"],
+          sessionId: "ses_1" as SessionId,
+          path: { prompt: "Where should the workspace be created?", prefill: "/home/u/my-idea" },
+        }}
+        client={client}
+      />,
+    );
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Where should the workspace be created?");
+    expect(frame).toContain("/home/u/my-idea"); // pre-filled, editable in place
+    stdin.write("\r"); // confirm as-is
+    await tick();
+    unmount();
+    expect(replyQuestion).toHaveBeenCalledTimes(1);
+    expect(replyQuestion.mock.calls[0]).toEqual(["que_9", [["/home/u/my-idea"]]]);
+    expect(rejectQuestion).not.toHaveBeenCalled();
+  });
+
+  test("path ask: backspace edits the prefill; enter submits the edited path", async () => {
+    const { client, replyQuestion } = mockClient();
+    const { stdin, unmount } = render(
+      <QuestionHarness
+        request={{
+          id: "que_9" as QuestionRequest["id"],
+          sessionId: "ses_1" as SessionId,
+          path: { prompt: "Where should the workspace be created?", prefill: "/home/u/my-idea" },
+        }}
+        client={client}
+      />,
+    );
+    await tick();
+    for (let i = 0; i < "my-idea".length; i++) stdin.write("\x7f"); // backspace the tail
+    await tick();
+    for (const ch of "renamed") stdin.write(ch);
+    await tick();
+    stdin.write("\r");
+    await tick();
+    unmount();
+    expect(replyQuestion.mock.calls[0]).toEqual(["que_9", [["/home/u/renamed"]]]);
+  });
+
+  test("path ask: esc arms, then dismisses (nothing created)", async () => {
+    const { client, rejectQuestion, replyQuestion } = mockClient();
+    const { stdin, lastFrame, unmount } = render(
+      <QuestionHarness
+        request={{
+          id: "que_9" as QuestionRequest["id"],
+          sessionId: "ses_1" as SessionId,
+          path: { prompt: "Where should the workspace be created?", prefill: "/home/u/my-idea" },
+        }}
+        client={client}
+      />,
+    );
+    await tick();
+    stdin.write("\x1b");
+    await tick();
+    expect(lastFrame() ?? "").toContain("press esc again to dismiss");
     stdin.write("\x1b");
     await tick();
     unmount();

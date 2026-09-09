@@ -38,10 +38,20 @@ const STEPS_NOTICE = "Maximum tool-calling steps reached. Stop calling tools and
  * Tools subagent sessions are never offered or allowed: no recursion, no
  * mid-run user questions, no plan hand-off — children run autonomously and
  * return one final message (opencode's default task/todowrite denies,
- * adapted to bai's toolset). Enforced in toolDefsFor (offering) AND
- * executeCalls (gate-side backstop).
+ * adapted to bai's toolset). The meta-tools (agent.view/agent.save,
+ * tool.create, workspace.create) are stripped too — creating agents/tools/
+ * workspaces is orchestrator work, never a subagent's. Enforced in
+ * toolDefsFor (offering) AND executeCalls (gate-side backstop).
  */
-const SUBAGENT_STRIPPED = new Set(["task", "question", "plan.exit"]);
+const SUBAGENT_STRIPPED = new Set([
+  "task",
+  "question",
+  "plan.exit",
+  "agent.view",
+  "agent.save",
+  "tool.create",
+  "workspace.create",
+]);
 /** The compaction summarizer's hard budget — a hung provider must not leak. */
 const COMPACT_TIMEOUT_MS = 60_000;
 
@@ -1054,7 +1064,14 @@ export class RunCoordinator {
 
     const parallel = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
     const executed: Array<
-      { content: string; isError: boolean; title?: string; subagent?: { sessionId: string; agent: string }; questions?: QuestionReview[] } | undefined
+      {
+        content: string;
+        isError: boolean;
+        title?: string;
+        subagent?: { sessionId: string; agent: string };
+        questions?: QuestionReview[];
+        workspace?: string;
+      } | undefined
     > = new Array(gated.length).fill(undefined);
     const runOne = async (i: number): Promise<void> => {
       const entry = gated[i];
@@ -1067,6 +1084,10 @@ export class RunCoordinator {
           ...(typeof result.meta?.title === "string" ? { title: result.meta.title as string } : {}),
           ...readSubagentMeta(result.meta?.subagent),
           ...readQuestionsMeta(result.meta?.questions),
+          // workspace.create's registered folder — surfaces render an
+          // "open workspace" action on the tool node (domain-typed like
+          // subagent; the route/slug decision stays surface-side).
+          ...(typeof result.meta?.workspace === "string" ? { workspace: result.meta.workspace as string } : {}),
         };
       } catch (err) {
         executed[i] = { content: `Error: ${err instanceof Error ? err.message : String(err)}`, isError: true };
@@ -1106,6 +1127,7 @@ export class RunCoordinator {
           outcome.subagent,
           entry.ask,
           outcome.questions,
+          outcome.workspace,
         );
         outcomes.push("executed");
       }
@@ -1142,6 +1164,7 @@ export class RunCoordinator {
     subagent?: { sessionId: string; agent: string },
     permission?: AskOutcome,
     questions?: QuestionReview[],
+    workspace?: string,
   ): void {
     // Final args snapshot lands in the tool_call part (deltas may have raced).
     const callPart = this.deps.store.parts.get(call.partId);
@@ -1156,6 +1179,7 @@ export class RunCoordinator {
       ...(subagent !== undefined ? { subagent } : {}),
       ...(permission !== undefined ? { permission } : {}),
       ...(questions !== undefined ? { questions } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
     });
     this.emitDurable(sessionId, "message.part.updated", {
       messageId: assistantId,

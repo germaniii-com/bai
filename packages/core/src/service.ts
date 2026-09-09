@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import {
   systemClock,
@@ -22,6 +23,7 @@ import {
   type SessionUsage,
   type WorkbenchName,
   type AgentInfo,
+  type ConfigPatch,
   type LearnSkillBody,
   type PutAgentBody,
   type PutSkillBody,
@@ -57,6 +59,9 @@ import { planExitTool } from "./tools/plan-exit";
 import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import { skillsViewTool } from "./tools/skills";
 import { skillsSaveTool, skillsWriteFileTool, skillsPatchTool, skillsDeleteTool } from "./tools/skills-write";
+import { agentViewTool, agentSaveTool } from "./tools/agent-write";
+import { toolCreateTool } from "./tools/tool-create";
+import { workspaceCreateTool } from "./tools/workspace-create";
 import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
@@ -78,6 +83,17 @@ export interface ServiceDeps {
   skills: SkillRegistry;
   toolLoader: ToolLoader;
   config(): Config;
+  /**
+   * Persist a config patch (ConfigStore.update — global layer file, atomic,
+   * onChange broadcasts). Optional: without it the workspace.create tool
+   * fails with a clear error (bare test constructors don't wire it).
+   */
+  updateConfig?(patch: ConfigPatch): Config;
+  /**
+   * Home directory for workspace.create's creation guard. Optional —
+   * defaults to the OS home; tests inject a throwaway dir.
+   */
+  homeDir?(): string;
   version: string;
   /**
    * Directory the plan agent writes plan files into
@@ -168,6 +184,28 @@ export class Service {
       skillsWriteFileTool({ skills: deps.skills }),
       skillsPatchTool({ skills: deps.skills }),
       skillsDeleteTool({ skills: deps.skills }),
+      // Agent authoring (the orchestrator's create/edit-agent capability):
+      // root-restricted to the agents dir by construction (AgentRegistry.put),
+      // auto-allowed like skills.save — see DEFAULT_PERMISSIONS.
+      agentViewTool({ agents: deps.agents }),
+      agentSaveTool({ agents: deps.agents }),
+      // Custom-tool authoring: writes through Service.putTool (atomic write +
+      // loader rescan). Deliberately NOT auto-allowed — a tool file is
+      // arbitrary executable code; first use asks (fail-closed default).
+      toolCreateTool({ putTool: (name, code) => this.putTool(name, code) }),
+      // Workspace authoring: home-only folder creation (shared guards with
+      // the web modal via @bai/core's createFolder) + config.workspaces
+      // registration. Deliberately NOT auto-allowed (fs + config mutation).
+      ...(deps.updateConfig !== undefined
+        ? [
+            workspaceCreateTool({
+              questions: this.questions,
+              updateConfig: (patch) => deps.updateConfig?.(patch),
+              home: () => deps.homeDir?.() ?? homedir(),
+              config: () => deps.config(),
+            }),
+          ]
+        : []),
     ]);
     // The task tool spawns subagent sessions (tools/task.ts). Registered last
     // so it can close over the coordinator; its description embeds the agent
