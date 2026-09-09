@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   configPatchSchema,
@@ -140,18 +140,49 @@ export function loadConfig(opts: LoadConfigOptions): LoadedConfig {
 /**
  * Holds the effective config; mutations write back to the owning layer file
  * (v1: the global layer) atomically and notify via onChange.
+ *
+ * The global file is also WATCHED: another bai process (TUI ↔ `--web` run
+ * side by side, each with its own ConfigStore over the same file) may write
+ * it at any time — external changes reload live and fire onChange, so every
+ * surface sees cross-process config edits without a restart (the same
+ * hot-reload contract as the agent/skill registries). Own writes are
+ * suppressed by a content signature: update() records the new signature
+ * before onChange, so the watcher's later fire sees no diff.
  */
 export class ConfigStore {
   private current: Config;
+  private signature: string;
+  private watcher: ReturnType<typeof watch> | undefined;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private poller: ReturnType<typeof setInterval> | undefined;
+  private readonly debounceMs: number;
 
   constructor(
     private opts: {
       globalPath: string;
       cwd: string;
       onChange?: (config: Config) => void;
+      /** Watcher debounce; tests lower this. Default 150ms. */
+      debounceMs?: number;
+      /** Polling safety-net interval (fs.watch misses events under load /
+       * atomic-rename swaps). 0 disables. Default 2000ms. */
+      pollMs?: number;
     },
   ) {
     this.current = loadConfig({ cwd: opts.cwd, globalPath: opts.globalPath }).config;
+    this.signature = JSON.stringify(this.current);
+    this.debounceMs = opts.debounceMs ?? 150;
+    this.watchFile();
+    // Safety net: fs.watch can miss events under load, and the atomic write
+    // (tmp + rename) swaps the file's identity on some platforms — a slow
+    // rescan loop guarantees eventual reload either way.
+    const pollMs = opts.pollMs ?? 2000;
+    if (pollMs > 0) {
+      this.poller = setInterval(() => {
+        this.rescan();
+      }, pollMs);
+      this.poller.unref?.();
+    }
   }
 
   get(): Config {
@@ -167,7 +198,60 @@ export class ConfigStore {
     );
     atomicWriteJson(this.opts.globalPath, merged);
     this.current = loadConfig({ cwd: this.opts.cwd, globalPath: this.opts.globalPath }).config;
+    // Record the signature BEFORE onChange: the watcher fires on our own
+    // write too, and its rescan must see no diff (onChange is the single
+    // broadcast — this call).
+    this.signature = JSON.stringify(this.current);
     this.opts.onChange?.(this.current);
     return this.current;
+  }
+
+  /**
+   * Reload the global file; fires onChange when the effective config
+   * actually changed (signature-diffed — external edits only). A file that
+   * exists but fails to parse (hand-edit typo, half-write) keeps the
+   * last-known-good config — a broken layer must never wipe the effective
+   * config at runtime. Public for tests.
+   */
+  rescan(): boolean {
+    try {
+      if (existsSync(this.opts.globalPath) && readJsoncFile(this.opts.globalPath) === undefined) {
+        return false; // unparseable layer — keep serving the previous config
+      }
+      const reloaded = loadConfig({ cwd: this.opts.cwd, globalPath: this.opts.globalPath }).config;
+      const signature = JSON.stringify(reloaded);
+      if (signature === this.signature) return false;
+      this.current = reloaded;
+      this.signature = signature;
+      this.opts.onChange?.(this.current);
+      return true;
+    } catch {
+      return false; // schema-invalid layer — keep serving the previous config
+    }
+  }
+
+  stop(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.poller !== undefined) clearInterval(this.poller);
+    this.watcher?.close();
+    this.watcher = undefined;
+  }
+
+  /**
+   * Watch the config file's PARENT directory (not the file itself): the
+   * atomic write replaces the file by rename, which can detach a file-level
+   * watcher on some platforms. Any event in the dir triggers a debounced
+   * rescan; the signature check makes unrelated events no-ops.
+   */
+  private watchFile(): void {
+    try {
+      this.watcher = watch(path.dirname(this.opts.globalPath), (event, filename) => {
+        if (filename !== undefined && path.basename(this.opts.globalPath) !== filename) return;
+        if (this.timer !== undefined) clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.rescan(), this.debounceMs);
+      });
+    } catch (err) {
+      console.warn(`[bai] config hot-reload unavailable (${err instanceof Error ? err.message : err}); restart to pick up external config changes`);
+    }
   }
 }

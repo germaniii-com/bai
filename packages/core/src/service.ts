@@ -326,6 +326,69 @@ export class Service {
     return session;
   }
 
+  /** Inverse of archiveSession — drop meta.archived (workspace restore). */
+  unarchiveSession(id: SessionId): Session | undefined {
+    const existing = this.deps.store.sessions.get(id);
+    if (!existing) return undefined;
+    const meta = { ...(existing.meta as Record<string, unknown>) };
+    delete meta.archived;
+    const session = this.deps.store.sessions.update(id, { meta, now: this.clock.iso() });
+    if (session) this.emitDurable(id, "session.updated", { session });
+    return session;
+  }
+
+  // --- workspaces (webui Active | Archived) ---
+
+  /**
+   * Archive a workspace: move it out of config.workspaces into
+   * config.archivedWorkspaces and archive every session rooted at it —
+   * the webui's hide mechanism (nothing on disk is touched; the data stays
+   * in the DB). Returns the number of archived sessions.
+   */
+  removeWorkspace(path: string): { archived: number } {
+    if (this.deps.updateConfig === undefined) {
+      throw new Error("Workspace removal is unavailable: the service has no config update path.");
+    }
+    const config = this.deps.config();
+    const active = config.workspaces ?? [];
+    if (!active.includes(path)) throw new Error(`Not a registered workspace: ${path}`);
+    const archivedList = config.archivedWorkspaces ?? [];
+    this.deps.updateConfig({
+      workspaces: active.filter((w) => w !== path),
+      archivedWorkspaces: archivedList.includes(path) ? archivedList : [...archivedList, path],
+    });
+    const sessions = this.deps.store.sessions.listByCwd(path);
+    for (const session of sessions) {
+      if (session.meta.archived !== true) this.archiveSession(session.id);
+    }
+    return { archived: sessions.length };
+  }
+
+  /**
+   * Restore an archived workspace: move it back into config.workspaces and
+   * unarchive its sessions (the inverse of removeWorkspace — the workspace
+   * AND its conversations come back). Returns the number of restored
+   * sessions.
+   */
+  restoreWorkspace(path: string): { restored: number } {
+    if (this.deps.updateConfig === undefined) {
+      throw new Error("Workspace restore is unavailable: the service has no config update path.");
+    }
+    const config = this.deps.config();
+    const archivedList = config.archivedWorkspaces ?? [];
+    if (!archivedList.includes(path)) throw new Error(`Not an archived workspace: ${path}`);
+    const active = config.workspaces ?? [];
+    this.deps.updateConfig({
+      workspaces: active.includes(path) ? active : [...active, path],
+      archivedWorkspaces: archivedList.filter((w) => w !== path),
+    });
+    const sessions = this.deps.store.sessions.listByCwd(path);
+    for (const session of sessions) {
+      if (session.meta.archived === true) this.unarchiveSession(session.id);
+    }
+    return { restored: sessions.length };
+  }
+
   // --- revert & fork (opencode parity) ---
 
   /** Revert/unrevert/fork mutate history — never mid-drain (api maps to 409). */

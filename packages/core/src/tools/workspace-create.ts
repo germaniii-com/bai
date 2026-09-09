@@ -49,8 +49,8 @@ export interface WorkspaceCreateDeps {
   updateConfig(patch: ConfigPatch): unknown;
   /** The server's home directory (creation guard root + ~ expansion). */
   home(): string;
-  /** Current config (the workspaces list to dedupe against). */
-  config(): { workspaces?: string[] };
+  /** Current config (the workspaces list to dedupe against + archived to re-activate). */
+  config(): { workspaces?: string[]; archivedWorkspaces?: string[] };
 }
 
 export function workspaceCreateTool(deps: WorkspaceCreateDeps): Tool {
@@ -125,13 +125,20 @@ export function workspaceCreateTool(deps: WorkspaceCreateDeps): Tool {
       }
       const resolved = stat.path;
       // Register (dedupe): ConfigStore.update merges the patch into the
-      // global layer and fires onChange (bus config.updated); the emitLive
-      // mirrors the API route for the web firehose.
-      const current = deps.config().workspaces ?? [];
-      const already = current.includes(resolved);
-      if (!already) {
-        deps.updateConfig({ workspaces: [...current, resolved] });
-        ctx.emitLive("config.updated", {});
+      // global layer and fires onChange — the single broadcast point (bus +
+      // firehose config.updated; also covers external file edits from a
+      // sibling bai process). A path sitting in archivedWorkspaces is
+      // re-activated (dropped from the archive) — creating at a
+      // previously-archived path means the user wants it back.
+      const current = deps.config();
+      const active = current.workspaces ?? [];
+      const already = active.includes(resolved);
+      const wasArchived = (current.archivedWorkspaces ?? []).includes(resolved);
+      if (!already || wasArchived) {
+        deps.updateConfig({
+          ...(already ? {} : { workspaces: [...active, resolved] }),
+          ...(wasArchived ? { archivedWorkspaces: (current.archivedWorkspaces ?? []).filter((w) => w !== resolved) } : {}),
+        });
       }
       return {
         content:

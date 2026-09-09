@@ -187,8 +187,29 @@ function buildApi(deps: ApiDeps) {
     .put("/config", zValidator("json", configPatchSchema), (c) => {
       const patch = c.req.valid("json");
       const config = deps.configStore.update(patch);
-      deps.core.emitLive("config.updated", {});
+      // No emitLive here — the ConfigStore's onChange is the single
+      // broadcast point (bus + firehose), covering own writes, agent-tool
+      // writes, and external file edits alike.
       return c.json({ config });
+    })
+
+    // --- workspaces (webui Active | Archived) ---
+    // Remove = unregister + archive the workspace's sessions (the webui's
+    // hide mechanism; the folder on disk is never touched). Restore is the
+    // inverse. Both broadcast config.updated via the ConfigStore's onChange.
+    .post("/workspace/remove", zValidator("json", z.object({ path: z.string().min(1).max(1024) })), (c) => {
+      try {
+        return c.json(deps.core.removeWorkspace(c.req.valid("json").path), 200);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/workspace/restore", zValidator("json", z.object({ path: z.string().min(1).max(1024) })), (c) => {
+      try {
+        return c.json(deps.core.restoreWorkspace(c.req.valid("json").path), 200);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
     })
 
     // --- custom themes (~/.config/bai/themes/*.json; the web editor writes here) ---

@@ -72,7 +72,7 @@ const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "ses
  * and esc only means "back" outside dialogs and chat. `version` stays in the
  * prop contract (CLI plumbing) but has no header to render on anymore.
  */
-export function App({ client }: { client: BaiClient; version: string }) {
+export function App({ client, workspaceRoot }: { client: BaiClient; version: string; workspaceRoot?: string }) {
   const { columns, rows } = useWindowSize();
   const { exit } = useApp();
   const [view, setView] = useState<UiState>("chat");
@@ -677,6 +677,9 @@ export function App({ client }: { client: BaiClient; version: string }) {
                 agent={activeAgent}
                 footerRows={footerRows}
                 usage={usage}
+                // The launch folder (registered as a workspace at boot) —
+                // new sessions root here (TUI = workspace mode).
+                {...(workspaceRoot !== undefined ? { workspaceRoot } : {})}
                 // Overlay dialogs float OVER the live chat: it stays mounted
                 // (transcript keeps streaming behind) but must go silent —
                 // Ink delivers input to every mounted handler.

@@ -72,6 +72,7 @@ export function ChatView({
   agent,
   footerRows,
   usage = null,
+  workspaceRoot,
   deferInput = false,
   onEnterInput,
   onExitInput,
@@ -113,6 +114,12 @@ export function ChatView({
   footerRows: number;
   /** The session's latest provider-reported usage — the hub's context tracker. */
   usage?: SessionUsage | null;
+  /**
+   * The launch folder (registered as a workspace at boot; TUI = workspace
+   * mode) — new sessions root here so they group under the workspace in
+   * the webui. Undefined → cwd-less chat sessions (tests, embeds).
+   */
+  workspaceRoot?: string;
   /** True while an App-level overlay dialog is open: this view stays mounted
    *  (the transcript keeps streaming behind the dialog) but must go silent —
    *  Ink delivers input to every mounted handler, so keys/mouse/paste would
@@ -357,8 +364,13 @@ export function ChatView({
     try {
       if (session === null) {
         // The server titles the session (truncated-prompt fallback, then an
-        // LLM refine) from this first prompt — core/src/title.ts.
-        const created = await client.createSession({ workbench: "chat" });
+        // LLM refine) from this first prompt — core/src/title.ts. TUI
+        // sessions root at the launch folder (workspace mode) so they group
+        // under that workspace in the webui.
+        const created = await client.createSession({
+          workbench: "chat",
+          ...(workspaceRoot !== undefined ? { cwd: workspaceRoot } : {}),
+        });
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: trimmed });
       } else {

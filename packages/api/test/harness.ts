@@ -76,6 +76,9 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     skills,
     toolLoader,
     config: () => config,
+    // Mirror boot.ts: the config mutation path the workspace remove/restore
+    // routes use — reassign so the mutation is visible to every reader.
+    updateConfig: (patch) => (config = deepMerge(config, patch)),
     version: "test",
     plansDir: join(dir, "plans"),
   });

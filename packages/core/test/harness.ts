@@ -36,6 +36,7 @@ export interface TestCore {
     videoGen?: MediaGenConfig;
     permissions: Record<string, "allow" | "ask" | "deny">;
     workspaces: string[];
+    archivedWorkspaces: string[];
   };
   tools: ToolRegistry;
   toolLoader: ToolLoader;
@@ -52,7 +53,14 @@ export function makeCore(): TestCore {
   const store = new Store(join(dir, "test.db"));
   const bus = new Bus();
   const log = new EventLog(store.events);
-  const config: TestCore["config"] = { models: { default: "stub/echo" }, agents: {}, user: {}, permissions: {}, workspaces: [] };
+  const config: TestCore["config"] = {
+    models: { default: "stub/echo" },
+    agents: {},
+    user: {},
+    permissions: {},
+    workspaces: [],
+    archivedWorkspaces: [],
+  };
   const testConfig = () => ({
     ...DEFAULT_CONFIG,
     models: { ...config.models },
@@ -62,6 +70,7 @@ export function makeCore(): TestCore {
     ...(config.videoGen !== undefined ? { videoGen: { ...config.videoGen } } : {}),
     permissions: { ...config.permissions },
     workspaces: [...config.workspaces],
+    archivedWorkspaces: [...config.archivedWorkspaces],
   });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
   const catalog = new CatalogService({
@@ -125,6 +134,7 @@ export function makeCore(): TestCore {
     // (workspace.create) — mutate the live test config, return the effective.
     updateConfig: (patch) => {
       if (patch.workspaces !== undefined) config.workspaces = [...patch.workspaces];
+      if (patch.archivedWorkspaces !== undefined) config.archivedWorkspaces = [...patch.archivedWorkspaces];
       return testConfig();
     },
     // workspace.create's creation guard roots here (a throwaway home —

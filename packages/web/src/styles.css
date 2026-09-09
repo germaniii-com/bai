@@ -398,11 +398,72 @@ select:focus-visible,
   min-height: 0;
 }
 
+/* Active | Archived selector — a small segmented control above the list.
+   Archived hides the add button (the archived list is read-only + restore). */
+.ws-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.ws-tab {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.ws-tab.active {
+  background: var(--surface-raised, var(--border));
+  color: var(--text);
+}
+
+/* Row action (trash archive / ↩ restore): a quiet trailing button inside the
+   list row; stopPropagation keeps row-click navigation off it. Hidden until
+   the row is hovered (or keyboard-focused) — the rows stay clean. */
+.ws-row-action {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.workspace-nav .list-item:hover .ws-row-action,
+.workspace-nav .list-item:focus-within .ws-row-action,
+.ws-row-action:focus-visible {
+  opacity: 1;
+}
+
+.ws-row-action:hover {
+  color: var(--danger);
+  background: var(--surface-raised, var(--border));
+}
+
 .ws-item-icon {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   color: var(--dim);
+}
+
+.ws-item-icon-archived {
+  color: var(--dim);
+  opacity: 0.7;
 }
 
 /* Active-mode head: the selected workspace, clickable to switch back to

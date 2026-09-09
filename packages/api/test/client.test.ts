@@ -87,6 +87,34 @@ describe("client ↔ server (integration)", () => {
     expect((plain.meta as { agent?: string }).agent).toBeUndefined();
   });
 
+  test("workspace remove/restore: unregister + bulk archive/unarchive over the wire", async () => {
+    const ws = "/tmp/ws-e2e";
+    const s1 = await client.createSession({ workbench: "chat", cwd: ws });
+    const s2 = await client.createSession({ workbench: "code", cwd: ws });
+    await client.putConfig({ workspaces: [ws] });
+
+    const removed = await client.removeWorkspace(ws);
+    expect(removed.archived).toBe(2);
+    const afterRemove = await client.getConfig();
+    expect(afterRemove.workspaces).not.toContain(ws);
+    expect(afterRemove.archivedWorkspaces).toContain(ws);
+    // Archived sessions vanish from the lists…
+    expect(await client.listSessions(50, 0, { cwd: ws })).toHaveLength(0);
+    // …but the data is intact (getSession still returns them).
+    expect((await client.getSession(s1.id))?.meta.archived).toBe(true);
+
+    const restored = await client.restoreWorkspace(ws);
+    expect(restored.restored).toBe(2);
+    const afterRestore = await client.getConfig();
+    expect(afterRestore.workspaces).toContain(ws);
+    expect(afterRestore.archivedWorkspaces).not.toContain(ws);
+    expect(await client.listSessions(50, 0, { cwd: ws })).toHaveLength(2);
+    expect((await client.getSession(s2.id))?.meta.archived).toBeUndefined();
+
+    // Unknown paths are 400s with a plain message.
+    await expect(client.removeWorkspace("/tmp/never-registered")).rejects.toThrow("Not a registered workspace");
+  });
+
   test("full chat round trip over the typed client", async () => {
     const session = await client.createSession({ title: "e2e", workbench: "chat" });
     expect(session.id.startsWith("ses_")).toBe(true);

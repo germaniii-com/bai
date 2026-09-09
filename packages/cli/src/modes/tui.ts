@@ -10,7 +10,15 @@ export async function runTui(booted: Booted): Promise<void> {
   // Dynamic import: ink should not load for --web/--host/--one-shot.
   const tui = await import("@bai/tui");
   try {
-    await tui.renderApp({ client, version: booted.core.version() }).waitUntilExit();
+    await tui
+      .renderApp({
+        client,
+        version: booted.core.version(),
+        // The launch folder (registered as a workspace at boot) — new TUI
+        // sessions root here so they group under the workspace in the webui.
+        ...(booted.workspaceRoot !== undefined ? { workspaceRoot: booted.workspaceRoot } : {}),
+      })
+      .waitUntilExit();
   } finally {
     await Promise.race([server.stop(true), new Promise((r) => setTimeout(r, 2000))]);
     await booted.stop();

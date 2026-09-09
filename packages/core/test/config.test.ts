@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  atomicWriteJson,
   ConfigStore,
   findProjectConfig,
   loadConfig,
@@ -103,11 +104,10 @@ describe("loadConfig layering", () => {
 describe("ConfigStore write-back", () => {
   test("update merges into the global layer atomically and notifies", () => {
     const dir = tempDir();
+    const globalPath = join(dir, "config.json");
+    const seen: string[] = [];
+    const store = new ConfigStore({ globalPath, cwd: dir, onChange: (c) => seen.push(c.models.default ?? "") });
     try {
-      const globalPath = join(dir, "config.json");
-      const seen: string[] = [];
-      const store = new ConfigStore({ globalPath, cwd: dir, onChange: (c) => seen.push(c.models.default ?? "") });
-
       const updated = store.update({ models: { default: "stub/echo" } });
       expect(updated.models.default).toBe("stub/echo");
       expect(seen).toEqual(["stub/echo"]);
@@ -130,7 +130,43 @@ describe("ConfigStore write-back", () => {
       expect(store.get().agents.default).toBe("reviewer");
       const onDiskAgents = JSON.parse(readFileSync(globalPath, "utf8"));
       expect(onDiskAgents.agents.default).toBe("reviewer");
+
+      // Own writes don't double-notify: the watcher's later rescan sees no
+      // signature diff (update() recorded it before onChange).
+      const countBefore = seen.length;
+      expect(store.rescan()).toBe(false);
+      expect(seen.length).toBe(countBefore);
     } finally {
+      store.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("external file edits reload live (cross-process hot-reload)", () => {
+    const dir = tempDir();
+    const globalPath = join(dir, "config.json");
+    const seen: string[] = [];
+    const store = new ConfigStore({ globalPath, cwd: dir, onChange: (c) => seen.push(c.models.default ?? "") });
+    try {
+      expect(store.get().models.default).toBeUndefined();
+
+      // Another bai process writes the file directly (its own ConfigStore).
+      atomicWriteJson(globalPath, { models: { default: "other-process/model" } });
+      expect(store.rescan()).toBe(true);
+      expect(store.get().models.default).toBe("other-process/model");
+      expect(seen).toEqual(["other-process/model"]);
+
+      // An unrelated external write (no effective change) is a no-op.
+      atomicWriteJson(globalPath, { models: { default: "other-process/model" } });
+      expect(store.rescan()).toBe(false);
+      expect(seen).toEqual(["other-process/model"]);
+
+      // A broken file keeps the last-known-good config.
+      writeFileSync(globalPath, "{ not json");
+      expect(store.rescan()).toBe(false);
+      expect(store.get().models.default).toBe("other-process/model");
+    } finally {
+      store.stop();
       rmSync(dir, { recursive: true, force: true });
     }
   });

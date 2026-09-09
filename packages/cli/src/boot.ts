@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import {
   AuthStore,
@@ -43,6 +44,12 @@ export interface Booted {
   core: Service;
   app: ReturnType<typeof createApp>;
   token?: string;
+  /**
+   * The TUI's workspace root — the realpath'd launch folder, registered in
+   * config.workspaces at boot (TUI mode only). New TUI sessions root here
+   * so they group under the workspace in the webui. Undefined elsewhere.
+   */
+  workspaceRoot?: string;
   /** True unless bound beyond loopback (--host) — gates the shell WS upgrade. */
   loopbackBind: boolean;
   /** Drain runs and close the DB. The HTTP server is owned by the mode. */
@@ -87,7 +94,13 @@ export async function boot(args: CliArgs): Promise<Booted> {
     cwd: process.cwd(),
     onChange: () => {
       providers.invalidate();
+      // One broadcast point for EVERY config change (own writes, agent-tool
+      // writes, and external file edits from a sibling bai process): the bus
+      // for in-process subscribers, the firehose for web surfaces. coreRef
+      // resolves once the Service exists (the optional chain covers the
+      // constructor window).
       bus.publish({ seq: 0, type: "config.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("config.updated", {});
     },
   });
   const catalog = new CatalogService({
@@ -191,6 +204,33 @@ export async function boot(args: CliArgs): Promise<Booted> {
   });
   coreRef = core;
 
+  // TUI = workspace mode: the folder bai is opened in registers as a
+  // workspace (webui-visible) and roots new TUI sessions. realpath'd so the
+  // registration string matches what surfaces compare against (macOS /var →
+  // /private/var). Home itself is skipped — registering ~ is noise. Repeated
+  // boots re-register by design: a workspace removed from the webui comes
+  // back when bai is launched in that folder again — and an ARCHIVED
+  // workspace is restored outright (out of the archive, sessions
+  // unarchived), matching the webui's Restore action.
+  let workspaceRoot: string | undefined;
+  if (args.mode === "tui") {
+    try {
+      const root = realpathSync(process.cwd());
+      if (root !== homedir()) {
+        const config = configStore.get();
+        const active = config.workspaces ?? [];
+        if ((config.archivedWorkspaces ?? []).includes(root)) {
+          core.restoreWorkspace(root);
+        } else if (!active.includes(root)) {
+          configStore.update({ workspaces: [...active, root] });
+        }
+        workspaceRoot = root;
+      }
+    } catch (err) {
+      console.warn(`[bai] workspace registration skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const token = resolveToken(args, config);
   const app = createApp({
     core,
@@ -215,11 +255,13 @@ export async function boot(args: CliArgs): Promise<Booted> {
     core,
     app,
     ...(token !== undefined ? { token } : {}),
+    ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
     loopbackBind: args.mode !== "host",
     stop: async () => {
       core.coordinator.interruptAll();
       // Fail pending agent→user questions so no tool promise hangs.
       core.questions.stop();
+      configStore.stop();
       agents.stop();
       skills.stop();
       toolLoader.stop();

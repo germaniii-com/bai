@@ -298,6 +298,28 @@ export class BaiClient {
     return (await res.json()).config;
   }
 
+  // --- workspaces (webui Active | Archived) ---
+
+  /** Archive a workspace: unregister it + archive its sessions (hidden everywhere). */
+  async removeWorkspace(path: string): Promise<{ archived: number }> {
+    const res = await this.rpc().workspace.remove.$post({ json: { path } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `remove workspace failed: ${res.status}`);
+    }
+    return await res.json();
+  }
+
+  /** Restore an archived workspace: re-register it + unarchive its sessions. */
+  async restoreWorkspace(path: string): Promise<{ restored: number }> {
+    const res = await this.rpc().workspace.restore.$post({ json: { path } });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `restore workspace failed: ${res.status}`);
+    }
+    return await res.json();
+  }
+
   // --- custom themes (~/.config/bai/themes/*.json) ---
 
   async listCustomThemes(): Promise<CustomTheme[]> {

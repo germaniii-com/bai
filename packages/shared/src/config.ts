@@ -110,6 +110,12 @@ export interface Config {
   /** Registered workspace folder paths (absolute); the web Workspace view
    * groups cwd-rooted sessions by these. Edited via PUT /api/config. */
   workspaces: string[];
+  /**
+   * Archived workspace folder paths (absolute) — removed from the webui's
+   * Active list but restorable from its Archived tab. Their sessions carry
+   * meta.archived (hidden from every surface's lists) until restored.
+   */
+  archivedWorkspaces: string[];
   server: ServerConfig;
   tools: ToolsConfig;
 }
@@ -123,6 +129,7 @@ export const DEFAULT_CONFIG: Config = {
   mcp: {},
   workbenches: {},
   workspaces: [],
+  archivedWorkspaces: [],
   server: {},
   tools: {},
 };
@@ -187,6 +194,7 @@ export const configSchema = z.object({
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   workspaces: z.array(z.string().min(1).max(1024)).max(100).default([]),
+  archivedWorkspaces: z.array(z.string().min(1).max(1024)).max(100).default([]),
   server: z
     .object({
       port: z.number().int().positive().max(65535).optional(),
@@ -209,6 +217,7 @@ export const configPatchSchema = z.object({
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   workspaces: z.array(z.string().min(1).max(1024)).max(100).optional(),
+  archivedWorkspaces: z.array(z.string().min(1).max(1024)).max(100).optional(),
   server: z
     .object({
       port: z.number().int().positive().max(65535).optional(),

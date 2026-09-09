@@ -70,8 +70,11 @@ export class SessionsRepo {
 
   list(limit = 50, offset = 0, filters: { workbench?: string; cwd?: string } = {}): Session[] {
     // Dynamic WHERE from validated equality filters (parameterized — no
-    // interpolation of values, only fixed clause text).
-    const clauses: string[] = [];
+    // interpolation of values, only fixed clause text). Archived sessions
+    // (meta.archived — the workspace-archive flow) are excluded by default:
+    // every surface's lists hide them; getSession still returns them so an
+    // open transcript doesn't break.
+    const clauses: string[] = ["json_extract(meta, '$.archived') IS NOT 1"];
     const params: SQLQueryBindings[] = [];
     if (filters.workbench !== undefined) {
       clauses.push("workbench = ?");
@@ -81,11 +84,24 @@ export class SessionsRepo {
       clauses.push("cwd = ?");
       params.push(filters.cwd);
     }
-    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const where = `WHERE ${clauses.join(" AND ")}`;
     const rows = q<SessionRow>(
       this.db,
       `SELECT * FROM sessions ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
     ).all(...params, limit, offset);
+    return rows.map(toSession);
+  }
+
+  /**
+   * ALL sessions rooted at `cwd`, archived or not — the workspace
+   * remove/restore flows' bulk archive/unarchive input (no limit: a
+   * workspace's full session history participates).
+   */
+  listByCwd(cwd: string): Session[] {
+    const rows = q<SessionRow>(
+      this.db,
+      "SELECT * FROM sessions WHERE cwd = ? ORDER BY updated_at DESC, id DESC",
+    ).all(cwd);
     return rows.map(toSession);
   }
 

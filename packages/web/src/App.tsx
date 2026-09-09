@@ -67,6 +67,7 @@ export function App() {
     bootRoute.section === "settings" ? bootRoute.settingsSection : "general",
   );
   const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [archivedWorkspaces, setArchivedWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     bootRoute.section === "workspace" ? bootRoute.wsPath : null,
   );
@@ -236,6 +237,7 @@ export function App() {
       setConfigVideoGen(config.videoGen);
       setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
+      setArchivedWorkspaces(config.archivedWorkspaces ?? []);
       setConfigLoaded(true);
       // A non-builtin theme id means a custom theme file — its palette must
       // be loaded for the surfaces to render it (boot-with-custom, or a
@@ -841,6 +843,32 @@ export function App() {
     selectWorkspace(path);
   };
 
+  /**
+   * Archive a workspace (the nav's ✕ after confirm): unregister it + archive
+   * its sessions — they vanish from every list. config.updated refreshes the
+   * lists; the stale-selection fallback returns an open view to the picker.
+   */
+  const removeWorkspace = async (path: string): Promise<void> => {
+    try {
+      await client.removeWorkspace(path);
+      await refreshConfig();
+      pushNotice(`archived workspace ${wsBasename(path)} — its sessions are hidden`, "success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** Restore an archived workspace (the Archived tab's ↩): re-register + unarchive its sessions. */
+  const restoreWorkspace = async (path: string): Promise<void> => {
+    try {
+      await client.restoreWorkspace(path);
+      await refreshConfig();
+      pushNotice(`restored workspace ${wsBasename(path)}`, "success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   /** Write a starter agent file for the (form-validated) name, then select it. */
   const createAgent = async (name: string): Promise<void> => {
     await client.putAgent(name, {
@@ -1199,9 +1227,12 @@ export function App() {
           <WorkspaceNav
             client={client}
             workspaces={workspaces}
+            archivedWorkspaces={archivedWorkspaces}
             selected={effectiveWorkspacePath}
             onSelect={selectWorkspace}
             onAdd={addWorkspace}
+            onRemove={removeWorkspace}
+            onRestore={restoreWorkspace}
           />
         )}
         {section === "workspace" && effectiveWorkspacePath !== null && (
