@@ -163,6 +163,38 @@ describe("skills index in the drain (system prompt + tool + analytics)", () => {
     expect(readerContent).not.toContain("Authoring skills:");
   });
 
+  test("a whitelisted agent's index shows only its allowed skills", async () => {
+    t = makeCore();
+    t.config.models.default = "scripted/main";
+    t.skills.put("arxiv", { description: "Search arXiv papers.", body: "# arXiv" });
+    t.skills.put("deploy", { description: "Ship releases.", body: "# deploy" });
+    const provider = new ScriptedToolProvider([finalText("hello")]);
+    t.providers.register(provider);
+
+    // A file agent whitelisting ONLY arxiv (skills frontmatter) — the index
+    // must hide deploy (and the skills.view hard gate enforces the same list).
+    const agentsDir = join(t.dir, "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, "scoped.md"),
+      "---\ntools:\n  - skills.view\nskills:\n  - arxiv\n---\nYou read one skill.",
+    );
+    const deadline = Date.now() + 5000;
+    while (t.core.getAgent("scoped") === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    const session = t.core.createSession({ workbench: "chat" });
+    await t.core.setSessionAgent(session.id, { agent: "scoped" });
+    t.core.submitPrompt(session.id, { text: "hi" });
+    await waitForEvent(t.bus, "run.finished");
+
+    const content = (((provider.requests[0] as LlmRequest).messages.find((m) => m.role === "system"))?.content as string) ?? "";
+    expect(content).toContain("## Skills");
+    expect(content).toContain("- arxiv: Search arXiv papers.");
+    expect(content).not.toContain("- deploy:");
+  });
+
   test("a skills.view call in a run records an attributed skill_events row", async () => {
     t = makeCore();
     t.config.models.default = "scripted/main";

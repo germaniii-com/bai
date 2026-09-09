@@ -1281,6 +1281,12 @@ select:focus-visible,
 .tool-glyph-done { color: var(--success); }
 .tool-glyph-error { color: var(--danger); }
 
+/* Skill-load marker (skills.* tool nodes) — accent so a skill load is
+   scannable among the other tool calls. */
+.tool-glyph.skill {
+  color: var(--accent);
+}
+
 .tool-args {
   color: var(--dim);
 }

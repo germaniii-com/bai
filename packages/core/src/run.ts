@@ -282,11 +282,13 @@ export class RunCoordinator {
           }),
           // The skills index rides along only when the agent can actually
           // call skills.view (hermes' conditional injection) — index and
-          // tool appear (and disappear) together. Agents that can also SAVE
+          // tool appear (and disappear) together. The index is filtered to
+          // the agent's skills allow-list (visibleSkills — the same list
+          // the tool's hard gate enforces). Agents that can also SAVE
           // skills get the compact authoring guidance (hermes
           // SKILLS_GUIDANCE pattern) so natural-language learning works.
           ...(run.toolDefs.some((d) => d.name === "skills.view")
-            ? [buildSkillsBlock(this.deps.skills.list(), {
+            ? [buildSkillsBlock(this.visibleSkills(run.agent), {
                 canAuthor: run.toolDefs.some((d) => d.name === "skills.save"),
               })]
             : []),
@@ -591,6 +593,19 @@ export class RunCoordinator {
       defs.push({ name, description: tool.description, schema: tool.schema });
     }
     return defs;
+  }
+
+  /**
+   * The agent's visible skills: the registry list filtered by the agent's
+   * skills allow-list (absent or ["*"] = every registered skill). The same
+   * list gates skills.view at call time (the tool resolves it via
+   * agentSkills), so index and gate can never disagree.
+   */
+  private visibleSkills(agent: AgentInfo): ReturnType<SkillRegistry["list"]> {
+    const allowed = agent.skills;
+    if (allowed === undefined || allowed.includes("*")) return this.deps.skills.list();
+    const set = new Set(allowed);
+    return this.deps.skills.list().filter((s) => set.has(s.name));
   }
 
   // --- context management (token discipline + compaction) ---

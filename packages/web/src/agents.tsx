@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import { isValidAgentName, type AgentInfo, type ToolListEntry } from "@bai/shared";
+import { isValidAgentName, type AgentInfo, type SkillInfo, type ToolListEntry } from "@bai/shared";
 import { Button, Combobox, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -21,6 +21,15 @@ function toolOptions(tools: ToolListEntry[]): ComboboxOption[] {
     { value: "*", label: "* (all tools)", hint: "every registered tool" },
     ...tools.map((t) => ({ value: t.name, label: t.name, hint: t.origin })),
   ];
+}
+
+/** The skills combobox's options: name + a one-line description hint. */
+function skillOptions(skills: SkillInfo[]): ComboboxOption[] {
+  return skills.map((s) => ({
+    value: s.name,
+    label: s.name,
+    hint: s.description.length > 60 ? `${s.description.slice(0, 60)}…` : s.description,
+  }));
 }
 
 /** Nested-sidebar agent list: create on top, then build first + file agents. */
@@ -151,6 +160,7 @@ export function AgentsPane({
   client,
   agents,
   tools,
+  skills,
   selectedId,
   activeSessionId,
   refresh,
@@ -160,6 +170,8 @@ export function AgentsPane({
   agents: AgentInfo[];
   /** Registered tools — the tools combobox's options. */
   tools: ToolListEntry[];
+  /** Registered skills — the skills whitelist combobox's options. */
+  skills: SkillInfo[];
   selectedId: string | null;
   activeSessionId: string | null;
   refresh: () => Promise<void>;
@@ -180,6 +192,7 @@ export function AgentsPane({
         client={client}
         agent={agent}
         tools={tools}
+        skills={skills}
         activeSessionId={activeSessionId}
         refresh={refresh}
         onNotice={onNotice}
@@ -192,6 +205,7 @@ function AgentForm({
   client,
   agent,
   tools,
+  skills,
   activeSessionId,
   refresh,
   onNotice,
@@ -199,6 +213,7 @@ function AgentForm({
   client: BaiClient;
   agent: AgentInfo;
   tools: ToolListEntry[];
+  skills: SkillInfo[];
   activeSessionId: string | null;
   refresh: () => Promise<void>;
   onNotice: OnNotice;
@@ -206,6 +221,10 @@ function AgentForm({
   const [description, setDescription] = useState(agent.description ?? "");
   const [model, setModel] = useState(agent.model ?? "");
   const [toolList, setToolList] = useState<string[]>(agent.tools);
+  // Skills whitelist: the checkbox is the allow-all state (frontmatter
+  // absent or ["*"]); unchecking reveals the combobox for a specific list.
+  const [allSkills, setAllSkills] = useState(agent.skills === undefined || agent.skills.includes("*"));
+  const [skillList, setSkillList] = useState<string[]>(agent.skills?.filter((s) => s !== "*") ?? []);
   const [prompt, setPrompt] = useState(agent.prompt);
   const [busy, setBusy] = useState(false);
 
@@ -216,6 +235,7 @@ function AgentForm({
         description: description.trim().length > 0 ? description.trim() : undefined,
         ...(model.trim().length > 0 ? { model: model.trim() } : {}),
         tools: toolList,
+        skills: allSkills ? ["*"] : skillList,
         prompt,
       });
       await refresh();
@@ -297,6 +317,32 @@ function AgentForm({
           emptyText="No matching tool."
         />
       </Field>
+      {/* Skills whitelist (plain div — the checkbox gets its own label, so
+          no label nesting). Checked = ["*"]; unchecked = the picked list. */}
+      <div className="field">
+        <span className="field-label">
+          Skills <span className="field-hint">(what this agent can load — authoring follows the tools list)</span>
+        </span>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={allSkills}
+            onChange={(e) => setAllSkills(e.target.checked)}
+          />
+          Allow all skills (*)
+        </label>
+        {!allSkills && (
+          <Combobox
+            multiple
+            values={skillList}
+            onValuesChange={setSkillList}
+            options={skillOptions(skills)}
+            placeholder="Add skill…"
+            ariaLabel="Allowed skills"
+            emptyText="No matching skill."
+          />
+        )}
+      </div>
       <Field
         label="System prompt"
         hint="(the markdown body)"

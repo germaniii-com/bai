@@ -11,6 +11,7 @@ describe("agent markdown parsing", () => {
       description: "Reviews code.",
       model: "anthropic/claude-sonnet-4-5",
       tools: ["fs.read", "fs.glob"],
+      skills: ["research", "writing"],
       prompt: "You are a reviewer.",
     });
     const agent = parseAgentMarkdown(md, "reviewer", "/tmp/reviewer.md");
@@ -19,15 +20,29 @@ describe("agent markdown parsing", () => {
     expect(agent?.description).toBe("Reviews code.");
     expect(agent?.model).toBe("anthropic/claude-sonnet-4-5");
     expect(agent?.tools).toEqual(["fs.read", "fs.glob"]);
+    expect(agent?.skills).toEqual(["research", "writing"]);
     expect(agent?.prompt).toBe("You are a reviewer.");
     expect(agent?.source).toBe("file");
     expect(agent?.path).toBe("/tmp/reviewer.md");
+  });
+
+  test("skills whitelist round-trips the wildcard and stays absent when unset", () => {
+    // Explicit ["*"] persists (the editor's allow-all checkbox).
+    const wildcard = serializeAgentMarkdown({ skills: ["*"], prompt: "Body." });
+    expect(parseAgentMarkdown(wildcard, "w")?.skills).toEqual(["*"]);
+    // A specific list persists verbatim.
+    const listed = serializeAgentMarkdown({ skills: ["a", "b"], prompt: "Body." });
+    expect(parseAgentMarkdown(listed, "l")?.skills).toEqual(["a", "b"]);
+    // Absent stays absent (old files keep seeing every skill).
+    const bare = serializeAgentMarkdown({ prompt: "Body." });
+    expect(parseAgentMarkdown(bare, "b")?.skills).toBeUndefined();
   });
 
   test("bare body (no frontmatter) = pure persona with no tools", () => {
     const agent = parseAgentMarkdown("Just a persona.", "bare");
     expect(agent).toBeDefined();
     expect(agent?.tools).toEqual([]);
+    expect(agent?.skills).toBeUndefined();
     expect(agent?.description).toBeUndefined();
     expect(agent?.prompt).toBe("Just a persona.");
   });

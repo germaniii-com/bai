@@ -15,7 +15,19 @@ import type { SkillUsageRepo } from "../store/skill-usage";
  * page 1 and skip the rest). Every call records one row in the skill_events
  * analytics store (best-effort — analytics must never break a run).
  */
-export function skillsViewTool(deps: { skills: SkillRegistry; usage: SkillUsageRepo; clock: Clock }): Tool {
+export function skillsViewTool(deps: {
+  skills: SkillRegistry;
+  usage: SkillUsageRepo;
+  clock: Clock;
+  /**
+   * The calling agent's skills allow-list (agent.skills), resolved by agent
+   * name at execute time — ctx.agent rides every ToolContext. null/undefined
+   * or a list containing "*" = every skill. Mirrors the index filter in
+   * run.ts (visibleSkills), so a whitelisted agent can neither SEE nor LOAD
+   * a non-whitelisted skill.
+   */
+  agentSkills?: (agentName: string) => string[] | null | undefined;
+}): Tool {
   /** Advisory analytics insert — a recording failure must never break the tool. */
   const record = (entry: {
     sessionId: ToolContext["sessionId"];
@@ -66,6 +78,27 @@ export function skillsViewTool(deps: { skills: SkillRegistry; usage: SkillUsageR
         throw new Error("name must be a non-empty skill name from the index.");
       }
       const skillName = name.trim();
+
+      // Agent skills whitelist (hard gate): the index only ever showed this
+      // agent its allowed skills — a guessed or stale name is rejected here
+      // rather than loaded. Checked BEFORE the existence lookup so the error
+      // never leaks which non-whitelisted skills exist. Unresolvable agent
+      // (no ctx.agent / no resolver) fails open — the gate is agent-scoped.
+      const allowed = ctx.agent !== undefined ? deps.agentSkills?.(ctx.agent) : undefined;
+      if (allowed !== undefined && allowed !== null && !allowed.includes("*") && !allowed.includes(skillName)) {
+        record({
+          sessionId: ctx.sessionId,
+          skill: skillName,
+          ...(ctx.agent !== undefined ? { agent: ctx.agent } : {}),
+          ok: false,
+          error: `Skill "${skillName}" is not whitelisted for agent ${ctx.agent}`,
+        });
+        const allowedList = allowed.filter((s) => s !== "*");
+        throw new Error(
+          `Skill "${skillName}" is not available to this agent. Allowed skills: ` +
+            `${allowedList.length > 0 ? allowedList.join(", ") : "(none)"}.`,
+        );
+      }
 
       const skill = deps.skills.get(skillName);
       if (skill === undefined) {

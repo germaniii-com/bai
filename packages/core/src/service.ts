@@ -153,7 +153,14 @@ export class Service {
       planExitTool(this.questions),
       // Progressive disclosure: the index rides the system prompt of agents
       // whose tool set includes this tool; every call lands in skill_events.
-      skillsViewTool({ skills: deps.skills, usage: deps.store.skillUsage, clock: this.clock }),
+      // agentSkills resolves the calling agent's whitelist (ctx.agent) — the
+      // hard-gate twin of run.ts's index filter.
+      skillsViewTool({
+        skills: deps.skills,
+        usage: deps.store.skillUsage,
+        clock: this.clock,
+        agentSkills: (name) => deps.agents.get(name)?.skills ?? null,
+      }),
       // Skill authoring (the learn flow): root-restricted to the skills dir
       // inside the tools (plan.write stance) and auto-allowed for the same
       // reason — a knowledge-base learn writes dozens of chapter files.

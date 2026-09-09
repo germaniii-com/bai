@@ -59,6 +59,7 @@ export function parseAgentMarkdown(
     ...(frontmatter.description !== undefined ? { description: frontmatter.description } : {}),
     ...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
     tools: frontmatter.tools ?? [],
+    ...(frontmatter.skills !== undefined ? { skills: frontmatter.skills } : {}),
     prompt: body,
     source: "file",
     ...(path !== undefined ? { path } : {}),
@@ -70,12 +71,14 @@ export function serializeAgentMarkdown(input: {
   description?: string;
   model?: string;
   tools?: string[];
+  skills?: string[];
   prompt: string;
 }): string {
   const fm: Record<string, unknown> = {};
   if (input.description !== undefined) fm.description = input.description;
   if (input.model !== undefined) fm.model = input.model;
   if (input.tools !== undefined && input.tools.length > 0) fm.tools = input.tools;
+  if (input.skills !== undefined && input.skills.length > 0) fm.skills = input.skills;
   const head = Object.keys(fm).length > 0 ? `---\n${stringifyYaml(fm)}---\n\n` : "";
   return `${head}${input.prompt.trim()}\n`;
 }

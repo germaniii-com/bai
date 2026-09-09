@@ -103,6 +103,44 @@ describe("skills.view tool", () => {
     expect(t.store.skillUsage.list()).toHaveLength(0);
   });
 
+  test("the agent skills whitelist hard-gates non-whitelisted names", async () => {
+    t.skills.put("deploy", { description: "Ship releases.", body: "# deploy" });
+    // A file agent whitelisting ONLY arxiv (the service wires agentSkills
+    // from the agents registry — the same list run.ts filters the index by).
+    t.core.putAgent("scoped", { prompt: "You read one skill.", tools: ["skills.view"], skills: ["arxiv"] });
+
+    // Whitelisted skill loads fine.
+    const ok = await t.tools.execute("skills.view", { name: "arxiv" }, ctx("scoped"));
+    expect(ok.content).toContain("# arXiv Research");
+
+    // Non-whitelisted skill is rejected BEFORE the existence lookup (the
+    // error must not leak that "deploy" exists) and recorded as a failure.
+    expect(t.tools.execute("skills.view", { name: "deploy" }, ctx("scoped"))).rejects.toThrow(
+      /Skill "deploy" is not available to this agent\. Allowed skills: arxiv\./,
+    );
+    // A guessed unknown name reads the same way (no existence leak).
+    expect(t.tools.execute("skills.view", { name: "ghost" }, ctx("scoped"))).rejects.toThrow(
+      /Skill "ghost" is not available to this agent/,
+    );
+
+    const rows = t.store.skillUsage.list().filter((r) => r.agent === "scoped");
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((r) => r.ok === true)).toHaveLength(1);
+    expect(rows.filter((r) => r.ok === false)).toHaveLength(2);
+    expect(rows.find((r) => r.ok === false)?.error).toContain("not whitelisted");
+  });
+
+  test("agents without a whitelist (or a '*' wildcard) keep loading every skill", async () => {
+    t.skills.put("deploy", { description: "Ship releases.", body: "# deploy" });
+    // The chat built-in has no skills field → gate open.
+    const a = await t.tools.execute("skills.view", { name: "deploy" }, ctx("chat"));
+    expect(a.content).toContain("# deploy");
+    // An explicit ["*"] whitelist is also allow-all.
+    t.core.putAgent("wildcard", { prompt: "x", tools: ["skills.view"], skills: ["*"] });
+    const b = await t.tools.execute("skills.view", { name: "deploy" }, ctx("wildcard"));
+    expect(b.content).toContain("# deploy");
+  });
+
   test("forSkill totals count successful views only", async () => {
     await t.tools.execute("skills.view", { name: "arxiv" }, ctx("chat"));
     await t.tools.execute("skills.view", { name: "arxiv", path: "references/api.md" }, ctx("chat"));

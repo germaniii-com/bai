@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Dispatch, SetStateAction } from "react";
 import type { Event, Input, Message, Session } from "@bai/shared";
-import { applyEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, revertBoundary } from "../src/state";
+import { applyEvent, argsDigest, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, revertBoundary } from "../src/state";
 
 /** Collect setMessages updates and expose the final list. */
 function capture() {
@@ -24,6 +24,23 @@ function msg(id: string, role: Message["role"], text: string): Message {
 
 const removedEvent = (messageId: string): Event =>
   ({ seq: 1, ts: "t", type: "message.removed", payload: { messageId } }) as unknown as Event;
+
+describe("argsDigest (tool-node one-liner)", () => {
+  test("skills.* nodes read the skill name (plus the linked file)", () => {
+    expect(argsDigest("skills.view", JSON.stringify({ name: "research" }))).toBe("research");
+    expect(argsDigest("skills.view", JSON.stringify({ name: "research", path: "references/api.md" }))).toBe(
+      "research/references/api.md",
+    );
+    expect(argsDigest("skills.save", JSON.stringify({ name: "new-skill", description: "d" }))).toBe("new-skill");
+  });
+
+  test("non-skills tools keep the generic field chain", () => {
+    expect(argsDigest("fs.read", JSON.stringify({ path: "src/x.ts" }))).toBe("src/x.ts");
+    expect(argsDigest("bash", JSON.stringify({ command: "ls -la" }))).toBe("ls -la");
+    // A skills tool without a name falls through to the generic digest.
+    expect(argsDigest("skills.view", JSON.stringify({}))).toBe("");
+  });
+});
 
 describe("message.removed reducer", () => {
   test("drops only the removed message", () => {

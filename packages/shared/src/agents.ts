@@ -33,6 +33,14 @@ export interface AgentInfo {
    * "*" entry means every registered tool. Empty = pure persona, no tools.
    */
   tools: string[];
+  /**
+   * Skill names the agent may load via skills.view (whitelist). A single
+   * "*" entry — or the field being absent — means every registered skill;
+   * a specific list hides the others from the index AND rejects them at
+   * call time. Authoring (skills.save) is governed by the tools list, not
+   * this whitelist.
+   */
+  skills?: string[];
   /** System prompt (the markdown body). */
   prompt: string;
   source: AgentSource;
@@ -45,6 +53,7 @@ export const agentFrontmatterSchema = z.object({
   description: z.string().max(2000).optional(),
   model: z.string().max(200).optional(),
   tools: z.array(z.string().min(1).max(100)).max(50).optional(),
+  skills: z.array(z.string().min(1).max(100)).max(200).optional(),
 });
 
 export type AgentFrontmatter = z.infer<typeof agentFrontmatterSchema>;

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X } from "lucide-react";
+import { Check, Copy, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, formatTokens } from "@bai/shared";
@@ -595,7 +595,11 @@ function ToolNodes({
               aria-expanded={open}
               aria-controls={`tool-body-${c.callId}`}
             >
-              <ToolStatusIcon status={status} asking={asking} /> {c.name}
+              <ToolStatusIcon status={status} asking={asking} />
+              {/* Skill loads get their own glyph — scannable among the
+                  other tool calls (the digest carries the skill name). */}
+              {c.name.startsWith("skills.") && <Zap size={12} aria-hidden="true" className="tool-glyph skill" />}{" "}
+              {c.name}
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
               {isTask && agent !== undefined && <span className="subagent-agent">@{agent}</span>}
               {asking && <span className="subagent-asking"> · needs approval</span>}

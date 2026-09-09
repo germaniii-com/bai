@@ -347,6 +347,16 @@ export function toolCalls(message: Message): ToolCallView[] {
 export function argsDigest(name: string, args: string): string {
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
+    // Skills tools: the skill name IS the identity (plus the linked file
+    // when one is requested) — "skills.view research" reads as a skill
+    // load, not the generic "name" key.
+    if (name.startsWith("skills.") && typeof parsed.name === "string") {
+      const skill =
+        typeof parsed.path === "string" && parsed.path.length > 0
+          ? `${parsed.name}/${parsed.path}`
+          : parsed.name;
+      return skill.length > 60 ? `${skill.slice(0, 60)}…` : skill;
+    }
     const interesting = parsed.path ?? parsed.pattern ?? parsed.input ?? parsed.command;
     if (typeof interesting === "string" && interesting.length > 0) {
       return interesting.length > 60 ? `${interesting.slice(0, 60)}…` : interesting;

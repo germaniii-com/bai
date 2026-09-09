@@ -1306,6 +1306,7 @@ export function App() {
               client={client}
               agents={agents}
               tools={tools}
+              skills={skills}
               selectedId={effectiveAgentId}
               activeSessionId={active?.id ?? null}
               refresh={refreshAgents}

@@ -72,6 +72,7 @@ export const putAgentSchema = z.object({
   description: z.string().max(2000).optional(),
   model: z.string().max(200).optional(),
   tools: z.array(z.string().min(1).max(100)).max(50).optional(),
+  skills: z.array(z.string().min(1).max(100)).max(200).optional(),
   prompt: z.string().min(1).max(100_000),
 });
 
