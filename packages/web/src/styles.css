@@ -638,6 +638,16 @@ select:focus-visible,
   min-height: 0;
 }
 
+/* Drag-and-drop upload targets (workspace file tree). */
+.file-tree.drop-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.list-item.drop-target {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .file-tree-head {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
@@ -651,12 +661,38 @@ select:focus-visible,
   white-space: nowrap;
 }
 
-/* Explorer toolbar (dotfiles toggle) — mirrors the add-workspace modal. */
+/* Explorer toolbar (dotfiles toggle + root upload) — mirrors the
+   add-workspace modal. */
 .file-tree-bar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   padding: 5px 10px;
   border-bottom: 1px solid var(--border);
+}
+
+.file-tree-bar-spacer {
+  flex: 1;
+}
+
+.file-tree-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.file-tree-upload:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .file-tree-body {
@@ -1677,6 +1713,12 @@ select:focus-visible,
   flex-shrink: 0;
 }
 
+/* Chat composer file-drop affordance (drag files in to attach). */
+.composer.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
 .composer-input-row {
   display: flex;
   gap: var(--space-2);
@@ -1710,6 +1752,149 @@ select:focus-visible,
 
 .composer-spacer {
   flex: 1;
+}
+
+/* --- attachments (composer chips + transcript previews) --- */
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attachments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--dim);
+  font-size: 0.85em;
+}
+
+.attachment-chip.clickable {
+  cursor: pointer;
+}
+
+.attachment-chip.clickable:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.attachment-chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-remove {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.attachment-remove:hover {
+  color: var(--danger, #e55);
+}
+
+.attachment-thumb-button {
+  display: inline-block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 0;
+  cursor: zoom-in;
+}
+
+.attachment-thumb-button:disabled {
+  cursor: default;
+}
+
+.attachment-thumb {
+  max-width: 160px;
+  max-height: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+/* Composer preview: thumbnail above the input row, with a remove overlay. */
+.composer-thumb {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.composer-thumb-img {
+  max-width: 120px;
+  max-height: 90px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.composer-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-thumb-remove:hover {
+  color: var(--danger, #e55);
+  border-color: var(--danger, #e55);
+}
+
+/* Maximized image lightbox (inside the shared Modal shell). */
+.image-lightbox {
+  max-width: min(95vw, 1400px);
+  width: auto;
+}
+
+.image-lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+.image-lightbox-img {
+  max-width: 100%;
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.attachment-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
 }
 
 /* The `#file` mention popover — sits above the input row (its position in

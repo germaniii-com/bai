@@ -25,6 +25,8 @@ describe("expandMentions", () => {
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(join(dir, "src", "a.txt"), Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"));
     writeFileSync(join(dir, "src", "bin.dat"), Buffer.from([1, 0, 2, 0]));
+    writeFileSync(join(dir, "src", "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    writeFileSync(join(dir, "src", "doc.pdf"), Buffer.from([0x25, 0x50, 0x44, 0x46]));
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -62,6 +64,20 @@ describe("expandMentions", () => {
     const { blocks } = expandMentions("#src/bin.dat", dir, []);
     expect(blocks[0]?.error).toBe(true);
     expect(blocks[0]?.content).toContain("binary");
+  });
+
+  test("attaches image mentions as media blocks with bytes", () => {
+    const { blocks } = expandMentions("#src/pic.png", dir, []);
+    expect(blocks[0]?.media).toEqual({ kind: "image", mime: "image/png" });
+    expect(blocks[0]?.data).toBeDefined();
+    expect(blocks[0]?.error).toBeUndefined();
+  });
+
+  test("attaches pdf mentions as media blocks with bytes", () => {
+    const { blocks } = expandMentions("#src/doc.pdf", dir, []);
+    expect(blocks[0]?.media).toEqual({ kind: "pdf", mime: "application/pdf" });
+    expect(blocks[0]?.data).toBeDefined();
+    expect(blocks[0]?.error).toBeUndefined();
   });
 
   test("returns no blocks without mentions", () => {
@@ -131,6 +147,28 @@ describe("promotion expands mentions", () => {
       expect(payload.to).toBe(3);
       expect(payload.content).toContain("2: two");
       expect(payload.content).not.toContain("1: one");
+    } finally {
+      t.store.close();
+      rmSync(t.dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("persists an attachment part for a media mention", async () => {
+    const t = makeCore();
+    const dir = mkdtempSync(join(tmpdir(), "bai-mention-media-"));
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(join(dir, "src", "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      const session = t.core.createSession({ workbench: "code", cwd: dir });
+      t.core.submitPrompt(session.id, { text: "see #src/pic.png" });
+      await t.core.drainNow(session.id);
+      const user = t.core.history(session.id).find((m) => m.role === "user");
+      const attachment = user?.parts.find((p) => p.kind === "attachment");
+      expect(attachment).toBeDefined();
+      const payload = attachment?.payload as { name?: string; kind?: string };
+      expect(payload.kind).toBe("image");
+      expect(payload.name).toBe("src/pic.png");
     } finally {
       t.store.close();
       rmSync(t.dir, { recursive: true, force: true });

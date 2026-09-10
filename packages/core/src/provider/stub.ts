@@ -39,7 +39,14 @@ export class EchoProvider implements Provider {
     // here is "fs-demo" (full id "stub/fs-demo").
     if (req.model === "fs-demo") return this.fsDemoStream(req);
     const lastUser = [...req.messages].reverse().find((m) => m.role === "user");
-    const text = lastUser?.content ?? "";
+    // Multimodal turns carry ContentBlock[]; echo just the text (media ignored).
+    const text =
+      typeof lastUser?.content === "string"
+        ? lastUser.content
+        : (lastUser?.content ?? [])
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n");
     const chunks = chunkForStream(`Echo: ${text}`);
 
     async function* generate(): AsyncGenerator<StreamEvent> {

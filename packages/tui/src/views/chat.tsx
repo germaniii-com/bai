@@ -6,7 +6,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { Input, Message, PermissionRequest, QuestionRequest, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, applyMention, collapseMentions, expandMentionPaths, formatMentionRange, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import type { Mode } from "../app";
-import { buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
+import { attachmentMarkers, buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
 import type { PickerOption } from "../state/providers";
 import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
 import { emptyAskUi, type AskUiState } from "../state/asks";
@@ -186,6 +186,9 @@ export function ChatView({
   const [busy, setBusy] = useState(false);
   const [sentPending, setSentPending] = useState(false);
   const [escArmed, setEscArmed] = useState(false);
+  // Submit failures (e.g. the server rejecting an attachment the model can't
+  // take) — shown above the composer; cleared on the next attempt/keystroke.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // ---- inline ask prompts (opencode's above-the-editor placement) ------
   // The head pending ask (priority: parent permission > subagent
@@ -423,6 +426,7 @@ export function ChatView({
     // Leaf mention tokens (`#button.tsx`) expand to their full paths at submit
     // so the server resolves the real file; the draft keeps the leaf display.
     const outbound = expandMentionPaths(trimmed, mentionPaths).trim();
+    setSubmitError(null);
     setBusy(true);
     // Message-queue default (Cursor-style): a submit while the session is
     // draining QUEUES instead of steering — the queued node (fed by the
@@ -454,7 +458,9 @@ export function ChatView({
       pendingBottomRef.current = true;
     } catch (err) {
       setSentPending(false);
-      // Errors surface via the parent's error line on next refresh; keep input.
+      // Surface submit rejections (capability/size errors) right here; the
+      // draft is kept so the user can adjust and retry.
+      setSubmitError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -1151,6 +1157,7 @@ export function ChatView({
                   borderBackgroundColor={t.background}
                   paddingX={1}
                   flexShrink={0}
+                  flexDirection="column"
                 >
                   <Text wrap="wrap" color={t.text} bold={focused}>
                     {(() => {
@@ -1171,6 +1178,12 @@ export function ChatView({
                       });
                     })()}
                   </Text>
+                  {(() => {
+                    // Attached image marker (no terminal image rendering):
+                    // `[image: shot.png]` / `[omitted: …]`.
+                    const markers = attachmentMarkers(m);
+                    return markers.length > 0 ? <Text color={t.secondary}>{markers.join(" ")}</Text> : null;
+                  })()}
                 </Box>
               </Box>
             );
@@ -1371,6 +1384,11 @@ export function ChatView({
           {...(mention.error !== undefined ? { error: mention.error } : {})}
           query={mention.pathQuery}
         />
+      )}
+      {submitError !== null && (
+        <Box marginBottom={1}>
+          <Text color={t.danger}>error: {submitError}</Text>
+        </Box>
       )}
       {msgActions !== null ? (
         // The message-actions modal (opencode's DialogMessage): takes the

@@ -67,6 +67,19 @@ The conversation modality and bai's default session type.
   workspace root (web: the Workspace section; the chat section has none),
   matching opencode2's project-scoped completion. `/commands` are not
   implemented yet
+- **Attachments (chat only)**: the web composer's **`+`** button (beside
+  Send) or a **file drag-and-drop onto the composer** uploads a local
+  image/PDF/text file. Cwd-less chat sessions have no `#file` picker, so this
+  is how files reach a chat prompt. Bytes are stored under
+  `~/.local/share/bai/assets/attachment/` (asset table, no blobs in SQLite or
+  the event stream) and lowered to native provider blocks — Anthropic
+  `image`/`document`, OpenAI `image_url`/`file`; text attachments attach as
+  read context (`<file>` blocks). The selected model's capability is checked
+  at send (models.dev `attachment`/`modalities`), so an unsupported model or
+  file type is rejected with a clear error instead of silently dropped. The
+  web renders image thumbnails (click = maximized lightbox) and PDF/text
+  chips. Attachments older than the newest 3 user turns are omitted from the
+  provider request (transcript untouched) to bound token cost
 - **Compact overlay dialogs** (TUI): the session/theme/model pickers and the
   ctrl+p supermenu float as centered panels over the live conversation —
   the transcript stays visible and streaming behind them (opencode's dialog
@@ -124,6 +137,15 @@ agents that can actually touch the files.
   folder — insert `#foo.ts` (leaf display, expanded to the full path at send)
   or `#foo.ts:10-20` to hand the agent exactly those lines as read context
   (see [Chat](#-chat--shipped))
+- **Drag-and-drop uploads**: drop files from the OS onto a folder in the
+  file tree (or the tree root) to write them into the workspace — or use the
+  **upload button beside the dotfiles toggle** to send files to the workspace
+  root. The Files tab opens the upload, and the `#file` picker finds it
+  immediately (collisions auto-rename `report (1).pdf`; 64 MB cap). The workspace
+  composer deliberately has no attach button — files live on disk and are
+  referenced with `#file`. The same `#` picker attaches a mentioned image or
+  PDF to the prompt, and reads a mentioned text file as context — see
+  [Chat](#-chat--shipped)
 - **Token discipline** keeps long agentic sessions affordable: identical
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the

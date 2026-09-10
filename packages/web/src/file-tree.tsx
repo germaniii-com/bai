@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { File, Folder, FolderOpen } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { File, Folder, FolderOpen, Upload } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { ListItem } from "./components";
 
@@ -29,6 +29,7 @@ export function FileTree({
   onOpenFile,
   activePath = null,
   refreshToken = 0,
+  onUpload,
 }: {
   client: BaiClient;
   root: string;
@@ -38,10 +39,45 @@ export function FileTree({
   activePath?: string | null;
   /** Bumped when the agent (or a revert) changes files — expanded dirs re-list. */
   refreshToken?: number;
+  /** Drop files onto a folder row (or the tree root) to upload them there. */
+  onUpload?: (dir: string, files: File[]) => void;
 }) {
   const [dirs, setDirs] = useState<Map<string, DirState>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(false);
+  const [dropDir, setDropDir] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Drag-and-drop: each target is identified by its absolute dir path. The
+  // folder's handlers stop propagation so the enclosing aside (root target)
+  // never overwrites the hovered folder; `relatedTarget` containment guards
+  // the dragleave flicker as the pointer crosses child rows.
+  const dragOver = useCallback(
+    (dir: string, e: ReactDragEvent<HTMLElement>): void => {
+      if (onUpload === undefined || !e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+      setDropDir(dir);
+    },
+    [onUpload],
+  );
+  const dragLeave = useCallback((dir: string, e: ReactDragEvent<HTMLElement>): void => {
+    const related = e.relatedTarget as Node | null;
+    if (related !== null && e.currentTarget.contains(related)) return;
+    setDropDir((cur) => (cur === dir ? null : cur));
+  }, []);
+  const dropOn = useCallback(
+    (dir: string, e: ReactDragEvent<HTMLElement>): void => {
+      if (onUpload === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDropDir(null);
+      const files = Array.from(e.dataTransfer.files ?? []);
+      if (files.length > 0) onUpload(dir, files);
+    },
+    [onUpload],
+  );
 
   const load = useCallback(
     async (dir: string) => {
@@ -120,7 +156,13 @@ export function FileTree({
   const rootState = dirs.get(root);
 
   return (
-    <aside className="file-tree" aria-label={`files in ${root}`}>
+    <aside
+      className={dropDir === root ? "file-tree drop-active" : "file-tree"}
+      aria-label={`files in ${root}`}
+      onDragOver={(e) => dragOver(root, e)}
+      onDragLeave={(e) => dragLeave(root, e)}
+      onDrop={(e) => dropOn(root, e)}
+    >
       <div className="file-tree-head" title={root}>
         {basename(root)}
       </div>
@@ -133,6 +175,31 @@ export function FileTree({
           />
           dotfiles
         </label>
+        <span className="file-tree-bar-spacer" />
+        {onUpload !== undefined && (
+          <>
+            <button
+              type="button"
+              className="file-tree-upload"
+              aria-label="Upload files to the workspace root"
+              title="Upload files to the workspace root"
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <Upload size={14} aria-hidden="true" />
+            </button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (files.length > 0) onUpload(root, files);
+              }}
+            />
+          </>
+        )}
       </div>
       <div className="file-tree-body">
         {rootState === undefined || rootState.status === "loading" ? (
@@ -151,6 +218,10 @@ export function FileTree({
             showDotfiles={showDotfiles}
             onOpenFile={onOpenFile}
             activePath={activePath}
+            dropDir={dropDir}
+            dragOver={dragOver}
+            dragLeave={dragLeave}
+            dropOn={dropOn}
           />
         )}
         {rootState?.truncated === true && <p className="dim">listing truncated</p>}
@@ -168,6 +239,10 @@ function DirEntries({
   showDotfiles,
   onOpenFile,
   activePath,
+  dropDir,
+  dragOver,
+  dragLeave,
+  dropOn,
 }: {
   dir: string;
   depth: number;
@@ -177,6 +252,10 @@ function DirEntries({
   showDotfiles: boolean;
   onOpenFile?: (path: string) => void;
   activePath?: string | null;
+  dropDir: string | null;
+  dragOver: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
+  dragLeave: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
+  dropOn: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
 }) {
   const state = dirs.get(dir);
   if (state === undefined) return null;
@@ -211,6 +290,10 @@ function DirEntries({
                 icon={<FolderIcon open={isOpen} />}
                 title={entry.name}
                 onClick={() => onToggle(path)}
+                className={dropDir === path ? "drop-target" : undefined}
+                onDragOver={(e) => dragOver(path, e)}
+                onDragLeave={(e) => dragLeave(path, e)}
+                onDrop={(e) => dropOn(path, e)}
                 style={{ paddingLeft: `${8 + depth * 14}px` }}
                 aria-expanded={isOpen}
                 aria-controls={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
@@ -226,6 +309,10 @@ function DirEntries({
                   showDotfiles={showDotfiles}
                   onOpenFile={onOpenFile}
                   activePath={activePath}
+                  dropDir={dropDir}
+                  dragOver={dragOver}
+                  dragLeave={dragLeave}
+                  dropOn={dropOn}
                   />
                   </div>
               )}

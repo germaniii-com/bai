@@ -38,10 +38,23 @@ export const forkSessionSchema = z.object({
   messageId: z.string().min(1).optional(),
 });
 
+/**
+ * One stored attachment reference (bytes live on disk; POST /api/attachment
+ * returns this shape). Caps mirror the core upload allow-list.
+ */
+export const attachmentRefSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().min(1).max(500),
+  mime: z.string().min(1).max(200),
+  bytes: z.number().int().nonnegative().max(64 * 1024 * 1024),
+  kind: z.enum(["image", "pdf", "text"]),
+});
+
 /** POST /api/session/:id/message */
 export const promptPayloadSchema = z.object({
   text: z.string().min(1).max(1_000_000),
   queue: z.boolean().optional(),
+  attachments: z.array(attachmentRefSchema).max(10).optional(),
 });
 
 /** POST /api/permission/:id/reply */

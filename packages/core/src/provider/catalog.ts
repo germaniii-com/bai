@@ -29,6 +29,10 @@ export interface CatalogModel {
   contextWindow?: number;
   inputCost?: number;
   outputCost?: number;
+  /** models.dev `attachment` — the model accepts file attachments. */
+  attachment?: boolean;
+  /** models.dev input modalities (e.g. ["text","image","pdf"]). */
+  inputModalities?: string[];
 }
 
 export interface CatalogProvider {
@@ -57,6 +61,8 @@ interface ModelsDevProvider {
       name?: string;
       tool_call?: boolean;
       reasoning?: boolean;
+      attachment?: boolean;
+      modalities?: { input?: unknown };
       limit?: { context?: number };
       cost?: { input?: number; output?: number };
     }
@@ -219,6 +225,10 @@ function normalizeModelsDev(doc: Record<string, ModelsDevProvider>): CatalogProv
         name: m.name ?? modelId,
         toolCall: m.tool_call === true,
         reasoning: m.reasoning === true,
+        ...(m.attachment === true ? { attachment: true } : {}),
+        ...(Array.isArray(m.modalities?.input)
+          ? { inputModalities: m.modalities.input.filter((x): x is string => typeof x === "string") }
+          : {}),
         ...(typeof m.limit?.context === "number" ? { contextWindow: m.limit.context } : {}),
         ...(typeof m.cost?.input === "number" ? { inputCost: m.cost.input } : {}),
         ...(typeof m.cost?.output === "number" ? { outputCost: m.cost.output } : {}),

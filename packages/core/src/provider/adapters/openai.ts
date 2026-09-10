@@ -11,9 +11,15 @@ import type { ContentBlock, LlmRequest, OutboundMessage, Provider, ProviderStrea
  * Vendor SDK types are isolated in this file (ARCHITECTURE.md §10 / D17).
  */
 
+/** One multimodal content part on an OpenAI user message. */
+export type OpenAiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { file_data: string; filename?: string } };
+
 export interface OpenAiMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | OpenAiContentPart[] | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
 }
@@ -39,6 +45,7 @@ export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
     }
 
     let text = "";
+    const media: OpenAiContentPart[] = [];
     const toolCalls: NonNullable<OpenAiMessage["tool_calls"]> = [];
     const toolResults: OpenAiMessage[] = [];
     for (const block of msg.content as ContentBlock[]) {
@@ -48,6 +55,10 @@ export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
         toolCalls.push({ id: block.callId, type: "function", function: { name: block.name, arguments: block.args } });
       } else if (block.type === "tool_result") {
         toolResults.push({ role: "tool", tool_call_id: block.callId, content: block.content });
+      } else if (block.type === "image") {
+        media.push({ type: "image_url", image_url: { url: `data:${block.mediaType};base64,${block.data}` } });
+      } else if (block.type === "file") {
+        media.push({ type: "file", file: { file_data: `data:${block.mediaType};base64,${block.data}`, ...(block.filename !== undefined ? { filename: block.filename } : {}) } });
       }
       // thinking: dropped (see doc comment)
     }
@@ -59,7 +70,14 @@ export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       });
     } else {
-      if (text.length > 0) out.push({ role: "user", content: text });
+      if (media.length === 0) {
+        if (text.length > 0) out.push({ role: "user", content: text });
+      } else {
+        const parts: OpenAiContentPart[] = [];
+        if (text.length > 0) parts.push({ type: "text", text });
+        parts.push(...media);
+        out.push({ role: "user", content: parts });
+      }
       out.push(...toolResults);
     }
   }

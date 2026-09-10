@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useId, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import type { AgentInfo, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
+import type { AgentInfo, AttachmentRef, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
@@ -11,6 +11,7 @@ import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { MentionPicker, type MentionEntry } from "./mention-picker";
+import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAttachments, type MediaAttachment } from "./attachments";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
@@ -156,6 +157,10 @@ export function ChatPane({
    onOpenFile,
    mentionPaths,
    setMentionPaths,
+   attachments = [],
+   onAddAttachments,
+   onRemoveAttachment,
+   attachmentsBusy = false,
   }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
@@ -250,6 +255,13 @@ export function ChatPane({
    * relative path.
    */
   onOpenFile?: (root: string, path: string) => void;
+  /** Pending attachments for the next send (uploaded; shown as chips). */
+  attachments?: AttachmentRef[];
+  /** Files picked from the OS dialog — App uploads and appends refs. */
+  onAddAttachments?: (files: File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
+  /** True while an upload is in flight (disables the `+` button). */
+  attachmentsBusy?: boolean;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -273,6 +285,38 @@ export function ChatPane({
   const [cursor, setCursor] = useState(0);
   const mentionReq = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Maximized image preview (composer thumbnails + transcript thumbnails).
+  const [lightbox, setLightbox] = useState<MediaAttachment | null>(null);
+  // Composer file drop — enabled only when an attach handler is provided
+  // (chat section). A depth counter avoids flicker as the pointer crosses
+  // child elements inside the form.
+  const dragDepth = useRef(0);
+  const [dropActive, setDropActive] = useState(false);
+  const canDropFiles = onAddAttachments !== undefined;
+  const onComposerDragEnter = (e: ReactDragEvent<HTMLFormElement>): void => {
+    if (!canDropFiles || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropActive(true);
+  };
+  const onComposerDragOver = (e: ReactDragEvent<HTMLFormElement>): void => {
+    if (!canDropFiles || !e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onComposerDragLeave = (): void => {
+    if (!canDropFiles) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropActive(false);
+  };
+  const onComposerDrop = (e: ReactDragEvent<HTMLFormElement>): void => {
+    if (!canDropFiles) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length > 0) onAddAttachments?.(files);
+  };
 
   // External seeds (revert/fork/edit) replace the draft out from under the
   // tracked cursor — keep it in range so mention detection isn't confused.
@@ -390,6 +434,8 @@ export function ChatPane({
             {m.role === "assistant" && toolCalls(m).length > 0 && (
               <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} onOpenWorkspace={onOpenWorkspace} />
             )}
+            {/* Attachments render ABOVE the message body (composer-hub order). */}
+            {m.role === "user" && <AttachmentParts message={m} client={client} onOpenImage={setLightbox} />}
             {/* Assistant bodies render markdown; user input is text + `#file` chips. */}
             {m.role === "assistant" ? (
               <Markdown text={messageText(m)} />
@@ -426,6 +472,7 @@ export function ChatPane({
           const sending = sendingIds.includes(input.id);
           return (
             <article key={input.id} className="message user queued" aria-label={sending ? "Sending message" : "Queued message"}>
+              <QueuedAttachments input={input} client={client} onOpenImage={setLightbox} />
               <MessageText
                 text={input.payload.text}
                 {...(openFileRoot !== undefined ? { root: openFileRoot } : {})}
@@ -485,7 +532,11 @@ export function ChatPane({
           moves. All buttons here are type="button": only the form's
           implicit submit (Enter / the send button) sends. */}
       <form
-        className="composer"
+        className={dropActive ? "composer drag-over" : "composer"}
+        onDragEnter={onComposerDragEnter}
+        onDragOver={onComposerDragOver}
+        onDragLeave={onComposerDragLeave}
+        onDrop={onComposerDrop}
         onSubmit={(e) => {
           e.preventDefault();
           // Leaf mention tokens expand to full paths for the server.
@@ -501,6 +552,15 @@ export function ChatPane({
             {...(mention.error !== undefined ? { error: mention.error } : {})}
             onPick={pickMention}
             onHover={(i) => setMention((m) => ({ ...m, selected: i }))}
+          />
+        )}
+        {onRemoveAttachment !== undefined && (
+          <AttachmentChips
+            attachments={attachments}
+            client={client}
+            onRemove={onRemoveAttachment}
+            onOpenImage={setLightbox}
+            disabled={attachmentsBusy}
           />
         )}
         <div className="composer-input-row">
@@ -521,6 +581,7 @@ export function ChatPane({
             }}
             aria-label="message"
           />
+          {onAddAttachments !== undefined && <AttachButton onFiles={onAddAttachments} disabled={attachmentsBusy} />}
           {runActive && active !== null ? (
             // Stop replaces send while the model is responding; the partial
             // reply stays in history after the interrupt.
@@ -625,6 +686,7 @@ export function ChatPane({
           onClose={() => setLearnOpen(false)}
         />
       )}
+      {lightbox !== null && <ImageLightbox attachment={lightbox} client={client} onClose={() => setLightbox(null)} />}
     </main>
   );
 }

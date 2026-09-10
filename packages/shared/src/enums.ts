@@ -1,5 +1,5 @@
 import type { AssetId, InputId, JobId, MessageId, PartId, PermissionRequestId, QuestionRequestId, SessionId } from "./ids";
-import type { Asset, Job, Message, PermissionRequest, QuestionRequest, Session, TodoItem } from "./domain";
+import type { Asset, AttachmentRef, Job, Message, PermissionRequest, QuestionRequest, Session, TodoItem } from "./domain";
 import type { SessionUsage } from "./usage";
 
 /** Modality names — the workbench registry keys. */
@@ -7,7 +7,7 @@ export type WorkbenchName = "chat" | "code" | "image" | "video";
 
 export type Role = "user" | "assistant" | "system";
 
-export type PartKind = "text" | "thinking" | "file" | "image" | "tool_call" | "tool_result" | "patch";
+export type PartKind = "text" | "thinking" | "file" | "image" | "attachment" | "tool_call" | "tool_result" | "patch";
 
 export type InputState = "admitted" | "promoted" | "cancelled";
 
@@ -32,7 +32,7 @@ export type { Asset, Job, Message, PermissionRequest, Session, TodoItem };
 export interface EventPayloads {
   "session.created": { session: Session };
   "session.updated": { session: Session };
-  "input.admitted": { inputId: InputId; sessionId: SessionId; text: string; queued: boolean };
+  "input.admitted": { inputId: InputId; sessionId: SessionId; text: string; queued: boolean; attachments?: AttachmentRef[] };
   /** A pending input became a user message (surfaces drop the queued node). */
   "input.promoted": { inputId: InputId; sessionId: SessionId };
   /** A pending input was cancelled — it never runs. */

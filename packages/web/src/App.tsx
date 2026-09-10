@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
+import type { AttachmentRef, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
@@ -104,6 +104,14 @@ export function App() {
   // Owned here with the draft so seed flows (revert/fork/edit) collapse the
   // stored full paths back to leaves and rehydrate the map.
   const [draftMentions, setDraftMentions] = useState<Record<string, string>>({});
+  // Uploaded attachments for the next send (owned here with the draft).
+  const [draftAttachments, setDraftAttachments] = useState<AttachmentRef[]>([]);
+  const [attachmentsBusy, setAttachmentsBusy] = useState(false);
+  // Attachments are a chat-only affordance (cwd-less sessions) — drop any
+  // pending chips when leaving the chat section.
+  useEffect(() => {
+    if (section !== "chat") setDraftAttachments([]);
+  }, [section]);
   const [error, setError] = useState<string | null>(null);
   const [runActive, setRunActive] = useState(false);
   const [sentPending, setSentPending] = useState(false);
@@ -823,6 +831,28 @@ export function App() {
     openFile(abs);
   };
 
+  /**
+   * File-tree drag-and-drop: upload the dropped files into `dir` (an absolute
+   * folder inside the active workspace), then refresh the tree/viewer and open
+   * the last one (which flips to the Files view). Errors surface on the
+   * banner; successful uploads still land.
+   */
+  const uploadToWorkspace = async (dir: string, files: File[]): Promise<void> => {
+    if (effectiveWorkspacePath === null || files.length === 0) return;
+    let last: string | undefined;
+    for (const file of files) {
+      try {
+        const uploaded = await client.uploadWorkspaceFile(effectiveWorkspacePath, dir, { name: file.name, bytes: file });
+        last = uploaded.path;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (last === undefined) return;
+    setFsRevision((n) => n + 1);
+    openFile(last);
+  };
+
   /** The file's fresh content was seen (active auto-refresh or tab click). */
   const clearChangedFile = (path: string): void => {
     setChangedFiles((prev) => {
@@ -916,7 +946,35 @@ export function App() {
     pushRoute({ section: "skills", name, creating: false });
   };
 
-  const submit = async (override?: string): Promise<void> => {
+  /**
+   * Upload picked files for the composer `+` button. Each file goes to the
+   * server immediately (so chips can preview), and the returned refs ride the
+   * next submit. Failures surface on the error banner; successful uploads
+   * still land. Cap 10 (the prompt schema's max).
+   */
+  const addAttachments = async (files: File[]): Promise<void> => {
+    if (files.length === 0) return;
+    setAttachmentsBusy(true);
+    setError(null);
+    const refs: AttachmentRef[] = [];
+    for (const file of files) {
+      try {
+        refs.push(await client.uploadAttachment({ name: file.name, mime: file.type, bytes: file }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (refs.length > 0) {
+      setDraftAttachments((prev) => [...prev, ...refs].slice(0, 10));
+    }
+    setAttachmentsBusy(false);
+  };
+
+  const removeAttachment = (id: string): void => {
+    setDraftAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const submit = async (override?: string, attachments: AttachmentRef[] = []): Promise<void> => {
     const text = (override ?? draft).trim();
     if (text.length === 0) return;
     if (override === undefined) setDraft("");
@@ -948,7 +1006,11 @@ export function App() {
         // The workspace section is untouched — code sessions keep their agent.
         await client.setSessionAgent(session.id, { agent: "chat" });
       }
-      await client.submitPrompt(session.id, { text, ...(queuing ? { queue: true } : {}) });
+      await client.submitPrompt(session.id, {
+        text,
+        ...(queuing ? { queue: true } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
     } catch (err) {
       setSentPending(false);
       setError(err instanceof Error ? err.message : String(err));
@@ -1013,6 +1075,7 @@ export function App() {
     const { text: collapsed, paths } = collapseMentions(text);
     setDraftMentions(paths);
     setDraft(collapsed);
+    setDraftAttachments([]);
   }, []);
 
   /** Edit: cancel the queued input and put its text back into the composer. */
@@ -1164,7 +1227,9 @@ export function App() {
         // ChatPane already expanded leaf `#file` tokens to full paths.
         setDraft("");
         setDraftMentions({});
-        void submit(text);
+        const pending = draftAttachments;
+        setDraftAttachments([]);
+        void submit(text, pending);
       }}
       runActive={runActive}
       waiting={waiting}
@@ -1203,6 +1268,14 @@ export function App() {
       usage={usage}
       workspaceRoot={section === "workspace" ? (effectiveWorkspacePath ?? active?.cwd ?? undefined) : undefined}
       onOpenFile={openMentionedFile}
+      {...(section === "chat"
+        ? {
+            attachments: draftAttachments,
+            onAddAttachments: (files: File[]) => void addAttachments(files),
+            onRemoveAttachment: removeAttachment,
+            attachmentsBusy,
+          }
+        : {})}
       // Learn chip: only with an open session (drafts use the Skills page's
       // Learn form — a fresh learn session there has the same effect).
       onLearn={active !== null ? (request) => void learn(request) : undefined}
@@ -1536,6 +1609,7 @@ export function App() {
               onOpenFile={openFile}
               activePath={workspaceView === "files" ? activeFile : null}
               refreshToken={fsRevision}
+              onUpload={(dir, files) => void uploadToWorkspace(dir, files)}
             />
           )}
         </>

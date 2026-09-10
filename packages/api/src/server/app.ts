@@ -26,13 +26,14 @@ import {
   skillFilePathSchema,
   skillUsageQuerySchema,
   usageAnalyticsQuerySchema,
+  type AttachmentRef,
   type InputId,
   type MessageId,
   type SessionId,
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
-import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, listDir, readFile, statPath } from "./fs";
+import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, FS_UPLOAD_MAX_BYTES, listDir, readFile, statPath, writeFile } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
 import { shellAvailable } from "./shell";
 import { staticHandler } from "./static";
@@ -80,11 +81,19 @@ function buildApi(deps: ApiDeps) {
       // so replay never duplicates what this response already contains.
       return c.json(deps.core.sessionSnapshot(id));
     })
-    .post("/session/:id/message", zValidator("json", promptPayloadSchema), (c) => {
+    .post("/session/:id/message", zValidator("json", promptPayloadSchema), async (c) => {
       const id = c.req.param("id") as SessionId;
       const body = c.req.valid("json");
       try {
-        const input = deps.core.submitPrompt(id, body);
+        // Fail closed before admitting: a known model that cannot accept an
+        // attachment type rejects the whole send with a clear message.
+        const attachments = (body.attachments ?? []) as AttachmentRef[];
+        await deps.core.assertAttachmentsSupported(id, attachments);
+        const input = deps.core.submitPrompt(id, {
+          text: body.text,
+          ...(body.queue !== undefined ? { queue: body.queue } : {}),
+          ...(body.attachments !== undefined ? { attachments } : {}),
+        });
         return c.json({ input }, 202);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -420,6 +429,32 @@ function buildApi(deps: ApiDeps) {
         throw err;
       }
     })
+    // Upload ONE file into a workspace folder (web file-tree drag-and-drop),
+    // raw body + `x-file-name`. Registered-root scoped, realpath-contained,
+    // 64 MB cap, auto-renamed on collision. The written file is an ordinary
+    // workspace file — visible in the tree and the `#file` mention picker.
+    .post("/fs/upload", async (c) => {
+      const root = c.req.query("root") ?? "";
+      const dir = c.req.query("path");
+      const rawName = c.req.header("x-file-name") ?? "";
+      let name: string;
+      try {
+        name = decodeURIComponent(rawName);
+      } catch {
+        name = rawName;
+      }
+      try {
+        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        const declared = Number(c.req.header("content-length") ?? "0");
+        if (Number.isFinite(declared) && declared > FS_UPLOAD_MAX_BYTES) return c.json({ error: "file too large" }, 400);
+        const bytes = new Uint8Array(await c.req.arrayBuffer());
+        const uploaded = writeFile(root, dir, name, bytes);
+        return c.json({ uploaded }, 201);
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
     // One-segment directory-name completion for the path input (debounced
     // client-side). Directories only, capped; ~ expands to home; dotfiles
     // included only when requested (explorer's show-dotfiles toggle).
@@ -573,7 +608,41 @@ function buildApi(deps: ApiDeps) {
     .get("/asset/:id/content", (c) => {
       const asset = deps.store.assets.get(c.req.param("id"));
       if (asset === undefined) return c.json({ error: "not_found" }, 404);
-      return new Response(Bun.file(asset.path), { headers: { "Content-Type": asset.mime } });
+      return new Response(Bun.file(asset.path), {
+        headers: {
+          "Content-Type": asset.mime,
+          "Content-Length": String(asset.bytes),
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    })
+
+    // --- attachments ---
+    // Raw-byte upload for the web composer's `+` button (no multipart
+    // precedent in this codebase; the body is the file, metadata rides
+    // headers). Core classifies the type and stores bytes under <assetsDir>;
+    // the returned AttachmentRef rides the next POST /session/:id/message.
+    .post("/attachment", async (c) => {
+      const rawName = c.req.header("x-file-name") ?? "attachment";
+      const mime = c.req.header("content-type") ?? "";
+      let name: string;
+      try {
+        name = decodeURIComponent(rawName);
+      } catch {
+        name = rawName;
+      }
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await c.req.arrayBuffer());
+      } catch {
+        return c.json({ error: "failed to read upload body" }, 400);
+      }
+      try {
+        const attachment = deps.core.saveAttachment(bytes, name, mime);
+        return c.json({ attachment }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
     })
 
     // --- usage analytics (D26) ---

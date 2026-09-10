@@ -10,7 +10,11 @@ export type ContentBlock =
   /** Reasoning text — replayed natively by Anthropic, dropped by OpenAI-compat. */
   | { type: "thinking"; text: string }
   | { type: "tool_use"; callId: string; name: string; /** Raw JSON text of the arguments. */ args: string }
-  | { type: "tool_result"; callId: string; content: string; isError?: boolean };
+  | { type: "tool_result"; callId: string; content: string; isError?: boolean }
+  /** Base64 image attachment on a user turn. */
+  | { type: "image"; mediaType: string; /** base64 (no data: prefix). */ data: string }
+  /** Base64 document (PDF) attachment on a user turn. */
+  | { type: "file"; mediaType: string; /** base64 (no data: prefix). */ data: string; filename?: string };
 
 export interface OutboundMessage {
   role: Role;

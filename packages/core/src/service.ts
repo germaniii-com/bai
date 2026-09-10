@@ -7,6 +7,7 @@ import {
   type Config,
   type Event,
   type EventType,
+  type AttachmentRef,
   type Input,
   type InputId,
   type JobKind,
@@ -37,6 +38,7 @@ import {
   LEARN_AGENT_NAME,
 } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
+import { AttachmentStore } from "./attachments";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
@@ -84,6 +86,11 @@ export interface ServiceDeps {
   toolLoader: ToolLoader;
   config(): Config;
   /**
+   * Directory attachment bytes are written under
+   * (`<assetsDir>/attachment/<id>.<ext>`); a temp dir in tests.
+   */
+  assetsDir: string;
+  /**
    * Persist a config patch (ConfigStore.update — global layer file, atomic,
    * onChange broadcasts). Optional: without it the workspace.create tool
    * fails with a clear error (bare test constructors don't wire it).
@@ -118,11 +125,14 @@ export class Service {
   readonly workbenches: Workbench[];
   readonly permissions: PermissionGate;
   readonly questions: QuestionService;
+  /** Stored attachment bytes (prompt uploads + media `#mentions`). */
+  readonly attachments: AttachmentStore;
   private readonly clock: Clock;
 
   constructor(private deps: ServiceDeps) {
     this.clock = deps.clock ?? systemClock;
     this.workbenches = deps.workbenches;
+    this.attachments = new AttachmentStore({ store: deps.store, assetsDir: deps.assetsDir, clock: this.clock });
     this.permissions = new PermissionGate({
       store: deps.store,
       bus: deps.bus,
@@ -141,6 +151,7 @@ export class Service {
       agents: deps.agents,
       skills: deps.skills,
       permissions: this.permissions,
+      attachments: this.attachments,
       defaultModel: () => deps.config().models.default ?? "stub/echo",
       defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
@@ -525,6 +536,55 @@ export class Service {
     return updated ?? created;
   }
 
+  // --- attachments ---
+
+  /** Persist uploaded bytes and return the durable reference. */
+  saveAttachment(bytes: Uint8Array, name: string, mime: string): AttachmentRef {
+    return this.attachments.save(bytes, name, mime);
+  }
+
+  /** Stored asset path for a reference (attachment previews). */
+  attachmentPath(id: string): string | undefined {
+    return this.attachments.asset(id)?.path;
+  }
+
+  /**
+   * Fail-closed capability check for a batch of attachments: resolve the
+   * session's effective model and reject when the catalog explicitly omits
+   * an input modality. Catalog-less (custom) models pass — the provider
+   * surfaces its own error to the run.
+   */
+  async assertAttachmentsSupported(sessionId: SessionId, refs: readonly AttachmentRef[]): Promise<void> {
+    if (refs.length === 0) return;
+    const modelId = this.effectiveModelId(sessionId);
+    let resolved;
+    try {
+      resolved = await this.deps.providers.resolveModel(modelId);
+    } catch {
+      return; // unknown provider/model — let the run surface the real error
+    }
+    if (resolved.inputModalities === undefined) return;
+    const modalities = new Set(resolved.inputModalities);
+    for (const ref of refs) {
+      if (ref.kind === "image" && !modalities.has("image")) {
+        throw new Error(`Model ${modelId} does not support image attachments`);
+      }
+      if (ref.kind === "pdf" && !modalities.has("pdf")) {
+        throw new Error(`Model ${modelId} does not support PDF attachments`);
+      }
+    }
+  }
+
+  /** Effective model id: session meta → agent default → config default. */
+  private effectiveModelId(sessionId: SessionId): string {
+    const meta = this.deps.store.sessions.get(sessionId)?.meta as { model?: unknown; agent?: unknown } | undefined;
+    if (typeof meta?.model === "string" && meta.model.length > 0) return meta.model;
+    const metaAgent = typeof meta?.agent === "string" && meta.agent.length > 0 ? meta.agent : undefined;
+    const agentName = metaAgent ?? this.deps.config().agents?.default;
+    const agent = typeof agentName === "string" && agentName.length > 0 ? this.deps.agents.get(agentName) : undefined;
+    return agent?.model ?? this.deps.config().models.default ?? "stub/echo";
+  }
+
   // --- prompts & runs ---
 
   /** Durable admission first (crash-safe), then wake the coordinator. */
@@ -538,6 +598,7 @@ export class Service {
       sessionId,
       text: payload.text,
       queued: payload.queue ?? false,
+      ...(payload.attachments !== undefined && payload.attachments.length > 0 ? { attachments: payload.attachments } : {}),
     });
     this.coordinator.wake(sessionId);
     return input;

@@ -45,7 +45,9 @@ export interface Part {
    * interactive ask, `questions` retains answered Q&A (surfaces render both
    * as re-openable reviews in the transcript) and `workspace` links a
    * `workspace.create` result to the registered folder (surfaces render an
-   * open action on the tool node); patch →
+   * open action on the tool node); attachment → an AttachmentRef (an image
+   * or PDF attached to a user turn; bytes live on disk, lowered to provider
+   * image/document blocks by renderOutbound); patch →
    * {hash, files} — the shadow-repo tree hash BEFORE the batch of tool
    * calls ran plus the files that batch changed (revert rolls each file
    * back to its state in that hash; opencode's patch parts, same shape).
@@ -76,10 +78,37 @@ export interface Message {
   parts: Part[];
 }
 
+/**
+ * Attachment classification. Documents (pdf) and text files are only accepted
+ * for cwd-less chat sessions; workspace sessions (which have a cwd and the
+ * `#file` mention picker) accept images only.
+ */
+export type AttachmentKind = "image" | "pdf" | "text";
+
+/**
+ * A stored attachment (bytes live on disk via the asset store; this is the
+ * durable reference carried on `PromptPayload` and `attachment` parts).
+ * `kind` drives provider lowering: image → image block, pdf → document block,
+ * text → read into the turn as `<file>` context.
+ */
+export interface AttachmentRef {
+  /** Asset id of the stored bytes. */
+  id: AssetId;
+  /** Original filename (display + `<file>` path). */
+  name: string;
+  /** Sanitized MIME type (image/png, application/pdf, text/plain, …). */
+  mime: string;
+  /** Byte size at upload. */
+  bytes: number;
+  kind: AttachmentKind;
+}
+
 export interface PromptPayload {
   text: string;
   /** true → wait until idle instead of steering mid-run. */
   queue?: boolean;
+  /** Files attached to this prompt (stored assets; see AttachmentRef). */
+  attachments?: AttachmentRef[];
 }
 
 export interface Input {
@@ -240,4 +269,8 @@ export interface ModelInfo {
   outputCost?: number;
   /** Model emits reasoning tokens (models.dev); bai enables thinking for it. */
   reasoning?: boolean;
+  /** models.dev `attachment` flag — the model accepts file attachments. */
+  supportsAttachments?: boolean;
+  /** models.dev input modalities (e.g. ["text","image","pdf"]) when known. */
+  inputModalities?: string[];
 }

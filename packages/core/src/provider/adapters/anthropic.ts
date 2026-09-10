@@ -7,7 +7,9 @@ const DEFAULT_MAX_TOKENS = 4096;
 type AnthropicBlock =
   | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: [{ type: "text"; text: string }]; is_error?: boolean };
+  | { type: "tool_result"; tool_use_id: string; content: [{ type: "text"; text: string }]; is_error?: boolean }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
 
 type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
 
@@ -37,6 +39,11 @@ export function toAnthropicMessages(messages: OutboundMessage[]): AnthropicMessa
             content: [{ type: "text", text: block.content }],
             ...(block.isError === true ? { is_error: true } : {}),
           });
+        } else if (block.type === "image") {
+          blocks.push({ type: "image", source: { type: "base64", media_type: block.mediaType, data: block.data } });
+        } else if (block.type === "file") {
+          // bai only attaches PDFs as provider documents.
+          blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: block.data } });
         }
         // thinking: dropped (see doc comment)
       }
@@ -123,7 +130,9 @@ export class AnthropicProvider implements Provider {
       {
         model: req.model,
         max_tokens: maxTokens,
-        messages: bodyMessages,
+        // Media blocks carry `media_type: string` locally; the SDK expects its
+        // literal union — the registry only ever passes canonical MIME types.
+        messages: bodyMessages as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]>["messages"],
         ...(system !== undefined ? { system } : {}),
         ...(thinking !== undefined ? { thinking } : {}),
         ...(apiTools !== undefined && apiTools.length > 0 ? { tools: apiTools } : {}),

@@ -81,6 +81,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     updateConfig: (patch) => (config = deepMerge(config, patch)),
     version: "test",
     plansDir: join(dir, "plans"),
+    assetsDir: join(dir, "assets"),
   });
   const deps: ApiDeps = {
     core,

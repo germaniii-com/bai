@@ -56,7 +56,10 @@ export function buildSummaryInput(messages: Message[], maxResultChars = 2000): s
         .map((p) => textOf(p))
         .filter((t) => t.length > 0)
         .join("\n");
-      if (text.length > 0) lines.push(`[User]: ${clip(text, 4000)}`);
+      const attached = message.parts
+        .map((p) => (p.payload as { name?: unknown } | null)?.name)
+        .filter((n): n is string => typeof n === "string" && n.length > 0);
+      if (text.length > 0) lines.push(`[User]: ${clip(text, 4000)}${attached.length > 0 ? ` [attached: ${attached.join(", ")}]` : ""}`);
       continue;
     }
     if (message.role !== "assistant") continue;
@@ -84,12 +87,17 @@ export function buildSummaryInput(messages: Message[], maxResultChars = 2000): s
 export function fileRefAppendix(messages: Message[]): string {
   const read = new Set<string>();
   const modified = new Set<string>();
+  const attached = new Set<string>();
   const calls: Array<{ name: string; args: string }> = [];
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.kind === "file") {
         const payload = part.payload as { path?: unknown } | null;
         if (typeof payload?.path === "string" && payload.path.length > 0) read.add(payload.path);
+      }
+      if (part.kind === "attachment") {
+        const payload = part.payload as { name?: unknown } | null;
+        if (typeof payload?.name === "string" && payload.name.length > 0) attached.add(payload.name);
       }
       if (part.kind === "tool_call" && isToolCallPayload(part.payload)) calls.push({ name: part.payload.name, args: part.payload.args });
     }
@@ -109,6 +117,7 @@ export function fileRefAppendix(messages: Message[]): string {
   const sections: string[] = [];
   if (read.size > 0) sections.push(`<read-files>\n${[...read].sort().join("\n")}\n</read-files>`);
   if (modified.size > 0) sections.push(`<modified-files>\n${[...modified].sort().join("\n")}\n</modified-files>`);
+  if (attached.size > 0) sections.push(`<attached-files>\n${[...attached].sort().join("\n")}\n</attached-files>`);
   return sections.join("\n");
 }
 

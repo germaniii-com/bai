@@ -25,6 +25,10 @@ export interface ResolvedModel {
   reasoning: boolean;
   /** Catalog context window (tokens) when known — compaction triggers key on it. */
   contextWindow?: number;
+  /** models.dev attachment flag (unknown for custom/catalog-less models). */
+  supportsAttachments?: boolean;
+  /** models.dev input modalities when known (["text","image","pdf",…]). */
+  inputModalities?: string[];
 }
 
 export interface ResolvedCredentials {
@@ -112,6 +116,8 @@ export class ProviderRegistry {
       model,
       reasoning,
       ...(info?.contextWindow !== undefined ? { contextWindow: info.contextWindow } : {}),
+      ...(info?.attachment !== undefined ? { supportsAttachments: info.attachment } : {}),
+      ...(info?.inputModalities !== undefined ? { inputModalities: info.inputModalities } : {}),
     };
   }
 
@@ -386,6 +392,8 @@ function catalogModels(providerId: string, entry: CatalogProvider): ModelInfo[] 
     ...(m.inputCost !== undefined ? { inputCost: m.inputCost } : {}),
     ...(m.outputCost !== undefined ? { outputCost: m.outputCost } : {}),
     ...(m.reasoning ? { reasoning: true } : {}),
+    ...(m.attachment !== undefined ? { supportsAttachments: m.attachment } : {}),
+    ...(m.inputModalities !== undefined ? { inputModalities: m.inputModalities } : {}),
   }));
 }
 

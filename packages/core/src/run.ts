@@ -1,11 +1,12 @@
-import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
+import type { AttachmentStore } from "./attachments";
 import { applyDiscipline } from "./context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
-import { renderOutbound, isToolCallPayload } from "./run/history";
-import { expandMentions } from "./run/mentions";
+import { renderOutbound, isToolCallPayload, isAttachmentPayload, type ResolvedAttachment } from "./run/history";
+import { expandMentions, renderTextContent } from "./run/mentions";
 import { buildEnvBlock } from "./run/env";
 import { buildSkillsBlock } from "./run/skills";
 import type { SkillRegistry } from "./skills/registry";
@@ -67,6 +68,8 @@ export interface RunCoordinatorDeps {
   /** File-defined skills — the system prompt's `## Skills` index source. */
   skills: SkillRegistry;
   permissions: PermissionGate;
+  /** Stored attachment bytes (uploads + media `#mentions`). */
+  attachments: AttachmentStore;
   /** Resolves the effective default model id, e.g. "stub/echo". */
   defaultModel(): string;
   /** Configured default agent name (config agents.default), when set. */
@@ -323,7 +326,7 @@ export class RunCoordinator {
           if (idx >= 0) history = history.slice(idx); // the summary leads as a user message
         }
         applyDiscipline(history);
-        const outbound = renderOutbound(history, { system });
+        const outbound = renderOutbound(history, { system, resolveAttachment: (part) => this.resolveAttachment(part) });
 
         // Auto-retry transient pre-stream API failures (429/408/5xx/network):
         // up to MAX_API_RETRIES total attempts, honoring Retry-After when the
@@ -502,11 +505,23 @@ export class RunCoordinator {
       });
       // `#file[:from-to]` mentions become `file` parts carrying the read
       // context — the visible text keeps the token, renderOutbound injects the
-      // numbered slice. Expansion never throws (failures become error blocks).
+      // numbered slice. Image mentions become `attachment` parts backed by the
+      // asset store. Expansion never throws.
+      let ord = 1;
       if (input.payload.text.includes("#")) {
         const { blocks } = expandMentions(input.payload.text, cwd, roots);
-        let ord = 1;
         for (const block of blocks) {
+          if (block.media !== undefined && block.data !== undefined) {
+            const ref = this.deps.attachments.save(block.data, block.path, block.media.mime);
+            const mediaPart = this.deps.store.parts.append(message.id, ord++, "attachment", ref);
+            this.emitDurable(sessionId, "message.part.updated", {
+              messageId: message.id,
+              partId: mediaPart.id,
+              kind: "attachment",
+              payload: ref,
+            });
+            continue;
+          }
           const payload = {
             path: block.path,
             ...(block.from !== undefined ? { from: block.from } : {}),
@@ -523,8 +538,54 @@ export class RunCoordinator {
           });
         }
       }
+      // Explicit attachments (web `+` uploads): text becomes read context,
+      // images/PDF become durable attachment parts referencing stored bytes.
+      for (const ref of input.payload.attachments ?? []) {
+        if (ref.kind === "text") {
+          const data = this.deps.attachments.data(ref.id);
+          const payload = {
+            path: ref.name,
+            assetId: ref.id,
+            mime: ref.mime,
+            content: data !== undefined ? renderTextContent(data) : `Unable to read attachment: ${ref.name}`,
+            ...(data === undefined ? { error: true } : {}),
+          };
+          const filePart = this.deps.store.parts.append(message.id, ord++, "file", payload);
+          this.emitDurable(sessionId, "message.part.updated", {
+            messageId: message.id,
+            partId: filePart.id,
+            kind: "file",
+            payload,
+          });
+        } else {
+          const payload = { ...ref };
+          const mediaPart = this.deps.store.parts.append(message.id, ord++, "attachment", payload);
+          this.emitDurable(sessionId, "message.part.updated", {
+            messageId: message.id,
+            partId: mediaPart.id,
+            kind: "attachment",
+            payload,
+          });
+        }
+      }
       this.emitDurable(sessionId, "input.promoted", { inputId: input.id, sessionId });
     }
+  }
+
+  /**
+   * Resolve an `attachment` part to base64 for provider lowering. Media bytes
+   * live on disk (asset store); a missing asset resolves `undefined`, which
+   * `renderOutbound` turns into a short omission note rather than a crash.
+   */
+  private resolveAttachment(part: Part): ResolvedAttachment | undefined {
+    if (!isAttachmentPayload(part.payload)) return undefined;
+    const data = this.deps.attachments.data(part.payload.id);
+    if (data === undefined) return undefined;
+    return {
+      mediaType: part.payload.mime,
+      data: Buffer.from(data).toString("base64"),
+      ...(part.payload.kind === "pdf" ? { filename: part.payload.name } : {}),
+    };
   }
 
   /**

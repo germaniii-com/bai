@@ -161,9 +161,44 @@ function oneLine(text: string, cap: number): string {
   return flat.length > cap ? `${flat.slice(0, cap)}…` : flat;
 }
 
+/** Newest user messages whose attachments are re-sent to the provider. */
+export const KEEP_ATTACHMENT_TURNS = 3;
+
+/**
+ * Bound attachment token cost: only the newest {@link KEEP_ATTACHMENT_TURNS}
+ * user messages that carry attachments keep their media — older `attachment`
+ * parts are stubbed to `{omitted:true,name}` (renderOutbound emits a one-line
+ * note). The durable transcript is untouched (discipline mutates the history
+ * copy only), so surfaces still show the original attachment.
+ */
+export function pruneOldAttachments(messages: Message[], keepUserTurns = KEEP_ATTACHMENT_TURNS): Message[] {
+  const withAttachments: Message[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message === undefined || message.role !== "user") continue;
+    if (message.parts.some((p) => p.kind === "attachment")) withAttachments.push(message);
+  }
+  if (withAttachments.length <= keepUserTurns) return messages;
+  const drop = new Set(withAttachments.slice(keepUserTurns).map((m) => m.id));
+  for (const message of messages) {
+    if (!drop.has(message.id)) continue;
+    for (const part of message.parts) {
+      if (part.kind !== "attachment") continue;
+      const payload = part.payload as { name?: unknown; kind?: unknown } | null;
+      part.payload = {
+        omitted: true,
+        name: typeof payload?.name === "string" ? payload.name : "file",
+        ...(typeof payload?.kind === "string" ? { kind: payload.kind } : {}),
+      };
+    }
+  }
+  return messages;
+}
+
 /** Run the full discipline pipeline (order matters: dedup before prune). */
 export function applyDiscipline(messages: Message[]): Message[] {
   stubIdenticalResults(messages);
   pruneOldToolResults(messages);
+  pruneOldAttachments(messages);
   return messages;
 }

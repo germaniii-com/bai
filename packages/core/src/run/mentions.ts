@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { parseMentions } from "@bai/shared";
+import { capFor, mediaFromName } from "../attachments";
 import { looksBinary, resolveInRoots } from "../tools/fs-guard";
 
 /**
@@ -26,6 +27,13 @@ export interface MentionBlock {
   content: string;
   /** True when resolution/read failed — `content` carries the message. */
   error?: boolean;
+  /**
+   * Present when the mention is provider-supported media (image or PDF):
+   * bytes ride `data` (transient — promotion stores them as an attachment).
+   */
+  media?: { kind: "image" | "pdf"; mime: string };
+  /** Raw bytes for a media mention (consumed at promotion; never persisted). */
+  data?: Uint8Array;
 }
 
 export interface MentionExpansion {
@@ -86,6 +94,23 @@ function readBlock(
     return { path: displayPath, content: entries.join("\n") };
   }
   if (!stat.isFile()) return { ...base, error: true, content: `Not a file: ${abs}` };
+
+  // Media mentions (images / PDF) attach as provider content instead of text.
+  const media = mediaFromName(abs);
+  if (media !== undefined) {
+    const cap = capFor(media.kind);
+    if (stat.size > cap) {
+      return { ...base, error: true, content: `File too large to attach (${stat.size} bytes, cap ${cap}).` };
+    }
+    let buf: Buffer;
+    try {
+      buf = readFileSync(abs);
+    } catch (err) {
+      return { ...base, error: true, content: err instanceof Error ? err.message : String(err) };
+    }
+    return { path: displayPath, content: "", media, data: buf };
+  }
+
   if (stat.size > READ_FILE_BYTES) {
     return { ...base, error: true, content: `File too large to attach (${stat.size} bytes, cap ${READ_FILE_BYTES}).` };
   }
@@ -97,11 +122,24 @@ function readBlock(
   }
   if (looksBinary(buf)) return { ...base, error: true, content: `Cannot attach a binary file: ${abs}` };
 
-  const allLines = buf.toString("utf8").split("\n");
+  return {
+    path: displayPath,
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+    content: renderTextContent(buf, from, to),
+  };
+}
+
+/**
+ * Numbered line slice for a text buffer — shared by `#mention` expansion and
+ * text-file attachments at promotion. Mirrors fs.read's caps.
+ */
+export function renderTextContent(buf: Uint8Array, from?: number, to?: number): string {
+  const allLines = Buffer.from(buf).toString("utf8").split("\n");
   const total = allLines.length;
   const start = Math.max(1, Math.floor(from ?? 1));
   if (start > total && !(total === 0 && start === 1)) {
-    return { ...base, error: true, content: `Line ${start} is past the end of ${abs} (${total} lines).` };
+    return `Line ${start} is past the end of the file (${total} lines).`;
   }
   const requested = to !== undefined ? Math.max(1, to - start + 1) : READ_LINE_CAP;
   const maxLines = Math.min(READ_LINE_CAP, requested);
@@ -111,10 +149,5 @@ function readBlock(
   const numbered = slice.map((line, i) => `${start + i}: ${line}`).join("\n");
   const last = start + slice.length - 1;
   const suffix = last < total ? `\n(Showing lines ${start}-${last} of ${total}.)` : "";
-  return {
-    path: displayPath,
-    ...(from !== undefined ? { from } : {}),
-    ...(to !== undefined ? { to } : {}),
-    content: numbered + suffix,
-  };
+  return numbered + suffix;
 }

@@ -155,6 +155,66 @@ describe("openai adapter mapping", () => {
   });
 });
 
+describe("attachment lowering", () => {
+  test("renderOutbound resolves attachment parts via the resolver", () => {
+    const message = msg("user", [
+      part(0, "text", { text: "look" }),
+      part(1, "attachment", { id: "ast_1", name: "p.png", mime: "image/png", bytes: 3, kind: "image" }),
+    ]);
+    const out = renderOutbound([message], { resolveAttachment: () => ({ mediaType: "image/png", data: "AAA" }) });
+    expect(out[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "look" },
+        { type: "image", mediaType: "image/png", data: "AAA" },
+      ],
+    });
+  });
+
+  test("an unresolved attachment becomes an omission note", () => {
+    const message = msg("user", [part(0, "attachment", { id: "ast_1", name: "p.png", mime: "image/png", bytes: 3, kind: "image" })]);
+    const out = renderOutbound([message]);
+    expect(out[0]?.content).toContain("[attachment omitted: p.png]");
+  });
+
+  test("anthropic lowers image + pdf document blocks", () => {
+    const out = toAnthropicMessages([
+      {
+        role: "user",
+        content: [
+          { type: "image", mediaType: "image/png", data: "AAA" },
+          { type: "file", mediaType: "application/pdf", data: "BBB", filename: "d.pdf" },
+        ],
+      },
+    ]);
+    expect(out[0]?.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AAA" } },
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "BBB" } },
+    ]);
+  });
+
+  test("openai lowers image_url + file parts", () => {
+    const out = toOpenAiMessages([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "see" },
+          { type: "image", mediaType: "image/png", data: "AAA" },
+          { type: "file", mediaType: "application/pdf", data: "BBB", filename: "d.pdf" },
+        ],
+      },
+    ]);
+    expect(out[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "see" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAA" } },
+        { type: "file", file: { file_data: "data:application/pdf;base64,BBB", filename: "d.pdf" } },
+      ],
+    });
+  });
+});
+
 describe("OpenAiToolCallAccumulator (streaming tool-call grouping)", () => {
   test("proper server: stable index, id/name only on the first chunk", () => {
     const acc = new OpenAiToolCallAccumulator();

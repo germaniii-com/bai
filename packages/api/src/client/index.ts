@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import type {
   AgentInfo,
+  AttachmentRef,
   Config,
   ConfigPatch,
   CreateSessionBody,
@@ -126,12 +127,38 @@ export class BaiClient {
     return res.json();
   }
 
-  async submitPrompt(id: string, body: { text: string; queue?: boolean }): Promise<void> {
+  async submitPrompt(id: string, body: { text: string; queue?: boolean; attachments?: AttachmentRef[] }): Promise<void> {
     const res = await this.rpc().session[":id"].message.$post({
       param: { id: encodeURIComponent(id) },
       json: body,
     });
-    if (!res.ok) throw new Error(`submit failed: ${res.status}`);
+    if (!res.ok) throw new Error(await errorMessage(res, `submit failed: ${res.status}`));
+  }
+
+  /**
+   * Upload raw file bytes for the web composer's `+` button. Metadata rides
+   * headers (name + content-type); the server classifies and stores. Returns
+   * the durable reference to include on the next submitPrompt.
+   */
+  async uploadAttachment(file: { name: string; mime: string; bytes: Blob | Uint8Array }): Promise<AttachmentRef> {
+    const res = await fetch(this.url("/api/attachment"), {
+      method: "POST",
+      headers: {
+        ...this.headers,
+        "content-type": file.mime.length > 0 ? file.mime : "application/octet-stream",
+        "x-file-name": encodeURIComponent(file.name),
+      },
+      body: file.bytes as unknown as RequestInit["body"],
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `upload failed: ${res.status}`));
+    return ((await res.json()) as { attachment: AttachmentRef }).attachment;
+  }
+
+  /** Fetch stored attachment bytes (raw Response; caller builds an object URL). */
+  async assetContent(id: string): Promise<Response> {
+    const res = await fetch(this.url(`/api/asset/${encodeURIComponent(id)}/content`), { headers: this.headers });
+    if (!res.ok) throw new Error(`asset fetch failed: ${res.status}`);
+    return res;
   }
 
   /**
@@ -263,6 +290,30 @@ export class BaiClient {
     // The runtime object is a real fetch Response; Hono's typed wrapper
     // just isn't structurally assignable to it.
     return res as unknown as Response;
+  }
+
+  /**
+   * Upload ONE file into a workspace folder (the file tree's drag-and-drop
+   * target). The server writes it into the folder, auto-renaming on collision,
+   * and returns the absolute path. Throws with the server's plain message.
+   */
+  async uploadWorkspaceFile(
+    root: string,
+    dir: string,
+    file: { name: string; bytes: Blob | Uint8Array },
+  ): Promise<{ path: string; name: string; bytes: number }> {
+    const params = new URLSearchParams(dir.length > 0 ? { root, path: dir } : { root });
+    const res = await fetch(this.url(`/api/fs/upload?${params.toString()}`), {
+      method: "POST",
+      headers: {
+        ...this.headers,
+        "content-type": "application/octet-stream",
+        "x-file-name": encodeURIComponent(file.name),
+      },
+      body: file.bytes as unknown as RequestInit["body"],
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `upload failed: ${res.status}`));
+    return ((await res.json()) as { uploaded: { path: string; name: string; bytes: number } }).uploaded;
   }
 
   /**
@@ -762,4 +813,15 @@ export async function followSession(
       await new Promise((r) => setTimeout(r, 500));
     }
   }
+}
+
+/** Prefer the server's `{error}` message; fall back to the status line. */
+async function errorMessage(res: { json(): Promise<unknown> }, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.length > 0) return body.error;
+  } catch {
+    // non-JSON error body
+  }
+  return fallback;
 }

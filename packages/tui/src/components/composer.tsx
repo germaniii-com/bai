@@ -58,7 +58,7 @@ export function ComposerHub({
   const commands =
     mode === "input"
       ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word`
-      : `${queuedHint}${runActive ? "esc stop · " : ""}${mentionEnabled ? "# files · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
+      : `${queuedHint}${runActive ? "esc stop · " : ""}${mentionEnabled ? "# files/img · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
   const contextColor = context === undefined ? undefined : context.tone === "danger" ? t.danger : context.tone === "warning" ? t.warning : t.dim;
   return (
     <Box

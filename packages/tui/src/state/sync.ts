@@ -96,6 +96,22 @@ export function messageText(message: Message): string {
 }
 
 /**
+ * Compact markers for a message's image attachments — the TUI has no image
+ * rendering, so each `attachment` part becomes `[image: name]`
+ * (`[omitted: name]` once context discipline has dropped its bytes).
+ */
+export function attachmentMarkers(message: Message): string[] {
+  return message.parts
+    .filter((p) => p.kind === "attachment")
+    .map((p) => {
+      const payload = p.payload as { name?: unknown; kind?: unknown; omitted?: unknown } | null;
+      const name = typeof payload?.name === "string" ? payload.name : "file";
+      const kind = typeof payload?.kind === "string" ? payload.kind : "file";
+      return `[${payload?.omitted === true ? "omitted" : kind}: ${name}]`;
+    });
+}
+
+/**
  * The pending two-phase revert boundary of a session (`meta.revert.messageId`)
  * when one exists — the transcript hides that message and everything after it
  * until restore or the next prompt commits the deletion.

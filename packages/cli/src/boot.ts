@@ -200,6 +200,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     updateConfig: (patch) => configStore.update(patch),
     version: VERSION,
     plansDir: path.join(configDir(), "plans"),
+    assetsDir: assetsDir(),
     snapshot: new Snapshot(snapshotDir(dataDir())),
   });
   coreRef = core;

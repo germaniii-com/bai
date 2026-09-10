@@ -37,8 +37,9 @@ export interface ToolResultPayload {
 
 /**
  * Payload shape of a persisted `file` part — the attached read context for a
- * `#file[:from-to]` mention (written by `appendPromotedInputs`). `content` is
- * the numbered line slice, a directory listing, or an error message.
+ * `#file[:from-to]` mention or a text attachment (written by
+ * `appendPromotedInputs`). `content` is the numbered line slice, a directory
+ * listing, or an error message.
  */
 export interface FilePartPayload {
   path: string;
@@ -46,6 +47,39 @@ export interface FilePartPayload {
   to?: number;
   content: string;
   error?: boolean;
+  /** Set for text attachments: the stored asset backing this read context. */
+  assetId?: string;
+  mime?: string;
+}
+
+/** Payload shape of a persisted `attachment` part (image or PDF). */
+export interface AttachmentPartPayload {
+  id: string;
+  name: string;
+  mime: string;
+  bytes: number;
+  kind: "image" | "pdf";
+}
+
+export function isAttachmentPayload(payload: unknown): payload is AttachmentPartPayload {
+  const p = payload as AttachmentPartPayload | null;
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof p?.id === "string" &&
+    typeof p.name === "string" &&
+    typeof p.mime === "string" &&
+    (p.kind === "image" || p.kind === "pdf")
+  );
+}
+
+/** Resolved attachment bytes (base64) for one provider message. */
+export interface ResolvedAttachment {
+  mediaType: string;
+  /** base64, no `data:` prefix. */
+  data: string;
+  /** PDF display filename (OpenAI `file` parts). */
+  filename?: string;
 }
 
 export function isToolCallPayload(payload: unknown): payload is ToolCallPayload {
@@ -56,7 +90,10 @@ export function isToolResultPayload(payload: unknown): payload is ToolResultPayl
   return typeof payload === "object" && payload !== null && typeof (payload as ToolResultPayload).callId === "string" && typeof (payload as ToolResultPayload).content === "string";
 }
 
-export function renderOutbound(messages: Message[], opts: { system?: string[] } = {}): OutboundMessage[] {
+export function renderOutbound(
+  messages: Message[],
+  opts: { system?: string[]; resolveAttachment?: (part: Part) => ResolvedAttachment | undefined } = {},
+): OutboundMessage[] {
   const out: OutboundMessage[] = [];
 
   const system = (opts.system ?? []).filter((s) => s.trim().length > 0);
@@ -71,12 +108,41 @@ export function renderOutbound(messages: Message[], opts: { system?: string[] } 
         .map((p) => textOf(p))
         .filter((t) => t.length > 0)
         .join("\n");
-      const blocks = message.parts
-        .filter((p) => p.kind === "file")
-        .map((p) => renderFileBlock(p))
-        .filter((b): b is string => b.length > 0);
-      const content = [text, ...blocks].filter((s) => s.length > 0).join("\n\n");
-      if (content.length > 0) out.push({ role: "user", content });
+      const extra: string[] = [];
+      const media: ContentBlock[] = [];
+      for (const part of message.parts) {
+        if (part.kind === "file") {
+          const block = renderFileBlock(part);
+          if (block.length > 0) extra.push(block);
+        } else if (part.kind === "attachment") {
+          if (isAttachmentPayload(part.payload)) {
+            const resolved = opts.resolveAttachment?.(part);
+            if (resolved !== undefined) {
+              media.push(
+                part.payload.kind === "image"
+                  ? { type: "image", mediaType: resolved.mediaType, data: resolved.data }
+                  : { type: "file", mediaType: resolved.mediaType, data: resolved.data, ...(resolved.filename !== undefined ? { filename: resolved.filename } : {}) },
+              );
+            } else {
+              extra.push(`[attachment omitted: ${part.payload.name}]`);
+            }
+          } else {
+            // Discipline-stubbed attachment (older than the retention window).
+            const p = part.payload as { omitted?: unknown; name?: unknown } | null;
+            if (p?.omitted === true) extra.push(`[attachment omitted: ${typeof p.name === "string" ? p.name : "file"}]`);
+          }
+        }
+      }
+      if (media.length === 0) {
+        const content = [text, ...extra].filter((s) => s.length > 0).join("\n\n");
+        if (content.length > 0) out.push({ role: "user", content });
+        continue;
+      }
+      const content: ContentBlock[] = [];
+      const joined = [text, ...extra].filter((s) => s.length > 0).join("\n\n");
+      if (joined.length > 0) content.push({ type: "text", text: joined });
+      content.push(...media);
+      out.push({ role: "user", content });
       continue;
     }
     if (message.role !== "assistant") continue;

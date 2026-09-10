@@ -142,6 +142,7 @@ export function makeCore(): TestCore {
     homeDir: () => join(dir, "home"),
     version: "test",
     plansDir: join(dir, "plans"),
+    assetsDir: join(dir, "assets"),
     // Shadow-repo snapshots (revert's file rollback) — under the throwaway
     // data dir; sessions without a cwd never touch it.
     snapshot: new Snapshot(join(dir, "snapshot")),

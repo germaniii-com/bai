@@ -1,7 +1,8 @@
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
+  clearFindCache,
   createFolder,
   expandHomeInput,
   findFiles,
@@ -147,6 +148,64 @@ export function listDir(root: string, sub?: string): FsListing {
 /** Preview size caps: text (Monaco) files vs media (image/pdf/video) files. */
 export const FS_TEXT_MAX_BYTES = 1024 * 1024; // 1 MB
 export const FS_MEDIA_MAX_BYTES = 64 * 1024 * 1024; // 64 MB
+
+/** Workspace drag-and-drop upload cap (matches the media preview cap). */
+export const FS_UPLOAD_MAX_BYTES = 64 * 1024 * 1024; // 64 MB
+
+export interface UploadedFile {
+  /** Absolute path of the written file (the tree/viewer use absolute paths). */
+  path: string;
+  /** Final name — auto-renamed `stem (n).ext` on collision. */
+  name: string;
+  bytes: number;
+}
+
+/**
+ * Write ONE uploaded file into a directory inside `root` (the web file tree's
+ * drag-and-drop target). Same realpath containment as listDir/readFile; the
+ * name must be a bare basename (no separators, no `.`/`..`). An existing name
+ * is auto-renamed so nothing is overwritten, and the mention finder's walk
+ * cache for the root is dropped so the file is immediately `#file`-able.
+ */
+export function writeFile(root: string, dir: string | undefined, name: string, bytes: Uint8Array): UploadedFile {
+  if (root.length === 0) throw new FsError("root is required");
+  const resolvedRoot = toReal(root);
+  // Relative `dir` resolves against the root (same convention as listDir).
+  const targetDir = dir === undefined || dir.length === 0 ? resolvedRoot : toReal(path.resolve(resolvedRoot, dir));
+  const rel = path.relative(resolvedRoot, targetDir);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new FsError("path escapes the workspace root");
+
+  let stat;
+  try {
+    stat = statSync(targetDir);
+  } catch (err) {
+    throw ioError(err, "path not found");
+  }
+  if (!stat.isDirectory()) throw new FsError("path is not a directory");
+
+  const safeName = name.trim();
+  if (safeName.length === 0 || safeName === "." || safeName === ".." || safeName.includes("/") || safeName.includes("\\") || safeName.includes("\u0000")) {
+    throw new FsError("invalid file name");
+  }
+  if (bytes.byteLength > FS_UPLOAD_MAX_BYTES) throw new FsError("file too large");
+
+  const ext = path.extname(safeName);
+  const stem = ext.length > 0 ? safeName.slice(0, -ext.length) : safeName;
+  let finalName = safeName;
+  let target = path.join(targetDir, finalName);
+  for (let i = 1; existsSync(target); i++) {
+    if (i > 9999) throw new FsError("too many files with this name");
+    finalName = `${stem} (${i})${ext}`;
+    target = path.join(targetDir, finalName);
+  }
+  try {
+    writeFileSync(target, bytes);
+  } catch (err) {
+    throw ioError(err, "cannot write file");
+  }
+  clearFindCache(resolvedRoot);
+  return { path: target, name: finalName, bytes: bytes.byteLength };
+}
 
 /**
  * Mime types worth previewing as media (image / pdf / video), by extension.
