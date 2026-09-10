@@ -84,6 +84,6 @@ describe("theme CSS blocks", () => {
     expect(css).toContain("--font-sans:");
     expect(css).toContain("--font-mono:");
     expect(css).toMatch(/button:focus-visible[\s\S]*outline: 3px solid/);
-    expect(css).toContain(".icon-button::after");
+    expect(css).toContain(".app-tooltip");
   });
 });

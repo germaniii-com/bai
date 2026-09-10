@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Cpu } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
@@ -59,8 +59,9 @@ export function ModelPicker({
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-label={`model: ${current}${accountSuffix}`}
+        data-tooltip={`Model: ${current}${accountSuffix}`}
       >
-        <span className="dim">model</span>
+        <Cpu size={13} aria-hidden="true" />
         <span className="model-current">
           {current}
           {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}

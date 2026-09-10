@@ -184,16 +184,12 @@ select:focus-visible,
 .icon-button:hover,
 .icon-button:focus-visible { color: var(--text); background: var(--panel); }
 .icon-button:disabled { opacity: .45; cursor: default; }
-.icon-button::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translate(-50%, 2px);
-  opacity: 0;
-  pointer-events: none;
-  white-space: nowrap;
-  z-index: 20;
+/* Global tooltip layer (web/src/tooltip.tsx) — fixed to the viewport, so it
+   is never clipped by scroll/overflow ancestors, and above everything. */
+.app-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(320px, calc(100vw - 16px));
   padding: 4px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -202,9 +198,10 @@ select:focus-visible,
   font-size: var(--text-meta);
   line-height: var(--leading-tight);
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  pointer-events: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.icon-button:hover::after,
-.icon-button:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 
 @media (pointer: coarse) {
   .icon-button { min-width: 44px; min-height: 44px; }
@@ -1895,6 +1892,12 @@ select:focus-visible,
   align-items: center;
   justify-content: center;
   padding: 0 10px;
+}
+
+/* Icon-only send button (square, matching the lg control height). */
+.send-button {
+  padding: 0;
+  width: var(--control-h-lg);
 }
 
 /* The `#file` mention popover — sits above the input row (its position in

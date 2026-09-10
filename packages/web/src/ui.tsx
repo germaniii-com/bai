@@ -18,7 +18,6 @@ export function IconButton({
       type={props.type ?? "button"}
       className={`icon-button ${className}`.trim()}
       aria-label={label}
-      title={hint}
       data-tooltip={hint}
     >
       {children}

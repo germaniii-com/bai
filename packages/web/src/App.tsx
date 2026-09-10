@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -25,6 +25,7 @@ import { AnalyticsPane } from "./analytics";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
+import { TooltipLayer } from "./tooltip";
 import { ListItem, NavItem } from "./components";
 
 /**
@@ -1316,7 +1317,7 @@ export function App() {
             {/* Draft state: no session row exists until the first message is
                 sent (submit() creates it) — opencode's new-chat pattern. */}
             <button className="new-session" onClick={() => pushRoute({ section: "chat", sessionId: null })}>
-              + new session
+              + New session
             </button>
             <nav className="session-list">
               {sessions.filter((s) => s.meta.parent === undefined).map((s) => (
@@ -1372,7 +1373,7 @@ export function App() {
                 pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null })
               }
             >
-              + new session
+              + New session
             </button>
             <nav className="session-list">
               {workspaceSessions.length === 0 && (
@@ -1383,6 +1384,7 @@ export function App() {
                   key={s.id}
                   accentBar
                   title={s.title.length > 0 ? s.title : "(untitled)"}
+                  hint={s.title.length > 0 ? s.title : "Untitled session"}
                   selected={active?.id === s.id}
                   onClick={() =>
                     pushRoute(
@@ -1630,6 +1632,9 @@ export function App() {
 
       {/* Agents/tools mutation feedback — bottom-right toast. */}
       <Toast notice={notice} onDismiss={() => setNotice(null)} />
+
+      {/* One fixed-position tooltip for every `[data-tooltip]` control. */}
+      <TooltipLayer />
     </div>
     </ThemeProvider>
   );
@@ -1675,7 +1680,7 @@ function MasterNav({
         <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" disabled onClick={() => onNavigate("video")} />
         {/* Workbenches above the line, agent machinery below it. */}
         <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
-        <NavItem icon={<Cpu className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
+        <NavItem icon={<Bot className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
         <NavItem icon={<Wrench className="nav-icon" aria-hidden="true" />} label="Tools" active={section === "tools"} onClick={() => onNavigate("tools")} />
         <NavItem icon={<Zap className="nav-icon" aria-hidden="true" />} label="Skills" active={section === "skills"} onClick={() => onNavigate("skills")} />
         <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />

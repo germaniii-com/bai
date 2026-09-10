@@ -7,8 +7,8 @@ import type { ReactNode } from "react";
  * slot (check/badge). Selection: background, plus the nav-style inset
  * accent bar when `accentBar` is set.
  *
- * The HTML `title` tooltip attribute is intentionally omitted from props —
- * pass `hint` if a native tooltip is needed.
+ * The native `title` attribute is intentionally omitted from props — pass
+ * `hint` for a hover hint (rendered by the global tooltip layer).
  */
 export function ListItem({
   title,
@@ -37,7 +37,7 @@ export function ListItem({
   inline?: boolean;
   disabled?: boolean;
   onClick?: () => void;
-  /** Native tooltip (e.g. a full path on a truncated row). */
+  /** Hover hint (e.g. a full path on a truncated row). */
   hint?: string;
   className?: string;
   ariaCurrent?: "page";
@@ -58,7 +58,7 @@ export function ListItem({
       disabled={disabled}
       onClick={onClick}
       aria-current={ariaCurrent}
-      title={hint}
+      data-tooltip={hint}
       {...rest}
     >
       <span className="li-head">

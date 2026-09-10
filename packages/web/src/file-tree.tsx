@@ -182,7 +182,7 @@ export function FileTree({
               type="button"
               className="file-tree-upload"
               aria-label="Upload files to the workspace root"
-              title="Upload files to the workspace root"
+              data-tooltip="Upload files to the workspace root"
               onClick={() => uploadInputRef.current?.click()}
             >
               <Upload size={14} aria-hidden="true" />
@@ -289,6 +289,7 @@ function DirEntries({
                 inline
                 icon={<FolderIcon open={isOpen} />}
                 title={entry.name}
+                hint={path}
                 onClick={() => onToggle(path)}
                 className={dropDir === path ? "drop-target" : undefined}
                 onDragOver={(e) => dragOver(path, e)}

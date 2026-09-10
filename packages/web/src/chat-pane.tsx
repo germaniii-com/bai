@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
-import { Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
+import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
@@ -594,8 +594,16 @@ export function ChatPane({
               Stop
             </Button>
           ) : (
-            <Button type="submit" variant="primary" size="lg" disabled={draft.trim().length === 0}>
-              Send
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="send-button"
+              aria-label="Send"
+              data-tooltip="Send"
+              disabled={draft.trim().length === 0}
+            >
+              <Send size={16} aria-hidden="true" />
             </Button>
           )}
         </div>
@@ -655,7 +663,7 @@ export function ChatPane({
             // message) — a static chip replaces the picker. The Workspace
             // section keeps the live picker.
             <Chip hint="The Chat section always runs the chat agent — the all-in-one orchestrator">
-              <span className="dim">agent</span>
+              <Bot size={11} aria-hidden="true" />
               <span className="chip-label">chat</span>
             </Chip>
           ) : (

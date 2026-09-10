@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { Bot, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session } from "@bai/shared";
 import { ListItem, Modal } from "./components";
@@ -45,8 +45,9 @@ export function AgentPicker({
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-label={`agent: ${current}`}
+        data-tooltip={`Agent: ${current}`}
       >
-        <span className="dim">agent</span>
+        <Bot size={13} aria-hidden="true" />
         <span className="model-current">{current}</span>
         <span className="model-caret" aria-hidden="true">
           <ChevronDown size={12} />

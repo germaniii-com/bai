@@ -27,7 +27,7 @@ export function Chip({
   onRemove?: () => void;
   removeLabel?: string;
   onClick?: () => void;
-  /** Native tooltip. */
+  /** Hover hint (global tooltip layer). */
   hint?: string;
   className?: string;
 }) {
@@ -60,10 +60,10 @@ export function Chip({
   );
   if (interactive || onRemove !== undefined) {
     return (
-      <button type="button" className={classes} onClick={onClick} title={hint}>
+      <button type="button" className={classes} onClick={onClick} data-tooltip={hint}>
         {inner}
       </button>
     );
   }
-  return <span className={classes} title={hint}>{inner}</span>;
+  return <span className={classes} data-tooltip={hint}>{inner}</span>;
 }

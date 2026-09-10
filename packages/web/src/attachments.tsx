@@ -295,7 +295,7 @@ export function AttachButton({ onFiles, disabled = false }: { onFiles: (files: F
         type="button"
         className="btn btn-outline btn-lg attachment-add"
         aria-label="Attach files"
-        title="Attach images, PDF, or text files"
+        data-tooltip="Attach images, PDF, or text files"
         disabled={disabled}
         onClick={() => input?.click()}
       >
