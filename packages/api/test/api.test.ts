@@ -309,6 +309,60 @@ describe("api contract", () => {
     }
   });
 
+  test("GET /api/fs/find ranks workspace files and rejects unregistered roots", async () => {
+    const root = mkdtempSync(join("/tmp", "bai-fs-"));
+    const stranger = mkdtempSync(join("/tmp", "bai-fs-"));
+    try {
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src", "index.ts"), "x");
+      writeFileSync(join(root, "README.md"), "x");
+      mkdirSync(join(root, "node_modules"));
+      writeFileSync(join(root, "node_modules", "x.js"), "x");
+      registerWorkspaces(stack, [root]);
+
+      const res = await app.request(`/api/fs/find?root=${encodeURIComponent(root)}&q=index`);
+      expect(res.status).toBe(200);
+      const { found } = (await res.json()) as {
+        found: { root: string; results: { path: string; type: string }[]; truncated: boolean };
+      };
+      expect(found.results[0]?.path).toBe("src/index.ts");
+      expect(found.results.some((r) => r.path.includes("node_modules"))).toBe(false);
+
+      const all = await app.request(`/api/fs/find?root=${encodeURIComponent(root)}`);
+      expect(all.status).toBe(200);
+
+      const unregistered = await app.request(`/api/fs/find?root=${encodeURIComponent(stranger)}`);
+      expect(unregistered.status).toBe(400);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stranger, { recursive: true, force: true });
+    }
+  });
+
+  test("GET /api/fs and /api/fs/file resolve a workspace-relative path against root", async () => {
+    const root = mkdtempSync(join("/tmp", "bai-fs-"));
+    try {
+      mkdirSync(join(root, "nested"));
+      writeFileSync(join(root, "nested", "note.md"), "hello");
+      registerWorkspaces(stack, [root]);
+
+      const listing = await app.request(`/api/fs?root=${encodeURIComponent(root)}&path=nested`);
+      expect(listing.status).toBe(200);
+      const body = (await listing.json()) as { listing: { path: string } };
+      expect(body.listing.path).toBe(realpathSync(join(root, "nested")));
+
+      const file = await app.request(`/api/fs/file?root=${encodeURIComponent(root)}&path=nested/note.md`);
+      expect(file.status).toBe(200);
+      expect(await file.text()).toBe("hello");
+
+      // Relative traversal is still contained by the root.
+      const escape = await app.request(`/api/fs?root=${encodeURIComponent(root)}&path=../`);
+      expect(escape.status).toBe(400);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("GET /api/fs rejects traversal, invalid paths, and unregistered roots", async () => {
     const root = mkdtempSync(join("/tmp", "bai-fs-"));
     const stranger = mkdtempSync(join("/tmp", "bai-fs-"));

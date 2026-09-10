@@ -34,6 +34,7 @@ export function ComposerHub({
   layout,
   queuedCount = 0,
   context,
+  mentionEnabled = false,
 }: {
   editor: Editor;
   mode: Mode;
@@ -49,13 +50,15 @@ export function ComposerHub({
   /** Context tracker readout (shared/display.ts contextTracker) — the
    *  commands-row tail: ` · 45.2k (23%)`, tone-colored (pi's thresholds). */
   context?: ContextTrackerView;
+  /** A workspace root is known — advertise the `#file` mention chord. */
+  mentionEnabled?: boolean;
 }) {
   const t = useTheme();
   const queuedHint = queuedCount > 0 ? `⏳ ${queuedCount} queued · ` : "";
   const commands =
     mode === "input"
       ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word`
-      : `${queuedHint}${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
+      : `${queuedHint}${runActive ? "esc stop · " : ""}${mentionEnabled ? "# files · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
   const contextColor = context === undefined ? undefined : context.tone === "danger" ? t.danger : context.tone === "warning" ? t.warning : t.dim;
   return (
     <Box

@@ -4,7 +4,7 @@ import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
 import type { Input, Message, PermissionRequest, QuestionRequest, Session, SessionUsage } from "@bai/shared";
-import { contextTracker } from "@bai/shared";
+import { contextTracker, applyMention, collapseMentions, expandMentionPaths, formatMentionRange, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import type { Mode } from "../app";
 import { buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
 import type { PickerOption } from "../state/providers";
@@ -13,6 +13,8 @@ import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
 import { Markdown } from "../components/markdown";
 import { ComposerHub } from "../components/composer";
+import { MentionPicker } from "../components/mention-picker";
+import { emptyMentionUi, moveMention, openedMention, selectedMention, withMentionResults, type MentionUiState } from "../state/mention";
 import { layoutHubStatus } from "../state/hub";
 import { PermissionPrompt } from "./permission-prompt";
 import { QuestionPrompt } from "./question-prompt";
@@ -257,6 +259,17 @@ export function ChatView({
   const queuedActionsInput =
     queuedActions !== null ? queuedInputs.find((i) => i.id === queuedActions.inputId) : undefined;
 
+  // ---- `#file` mention picker (composer hub) -----------------------------
+  // Opens while the draft holds a `#token` and a workspace root is known.
+  // Selecting inserts the path (opencode2's completion) into the draft.
+  const [mention, setMention] = useState<MentionUiState>(emptyMentionUi);
+  const mentionReq = useRef(0);
+  const mentionRoot = session?.cwd ?? workspaceRoot;
+  // Leaf display token → full workspace-relative path, expanded at submit so
+  // the composer can show `#button.tsx` while the server still resolves the
+  // real file (opencode's file chips show the basename).
+  const [mentionPaths, setMentionPaths] = useState<Record<string, string>>({});
+
   // Two-phase revert display: everything at/after the boundary disappears
   // and a banner at the cut offers the restore. Items and the render loop
   // below index against the VISIBLE slice (messageIndex stays consistent).
@@ -291,9 +304,59 @@ export function ChatView({
   useEffect(() => {
     if (composerSeed === undefined || composerSeed === null) return;
     if (composerSeed.sessionId !== session?.id) return;
-    setEditor({ text: composerSeed.text, cursor: composerSeed.text.length });
+    // Seed leaf display + the token→path map (the stored seed carries full paths).
+    const { text, paths } = collapseMentions(composerSeed.text);
+    setMentionPaths(paths);
+    setEditor({ text, cursor: text.length });
     onComposerSeedConsumed?.();
   }, [composerSeed, session?.id, onComposerSeedConsumed]);
+
+  // `#file` mention picker: derive the trigger from the live draft and
+  // (debounced) fetch workspace matches. Closes whenever the trigger
+  // disappears, no workspace root is known, or a prompt/dialog takes over.
+  useEffect(() => {
+    if (
+      mode !== "input" ||
+      askPending ||
+      msgActions !== null ||
+      queuedActions !== null ||
+      deferInput ||
+      mentionRoot === undefined ||
+      mentionRoot.length === 0
+    ) {
+      setMention(emptyMentionUi());
+      return;
+    }
+    const trigger = mentionTrigger(editor.text, editor.cursor);
+    if (trigger === null) {
+      setMention(emptyMentionUi());
+      return;
+    }
+    const { pathQuery } = splitMentionQuery(trigger.raw);
+    setMention((current) =>
+      current.open && current.raw === trigger.raw ? current : openedMention(trigger.raw, pathQuery),
+    );
+    const token = ++mentionReq.current;
+    const handle = setTimeout(() => {
+      void client
+        .findFiles(mentionRoot, pathQuery, 20)
+        .then((found) => {
+          if (token !== mentionReq.current) return;
+          setMention((current) =>
+            current.open && current.raw === trigger.raw ? withMentionResults(current, found.results) : current,
+          );
+        })
+        .catch((err: unknown) => {
+          if (token !== mentionReq.current) return;
+          setMention((current) =>
+            current.open && current.raw === trigger.raw
+              ? { ...current, results: [], loading: false, error: err instanceof Error ? err.message : String(err) }
+              : current,
+          );
+        });
+    }, 120);
+    return () => clearTimeout(handle);
+  }, [editor.text, editor.cursor, mode, askPending, msgActions, queuedActions, deferInput, mentionRoot, client]);
 
   // ---- Continuous scroll state (terminal rows from the transcript top) ----
   const scrollRef = useRef<ScrollViewRef>(null);
@@ -325,6 +388,7 @@ export function ChatView({
     setFocus(null);
     setMsgActions(null);
     setQueuedActions(null);
+    setMentionPaths({}); // leaf tokens belong to the previous workspace
     resetTraversal();
   }, [session?.id]);
 
@@ -356,6 +420,9 @@ export function ChatView({
   const submitText = async (value: string, nextDraft = ""): Promise<void> => {
     const trimmed = value.trim();
     if (trimmed.length === 0 || busy) return;
+    // Leaf mention tokens (`#button.tsx`) expand to their full paths at submit
+    // so the server resolves the real file; the draft keeps the leaf display.
+    const outbound = expandMentionPaths(trimmed, mentionPaths).trim();
     setBusy(true);
     // Message-queue default (Cursor-style): a submit while the session is
     // draining QUEUES instead of steering — the queued node (fed by the
@@ -372,9 +439,9 @@ export function ChatView({
           ...(workspaceRoot !== undefined ? { cwd: workspaceRoot } : {}),
         });
         onSessionCreated(created);
-        await client.submitPrompt(created.id, { text: trimmed });
+        await client.submitPrompt(created.id, { text: outbound });
       } else {
-        await client.submitPrompt(session.id, { text: trimmed, ...(queuing ? { queue: true } : {}) });
+        await client.submitPrompt(session.id, { text: outbound, ...(queuing ? { queue: true } : {}) });
       }
       recordPrompt(trimmed);
       setEditor((e) =>
@@ -540,7 +607,9 @@ export function ChatView({
       await client.revertSession(session.id, message.id);
       // The reverted prompt returns to the composer, ready to edit & resend
       // (opencode's setPrompt round-trip; local — no remount in between).
-      const text = messageText(message);
+      // Collapse stored full paths back to leaves for display.
+      const { text, paths } = collapseMentions(messageText(message));
+      setMentionPaths(paths);
       setEditor({ text, cursor: text.length });
     });
   };
@@ -590,6 +659,31 @@ export function ChatView({
     // The App-level handler cancels the input and seeds the composer via
     // the App-held seed (applied on the next render, fork-flow parity).
     onEditQueued?.(input);
+  };
+
+  /** Insert the highlighted `#file` mention into the draft. */
+  const selectMention = (): void => {
+    const entry = selectedMention(mention);
+    if (entry === undefined) return;
+    if (entry.type === "dir") {
+      // Drilling in keeps the full path so the query filters inside it.
+      setEditor((current) => {
+        const trig = mentionTrigger(current.text, current.cursor);
+        return trig === null ? current : applyMention(current.text, current.cursor, trig, entry);
+      });
+      return;
+    }
+    // Files show the shortest unique leaf; the full path rides the map.
+    const token = mentionDisplayToken(entry.path, Object.keys(mentionPaths));
+    setEditor((current) => {
+      const trig = mentionTrigger(current.text, current.cursor);
+      if (trig === null) return current;
+      const { range } = splitMentionQuery(trig.raw);
+      const next = applyMention(current.text, current.cursor, trig, { path: token, type: "file" }, range);
+      return { text: next.text, cursor: next.cursor };
+    });
+    setMentionPaths((paths) => ({ ...paths, [token]: entry.path }));
+    setMention(emptyMentionUi());
   };
 
   // Mouse wheel scrolling: enable X10 mouse tracking with SGR encoding while
@@ -734,6 +828,15 @@ export function ChatView({
       if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
       if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
       return;
+    }
+
+    // `#file` mention picker owns navigation while open; typed characters
+    // still flow to the editor so the query filters live.
+    if (mention.open) {
+      if (key.upArrow) return setMention((m) => moveMention(m, -1));
+      if (key.downArrow) return setMention((m) => moveMention(m, 1));
+      if (key.tab || key.return) return selectMention();
+      if (key.escape) return setMention(emptyMentionUi());
     }
 
     // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
@@ -1050,7 +1153,23 @@ export function ChatView({
                   flexShrink={0}
                 >
                   <Text wrap="wrap" color={t.text} bold={focused}>
-                    {messageText(m)}
+                    {(() => {
+                      const body = messageText(m);
+                      const segments = splitMentions(body);
+                      if (!segments.some((seg) => seg.type === "mention")) return body;
+                      return segments.map((seg, si) => {
+                        if (seg.type === "text") return <Text key={si}>{seg.text}</Text>;
+                        const range =
+                          seg.from !== undefined
+                            ? { from: seg.from, ...(seg.to !== undefined ? { to: seg.to } : {}) }
+                            : undefined;
+                        return (
+                          <Text key={si} color={t.secondary}>
+                            {`${mentionLeaf(seg.path ?? "")}${formatMentionRange(range)}`}
+                          </Text>
+                        );
+                      });
+                    })()}
                   </Text>
                 </Box>
               </Box>
@@ -1244,6 +1363,15 @@ export function ChatView({
           (opencode's placement): the prompt takes this slot, the transcript
           keeps scrolling, and typing is inert — the App forces NORMAL so no
           stale INPUT state lingers. */}
+      {mention.open && (
+        <MentionPicker
+          results={mention.results}
+          selected={mention.selected}
+          loading={mention.loading}
+          {...(mention.error !== undefined ? { error: mention.error } : {})}
+          query={mention.pathQuery}
+        />
+      )}
       {msgActions !== null ? (
         // The message-actions modal (opencode's DialogMessage): takes the
         // composer hub's slot like the inline ask prompts; its own useInput
@@ -1316,6 +1444,7 @@ export function ChatView({
           layout={hubLayout}
           queuedCount={queuedInputs.length - sendingIds.length}
           context={tracker}
+          mentionEnabled={mentionRoot !== undefined && mentionRoot.length > 0}
         />
       )}
     </Box>

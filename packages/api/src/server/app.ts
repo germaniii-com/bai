@@ -32,7 +32,7 @@ import {
 } from "@bai/shared";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
-import { completePath, createFolder, ensureRegisteredRoot, FsError, listDir, readFile, statPath } from "./fs";
+import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, listDir, readFile, statPath } from "./fs";
 import { runDurableStream, runFirehose } from "./sse";
 import { shellAvailable } from "./shell";
 import { staticHandler } from "./static";
@@ -431,6 +431,23 @@ function buildApi(deps: ApiDeps) {
         });
       } catch (err) {
         if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    // Recursive fuzzy file/folder search inside a REGISTERED workspace —
+    // the composer's `#file` mention picker (opencode2's rg/fzf walk, one
+    // server-side call). Hidden entries and ignored dirs are skipped; paths
+    // are workspace-relative. Registered-root scoped like every fs route.
+    .get("/fs/find", (c) => {
+      const root = c.req.query("root") ?? "";
+      const query = c.req.query("q") ?? "";
+      const limit = Number(c.req.query("limit") ?? "20");
+      try {
+        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        return c.json({ found: findFiles(root, query, { limit }) });
+      } catch (err) {
+        if (err instanceof FsError) return c.json({ error: err.message }, 400);
+        if (err instanceof Error) return c.json({ error: err.message }, 400);
         throw err;
       }
     })

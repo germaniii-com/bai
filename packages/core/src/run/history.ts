@@ -35,6 +35,19 @@ export interface ToolResultPayload {
   title?: string;
 }
 
+/**
+ * Payload shape of a persisted `file` part — the attached read context for a
+ * `#file[:from-to]` mention (written by `appendPromotedInputs`). `content` is
+ * the numbered line slice, a directory listing, or an error message.
+ */
+export interface FilePartPayload {
+  path: string;
+  from?: number;
+  to?: number;
+  content: string;
+  error?: boolean;
+}
+
 export function isToolCallPayload(payload: unknown): payload is ToolCallPayload {
   return typeof payload === "object" && payload !== null && typeof (payload as ToolCallPayload).callId === "string" && typeof (payload as ToolCallPayload).name === "string";
 }
@@ -58,7 +71,12 @@ export function renderOutbound(messages: Message[], opts: { system?: string[] } 
         .map((p) => textOf(p))
         .filter((t) => t.length > 0)
         .join("\n");
-      if (text.length > 0) out.push({ role: "user", content: text });
+      const blocks = message.parts
+        .filter((p) => p.kind === "file")
+        .map((p) => renderFileBlock(p))
+        .filter((b): b is string => b.length > 0);
+      const content = [text, ...blocks].filter((s) => s.length > 0).join("\n\n");
+      if (content.length > 0) out.push({ role: "user", content });
       continue;
     }
     if (message.role !== "assistant") continue;
@@ -110,4 +128,17 @@ export function renderOutbound(messages: Message[], opts: { system?: string[] } 
 function textOf(part: Part): string {
   const payload = part.payload as { text?: unknown } | null;
   return typeof payload?.text === "string" ? payload.text : "";
+}
+
+/**
+ * Render a `file` mention part as a `<file>` block attached to the user turn.
+ * The transcript keeps the visible `#path` token; this is what the model sees.
+ */
+function renderFileBlock(part: Part): string {
+  const p = part.payload as FilePartPayload | null;
+  if (p === null || typeof p !== "object" || typeof p.content !== "string") return "";
+  const attrs = [`path="${p.path.replace(/"/g, "'")}"`];
+  if (p.from !== undefined) attrs.push(p.to !== undefined ? `lines="${p.from}-${p.to}"` : `lines="${p.from}-"`);
+  if (p.error === true) attrs.push(`error="true"`);
+  return `<file ${attrs.join(" ")}>\n${p.content}\n</file>`;
 }

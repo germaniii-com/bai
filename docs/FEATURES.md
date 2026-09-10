@@ -52,6 +52,21 @@ The conversation modality and bai's default session type.
   (warning >70%, danger >90%), `?/200k` after compaction until the next
   model response. One durable `run.usage` event per provider turn keeps
   every surface in sync
+- **`#file` mentions** (opencode2's completion): type `#` in the composer to
+  fuzzy-search the session's workspace and insert a file reference. The
+  composer shows the shortest unique leaf (`#button.tsx`, extending to
+  `#components/button.tsx` only when a basename collides) and expands it to
+  the full path before send, so the transcript and model still get the real
+  file. Add an optional line range — `#foo.ts:10-20` (also `:10` / `:10-`);
+  directories insert `#src/` and keep the picker open to drill in. In the
+  web transcript the mention renders as a leaf chip — hover shows the full
+  path, click opens the file in the workspace viewer (the TUI shows the leaf
+  inline). Mentioned files are resolved server-side at send time and the
+  requested lines are attached to the turn as read context, so the model
+  sees exactly what you pointed at. Available only when the session has a
+  workspace root (web: the Workspace section; the chat section has none),
+  matching opencode2's project-scoped completion. `/commands` are not
+  implemented yet
 - **Compact overlay dialogs** (TUI): the session/theme/model pickers and the
   ctrl+p supermenu float as centered panels over the live conversation —
   the transcript stays visible and streaming behind them (opencode's dialog
@@ -69,7 +84,9 @@ The conversation modality and bai's default session type.
 
 **Coming next**
 
-- Gemini native adapter · MCP-fetched models · attachment/file parts in chat
+- Gemini native adapter · MCP-fetched models · a `/commands` palette in the
+  composer (deferred; the app-command supermenu + markdown command files are
+  the planned sources)
 
 ---
 
@@ -103,6 +120,10 @@ agents that can actually touch the files.
   "always" persists for the session; asks raised before a surface connects
   arrive via the snapshot; config rules and session approvals always
   override the cwd default
+- **`#file` mentions**: the composer's `#` picker is rooted at the workspace
+  folder — insert `#foo.ts` (leaf display, expanded to the full path at send)
+  or `#foo.ts:10-20` to hand the agent exactly those lines as read context
+  (see [Chat](#-chat--shipped))
 - **Token discipline** keeps long agentic sessions affordable: identical
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the

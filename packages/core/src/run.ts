@@ -5,6 +5,7 @@ import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import { renderOutbound, isToolCallPayload } from "./run/history";
+import { expandMentions } from "./run/mentions";
 import { buildEnvBlock } from "./run/env";
 import { buildSkillsBlock } from "./run/skills";
 import type { SkillRegistry } from "./skills/registry";
@@ -484,6 +485,9 @@ export class RunCoordinator {
    */
   private appendPromotedInputs(sessionId: SessionId, inputs: Input[]): void {
     const now = this.deps.clock.iso();
+    const session = this.deps.store.sessions.get(sessionId);
+    const cwd = session?.cwd;
+    const roots = this.deps.workspaceRoots();
     for (const input of inputs) {
       const message = this.deps.store.messages.append(sessionId, "user", now);
       const part = this.deps.store.parts.append(message.id, 0, "text", { text: input.payload.text });
@@ -496,6 +500,29 @@ export class RunCoordinator {
         kind: "text",
         payload: { text: input.payload.text },
       });
+      // `#file[:from-to]` mentions become `file` parts carrying the read
+      // context — the visible text keeps the token, renderOutbound injects the
+      // numbered slice. Expansion never throws (failures become error blocks).
+      if (input.payload.text.includes("#")) {
+        const { blocks } = expandMentions(input.payload.text, cwd, roots);
+        let ord = 1;
+        for (const block of blocks) {
+          const payload = {
+            path: block.path,
+            ...(block.from !== undefined ? { from: block.from } : {}),
+            ...(block.to !== undefined ? { to: block.to } : {}),
+            content: block.content,
+            ...(block.error === true ? { error: true } : {}),
+          };
+          const filePart = this.deps.store.parts.append(message.id, ord++, "file", payload);
+          this.emitDurable(sessionId, "message.part.updated", {
+            messageId: message.id,
+            partId: filePart.id,
+            kind: "file",
+            payload,
+          });
+        }
+      }
       this.emitDurable(sessionId, "input.promoted", { inputId: input.id, sessionId });
     }
   }

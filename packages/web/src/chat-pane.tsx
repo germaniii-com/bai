@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { Check, Copy, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
+import { useEffect, useId, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
+import { Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
-import { contextTracker, formatTokens } from "@bai/shared";
+import { contextTracker, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -10,6 +10,7 @@ import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
+import { MentionPicker, type MentionEntry } from "./mention-picker";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
@@ -48,6 +49,59 @@ function contextChipTitle(usage: SessionUsage | null | undefined): string {
   if (usage.contextWindow === undefined) return `${formatTokens(tokens)} tokens in context`;
   const pct = Math.round((tokens / usage.contextWindow) * 100);
   return `${formatTokens(tokens)} of ${formatTokens(usage.contextWindow)} tokens (${pct}% of context window)`;
+}
+
+interface MentionUi {
+  open: boolean;
+  raw: string;
+  pathQuery: string;
+  results: MentionEntry[];
+  selected: number;
+  loading: boolean;
+  error?: string;
+}
+
+const EMPTY_MENTION: MentionUi = { open: false, raw: "", pathQuery: "", results: [], selected: 0, loading: false };
+
+/**
+ * A user message's body: plain text runs plus `#file` mention chips. Chips
+ * show the leaf (opencode parity), carry the full path in a hover tooltip,
+ * and click through to the workspace file viewer when a root is available.
+ */
+function MessageText({
+  text,
+  root,
+  onOpenFile,
+}: {
+  text: string;
+  root?: string;
+  onOpenFile?: (root: string, path: string) => void;
+}) {
+  const segments = splitMentions(text);
+  if (!segments.some((s) => s.type === "mention")) return <p>{text}</p>;
+  return (
+    <p className="message-text">
+      {segments.map((seg, i) => {
+        if (seg.type === "text") return <span key={i}>{seg.text}</span>;
+        const range = seg.from !== undefined ? { from: seg.from, ...(seg.to !== undefined ? { to: seg.to } : {}) } : undefined;
+        const path = seg.path ?? "";
+        const clickable = root !== undefined && root.length > 0 && onOpenFile !== undefined;
+        return (
+          <button
+            key={i}
+            type="button"
+            className={clickable ? "mention-chip clickable" : "mention-chip"}
+            title={`${path}${formatMentionRange(range)}`}
+            disabled={!clickable}
+            onClick={clickable ? () => onOpenFile?.(root, path) : undefined}
+          >
+            <FileText size={12} aria-hidden="true" />
+            {`${mentionLeaf(path)}${formatMentionRange(range)}`}
+          </button>
+        );
+      })}
+    </p>
+  );
 }
 
 /**
@@ -98,6 +152,10 @@ export function ChatPane({
    usage = null,
    agentLocked = false,
    onOpenWorkspace,
+   workspaceRoot,
+   onOpenFile,
+   mentionPaths,
+   setMentionPaths,
   }: {
   client: BaiClient;
   /** Null until the first provider engagement fetch lands. */
@@ -117,7 +175,10 @@ export function ChatPane({
   messages: Message[];
   draft: string;
   setDraft: (value: string) => void;
-  onSubmit: () => void;
+  /** Composer `#file` alias map (leaf token → full workspace-relative path). */
+  mentionPaths: Record<string, string>;
+  setMentionPaths: Dispatch<SetStateAction<Record<string, string>>>;
+  onSubmit: (text: string) => void;
   runActive: boolean;
   waiting: boolean;
   error: string | null;
@@ -176,6 +237,19 @@ export function ChatPane({
    * workspace route for the created folder (App's selectWorkspace).
    */
   onOpenWorkspace?: (wsPath: string) => void;
+  /**
+   * Absolute workspace root for `#file` mentions. Set only in the Workspace
+   * section (a code session's cwd or the viewed workspace) — chat sessions
+   * have no root, so the picker stays off there (opencode2's project-scoped
+   * completion).
+   */
+  workspaceRoot?: string;
+  /**
+   * Open a `#file` mention chip's file in the web workspace viewer. Receives
+   * the owning workspace root (a code session's cwd) and the workspace-
+   * relative path.
+   */
+  onOpenFile?: (root: string, path: string) => void;
 }) {
   // Two-phase revert display: everything at/after the boundary disappears
   // and a small banner offers the restore (messages come back until the
@@ -188,6 +262,123 @@ export function ChatPane({
   // Context tracker readout (shared/src/display.ts — TUI parity): undefined
   // until the session's first usage lands.
   const tracker = contextTracker(usage);
+  // Mentions resolve against the session's workspace root (a code session).
+  const openFileRoot = active?.cwd ?? workspaceRoot;
+
+  // ---- `#file` mention picker (opencode2 completion) --------------------
+  // The draft's `#token` is derived from the input cursor; matches come from
+  // the workspace-scoped find endpoint. Only available with a workspaceRoot
+  // (the Workspace section) — chat sessions have no root.
+  const [mention, setMention] = useState<MentionUi>(EMPTY_MENTION);
+  const [cursor, setCursor] = useState(0);
+  const mentionReq = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // External seeds (revert/fork/edit) replace the draft out from under the
+  // tracked cursor — keep it in range so mention detection isn't confused.
+  useEffect(() => {
+    if (cursor > draft.length) setCursor(draft.length);
+  }, [cursor, draft.length]);
+
+  useEffect(() => {
+    if (workspaceRoot === undefined || workspaceRoot.length === 0) {
+      setMention((m) => (m.open ? EMPTY_MENTION : m));
+      return;
+    }
+    const at = Math.max(0, Math.min(cursor, draft.length));
+    const trigger = mentionTrigger(draft, at);
+    if (trigger === null) {
+      setMention((m) => (m.open ? EMPTY_MENTION : m));
+      return;
+    }
+    const { pathQuery } = splitMentionQuery(trigger.raw);
+    setMention((m) =>
+      m.open && m.raw === trigger.raw
+        ? m
+        : { open: true, raw: trigger.raw, pathQuery, results: [], selected: 0, loading: true },
+    );
+    const token = ++mentionReq.current;
+    const handle = setTimeout(() => {
+      void client
+        .findFiles(workspaceRoot, pathQuery, 20)
+        .then((found) => {
+          if (token !== mentionReq.current) return;
+          setMention((m) =>
+            m.open && m.raw === trigger.raw ? { ...m, results: found.results, selected: 0, loading: false } : m,
+          );
+        })
+        .catch((err: unknown) => {
+          if (token !== mentionReq.current) return;
+          setMention((m) =>
+            m.open && m.raw === trigger.raw
+              ? { ...m, results: [], loading: false, error: err instanceof Error ? err.message : String(err) }
+              : m,
+          );
+        });
+    }, 150);
+    return () => clearTimeout(handle);
+  }, [draft, cursor, workspaceRoot, client]);
+
+  const moveMention = (delta: number): void => {
+    setMention((m) => {
+      const count = m.results.length;
+      if (count === 0) return m;
+      return { ...m, selected: ((m.selected + delta) % count + count) % count };
+    });
+  };
+
+  const pickMention = (entry: MentionEntry): void => {
+    const at = Math.max(0, Math.min(cursor, draft.length));
+    const trigger = mentionTrigger(draft, at);
+    if (trigger === null) {
+      setMention(EMPTY_MENTION);
+      return;
+    }
+    if (entry.type === "dir") {
+      // Drilling in keeps the full path so the query filters inside it.
+      const next = applyMention(draft, at, trigger, entry);
+      setDraft(next.text);
+      setCursor(next.cursor);
+      requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.cursor, next.cursor));
+      return;
+    }
+    // Files show the shortest unique leaf; the full path rides the map.
+    const token = mentionDisplayToken(entry.path, Object.keys(mentionPaths));
+    const range = splitMentionQuery(trigger.raw).range;
+    const next = applyMention(draft, at, trigger, { path: token, type: "file" }, range);
+    setMentionPaths((paths) => ({ ...paths, [token]: entry.path }));
+    setDraft(next.text);
+    setCursor(next.cursor);
+    setMention(EMPTY_MENTION);
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.cursor, next.cursor));
+  };
+
+  const onMentionKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (!mention.open) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveMention(1);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveMention(-1);
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      const entry = mention.results[mention.selected];
+      if (entry !== undefined) {
+        e.preventDefault();
+        pickMention(entry);
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setMention(EMPTY_MENTION);
+    }
+  };
 
   return (
     <main className="chat">
@@ -199,8 +390,16 @@ export function ChatPane({
             {m.role === "assistant" && toolCalls(m).length > 0 && (
               <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} onOpenWorkspace={onOpenWorkspace} />
             )}
-            {/* Assistant bodies render markdown; user input stays literal. */}
-            {m.role === "assistant" ? <Markdown text={messageText(m)} /> : <p>{messageText(m)}</p>}
+            {/* Assistant bodies render markdown; user input is text + `#file` chips. */}
+            {m.role === "assistant" ? (
+              <Markdown text={messageText(m)} />
+            ) : (
+              <MessageText
+                text={messageText(m)}
+                {...(openFileRoot !== undefined ? { root: openFileRoot } : {})}
+                {...(onOpenFile !== undefined ? { onOpenFile } : {})}
+              />
+            )}
             {m.role === "user" && (onForkMessage !== undefined || onRevertMessage !== undefined) && (
               <UserMessageActions message={m} onFork={onForkMessage} onRevert={onRevertMessage} />
             )}
@@ -227,7 +426,11 @@ export function ChatPane({
           const sending = sendingIds.includes(input.id);
           return (
             <article key={input.id} className="message user queued" aria-label={sending ? "Sending message" : "Queued message"}>
-              <p>{input.payload.text}</p>
+              <MessageText
+                text={input.payload.text}
+                {...(openFileRoot !== undefined ? { root: openFileRoot } : {})}
+                {...(onOpenFile !== undefined ? { onOpenFile } : {})}
+              />
               <div className="queued-row">
                 <Chip className={sending ? "sending" : "warning"}>
                   <Hourglass size={11} aria-hidden="true" /> {sending ? "sending…" : "queued"}
@@ -285,14 +488,37 @@ export function ChatPane({
         className="composer"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
+          // Leaf mention tokens expand to full paths for the server.
+          onSubmit(expandMentionPaths(draft, mentionPaths).trim());
         }}
       >
+        {mention.open && (
+          <MentionPicker
+            results={mention.results}
+            selected={mention.selected}
+            loading={mention.loading}
+            query={mention.pathQuery}
+            {...(mention.error !== undefined ? { error: mention.error } : {})}
+            onPick={pickMention}
+            onHover={(i) => setMention((m) => ({ ...m, selected: i }))}
+          />
+        )}
         <div className="composer-input-row">
           <input
+            ref={inputRef}
             value={draft}
             placeholder={active === null ? startPlaceholder : "Message…"}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setCursor(e.target.selectionStart ?? e.target.value.length);
+            }}
+            onKeyDown={onMentionKeyDown}
+            onClick={(e) => {
+              if (!mention.open) setCursor(e.currentTarget.selectionStart ?? draft.length);
+            }}
+            onKeyUp={(e) => {
+              if (!mention.open) setCursor(e.currentTarget.selectionStart ?? draft.length);
+            }}
             aria-label="message"
           />
           {runActive && active !== null ? (

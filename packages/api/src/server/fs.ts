@@ -4,10 +4,13 @@ import path from "node:path";
 import {
   createFolder,
   expandHomeInput,
+  findFiles,
   FsError,
   ioError,
   statPath,
   toReal,
+  type FindResult,
+  type FoundEntry,
   type PathStat,
 } from "@bai/core";
 
@@ -37,7 +40,7 @@ import {
  *   content and the endpoint is bearer-guarded beyond loopback.
  */
 
-export { createFolder, statPath, FsError, type PathStat };
+export { createFolder, statPath, FsError, findFiles, type FindResult, type FoundEntry, type PathStat };
 
 export interface FsEntry {
   name: string;
@@ -91,7 +94,10 @@ export function ensureRegisteredRoot(root: string, workspaces: readonly string[]
 export function listDir(root: string, sub?: string): FsListing {
   if (root.length === 0) throw new FsError("root is required");
   const resolvedRoot = toReal(root);
-  const target = sub === undefined || sub.length === 0 ? resolvedRoot : toReal(sub);
+  // `sub` is either absolute (the file tree) or root-relative (callers that
+  // know the workspace but not its absolute path, e.g. a mention chip);
+  // resolve relative input against the root, never the server's cwd.
+  const target = sub === undefined || sub.length === 0 ? resolvedRoot : toReal(path.resolve(resolvedRoot, sub));
   const rel = path.relative(resolvedRoot, target);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new FsError("path escapes the workspace root");
@@ -198,7 +204,8 @@ export interface FilePreview {
 export function readFile(root: string, sub?: string): FilePreview {
   if (root.length === 0) throw new FsError("root is required");
   const resolvedRoot = toReal(root);
-  const target = sub === undefined || sub.length === 0 ? resolvedRoot : toReal(sub);
+  // Same convention as listDir: relative `sub` resolves against the root.
+  const target = sub === undefined || sub.length === 0 ? resolvedRoot : toReal(path.resolve(resolvedRoot, sub));
   const rel = path.relative(resolvedRoot, target);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new FsError("path escapes the workspace root");

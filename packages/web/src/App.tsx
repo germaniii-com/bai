@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ChartColumn, Cpu, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
@@ -100,6 +100,10 @@ export function App() {
   // session effect (the pagehide abort killed its stream).
   const [bfcacheEpoch, setBfcacheEpoch] = useState(0);
   const [draft, setDraft] = useState("");
+  // Composer `#file` alias map (leaf token → full workspace-relative path).
+  // Owned here with the draft so seed flows (revert/fork/edit) collapse the
+  // stored full paths back to leaves and rehydrate the map.
+  const [draftMentions, setDraftMentions] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [runActive, setRunActive] = useState(false);
   const [sentPending, setSentPending] = useState(false);
@@ -806,6 +810,19 @@ export function App() {
     setWorkspaceView("files");
   };
 
+  /**
+   * Transcript `#file` chip click: make the owning workspace active (the
+   * chip can be clicked from anywhere the session is rendered), then open
+   * the file tab in the viewer. The mention path is workspace-relative;
+   * normalize it to the same absolute form the file tree uses so the viewer
+   * and the tree agree on the path.
+   */
+  const openMentionedFile = (root: string, path: string): void => {
+    if (effectiveWorkspacePath !== root) selectWorkspace(root);
+    const abs = path.startsWith("/") ? path : `${root.replace(/\/+$/, "")}/${path}`;
+    openFile(abs);
+  };
+
   /** The file's fresh content was seen (active auto-refresh or tab click). */
   const clearChangedFile = (path: string): void => {
     setChangedFiles((prev) => {
@@ -986,10 +1003,22 @@ export function App() {
     }
   };
 
+  /**
+   * Seed the composer from stored text (revert / fork / edit-queued): collapse
+   * `#full/path` tokens back to their leaf aliases and rehydrate the map, so
+   * the input keeps the leaf display and still expands to the full path at
+   * submit.
+   */
+  const seedDraft = useCallback((text: string): void => {
+    const { text: collapsed, paths } = collapseMentions(text);
+    setDraftMentions(paths);
+    setDraft(collapsed);
+  }, []);
+
   /** Edit: cancel the queued input and put its text back into the composer. */
   const editQueued = (input: Input): void => {
     void cancelQueued(input);
-    setDraft(input.payload.text);
+    seedDraft(input.payload.text);
   };
 
   // --- per-user-message actions (revert / fork, opencode parity) ----------
@@ -1025,7 +1054,7 @@ export function App() {
     if (runActive) void client.interrupt(active.id);
     void withBusyRetry(async () => {
       setActive(await client.revertSession(active.id, m.id));
-      setDraft(messageText(m));
+      seedDraft(messageText(m));
       // The rollback rewrote files on disk — the viewer/tree re-list.
       setFsRevision((n) => n + 1);
     }).finally(() => setRevertBusy(false));
@@ -1039,7 +1068,7 @@ export function App() {
     if (runActive) void client.interrupt(active.id);
     void withBusyRetry(async () => {
       const forked = await client.forkSession(active.id, m.id);
-      setDraft(messageText(m));
+      seedDraft(messageText(m));
       // A fork is real navigation — push it so back returns to the origin
       // session (the replace-only sync would lose it from the stack).
       pushRoute(
@@ -1129,7 +1158,14 @@ export function App() {
       messages={messages}
       draft={draft}
       setDraft={setDraft}
-      onSubmit={() => void submit()}
+      mentionPaths={draftMentions}
+      setMentionPaths={setDraftMentions}
+      onSubmit={(text) => {
+        // ChatPane already expanded leaf `#file` tokens to full paths.
+        setDraft("");
+        setDraftMentions({});
+        void submit(text);
+      }}
       runActive={runActive}
       waiting={waiting}
       error={error}
@@ -1165,6 +1201,8 @@ export function App() {
       onCancelQueued={(input) => void cancelQueued(input)}
       onEditQueued={editQueued}
       usage={usage}
+      workspaceRoot={section === "workspace" ? (effectiveWorkspacePath ?? active?.cwd ?? undefined) : undefined}
+      onOpenFile={openMentionedFile}
       // Learn chip: only with an open session (drafts use the Skills page's
       // Learn form — a fresh learn session there has the same effect).
       onLearn={active !== null ? (request) => void learn(request) : undefined}

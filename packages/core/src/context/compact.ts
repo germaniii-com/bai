@@ -87,6 +87,10 @@ export function fileRefAppendix(messages: Message[]): string {
   const calls: Array<{ name: string; args: string }> = [];
   for (const message of messages) {
     for (const part of message.parts) {
+      if (part.kind === "file") {
+        const payload = part.payload as { path?: unknown } | null;
+        if (typeof payload?.path === "string" && payload.path.length > 0) read.add(payload.path);
+      }
       if (part.kind === "tool_call" && isToolCallPayload(part.payload)) calls.push({ name: part.payload.name, args: part.payload.args });
     }
   }

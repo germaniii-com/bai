@@ -225,6 +225,26 @@ export class BaiClient {
   }
 
   /**
+   * Recursive fuzzy file/folder search inside a registered workspace — the
+   * composer's `#file` mention picker. Returns workspace-relative paths
+   * (POSIX separators); hidden entries and ignored dirs are skipped.
+   */
+  async findFiles(
+    root: string,
+    query = "",
+    limit = 20,
+  ): Promise<{ root: string; results: { path: string; type: "file" | "dir" }[]; truncated: boolean }> {
+    const res = await this.rpc().fs.find.$get({
+      query: { root, q: query, limit: String(limit) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `find files failed: ${res.status}`);
+    }
+    return (await res.json()).found;
+  }
+
+  /**
    * Fetch ONE file's raw bytes from a registered workspace (read-only
    * preview; powers the file viewer). Text consumers read the body as
    * text; media consumers wrap it in a blob URL. The mime is sanitized
