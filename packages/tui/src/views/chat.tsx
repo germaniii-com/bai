@@ -679,9 +679,13 @@ export function ChatView({
     if (entry === undefined) return;
     if (entry.type === "dir") {
       // Drilling in keeps the full path so the query filters inside it.
+      // `applyMention` speaks the shared grammar ("file" | "dir") and cannot
+      // narrow `MentionEntry` (a plain interface, not a union), so pass the
+      // drilled row explicitly.
+      const row = { path: entry.path, type: "dir" } as const;
       setEditor((current) => {
         const trig = mentionTrigger(current.text, current.cursor);
-        return trig === null ? current : applyMention(current.text, current.cursor, trig, entry);
+        return trig === null ? current : applyMention(current.text, current.cursor, trig, row);
       });
       return;
     }

@@ -32,9 +32,10 @@ describe("browsedFolder", () => {
   });
 });
 
-describe("withMentionResults", () => {
-  const browsing = (pathQuery: string) => withMentionResults(openedMention(pathQuery, pathQuery), []);
+/** Open the picker as if the query were `pathQuery`, before results arrive. */
+const browsing = (pathQuery: string) => withMentionResults(openedMention(pathQuery, pathQuery), []);
 
+describe("withMentionResults", () => {
   test("offers the browsed folder as a selectable first row", () => {
     const state = withMentionResults(browsing("bai-ts/"), [
       { path: "bai-ts/packages", type: "dir" },
@@ -106,7 +107,14 @@ describe("moveMention", () => {
  * `#bai-ts/packages`, which the server resolves as a directory.
  */
 describe("selecting a folder with children, end to end", () => {
-  /** Mirrors the chat view's insert branch for a non-`dir` row. */
+  /**
+   * Mirrors the chat view's insert branch for a non-`dir` row. `next` is the
+   * buffer state (mention made terminal by its trailing space); `outgoing` is
+   * what actually reaches the server, i.e. expanded *and trimmed* — both call
+   * sites do `expandMentionPaths(draft, paths).trim()` (tui views/chat.tsx,
+   * web chat-pane.tsx), so the terminal space is deliberately not part of the
+   * submitted body.
+   */
   function selectRow(text: string, cursor: number, folderPath: string, taken: string[] = []) {
     const trigger = mentionTrigger(text, cursor);
     if (trigger === null) throw new Error("no active mention");
@@ -114,7 +122,7 @@ describe("selecting a folder with children, end to end", () => {
     const token = mentionDisplayToken(folderPath, taken);
     const paths = { [token]: folderPath };
     const next = applyMention(text, cursor, trigger, { path: token, type: "file" }, range);
-    return { next, outgoing: expandMentionPaths(next.text, paths) };
+    return { next, outgoing: expandMentionPaths(next.text, paths).trim() };
   }
 
   test("drilling in then taking the folder yields a terminal mention", () => {
@@ -132,7 +140,7 @@ describe("selecting a folder with children, end to end", () => {
     expect(mentionTrigger(next.text, next.cursor)).toBeNull();
 
     expect(outgoing).toBe("#bai-ts");
-    expect(parseMentions(outgoing)).toEqual([{ path: "bai-ts" }]);
+    expect(parseMentions(outgoing)).toEqual([{ raw: "#bai-ts", path: "bai-ts" }]);
   });
 
   test("a deeply nested folder round-trips too", () => {
@@ -143,8 +151,9 @@ describe("selecting a folder with children, end to end", () => {
   });
 
   test("a folder range survives the round-trip", () => {
-    const { outgoing } = selectRow("#src/:10", 7, "src", ["src"]);
+    // Cursor sits after the whole token: "#src/:10" is 8 columns wide.
+    const { outgoing } = selectRow("#src/:10", 8, "src", ["src"]);
     expect(outgoing).toBe("#src:10");
-    expect(parseMentions(outgoing)[0]).toEqual({ path: "src", from: 10 });
+    expect(parseMentions(outgoing)[0]).toEqual({ raw: "#src:10", path: "src", from: 10 });
   });
 });
