@@ -35,9 +35,16 @@ top-level packages — see [Submodules](#submodules) below.
 
 ### Tool registry
 - Merges builtin tools + workbench tools + MCP tools (`mcp/<server>/<tool>`).
-- Uniform `Tool` contract: JSON Schema, execute, output bounding (truncate
-  head+tail past the limit; spill full text to a managed temp file referenced
-  in the result part).
+- Uniform `Tool` contract: JSON Schema, execute, output bounding. Line-oriented
+  tools (`fs.read`, `fs.grep`, `fs.list`, `fs.glob`, plus `#mention` /
+  text-attachment rendering) budget themselves against `OUTPUT_LIMIT` through
+  `src/fs/window.ts` and page **contiguously** — the reply always names the
+  line range and the next `offset`, so a read is never elided mid-file.
+- `ToolRegistry.bound()` is the last resort for tools that overrun anyway: it
+  cuts head+tail **on line boundaries**, spills the full text to a managed temp
+  file, and labels the gap as the *middle* of the output (never the end) with
+  the spill path and a paging hint. A spilled result can be paged back in full
+  with `fs.read offset/limit`.
 
 ### Permission engine
 - Rule evaluation per tool call: last matching pattern wins; unmatched → `ask`.
@@ -55,6 +62,7 @@ top-level packages — see [Submodules](#submodules) below.
 | `src/config/`   | Layered configuration: defaults → global file → project file (walk-up) → `BAI_*` env → flags. Deep merge, zod validation, atomic write-back, jsonc tolerated on read. |
 | `src/provider/` | LLM access behind one small interface; adapters for openai v7 / @anthropic-ai/sdk / @google/genai + an OpenAI-compatible catch-all; models.dev catalog via `@opencode-ai/models` with offline snapshot fallback. Vendor types never leak past adapter files. |
 | `src/mcp/`      | MCP client manager (@modelcontextprotocol/client v2): stdio + streamable HTTP transports, reconnect/backoff, namespaced tool merge. Server-side exposure wiring is mounted by `@bai/api`. |
+| `src/fs/`       | Filesystem helpers shared by tools and mention expansion: `paths.ts`, `find.ts`, and `window.ts` — the line-window/byte-budget primitives that keep tool output inside `OUTPUT_LIMIT`. |
 | `src/workbench/`| Modality seam + registry; subpackages `chat`, `code`, `image`, `video` implement the Workbench contract. |
 
 ## Non-goals
@@ -94,3 +102,4 @@ export class Service {
 - Workbench packages implement the contracts defined here and are registered
   by the composition root (`@bai/cli`) — `core` never imports them.
 - See [ARCHITECTURE.md §9](../../ARCHITECTURE.md#9-agent-execution).
+

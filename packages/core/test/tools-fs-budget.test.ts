@@ -28,8 +28,10 @@ describe("fs tool output budgets", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   const run = (name: string, args: unknown) => registry.execute(name, args, ctx);
+  const numberedLines = (text: string) =>
+    [...text.matchAll(/^(\d+): (.*)$/gm)].map((m) => [Number.parseInt(m[1] as string, 10), m[2] as string] as const);
 
-  /** One numbered line per entry, sized so 1500 lines blows past OUTPUT_LIMIT. */
+  /** ~50 chars per line, so 1500 lines blows well past OUTPUT_LIMIT. */
   function writeBigFile(name: string, count = 1500): string[] {
     const lines = Array.from({ length: count }, (_, i) => `line ${i + 1} ${"x".repeat(40)}`);
     writeFileSync(join(dir, name), lines.join("\n"));
@@ -56,12 +58,9 @@ describe("fs tool output budgets", () => {
       const res = await run("fs.read", { path: "big.txt", offset });
       expect(res.content.length).toBeLessThanOrEqual(OUTPUT_LIMIT);
       expect(res.content).not.toContain("elided");
-      for (const line of res.content.split("\n")) {
-        const m = /^(\d+): (.*)$/.exec(line);
-        if (!m) continue;
-        const n = Number.parseInt(m[1] as string, 10);
+      for (const [n, text] of numberedLines(res.content)) {
         expect(seen.has(n)).toBe(false); // no duplicates across pages
-        seen.set(n, m[2] as string);
+        seen.set(n, text);
       }
       const last = Number(res.meta?.offset ?? 1) + Number(res.meta?.lines ?? 0) - 1;
       if (res.content.includes("(End of file")) {
@@ -75,6 +74,8 @@ describe("fs tool output budgets", () => {
     expect(ended).toBe(true);
     expect(seen.size).toBe(lines.length);
     for (let i = 0; i < lines.length; i++) expect(seen.get(i + 1)).toBe(lines[i] as string);
+    // Nothing was skipped: every line number is present exactly once.
+    for (let i = 1; i <= lines.length; i++) expect(seen.has(i)).toBe(true);
   });
 
   test("an over-long line is capped inline instead of blowing the budget", async () => {

@@ -44,7 +44,12 @@ export function fsReadTool(roots: FsRoots): Tool {
       }
       if (stat.isDirectory()) {
         const all = readdirSync(abs).sort();
-        const { kept, truncated } = budgetedLines(all.slice(0, DIR_ENTRY_CAP), READ_BUDGET);
+        const capped = all.slice(0, DIR_ENTRY_CAP);
+        const { kept, truncated: overBudget } = budgetedLines(capped, READ_BUDGET);
+        // `truncated` covers both the count cap (entries never looked at) and
+        // the character budget (entries that did not fit) — silently dropping
+        // either is what makes an agent think it has seen the whole listing.
+        const truncated = overBudget || capped.length < all.length;
         return {
           content: [
             `<path>${abs}</path>`,
@@ -54,7 +59,7 @@ export function fsReadTool(roots: FsRoots): Tool {
             "</entries>",
             ...(truncated ? [`(truncated at ${kept.length} entries — pass a subdirectory for the rest)`] : []),
           ].join("\n"),
-          meta: { path: abs, kind: "directory", entries: kept.length, truncated },
+          meta: { path: abs, kind: "directory", entries: kept.length, total: all.length, truncated },
         };
       }
       if (stat.size > READ_FILE_BYTES) {
@@ -102,6 +107,7 @@ export function fsReadTool(roots: FsRoots): Tool {
           truncated: window.stoppedByBudget || window.lineTruncated,
           ...(window.stoppedByBudget ? { stoppedByBudget: true } : {}),
           ...(window.lineTruncated ? { lineTruncated: true } : {}),
+          ...(window.lineCapped ? { lineCapped: true } : {}),
         },
       };
     },

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./registry";
 import { DEFAULT_IGNORED_DIRS, isIgnoredDir, looksBinary } from "./fs-guard";
@@ -62,13 +62,12 @@ export function fsGrepTool(): Tool {
       const cap = Math.max(1, Math.min(MATCH_CAP, Math.floor(limit ?? MATCH_CAP)));
 
       const root = resolveRoot(ctx, input);
-      if (root === undefined) throw new Error("No search path available.");
       const glob = compileGlob(include);
 
-      const matches =
-        rgAvailable() && root !== undefined
-          ? runRipgrep(root, regex, include, cap + 1)
-          : fallbackWalk(root, regex, glob, cap + 1);
+      // One extra match tells us whether to say "more are available".
+      const matches = rgAvailable()
+        ? runRipgrep(root, regex, include, cap + 1)
+        : fallbackWalk(root, regex, glob, cap + 1);
 
       if (matches.length === 0) {
         return {
@@ -96,7 +95,7 @@ export function fsGrepTool(): Tool {
 }
 
 /** Resolve the search root against the session cwd (defaults to cwd itself). */
-function resolveRoot(ctx: ToolContext, input?: string): string | undefined {
+function resolveRoot(ctx: ToolContext, input?: string): string {
   const cwd = ctx.cwd;
   if (input === undefined || input.trim().length === 0) {
     if (cwd === undefined || cwd.length === 0) {
@@ -142,14 +141,7 @@ function rgAvailable(): boolean {
   return rgProbe;
 }
 
-function rgGlobArg(glob: ((name: string) => boolean) | undefined, raw?: string): string[] {
-  // Pass the raw pattern through when provided (the compiled matcher can't
-  // reconstruct it) — rg validates it.
-  return raw !== undefined && raw.trim().length > 0 ? ["-g", raw.trim()] : [];
-}
-
 function runRipgrep(root: string, regex: RegExp, rawInclude: string | undefined, cap: number): Match[] {
-  let target = root;
   try {
     statSync(root); // existence check — rg reports its own read errors
   } catch {
@@ -171,7 +163,7 @@ function runRipgrep(root: string, regex: RegExp, rawInclude: string | undefined,
     ...excludeArgs,
     ...(rawInclude !== undefined && rawInclude.trim().length > 0 ? ["-g", rawInclude.trim()] : []),
     regex.source,
-    target,
+    root,
   ];
   const proc = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   const stdout = new TextDecoder().decode(proc.stdout);
@@ -202,7 +194,6 @@ function fallbackWalk(root: string, regex: RegExp, glob: ((name: string) => bool
   } else {
     let visited = 0;
     const walk = (dir: string): boolean => {
-      // returns true when the caller should stop (caps reached)
       let entries: string[];
       try {
         entries = readdirSync(dir).sort();
@@ -227,7 +218,7 @@ function fallbackWalk(root: string, regex: RegExp, glob: ((name: string) => bool
         if (glob !== undefined && !glob(entry)) continue;
         visited++;
         files.push(abs);
-        if (files.length >= MAX_FALLBACK_FILES) return true;
+        if (visited >= MAX_FALLBACK_FILES) return true;
       }
       return false;
     };
@@ -246,12 +237,9 @@ function fallbackWalk(root: string, regex: RegExp, glob: ((name: string) => bool
     if (looksBinary(buf)) continue;
     const lines = buf.toString("utf8").split("\n");
     for (let i = 0; i < lines.length && matches.length < cap; i++) {
-      if (regex.test(lines[i] as string)) {
-        matches.push({
-          file,
-          line: i + 1,
-          text: (lines[i] as string).slice(0, LINE_CHARS),
-        });
+      const text = lines[i] as string;
+      if (regex.test(text)) {
+        matches.push({ file, line: i + 1, text: text.slice(0, LINE_CHARS) });
       }
     }
   }

@@ -95,7 +95,11 @@ function readBlock(
     } catch (err) {
       return { ...base, error: true, content: err instanceof Error ? err.message : String(err) };
     }
-    const { kept, truncated } = budgetedLines(all.slice(0, DIR_ENTRY_CAP), READ_BUDGET);
+    const capped = all.slice(0, DIR_ENTRY_CAP);
+    const { kept, truncated: overBudget } = budgetedLines(capped, READ_BUDGET);
+    // Note truncation for the count cap as well as the character budget —
+    // a silently shortened directory listing reads as "this is everything".
+    const truncated = overBudget || capped.length < all.length;
     const note = truncated ? `\n(truncated at ${kept.length} entries — mention a subdirectory for the rest)` : "";
     return { path: displayPath, content: kept.join("\n") + note };
   }
