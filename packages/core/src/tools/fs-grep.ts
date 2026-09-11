@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { Tool, ToolContext, ToolResult } from "./registry";
+import { OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./registry";
 import { DEFAULT_IGNORED_DIRS, isIgnoredDir, looksBinary } from "./fs-guard";
+import { WINDOW_HEADROOM, budgetedLines } from "../fs/window";
 
 /**
  * fs.grep — content search (opencode's grep semantics): regex pattern,
@@ -15,6 +16,8 @@ const LINE_CHARS = 500;
 /** Fallback walk caps — without rg, bound the blast radius. */
 const MAX_FALLBACK_FILES = 5_000;
 const MAX_FALLBACK_BYTES = 512 * 1024;
+/** Match lines stay inside the tool output budget, so they are never elided mid-match. */
+const GREP_BUDGET = OUTPUT_LIMIT - WINDOW_HEADROOM;
 
 interface Match {
   file: string;
@@ -70,19 +73,23 @@ export function fsGrepTool(): Tool {
       if (matches.length === 0) {
         return {
           content: `No matches for /${pattern}/${glob !== undefined ? ` (include: ${include})` : ""}.`,
-          meta: { pattern, count: 0 },
+          meta: { pattern, count: 0, truncated: false },
         };
       }
-      const truncated = matches.length > cap;
-      const shown = matches.slice(0, cap);
-      const lines = shown.map((m) => `${m.file}:${m.line}: ${m.text}`);
+      const capped = matches.length > cap;
+      const { kept: lines, truncated: overBudget } = budgetedLines(
+        matches.slice(0, cap).map((m) => `${m.file}:${m.line}: ${m.text}`),
+        GREP_BUDGET,
+      );
       let suffix = "";
-      if (truncated) {
-        suffix = `\n\n(Showing ${cap} of more matches — refine the pattern, narrow the path, or raise the limit.)`;
+      if (capped) {
+        suffix = `\n\n(Showing ${lines.length} of more matches — refine the pattern, narrow the path, or raise the limit.)`;
+      } else if (overBudget) {
+        suffix = `\n\n(Showing ${lines.length} matches — output capped to the tool budget; narrow the pattern or path for the rest.)`;
       }
       return {
         content: lines.join("\n") + suffix,
-        meta: { pattern, count: shown.length, truncated },
+        meta: { pattern, count: lines.length, truncated: capped || overBudget },
       };
     },
   };

@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { parseMentions } from "@bai/shared";
 import { capFor, mediaFromName } from "../attachments";
+import { OUTPUT_LIMIT } from "../tools/registry";
 import { looksBinary, resolveInRoots } from "../tools/fs-guard";
+import { WINDOW_HEADROOM, budgetedLines, windowNumberedLines } from "../fs/window";
 
 /**
  * Resolve `#file[:from-to]` mentions in a user turn into attached read
@@ -45,6 +47,8 @@ const READ_FILE_BYTES = 1_000_000;
 const READ_LINE_CAP = 2000;
 const READ_LINE_CHARS = 2000;
 const DIR_ENTRY_CAP = 500;
+/** Same window budget as fs.read: attachments never get elided mid-file. */
+const READ_BUDGET = OUTPUT_LIMIT - WINDOW_HEADROOM;
 
 /**
  * Expand every mention in `text`. Never throws: a mention that cannot be
@@ -85,13 +89,15 @@ function readBlock(
     return { ...base, error: true, content: `File not found: ${abs}` };
   }
   if (stat.isDirectory()) {
-    let entries: string[];
+    let all: string[];
     try {
-      entries = readdirSync(abs).sort().slice(0, DIR_ENTRY_CAP);
+      all = readdirSync(abs).sort();
     } catch (err) {
       return { ...base, error: true, content: err instanceof Error ? err.message : String(err) };
     }
-    return { path: displayPath, content: entries.join("\n") };
+    const { kept, truncated } = budgetedLines(all.slice(0, DIR_ENTRY_CAP), READ_BUDGET);
+    const note = truncated ? `\n(truncated at ${kept.length} entries — mention a subdirectory for the rest)` : "";
+    return { path: displayPath, content: kept.join("\n") + note };
   }
   if (!stat.isFile()) return { ...base, error: true, content: `Not a file: ${abs}` };
 
@@ -126,15 +132,20 @@ function readBlock(
     path: displayPath,
     ...(from !== undefined ? { from } : {}),
     ...(to !== undefined ? { to } : {}),
-    content: renderTextContent(buf, from, to),
+    content: renderTextContent(buf, from, to, displayPath),
   };
 }
 
 /**
- * Numbered line slice for a text buffer — shared by `#mention` expansion and
- * text-file attachments at promotion. Mirrors fs.read's caps.
+ * Numbered line window for a text buffer — shared by `#mention` expansion and
+ * text-file attachments at promotion. Mirrors fs.read's caps and budget, so an
+ * attachment is always a contiguous, honest slice with a way to get the rest.
+ *
+ * `mentionPath` (the path as the user typed it) turns the continuation hint
+ * into a copy-pasteable `#path:line` mention. Uploaded attachments are not
+ * workspace paths, so they get a hint that says plainly more was not shown.
  */
-export function renderTextContent(buf: Uint8Array, from?: number, to?: number): string {
+export function renderTextContent(buf: Uint8Array, from?: number, to?: number, mentionPath?: string): string {
   const allLines = Buffer.from(buf).toString("utf8").split("\n");
   const total = allLines.length;
   const start = Math.max(1, Math.floor(from ?? 1));
@@ -143,11 +154,18 @@ export function renderTextContent(buf: Uint8Array, from?: number, to?: number): 
   }
   const requested = to !== undefined ? Math.max(1, to - start + 1) : READ_LINE_CAP;
   const maxLines = Math.min(READ_LINE_CAP, requested);
-  const slice = allLines
-    .slice(start - 1, start - 1 + maxLines)
-    .map((line) => (line.length > READ_LINE_CHARS ? `${line.slice(0, READ_LINE_CHARS)}… (line truncated)` : line));
-  const numbered = slice.map((line, i) => `${start + i}: ${line}`).join("\n");
-  const last = start + slice.length - 1;
-  const suffix = last < total ? `\n(Showing lines ${start}-${last} of ${total}.)` : "";
-  return numbered + suffix;
+  const window = windowNumberedLines(allLines, {
+    start,
+    maxLines,
+    budget: READ_BUDGET,
+    lineCharCap: READ_LINE_CHARS,
+  });
+  if (window.last >= total && !window.lineTruncated) return window.text;
+  const next = window.last + 1;
+  const cap = window.stoppedByBudget ? " — capped to the tool output budget" : "";
+  const hint =
+    mentionPath !== undefined
+      ? `Use #${mentionPath}:${next} to attach more.`
+      : "The rest of this attachment was not included.";
+  return `${window.text}\n(Showing lines ${window.first}-${window.last} of ${total}${cap}. ${hint})`;
 }

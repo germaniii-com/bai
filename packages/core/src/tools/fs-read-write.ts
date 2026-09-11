@@ -1,22 +1,29 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { looksBinary, assertFreshForWrite, recordRead, recordWrite, resolveInRoots, notFoundError, withFileMutationQueue, type FsRoots } from "./fs-guard";
-import type { Tool, ToolContext, ToolResult } from "./registry";
+import { OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./registry";
+import { WINDOW_HEADROOM, budgetedLines, windowNumberedLines } from "../fs/window";
 
 /**
- * fs.read — read a text file with line numbers, head-truncated with an
- * actionable continuation hint (pi's read tool semantics).
+ * fs.read — read a text file with line numbers, returned as a contiguous
+ * window that always fits the tool output budget with an actionable
+ * continuation hint (pi's read tool semantics). Because the window stays under
+ * OUTPUT_LIMIT, the registry's last-resort head+tail truncation never fires on
+ * a read: `offset` always resumes at the next unseen line.
  */
 const READ_LINE_CAP = 2000;
 const READ_LINE_CHARS = 2000;
 const READ_FILE_BYTES = 1_000_000;
+const READ_BUDGET = OUTPUT_LIMIT - WINDOW_HEADROOM;
+/** Directory listings are capped by count and by the same character budget. */
+const DIR_ENTRY_CAP = 500;
 
 export function fsReadTool(roots: FsRoots): Tool {
   return {
     name: "fs.read",
     origin: "builtin",
     description:
-      "Read a text file with line numbers. Returns up to 2000 lines; use offset/limit to page through bigger files. Directory paths list their entries instead.",
+      `Read a text file with line numbers. Returns as many whole lines as fit the ~${Math.round(OUTPUT_LIMIT / 1000)}k-char tool output budget (at most 2000); the reply always states the line range, and offset/limit page through bigger files. Directory paths list their entries instead.`,
     schema: {
       type: "object",
       properties: {
@@ -36,10 +43,18 @@ export function fsReadTool(roots: FsRoots): Tool {
         throw notFoundError(abs);
       }
       if (stat.isDirectory()) {
-        const entries = readdirSync(abs).sort().slice(0, 500);
+        const all = readdirSync(abs).sort();
+        const { kept, truncated } = budgetedLines(all.slice(0, DIR_ENTRY_CAP), READ_BUDGET);
         return {
-          content: [`<path>${abs}</path>`, "<type>directory</type>", "<entries>", ...entries, "</entries>"].join("\n"),
-          meta: { path: abs, kind: "directory" },
+          content: [
+            `<path>${abs}</path>`,
+            "<type>directory</type>",
+            "<entries>",
+            ...kept,
+            "</entries>",
+            ...(truncated ? [`(truncated at ${kept.length} entries — pass a subdirectory for the rest)`] : []),
+          ].join("\n"),
+          meta: { path: abs, kind: "directory", entries: kept.length, truncated },
         };
       }
       if (stat.size > READ_FILE_BYTES) {
@@ -58,20 +73,36 @@ export function fsReadTool(roots: FsRoots): Tool {
       if (start > total && !(total === 0 && start === 1)) {
         throw new Error(`Offset ${start} is out of range for this file (${total} lines)`);
       }
-      const slice = allLines.slice(start - 1, start - 1 + maxLines).map((line) =>
-        line.length > READ_LINE_CHARS ? `${line.slice(0, READ_LINE_CHARS)}… (line truncated to ${READ_LINE_CHARS} chars)` : line,
-      );
-      const numbered = slice.map((line, i) => `${start + i}: ${line}`).join("\n");
-      const last = start + slice.length - 1;
+      const window = windowNumberedLines(allLines, {
+        start,
+        maxLines,
+        budget: READ_BUDGET,
+        lineCharCap: READ_LINE_CHARS,
+      });
+      const last = window.last;
       let suffix: string;
-      if (start - 1 + slice.length < total) {
-        suffix = `\n\n(Showing lines ${start}-${last} of ${total}. Use offset=${last + 1} to continue.)`;
+      if (window.stoppedByBudget) {
+        suffix =
+          `\n\n(Showing lines ${window.first}-${last} of ${total} — window capped to the ` +
+          `~${Math.round(OUTPUT_LIMIT / 1000)}k-char tool output budget. Use offset=${last + 1} to continue.)`;
+      } else if (last < total) {
+        suffix = `\n\n(Showing lines ${window.first}-${last} of ${total}. Use offset=${last + 1} to continue.)`;
+      } else if (window.lineTruncated) {
+        suffix = `\n\n(End of file — total ${total} lines; the last line was cut to fit the output budget)`;
       } else {
         suffix = `\n\n(End of file — total ${total} lines)`;
       }
       return {
-        content: [`<path>${abs}</path>`, "<content>", numbered, "</content>"].join("\n") + suffix,
-        meta: { path: abs, offset: start, lines: slice.length, total },
+        content: [`<path>${abs}</path>`, "<content>", window.text, "</content>"].join("\n") + suffix,
+        meta: {
+          path: abs,
+          offset: window.first,
+          lines: Math.max(0, last - window.first + 1),
+          total,
+          truncated: window.stoppedByBudget || window.lineTruncated,
+          ...(window.stoppedByBudget ? { stoppedByBudget: true } : {}),
+          ...(window.lineTruncated ? { lineTruncated: true } : {}),
+        },
       };
     },
   };

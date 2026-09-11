@@ -44,10 +44,33 @@ export interface Tool {
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 
-/** Tool output above this size is truncated head+tail and spilled to disk. */
+/**
+ * Tool output above this size is truncated head+tail (last resort only) and
+ * spilled to disk. Line-oriented readers such as fs.read stay under this
+ * budget on their own (`fs/window.ts`) so they are never elided mid-file.
+ */
 export const OUTPUT_LIMIT = 32_000;
 const HEAD_KEEP = 8_000;
 const TAIL_KEEP = 8_000;
+
+/**
+ * Where to cut the head of an oversized output: the last newline at or before
+ * `max`, so the kept fragment never ends mid-line. Falls back to `max` when a
+ * single line spans the whole head.
+ */
+function headCut(text: string, max: number): number {
+  const nl = text.lastIndexOf("\n", max);
+  return nl > 0 ? nl : max;
+}
+
+/**
+ * Where to resume the tail: the first newline at or after `min`, so the kept
+ * fragment never starts mid-line (mangled line numbers, half statements).
+ */
+function tailCut(text: string, min: number): number {
+  const nl = text.indexOf("\n", Math.max(0, min));
+  return nl >= 0 ? nl + 1 : min;
+}
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -96,17 +119,25 @@ export class ToolRegistry {
     return this.bound(result);
   }
 
-  /** Truncate head+tail past the limit; spill the full text to a managed file. */
+  /**
+   * Last-resort truncation for outputs that blew past the limit anyway:
+   * keep a line-aligned head and tail, spill the full text to a managed file,
+   * and say plainly that the gap is the *middle* of the output — never the
+   * end — so the model keeps paging instead of assuming it read everything.
+   */
   private bound(result: ToolResult): ToolResult {
     if (result.content.length <= OUTPUT_LIMIT) return result;
     const spillPath = this.spill(result.content);
-    const elided = result.content.length - HEAD_KEEP - TAIL_KEEP;
+    const head = headCut(result.content, HEAD_KEEP);
+    const tail = tailCut(result.content, result.content.length - TAIL_KEEP);
+    const elided = Math.max(0, tail - head);
     return {
       ...result,
       content:
-        `${result.content.slice(0, HEAD_KEEP)}\n\n[… ${elided} characters elided — ` +
-        `full output spilled to ${spillPath} …]\n\n${result.content.slice(-TAIL_KEEP)}`,
-      meta: { ...result.meta, spilledTo: spillPath },
+        `${result.content.slice(0, head)}\n\n[… ${elided} characters elided — this is the MIDDLE of the ` +
+        `output, not the end. Full output spilled to ${spillPath} — page it with fs.read ` +
+        `(offset/limit) or search it with fs.grep …]\n\n${result.content.slice(tail)}`,
+      meta: { ...result.meta, spilledTo: spillPath, elidedChars: elided, truncated: true },
     };
   }
 
