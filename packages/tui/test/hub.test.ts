@@ -30,8 +30,15 @@ describe("truncate", () => {
 });
 
 describe("hubContextLabel", () => {
-  test("draft state (no session) → new session", () => {
+  test("draft state (no session) → new session when no root is known", () => {
     expect(hubContextLabel(null)).toBe("new session");
+    expect(hubContextLabel(null, "")).toBe("new session");
+  });
+  test("draft state (no session) → launch folder basename (workspace mode)", () => {
+    expect(hubContextLabel(null, "/Users/me/Work/proj")).toBe("proj");
+    // A trailing slash (or stray whitespace) still yields the folder itself.
+    expect(hubContextLabel(null, "/Users/me/Work/proj/")).toBe("proj");
+    expect(hubContextLabel(null, "  /Users/me/Work/proj  ")).toBe("proj");
   });
   test("chat session → workbench + title", () => {
     expect(hubContextLabel(session())).toBe("chat · My session");
@@ -123,5 +130,42 @@ describe("layoutHubStatus", () => {
     const modelChip = l.chips.find((c) => c.kind === "model");
     expect(modelChip).toBeDefined();
     expect(modelChip?.end).toBe(40);
+  });
+
+  test("draft state with a launch folder: the left chip is the folder, not 'new session'", () => {
+    const l = layoutHubStatus({
+      width: 80,
+      session: null,
+      mode: "normal",
+      agent,
+      model,
+      workspaceRoot: "/Users/me/Work/proj",
+    });
+    expect(l.left).toBe("proj");
+    expect(l.left).not.toContain("new session");
+    // The draft label is still the sessions chip (clickable → session picker).
+    expect(l.chips[0]).toEqual({ kind: "sessions", start: 0, end: 4 });
+    expect(l.chips.map((c) => c.kind)).toEqual(["sessions", "agent", "model"]);
+  });
+
+  test("draft state without a root keeps the 'new session' placeholder", () => {
+    const l = layoutHubStatus({ width: 80, session: null, mode: "normal", agent, model });
+    expect(l.left).toBe("new session");
+    expect(l.chips[0]).toEqual({ kind: "sessions", start: 0, end: 11 });
+  });
+
+  test("a very deep launch folder still truncates within the row", () => {
+    const deep = "/Users/me/Work/clients/acme/platform/services/api-server";
+    const l = layoutHubStatus({
+      width: 30,
+      session: null,
+      mode: "normal",
+      agent,
+      model,
+      workspaceRoot: deep,
+    });
+    expect(l.left.endsWith("…")).toBe(true);
+    // Every chip still fits and the row never exceeds the width.
+    for (const chip of l.chips) expect(chip.end).toBeLessThanOrEqual(30);
   });
 });

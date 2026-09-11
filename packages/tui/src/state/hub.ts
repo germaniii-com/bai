@@ -26,13 +26,18 @@ function basename(path: string): string {
 }
 
 /**
- * The contextual left label: draft state (no session) → "new session"; a
- * workspace (code) session → its folder basename; a chat session →
- * workbench + title. Mirrors the old header's context line, now owned by
- * the composer.
+ * The contextual left label: draft state (no session) → the launch folder's
+ * basename (the TUI boots in workspace mode rooted at the cwd, so the draft
+ * already has a working context; falls back to "new session" only when no
+ * root is known, e.g. embedded/test callers); a workspace (code) session →
+ * its folder basename; a chat session → workbench + title. Mirrors the old
+ * header's context line, now owned by the composer.
  */
-export function hubContextLabel(session: Session | null): string {
-  if (session === null) return "new session";
+export function hubContextLabel(session: Session | null, workspaceRoot?: string): string {
+  if (session === null) {
+    const root = typeof workspaceRoot === "string" ? basename(workspaceRoot.trim()) : "";
+    return root.length > 0 ? root : "new session";
+  }
   const cwd = typeof session.cwd === "string" ? session.cwd : "";
   if (cwd.length > 0) return basename(cwd);
   const title = session.title.length > 0 ? session.title : "(untitled)";
@@ -78,9 +83,11 @@ export function layoutHubStatus(opts: {
   mode: "normal" | "input";
   agent: string;
   model: string;
+  /** Launch folder — labels the draft state before a session exists. */
+  workspaceRoot?: string;
 }): HubStatusLayout {
-  const { width, session, mode, agent, model } = opts;
-  const leftFull = hubContextLabel(session);
+  const { width, session, mode, agent, model, workspaceRoot } = opts;
+  const leftFull = hubContextLabel(session, workspaceRoot);
   const modeText = mode === "normal" ? "NORMAL" : "INPUT";
   let agentText = agent.length > 0 ? `@${agent}` : "";
   let modelText = model;

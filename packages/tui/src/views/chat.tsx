@@ -440,11 +440,13 @@ export function ChatView({
       if (session === null) {
         // The server titles the session (truncated-prompt fallback, then an
         // LLM refine) from this first prompt — core/src/title.ts. TUI
-        // sessions root at the launch folder (workspace mode) so they group
-        // under that workspace in the webui.
+        // sessions are workspace (code) sessions rooted at the launch folder
+        // so they group under that workspace in the webui; without a root
+        // (tests, embeds) fall back to a cwd-less chat session.
         const created = await client.createSession({
-          workbench: "chat",
-          ...(workspaceRoot !== undefined ? { cwd: workspaceRoot } : {}),
+          ...(workspaceRoot !== undefined
+            ? { workbench: "code", cwd: workspaceRoot }
+            : { workbench: "chat" }),
         });
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: outbound });
@@ -1063,6 +1065,8 @@ export function ChatView({
     mode,
     agent,
     model: modelLabel,
+    // Draft state (no session) shows the launch folder's basename, not "new session".
+    ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
   });
 
   // Context tracker readout (shared/src/display.ts): `45.2k/200k (23%)` with

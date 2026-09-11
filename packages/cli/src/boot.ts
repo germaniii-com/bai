@@ -226,18 +226,23 @@ export async function boot(args: CliArgs): Promise<Booted> {
   // ephemeral proxies with an in-memory store, so they never own a ticker.
   if (args.mode !== "oneshot") automations.start();
 
-  // TUI = workspace mode: the folder bai is opened in registers as a
-  // workspace (webui-visible) and roots new TUI sessions. realpath'd so the
+  // TUI = workspace mode: the folder bai is opened in roots new TUI sessions
+  // and registers as a workspace (webui-visible). realpath'd so the
   // registration string matches what surfaces compare against (macOS /var →
-  // /private/var). Home itself is skipped — registering ~ is noise. Repeated
-  // boots re-register by design: a workspace removed from the webui comes
-  // back when bai is launched in that folder again — and an ARCHIVED
-  // workspace is restored outright (out of the archive, sessions
-  // unarchived), matching the webui's Restore action.
+  // /private/var). Home itself still roots sessions but is not registered —
+  // listing ~ among the webui's workspaces is noise. Repeated boots
+  // re-register by design: a workspace removed from the webui comes back when
+  // bai is launched in that folder again — and an ARCHIVED workspace is
+  // restored outright (out of the archive, sessions unarchived), matching the
+  // webui's Restore action.
   let workspaceRoot: string | undefined;
   if (args.mode === "tui") {
     try {
       const root = realpathSync(process.cwd());
+      // The TUI always works in the launch folder (workspace mode) — that's
+      // the current workspace even when it's ~. Only the *registration* of
+      // ~ is skipped: listing home among the webui's workspaces is noise.
+      workspaceRoot = root;
       if (root !== homedir()) {
         const config = configStore.get();
         const active = config.workspaces ?? [];
@@ -246,7 +251,6 @@ export async function boot(args: CliArgs): Promise<Booted> {
         } else if (!active.includes(root)) {
           configStore.update({ workspaces: [...active, root] });
         }
-        workspaceRoot = root;
       }
     } catch (err) {
       console.warn(`[bai] workspace registration skipped: ${err instanceof Error ? err.message : String(err)}`);
