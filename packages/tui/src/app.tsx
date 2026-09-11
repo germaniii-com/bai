@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session, SessionUsage } from "@bai/shared";
+import type { AgentInfo, CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session, SessionUsage } from "@bai/shared";
 import { isThemeId } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
@@ -27,6 +27,7 @@ import {
   type SubagentState,
 } from "./state/subagents";
 import { currentModelLabel, needsSetup } from "./state/providers";
+import { cycleAgentName } from "./state/agents";
 
 export type UiState = "chat" | "gallery" | "jobs" | "settings";
 
@@ -87,6 +88,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const [providersFetching, setProvidersFetching] = useState(false);
   const [configDefault, setConfigDefault] = useState<string | undefined>(undefined);
   const [configAgentDefault, setConfigAgentDefault] = useState<string | undefined>(undefined);
+  // Agent catalog for Tab / Shift+Tab cycling (the same list the agent
+  // manager shows) — fetched at boot, refreshed on agents.updated.
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   // config models.preferZdr — the pickers float ZDR-capable models first.
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   // config theme — the UI theme id (shared/src/themes.ts). Live: switches
@@ -210,6 +214,14 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     }
   }, [client]);
 
+  const refreshAgents = useCallback(async () => {
+    try {
+      setAgents(await client.listAgents());
+    } catch {
+      // Advisory: Tab cycling has nothing to step through until a fetch lands.
+    }
+  }, [client]);
+
   // Tiny startup fetch: the header's default-model/agent labels come from
   // config (no catalog touch, no models.dev refresh). The full provider
   // list — 200+ providers, thousands of models — loads only when the
@@ -245,7 +257,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     void refreshConfig();
     void refreshCustomThemes();
     void refreshAskIndex();
-  }, [refreshSessions, refreshConfig, refreshCustomThemes, refreshAskIndex]);
+    void refreshAgents();
+  }, [refreshSessions, refreshConfig, refreshCustomThemes, refreshAskIndex, refreshAgents]);
 
   // ctrl+c arming expires like the composer's esc arming — a stale press
   // must never quit (or interrupt) a later session of events.
@@ -293,6 +306,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           void refreshSessions();
         }
         if (evt.type === "agents.updated" || evt.type === "tools.updated" || evt.type === "skills.updated") {
+          if (evt.type === "agents.updated") void refreshAgents();
           setCatalogTick((t) => t + 1);
         }
         if (evt.type === "session.updated") {
@@ -322,7 +336,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       },
     });
     return () => ctrl.abort();
-  }, [client, refreshProviders, refreshSessions, refreshConfig, refreshAskIndex]);
+  }, [client, refreshProviders, refreshSessions, refreshConfig, refreshAskIndex, refreshAgents]);
 
   // Rebuild the tracked child set whenever the active session or the
   // session list changes (switch, refresh, archive) — live activity for
@@ -579,6 +593,28 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     active !== null && typeof (active.meta as Record<string, unknown>).agent === "string"
       ? ((active.meta as Record<string, unknown>).agent as string)
       : (configAgentDefault ?? "build");
+  // Tab / Shift+Tab (chat view): step through the agent list and apply,
+  // mirroring the agent manager — session-scoped when a session is open,
+  // else the config default. Optimistic: the hub chip flips immediately;
+  // the server confirms via session.updated / config.updated.
+  const cycleAgent = useCallback(
+    (delta: 1 | -1) => {
+      const next = cycleAgentName(agents.map((a) => a.name), activeAgent, delta);
+      if (next === undefined || next === activeAgent) return;
+      if (active !== null) {
+        setActive({ ...active, meta: { ...active.meta, agent: next } });
+        client.setSessionAgent(active.id, { agent: next }).catch((err) => {
+          setError(err instanceof Error ? err.message : String(err));
+        });
+      } else {
+        setConfigAgentDefault(next);
+        client.putConfig({ agents: { default: next } }).catch((err) => {
+          setError(err instanceof Error ? err.message : String(err));
+        });
+      }
+    },
+    [agents, activeAgent, active, client],
+  );
   const setupHint = needsSetup(providers);
 
   // The footer renders ONLY the conditional status lines above — this count
@@ -701,6 +737,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 onOpenModels={openModelsDialog}
                 onOpenAgents={openAgentsDialog}
                 onOpenSessions={openSessionsDialog}
+                onCycleAgent={cycleAgent}
                  subagents={subagents}
                  pendingAsks={pendingAsks}
                  pendingChildAsks={pendingChildAsks}

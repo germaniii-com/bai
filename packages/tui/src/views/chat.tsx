@@ -8,6 +8,7 @@ import { contextTracker, applyMention, collapseMentions, expandMentionPaths, for
 import type { Mode } from "../app";
 import { attachmentMarkers, buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
 import type { PickerOption } from "../state/providers";
+import { agentCycleDelta } from "../state/agents";
 import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
@@ -83,6 +84,7 @@ export function ChatView({
   onOpenModels,
   onOpenAgents,
   onOpenSessions,
+  onCycleAgent,
   subagents = emptySubagentState,
   pendingAsks = [],
   pendingChildAsks = [],
@@ -138,6 +140,8 @@ export function ChatView({
   onOpenAgents: () => void;
   /** Open the session picker dialog (the palette's Switch session) — hub workspace/session chip. */
   onOpenSessions: () => void;
+  /** Tab / Shift+Tab: step through the agent list (+1 next, -1 previous). */
+  onCycleAgent?: (delta: 1 | -1) => void;
   /**
    * Open the subagent output dialog — `sessionId` when the task's child is
    * resolved (result link or title match), undefined to let App focus the
@@ -843,6 +847,16 @@ export function ChatView({
       if (key.downArrow) return setMention((m) => moveMention(m, 1));
       if (key.tab || key.return) return selectMention();
       if (key.escape) return setMention(emptyMentionUi());
+    }
+
+    // Tab / Shift+Tab: cycle the session's agent (opencode's agent_cycle /
+    // agent_cycle_reverse). Live in BOTH modes — the fast switch while
+    // typing. The mention picker above owns Tab while it is open; the ask
+    // and modal-prompt guards return earlier.
+    const agentDelta = agentCycleDelta(ch, key);
+    if (agentDelta !== null) {
+      onCycleAgent?.(agentDelta);
+      return;
     }
 
     // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
