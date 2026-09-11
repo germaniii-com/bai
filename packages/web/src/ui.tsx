@@ -38,7 +38,15 @@ export function useDialogFocus(open: boolean, dialogRef: React.RefObject<HTMLEle
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ));
     const first = focusable()[0];
-    queueMicrotask(() => (first ?? dialog).focus());
+    queueMicrotask(() => {
+      // Respect an element that focused itself on mount (React `autoFocus`);
+      // otherwise prefer an explicit `[data-autofocus]` target over the first
+      // focusable (usually the header close button).
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== dialog && dialog.contains(active)) return;
+      const preferred = dialog.querySelector<HTMLElement>("[data-autofocus]");
+      (preferred ?? first ?? dialog).focus();
+    });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
       const items = focusable();

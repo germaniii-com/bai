@@ -123,9 +123,10 @@ export function ModelModal({
    */
   onPick?: (modelId: string, accountId: string | null) => void;
 }) {
-  // The one search bar (TUI SelectDialog parity): filters MODELS only —
-  // case-insensitive substring over the model's label OR id. State dies with
-  // the modal (it unmounts on close), so the filter never lingers.
+  // The one search bar (TUI SelectDialog parity): free-form, case-
+  // insensitive substring over the model's label/id OR its provider's
+  // name/id. Focused on open. State dies with the modal (it unmounts on
+  // close), so the filter never lingers.
   const [modelFilter, setModelFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,8 +144,14 @@ export function ModelModal({
   const providerById = new Map(providers.map((p) => [p.id, p]));
 
   const query = modelFilter.trim().toLowerCase();
-  const modelMatches = (m: ModelInfo): boolean =>
-    m.label.toLowerCase().includes(query) || m.id.toLowerCase().includes(query);
+  // Free-form filter: case-insensitive substring over the model's name/id OR
+  // its provider's display name/id — one input matches either (TUI
+  // type-to-filter semantics, widened to provider names).
+  const modelMatches = (m: ModelInfo): boolean => {
+    if (m.label.toLowerCase().includes(query) || m.id.toLowerCase().includes(query)) return true;
+    const providerName = providerById.get(m.provider)?.name;
+    return m.provider.toLowerCase().includes(query) || (providerName?.toLowerCase().includes(query) ?? false);
+  };
 
   // One flat catalog across every connected provider, label-sorted; with
   // preferZdr the ZDR-capable models float first. The search narrows it.
@@ -216,15 +223,18 @@ export function ModelModal({
         <p className="dim modal-loading">Loading providers…</p>
       ) : (
         <>
-          {/* The one search bar (TUI type-to-filter parity): filters models
-              across every connected provider. */}
+          {/* The one search bar (TUI type-to-filter parity): free-form text
+              matching a model's name/id OR its provider's name/id. Focused
+              on open (`data-autofocus` + `autoFocus`). */}
           <input
             className="model-search"
             type="search"
-            placeholder="Filter models…"
+            placeholder="Filter models or providers…"
             value={modelFilter}
             onChange={(e) => setModelFilter(e.target.value)}
-            aria-label="Filter models"
+            aria-label="Filter models or providers"
+            data-autofocus
+            autoFocus
           />
           <div className="model-list">
             {visibleModels.length === 0 && (

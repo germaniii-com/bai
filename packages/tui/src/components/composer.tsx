@@ -34,7 +34,6 @@ export function ComposerHub({
   layout,
   queuedCount = 0,
   context,
-  mentionEnabled = false,
 }: {
   editor: Editor;
   mode: Mode;
@@ -47,18 +46,16 @@ export function ComposerHub({
   layout: HubStatusLayout;
   /** Pending queued messages (message-queue feature) — the commands-row indicator. */
   queuedCount?: number;
-  /** Context tracker readout (shared/display.ts contextTracker) — the
-   *  commands-row tail: ` · 45.2k/200k (23%)`, tone-colored (pi's thresholds). */
+  /** Context tracker readout (shared/display.ts contextTracker) — leads the
+   *  commands row: `45.2k/200k (23%) · hints…`, tone-colored (pi's thresholds). */
   context?: ContextTrackerView;
-  /** A workspace root is known — advertise the `#file` mention chord. */
-  mentionEnabled?: boolean;
 }) {
   const t = useTheme();
   const queuedHint = queuedCount > 0 ? `⏳ ${queuedCount} queued · ` : "";
   const commands =
     mode === "input"
       ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word`
-      : `${queuedHint}${runActive ? "esc stop · " : ""}${mentionEnabled ? "# files/img · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
+      : `${queuedHint}${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · ctrl+c quit`;
   const contextColor = context === undefined ? undefined : context.tone === "danger" ? t.danger : context.tone === "warning" ? t.warning : t.dim;
   return (
     <Box
@@ -107,14 +104,17 @@ export function ComposerHub({
         )}
       </Text>
       {/* Row 3 — commands: the old footer hint line, now part of the hub.
-          The context tracker rides the tail (opencode's hint-row placement):
-          ` · 45.2k/200k (23%)`, tone-colored, in BOTH modes; it truncates first
-          on narrow terminals (wrap="truncate" cuts the end). */}
+          The context tracker LEADS the row (`45.2k/200k (23%) · hints…`),
+          tone-colored, in BOTH modes — so narrow terminals truncate the
+          hint tail, never the tracker (wrap="truncate" cuts the end). */}
       <Text color={t.dim} wrap="truncate">
-        {commands}
         {context !== undefined && contextColor !== undefined && (
-          <Text color={contextColor}> · {context.label}</Text>
+          <>
+            <Text color={contextColor}>{context.label}</Text>
+            <Text> · </Text>
+          </>
         )}
+        {commands}
       </Text>
     </Box>
   );

@@ -1462,7 +1462,6 @@ export function ChatView({
           layout={hubLayout}
           queuedCount={queuedInputs.length - sendingIds.length}
           context={tracker}
-          mentionEnabled={mentionRoot !== undefined && mentionRoot.length > 0}
         />
       )}
     </Box>

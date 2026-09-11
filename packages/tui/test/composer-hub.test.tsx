@@ -79,13 +79,12 @@ describe("ComposerHub render", () => {
     expect(frame).toContain("esc stop");
   });
 
-  test("context tracker: appended to the commands row in both modes", async () => {
+  test("context tracker: leads the commands row in both modes", async () => {
     const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000 };
     const tracker = contextTracker(usage);
     expect(tracker).toBeDefined();
-    // INPUT mode (short hint row): the full label fits the 100-col test
-    // terminal. NORMAL mode's long hint row truncates the tail first — the
-    // designed narrow-terminal behavior — so only the segment's head survives.
+    // The tracker LEADS the commands row in BOTH modes, so the full label
+    // survives even when the hint tail truncates on a narrow terminal.
     const inputLayout = layoutHubStatus({ width: 60, session: session(), mode: "input", agent: "build", model: "stub/echo" });
     const { lastFrame, unmount } = render(
       <ComposerHub
@@ -99,7 +98,9 @@ describe("ComposerHub render", () => {
       />,
     );
     await tick();
-    expect(lastFrame() ?? "").toContain("· 45k/200k (23%)");
+    const inputFrame = lastFrame() ?? "";
+    expect(inputFrame).toContain("45k/200k (23%)");
+    expect(inputFrame.indexOf("45k/200k (23%)")).toBeLessThan(inputFrame.indexOf("enter send"));
     unmount();
 
     const normalLayout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });
@@ -115,7 +116,8 @@ describe("ComposerHub render", () => {
       />,
     );
     await tick();
-    expect(normal.lastFrame() ?? "").toContain("· 4");
+    // NORMAL's longer hint row truncates — but only the hints, not the lead.
+    expect(normal.lastFrame() ?? "").toContain("45k/200k (23%)");
     normal.unmount();
   });
 

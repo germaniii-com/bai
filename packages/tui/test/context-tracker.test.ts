@@ -4,7 +4,7 @@ import type { SessionUsage } from "@bai/shared";
 
 /**
  * The context tracker's pure math (shared/src/display.ts) — the same helper
- * renders the TUI hub's commands-row tail and the web composer's chip, so
+ * renders the TUI hub's commands-row lead and the web composer's chip, so
  * both surfaces stay in lockstep (pi's thresholds, opencode's label).
  */
 describe("formatTokens", () => {

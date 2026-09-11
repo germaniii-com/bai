@@ -38,13 +38,13 @@ describe("App context tracker + overlay (real stack)", () => {
         const withSession = [...frames].reverse().find((f) => f.includes("Echo: hi")) ?? "";
         expect(withSession).toContain("Echo: hi");
 
-        // The tracker rides the commands-row tail; the NORMAL row is long,
-        // so enter INPUT mode (short hints) where the 100-col test terminal
-        // fits the whole label. 15 tokens, no catalog window → bare count.
+        // The tracker leads the commands row; the NORMAL row is long, so
+        // enter INPUT mode (short hints) for a comfortable assert. 15 tokens,
+        // no catalog window → bare count before the hint list.
         stdin.write("i");
         await tick(120);
         const inputFrame = [...frames].reverse().find((f) => f.includes("enter send")) ?? "";
-        expect(inputFrame).toContain("· 15");
+        expect(inputFrame).toContain("15 ·");
 
         // ctrl+p floats the palette over the live transcript (NORMAL mode
         // only — esc out of INPUT first); the reply stays visible behind.
