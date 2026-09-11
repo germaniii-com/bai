@@ -89,6 +89,31 @@ describe("run.usage events (context tracker feed)", () => {
     expect(t.core.sessionSnapshot(session.id).usage).toBeNull();
   });
 
+  test("the event carries the estimated per-category breakdown (mirrored into the snapshot)", async () => {
+    const session = t.core.createSession({ workbench: "chat" });
+    const events = collector(t.bus);
+    t.core.submitPrompt(session.id, { text: "hi" });
+    await t.core.drainNow(session.id);
+    await sleep(10);
+    events.stop();
+
+    const payload = events.seen.filter((e) => e.type === "run.usage")[0]!.payload as { usage: SessionUsage };
+    const breakdown = payload.usage.breakdown;
+    expect(breakdown).toBeDefined();
+    // Every category is a non-negative integer estimate.
+    for (const value of Object.values(breakdown!)) expect(value).toBeGreaterThanOrEqual(0);
+    // The prompt always carries a system block, the non-task tool schemas,
+    // the task tool's guidance, and the conversation.
+    expect(breakdown!.system).toBeGreaterThan(0);
+    expect(breakdown!.tools).toBeGreaterThan(0);
+    expect(breakdown!.subagents).toBeGreaterThan(0);
+    expect(breakdown!.conversation).toBeGreaterThan(0);
+    // No MCP tools are loaded in v1 — the category is present but zero.
+    expect(breakdown!.mcp).toBe(0);
+    // The snapshot seed mirrors the event's breakdown.
+    expect(t.core.sessionSnapshot(session.id).usage?.breakdown).toEqual(breakdown);
+  });
+
   test("compaction emits a token-less event (unknown until the next turn)", async () => {
     const summarizer = new FakeSummarizer();
     t.providers.register(summarizer);

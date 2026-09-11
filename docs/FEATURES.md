@@ -51,7 +51,10 @@ The conversation modality and bai's default session type.
   chip on the web's composer status row — tone-shifted as the window fills
   (warning >70%, danger >90%), `?/200k` after compaction until the next
   model response. One durable `run.usage` event per provider turn keeps
-  every surface in sync
+  every surface in sync. In the web, clicking the chip opens a **Context
+  Usage** modal — a fullness bar over the exact provider tokens plus the
+  estimated (`~`, chars/4) per-category composition of that turn's prompt
+  (system prompt · tools · skills · mcp · subagents · conversation)
 - **`#file` mentions** (opencode2's completion): type `#` in the composer to
   fuzzy-search the session's workspace and insert a file reference. The
   composer shows the shortest unique leaf (`#button.tsx`, extending to

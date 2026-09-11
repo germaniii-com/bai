@@ -3,7 +3,7 @@
  * imports (shared is the dependency leaf).
  */
 
-import type { SessionUsage } from "./usage";
+import type { ContextBreakdown, ContextCategory, SessionUsage } from "./usage";
 
 /** What a `task` tool result's `<task>` XML wrapper unwraps to. */
 export interface TaskOutputView {
@@ -50,6 +50,21 @@ export function formatTokens(count: number): string {
 /** Visual severity of the context tracker readout. */
 export type TrackerTone = "dim" | "warning" | "danger";
 
+/**
+ * The context-window-occupying token sum for a usage row: `input + output +
+ * cacheRead + cacheWrite`. `reasoningTokens` is EXCLUDED (a documented
+ * subset of output — adding it would double-count). Shared by the compact
+ * tracker label and the web breakdown modal's header.
+ */
+export function contextTokensUsed(usage: SessionUsage): number {
+  return (
+    (usage.inputTokens ?? 0) +
+    (usage.outputTokens ?? 0) +
+    (usage.cacheReadTokens ?? 0) +
+    (usage.cacheWriteTokens ?? 0)
+  );
+}
+
 export interface ContextTrackerView {
   /** e.g. `45k/200k (23%)`, `45k` (no window), `?/200k` (post-compaction). */
   label: string;
@@ -68,11 +83,7 @@ export interface ContextTrackerView {
  */
 export function contextTracker(usage: SessionUsage | null | undefined): ContextTrackerView | undefined {
   if (usage === undefined || usage === null) return undefined;
-  const tokens =
-    (usage.inputTokens ?? 0) +
-    (usage.outputTokens ?? 0) +
-    (usage.cacheReadTokens ?? 0) +
-    (usage.cacheWriteTokens ?? 0);
+  const tokens = contextTokensUsed(usage);
   const tokensKnown = usage.inputTokens !== undefined || usage.outputTokens !== undefined;
   const window = usage.contextWindow;
   if (!tokensKnown) {
@@ -87,4 +98,39 @@ export function contextTracker(usage: SessionUsage | null | undefined): ContextT
     return { label: `${formatTokens(tokens)}/${formatTokens(window)} (${pct}%)`, tone };
   }
   return { label: formatTokens(tokens), tone: "dim" };
+}
+
+// --- context breakdown (the web breakdown modal's rows) ---
+
+/** Display label for each prompt category. */
+export const CONTEXT_CATEGORY_LABELS: Record<ContextCategory, string> = {
+  system: "system prompt",
+  tools: "tools",
+  skills: "skills",
+  mcp: "mcp",
+  subagents: "subagents",
+  conversation: "conversation",
+};
+
+/** Row order the breakdown modal renders, top to bottom. */
+const CONTEXT_CATEGORY_ORDER: ContextCategory[] = ["system", "tools", "skills", "mcp", "subagents", "conversation"];
+
+export interface ContextBreakdownRow {
+  key: ContextCategory;
+  label: string;
+  /** Estimated tokens (chars/4) — the modal prefixes it with `~`. */
+  tokens: number;
+}
+
+/**
+ * Flatten a breakdown into ordered display rows. Returns an empty array when
+ * no breakdown was recorded (legacy snapshots, pre-first-turn).
+ */
+export function contextBreakdownRows(breakdown: ContextBreakdown | null | undefined): ContextBreakdownRow[] {
+  if (breakdown === null || breakdown === undefined) return [];
+  return CONTEXT_CATEGORY_ORDER.map((key) => ({
+    key,
+    label: CONTEXT_CATEGORY_LABELS[key],
+    tokens: breakdown[key],
+  }));
 }

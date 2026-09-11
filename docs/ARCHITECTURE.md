@@ -563,7 +563,11 @@ Runs under Bun directly — no build step.
   70/90% of the window, `?/200k` after compaction. Data: the durable
   `run.usage` event per provider turn + the snapshot's `usage` seed
   (`meta.lastUsage`); the math is pure in `shared/src/display.ts`
-  (`contextTracker`), shared verbatim with the web chip.
+  (`contextTracker`), shared verbatim with the web chip. The web chip is
+  clickable: `web/src/context-modal.tsx` renders a fullness bar over the
+  exact provider tokens plus the estimated per-category prompt composition
+  (`SessionUsage.breakdown`, chars/4, emitted by `run.ts` and labelled `~`
+  because providers report only the total).
 - **Supermenu** (`ctrl+p`, `views/command-palette.tsx` + `state/commands.ts`):
   the single entry point for app commands — a searchable palette with
   category headers and a contextual Suggested section (opencode's command

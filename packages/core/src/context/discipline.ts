@@ -39,6 +39,20 @@ export function estimateTokens(messages: Message[]): number {
   return Math.ceil(chars / 4);
 }
 
+/** chars/4 estimate for a plain string (system blocks, skills index). */
+export function estimateTextTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** chars/4 estimate for a set of tool definitions (JSON-serialized schema). */
+export function estimateToolDefsTokens(
+  defs: readonly { name: string; description?: string; schema: unknown }[],
+): number {
+  let chars = 0;
+  for (const def of defs) chars += JSON.stringify(def).length;
+  return Math.ceil(chars / 4);
+}
+
 function partChars(part: Part): number {
   const payload = part.payload as Record<string, unknown> | null;
   if (payload === null || payload === undefined) return 0;

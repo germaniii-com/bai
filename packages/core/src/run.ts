@@ -1,7 +1,7 @@
-import type { AgentInfo, AskOutcome, Clock, EventType, Input, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, ContextBreakdown, EventType, Input, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import type { AttachmentStore } from "./attachments";
-import { applyDiscipline } from "./context/discipline";
+import { applyDiscipline, estimateTextTokens, estimateTokens, estimateToolDefsTokens } from "./context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
@@ -282,30 +282,33 @@ export class RunCoordinator {
         // The agent persona + a session-metadata block (cwd, workbench,
         // available tools, platform, date) — subagents inherit their parent's
         // cwd via their own session row, so the whole tree knows where it is.
+        const agentPrompt = run.agent.prompt.trim().length > 0 ? run.agent.prompt : "";
+        const envBlock = buildEnvBlock({
+          ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
+          workbench: session?.workbench ?? "chat",
+          title: session?.title ?? "",
+          agent: run.agent.name,
+          tools: run.toolDefs.map((d) => d.name),
+          workspaces: this.deps.workspaceRoots(),
+          ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
+          now: this.deps.clock.iso(),
+        });
+        // The skills index rides along only when the agent can actually
+        // call skills.view (hermes' conditional injection) — index and
+        // tool appear (and disappear) together. The index is filtered to
+        // the agent's skills allow-list (visibleSkills — the same list
+        // the tool's hard gate enforces). Agents that can also SAVE
+        // skills get the compact authoring guidance (hermes
+        // SKILLS_GUIDANCE pattern) so natural-language learning works.
+        const skillsBlock = run.toolDefs.some((d) => d.name === "skills.view")
+          ? buildSkillsBlock(this.visibleSkills(run.agent), {
+              canAuthor: run.toolDefs.some((d) => d.name === "skills.save"),
+            })
+          : "";
         const system = [
-          ...(run.agent.prompt.trim().length > 0 ? [run.agent.prompt] : []),
-          buildEnvBlock({
-            ...(session?.cwd !== undefined ? { cwd: session.cwd } : {}),
-            workbench: session?.workbench ?? "chat",
-            title: session?.title ?? "",
-            agent: run.agent.name,
-            tools: run.toolDefs.map((d) => d.name),
-            workspaces: this.deps.workspaceRoots(),
-            ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
-            now: this.deps.clock.iso(),
-          }),
-          // The skills index rides along only when the agent can actually
-          // call skills.view (hermes' conditional injection) — index and
-          // tool appear (and disappear) together. The index is filtered to
-          // the agent's skills allow-list (visibleSkills — the same list
-          // the tool's hard gate enforces). Agents that can also SAVE
-          // skills get the compact authoring guidance (hermes
-          // SKILLS_GUIDANCE pattern) so natural-language learning works.
-          ...(run.toolDefs.some((d) => d.name === "skills.view")
-            ? [buildSkillsBlock(this.visibleSkills(run.agent), {
-                canAuthor: run.toolDefs.some((d) => d.name === "skills.save"),
-              })]
-            : []),
+          ...(agentPrompt.length > 0 ? [agentPrompt] : []),
+          envBlock,
+          ...(skillsBlock.length > 0 ? [skillsBlock] : []),
           ...(finalStep ? [STEPS_NOTICE] : []),
         ];
 
@@ -326,6 +329,21 @@ export class RunCoordinator {
           if (idx >= 0) history = history.slice(idx); // the summary leads as a user message
         }
         applyDiscipline(history);
+        // Estimated per-category composition of the prompt THIS turn sends.
+        // The provider reports only the total, so the web breakdown modal
+        // labels every row with `~` (chars/4 heuristic, same as discipline).
+        // `system` folds the persona + env block (+ the final-step notice);
+        // `tools` excludes the `task` (subagents) and `mcp/` schemas.
+        const breakdown: ContextBreakdown = {
+          system: estimateTextTokens(
+            [agentPrompt, envBlock, ...(finalStep ? [STEPS_NOTICE] : [])].filter((s) => s.length > 0).join("\n\n"),
+          ),
+          tools: estimateToolDefsTokens(toolDefs.filter((d) => d.name !== "task" && !d.name.startsWith("mcp/"))),
+          skills: estimateTextTokens(skillsBlock),
+          mcp: estimateToolDefsTokens(toolDefs.filter((d) => d.name.startsWith("mcp/"))),
+          subagents: estimateToolDefsTokens(toolDefs.filter((d) => d.name === "task")),
+          conversation: estimateTokens(history),
+        };
         const outbound = renderOutbound(history, { system, resolveAttachment: (part) => this.resolveAttachment(part) });
 
         // Auto-retry transient pre-stream API failures (429/408/5xx/network):
@@ -416,7 +434,7 @@ export class RunCoordinator {
         }
 
         if (usage?.inputTokens !== undefined) {
-          this.recordUsage(sessionId, usage, run.modelId, run.contextWindow);
+          this.recordUsage(sessionId, usage, run.modelId, run.contextWindow, breakdown);
           // The context tracker's live feed (durable — replay heals drops):
           // one event per provider turn with the full breakdown + window.
           this.emitDurable(sessionId, "run.usage", {
@@ -424,6 +442,7 @@ export class RunCoordinator {
               ...usage,
               model: run.modelId,
               ...(run.contextWindow !== undefined ? { contextWindow: run.contextWindow } : {}),
+              breakdown,
             },
           });
           // D26: every provider call records a usage row. All dimensions are
@@ -722,9 +741,16 @@ export class RunCoordinator {
    * input AND the context tracker's snapshot seed (surfaces read it via
    * `sessionSnapshot().usage` without waiting for the next turn). The full
    * breakdown + window/model ride along so the tracker never needs the
-   * provider catalog.
+   * provider catalog (and the web modal can render the per-category
+   * estimate without re-deriving the prompt).
    */
-  private recordUsage(sessionId: SessionId, usage: StreamUsage, modelId: string, contextWindow: number | undefined): void {
+  private recordUsage(
+    sessionId: SessionId,
+    usage: StreamUsage,
+    modelId: string,
+    contextWindow: number | undefined,
+    breakdown: ContextBreakdown,
+  ): void {
     const existing = this.deps.store.sessions.get(sessionId);
     if (existing === undefined) return;
     const meta = { ...(existing.meta as Record<string, unknown>) };
@@ -732,6 +758,7 @@ export class RunCoordinator {
       ...usage,
       model: modelId,
       ...(contextWindow !== undefined ? { contextWindow } : {}),
+      breakdown,
     } satisfies SessionUsage;
     // Quiet bookkeeping — no session.updated spam; surfaces read usage via
     // meta (snapshot) and the run.usage event.

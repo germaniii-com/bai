@@ -11,6 +11,34 @@
 export type UsageKind = "run" | "title" | "compaction";
 
 /**
+ * The categories a turn's prompt is composed of (the web context-breakdown
+ * modal's rows). `subagents` is the `task` tool's footprint; `mcp` is the
+ * `mcp/<server>/…`-namespaced tools (none loaded yet).
+ */
+export type ContextCategory = "system" | "tools" | "skills" | "mcp" | "subagents" | "conversation";
+
+/**
+ * Estimated token composition of one turn's prompt, per category. Providers
+ * report only the TOTAL context tokens, so these are chars/4 estimates and
+ * are rendered with a `~` prefix. Recorded per provider turn alongside the
+ * authoritative usage.
+ */
+export interface ContextBreakdown {
+  /** Agent persona + env block. */
+  system: number;
+  /** Built-in/file tool JSON schemas (excludes `task` and `mcp/` tools). */
+  tools: number;
+  /** The `## Skills` index (with authoring guidance when applicable). */
+  skills: number;
+  /** `mcp/<server>` tool schemas. */
+  mcp: number;
+  /** The `task` tool's guidance + agent-type list. */
+  subagents: number;
+  /** Rendered conversation history (the non-system outbound messages). */
+  conversation: number;
+}
+
+/**
  * The latest provider-reported usage of a session — the context tracker's
  * data shape everywhere (the `run.usage` event payload, `session.meta.
  * lastUsage`, and the history snapshot's `usage` field). All token fields
@@ -31,6 +59,8 @@ export interface SessionUsage {
   contextWindow?: number;
   /** Catalog id of the model that reported the usage. */
   model?: string;
+  /** Estimated per-category prompt composition for that turn (web modal). */
+  breakdown?: ContextBreakdown;
 }
 
 /** Time-bucket size for the analytics series (UTC; RFC3339 substr). */

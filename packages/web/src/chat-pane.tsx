@@ -6,6 +6,7 @@ import { contextTracker, formatMentionRange, formatTokens, applyMention, expandM
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
+import { ContextUsageModal } from "./context-modal";
 import { ModelPicker } from "./model-picker";
 import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
@@ -272,7 +273,8 @@ export function ChatPane({
   const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
   const [learnOpen, setLearnOpen] = useState(false);
   // Context tracker readout (shared/src/display.ts — TUI parity): undefined
-  // until the session's first usage lands.
+  // until the session's first usage lands. The chip opens the breakdown modal.
+  const [contextOpen, setContextOpen] = useState(false);
   const tracker = contextTracker(usage);
   // Mentions resolve against the session's workspace root (a code session).
   const openFileRoot = active?.cwd ?? workspaceRoot;
@@ -633,11 +635,14 @@ export function ChatPane({
           )}
           {tracker !== undefined && (
             // The context tracker (pi/opencode parity): the session's live
-            // context usage as a static chip — `45k/200k (23%)`, tone-shifted
-            // at the 70/90% thresholds; the tooltip carries the exact numbers.
+            // context usage as a clickable chip — `45k/200k (23%)`, tone-
+            // shifted at the 70/90% thresholds. Click opens the per-category
+            // breakdown modal; the tooltip carries the exact numbers.
             <Chip
+              interactive
               className={tracker.tone !== "dim" ? tracker.tone : undefined}
-              hint={contextChipTitle(usage)}
+              hint={`${contextChipTitle(usage)} — click for the breakdown`}
+              onClick={() => setContextOpen(true)}
             >
               <Gauge size={11} aria-hidden="true" />
               <span className="chip-label">{tracker.label}</span>
@@ -693,6 +698,9 @@ export function ChatPane({
           }}
           onClose={() => setLearnOpen(false)}
         />
+      )}
+      {contextOpen && usage != null && (
+        <ContextUsageModal usage={usage} onClose={() => setContextOpen(false)} />
       )}
       {lightbox !== null && <ImageLightbox attachment={lightbox} client={client} onClose={() => setLightbox(null)} />}
     </main>

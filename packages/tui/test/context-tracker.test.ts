@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contextTracker, formatTokens } from "@bai/shared";
+import { contextBreakdownRows, contextTokensUsed, contextTracker, formatTokens } from "@bai/shared";
 import type { SessionUsage } from "@bai/shared";
 
 /**
@@ -61,5 +61,40 @@ describe("contextTracker", () => {
 
   test("token-less row without a window → nothing to show", () => {
     expect(contextTracker({ model: "stub/echo" })).toBeUndefined();
+  });
+});
+
+describe("contextTokensUsed", () => {
+  test("sums input + output + cache reads + cache writes, excluding reasoning", () => {
+    expect(
+      contextTokensUsed({
+        inputTokens: 40_000,
+        outputTokens: 5_200,
+        reasoningTokens: 3_000,
+        cacheReadTokens: 1_000,
+        cacheWriteTokens: 500,
+      }),
+    ).toBe(46_700);
+  });
+});
+
+describe("contextBreakdownRows", () => {
+  test("undefined/null → no rows", () => {
+    expect(contextBreakdownRows(undefined)).toEqual([]);
+    expect(contextBreakdownRows(null)).toEqual([]);
+  });
+
+  test("fixed category order + labels + token passthrough", () => {
+    const rows = contextBreakdownRows({ system: 1, tools: 2, skills: 3, mcp: 4, subagents: 5, conversation: 6 });
+    expect(rows.map((r) => r.key)).toEqual(["system", "tools", "skills", "mcp", "subagents", "conversation"]);
+    expect(rows.map((r) => r.label)).toEqual([
+      "system prompt",
+      "tools",
+      "skills",
+      "mcp",
+      "subagents",
+      "conversation",
+    ]);
+    expect(rows.map((r) => r.tokens)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });

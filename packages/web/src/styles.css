@@ -2258,6 +2258,90 @@ select:focus-visible,
   padding: var(--space-6) var(--space-4);
 }
 
+/* --- context usage breakdown modal (composer's context chip) ------------- */
+
+.ctx-usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ctx-usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ctx-usage-pct {
+  font-weight: 600;
+  font-size: var(--text-lg);
+}
+
+.ctx-usage-counts {
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.ctx-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 120ms ease;
+}
+
+.ctx-breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ctx-cat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 2px;
+}
+
+.ctx-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.ctx-swatch-system { background: var(--accent); }
+.ctx-swatch-tools { background: var(--warning); }
+.ctx-swatch-skills { background: var(--success); }
+.ctx-swatch-mcp { background: var(--secondary); }
+.ctx-swatch-subagents { background: var(--danger); }
+.ctx-swatch-conversation { background: var(--dim); }
+
+.ctx-cat-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-cat-tokens {
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-empty {
+  margin: 0;
+}
+
 /* The single scrollable model column (one row per model across every
    connected provider): fills the unpadded modal body and scrolls on its own
    so the search bar stays pinned above it. */
