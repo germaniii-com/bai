@@ -69,7 +69,10 @@ function elide(text: string): string {
   return `${head}\n[… ${text.length - DIFF_LIMIT} characters elided …]\n${tail}`;
 }
 
-/** fs.write — diff of the existing file (if any) against the incoming content. */
+/**
+ * fs.write — diff of the existing file (if any) against the incoming content,
+ * or against the file *plus* the appended content when the call appends.
+ */
 registry.set("fs.write", (args, cwd) => {
   const abs = resolveArgPath(args.path, cwd);
   if (abs === undefined) return {};
@@ -86,6 +89,17 @@ registry.set("fs.write", (args, cwd) => {
     // File doesn't exist yet — creating.
   }
   const newContent = typeof args.content === "string" ? args.content : "";
+  // Append previews the *appended* lines only; labelling it "overwrite" with a
+  // whole-file diff would badly misrepresent what the call does.
+  if (args.append === true) {
+    const appended = oldContent !== undefined ? oldContent + newContent : undefined;
+    const diff = appended !== undefined ? elide(createPatch(rel, oldContent as string, appended)) : undefined;
+    return {
+      path: abs,
+      summary: `append ${rel} (${Buffer.byteLength(newContent)} bytes)`,
+      ...(diff !== undefined ? { diff } : {}),
+    };
+  }
   const summary = existed
     ? `overwrite ${rel} (${Buffer.byteLength(newContent)} bytes)`
     : `create ${rel} (${Buffer.byteLength(newContent)} bytes)`;

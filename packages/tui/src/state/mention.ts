@@ -7,7 +7,18 @@
 export interface MentionEntry {
   /** Workspace-relative path, POSIX separators. */
   path: string;
-  type: "file" | "dir";
+  /**
+   * `dir-select` is the folder currently being browsed, offered as a row of
+   * its own so a folder can be mentioned *as a whole*.
+   *
+   * `dir` rows drill in on Enter (`#dir/`, no trailing space, picker stays
+   * open to keep filtering inside) — which alone can never express "this
+   * folder". So a directory that has children, i.e. exactly the folders that
+   * get listed while browsing, had no way to be referenced. This row routes
+   * through the file/insert path instead, producing a terminal `#folder `
+   * token.
+   */
+  type: "file" | "dir" | "dir-select";
 }
 
 export interface MentionUiState {
@@ -31,9 +42,34 @@ export function openedMention(raw: string, pathQuery: string): MentionUiState {
   return { open: true, raw, pathQuery, results: [], selected: 0, loading: true };
 }
 
-/** Apply a fetched result set (keeping the selection in range). */
+/**
+ * The directory a trailing-slash query is browsing (`a/b/` → `a/b`), or
+ * undefined when the query is not a directory query / is the workspace root.
+ */
+export function browsedFolder(pathQuery: string): string | undefined {
+  if (!pathQuery.endsWith("/")) return undefined;
+  const trimmed = pathQuery.replace(/\/+$/, "");
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
+ * Apply a fetched result set (keeping the selection in range), with the
+ * browsed folder offered as a selectable row.
+ *
+ * It is listed first so that Enter drills into a folder and Enter again takes
+ * it — mirroring how the query narrows (`#src` → `#src/` → pick). A result
+ * that already *is* that folder is re-typed rather than duplicated, so exactly
+ * one row represents it.
+ */
 export function withMentionResults(state: MentionUiState, results: MentionEntry[]): MentionUiState {
-  return { ...state, results, selected: Math.min(state.selected, Math.max(0, results.length - 1)), loading: false };
+  const folder = browsedFolder(state.pathQuery);
+  let rows = results;
+  if (folder !== undefined) {
+    rows = results.some((entry) => entry.path === folder)
+      ? results.map((entry) => (entry.path === folder ? { ...entry, type: "dir-select" as const } : entry))
+      : [{ path: folder, type: "dir-select" as const }, ...results];
+  }
+  return { ...state, results: rows, selected: Math.min(state.selected, Math.max(0, rows.length - 1)), loading: false };
 }
 
 /** Move the highlight, wrapping at both ends. No-op on an empty list. */

@@ -32,6 +32,15 @@ export interface ModelsConfig {
    * actual ZDR activation is an org-level agreement with the provider.
    */
   preferZdr?: boolean;
+  /**
+   * Ceiling on output tokens for one model turn (prose + tool-call arguments).
+   * Unset → the model's catalog output limit → 16k. Raise it when writing large
+   * files in one call; lower it to force the model into smaller chunked writes.
+   * Resolved by `provider/output-limit.ts` and sent as `params.max_tokens`,
+   * which the adapters fall back from at 4096 — a value too small to emit a
+   * large `fs.write` argument, which truncates the call mid-JSON.
+   */
+  maxOutputTokens?: number;
 }
 
 /** User identity — the human bai is working for. */
@@ -170,6 +179,7 @@ const modelsSchema = z.object({
   title: z.string().optional(),
   defaultAccount: z.record(z.string(), z.string().min(1).max(100)).optional(),
   preferZdr: z.boolean().optional(),
+  maxOutputTokens: z.number().int().min(256).max(200_000).optional(),
 });
 
 const toolsSchema = z.object({

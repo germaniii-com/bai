@@ -7,6 +7,10 @@ import { useTheme } from "../theme";
  * above the ComposerHub (never an overlay): the chat stays mounted and the
  * input keeps receiving keystrokes, so the query filters live. Presentational
  * only; navigation state lives in state/mention.ts and the chat view.
+ *
+ * While browsing inside a folder (`#src/`) the folder itself is the first row
+ * (`dir-select`), labelled "this folder": Enter drills into a `dir` row, so
+ * without it a folder with children could never be mentioned as a whole.
  */
 export function MentionPicker({
   results,
@@ -49,14 +53,16 @@ export function MentionPicker({
           const slash = entry.path.lastIndexOf("/");
           const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
           const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
+          const isDir = entry.type === "dir" || entry.type === "dir-select";
           return (
-            <Text key={entry.path} wrap="truncate" color={active ? t.accent : t.text}>
+            <Text key={`${entry.type}:${entry.path}`} wrap="truncate" color={active ? t.accent : t.text}>
               {active ? "❯ " : "  "}
               <Text color={active ? t.accent : t.dim}>{dir}</Text>
               <Text bold={active} color={active ? t.accent : t.text}>
                 {base}
               </Text>
-              {entry.type === "dir" ? <Text color={t.dim}>/</Text> : null}
+              {isDir ? <Text color={t.dim}>/</Text> : null}
+              {entry.type === "dir-select" ? <Text color={t.dim}> this folder</Text> : null}
             </Text>
           );
         })

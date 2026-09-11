@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { looksBinary, assertFreshForWrite, recordRead, recordWrite, resolveInRoots, notFoundError, withFileMutationQueue, type FsRoots } from "./fs-guard";
 import { OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./registry";
@@ -115,29 +115,58 @@ export function fsReadTool(roots: FsRoots): Tool {
 }
 
 /**
- * fs.write — create or overwrite a file. Refuses to overwrite a file that
- * was not read first, or that changed on disk after the last read.
+ * fs.write — create or overwrite a file, or append to one. Refuses to touch a
+ * file that was not read first, or that changed on disk after the last read —
+ * in append mode too, since appending to a stale file is as destructive as
+ * overwriting it.
+ *
+ * Append exists so a large file never has to be one oversized tool call: the
+ * model's output is capped (see `provider/output-limit.ts`), so a single
+ * `fs.write` of a big file gets cut off mid-JSON. Chunking keeps every call
+ * comfortably inside the ceiling.
  */
 export function fsWriteTool(roots: FsRoots): Tool {
   return {
     name: "fs.write",
     origin: "builtin",
     description:
-      "Write content to a file, creating it (and parent directories) if needed. Read the file first when overwriting an existing one. Refuses byte-identical writes.",
+      "Write content to a file, creating it (and parent directories) if needed. Read the file first when overwriting an existing one. Refuses byte-identical writes. For files larger than ~300 lines, write the first chunk and append the rest with { append: true } across several calls — a single call is capped by the model's output limit, so one giant write can be cut off mid-argument.",
     schema: {
       type: "object",
       properties: {
         path: { type: "string", description: "File path (absolute, or relative to the session working directory)" },
-        content: { type: "string", description: "Full content to write (replaces the file)" },
+        content: { type: "string", description: "Content to write: replaces the file, or is appended to it with append: true" },
+        append: {
+          type: "boolean",
+          description:
+            "Append to the end of an existing file instead of replacing it (default false). The file must exist and have been read first; use this to build a large file in chunks.",
+        },
       },
       required: ["path", "content"],
     },
     async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
-      const { path: input, content } = args as { path: string; content: string };
+      const { path: input, content, append } = args as { path: string; content: string; append?: boolean };
       return withFileMutationQueue(path.resolve(input), () => {
         const abs = resolveInRoots(ctx, roots.roots(), input);
         const existed = exists(abs);
         assertFreshForWrite(abs, existed);
+        const bytes = Buffer.byteLength(content);
+
+        if (append === true) {
+          if (!existed) {
+            throw new Error(`Cannot append: ${abs} does not exist. Use fs.write without append to create it.`);
+          }
+          // Byte-identical content is legitimate here (repeating a block), so
+          // the replace-mode no-op guard deliberately does not apply.
+          appendFileSync(abs, content);
+          recordWrite(abs);
+          const totalBytes = statSync(abs).size;
+          return {
+            content: `Appended ${bytes} bytes to ${abs} (now ${totalBytes} bytes).`,
+            meta: { path: abs, bytes, totalBytes, appended: true, created: false },
+          } satisfies ToolResult;
+        }
+
         if (existed && readFileSync(abs, "utf8") === content) {
           throw new Error("No changes to write: content is byte-identical to the existing file.");
         }
@@ -145,8 +174,8 @@ export function fsWriteTool(roots: FsRoots): Tool {
         writeFileSync(abs, content);
         recordWrite(abs);
         return {
-          content: `Wrote ${Buffer.byteLength(content)} bytes to ${abs}.`,
-          meta: { path: abs, bytes: Buffer.byteLength(content), created: !existed },
+          content: `Wrote ${bytes} bytes to ${abs}.`,
+          meta: { path: abs, bytes, totalBytes: bytes, appended: false, created: !existed },
         } satisfies ToolResult;
       });
     },

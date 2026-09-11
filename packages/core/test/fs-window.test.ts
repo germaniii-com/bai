@@ -8,7 +8,11 @@ describe("windowNumberedLines", () => {
     const w = windowNumberedLines(lines, { start: 1, maxLines: 100, budget: 40, lineCharCap: 2000 });
     expect(w.text.length).toBeLessThanOrEqual(40);
     expect(w.first).toBe(1);
-    expect(w.last).toBe(3); // "1: line 1" + "2: line 2" + "3: line 3" = 29; line 4 pushes past 40
+    // Each line is 9 chars ("4: line 4") plus a joining newline, so four lines
+    // are exactly 39 <= 40 and a fifth would need 49 — the cut lands between
+    // lines, never inside one.
+    expect(w.last).toBe(4);
+    expect(w.text).toBe("1: line 1\n2: line 2\n3: line 3\n4: line 4");
     expect(w.stoppedByBudget).toBe(true);
     expect(w.total).toBe(10);
   });
