@@ -61,6 +61,24 @@ export function SubagentStatusIcon({
   return <Check size={GLYPH_SIZE} aria-hidden="true" />;
 }
 
+/**
+ * Warning triangle for a built-in tool/agent shadowed by a user file
+ * override. The `data-tooltip` text rides the global TooltipLayer on
+ * hover/focus (tooltip.tsx) — no local tooltip state needed.
+ */
+export function OverrideWarning({ kind }: { kind: "tool" | "agent" }) {
+  return (
+    <span
+      className="override-warning"
+      data-tooltip={`This ${kind} has been overridden, reset changes if it does not work as intended`}
+      role="img"
+      aria-label={`This ${kind} has been overridden`}
+    >
+      <TriangleAlert size={GLYPH_SIZE} aria-hidden="true" />
+    </span>
+  );
+}
+
 /** Disclosure chevron for collapsible thought sections (▾/▸ previously). */
 export function Chevron({ open }: { open: boolean }) {
   return open ? (

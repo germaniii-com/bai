@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
-import { isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
+import { isToolOverride, isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { OverrideWarning } from "./icons";
+import { TriangleAlert } from "lucide-react";
 import { Button, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -44,6 +46,7 @@ export function ToolsNav({
           key={t.name}
           title={t.name}
           subtitle={t.origin}
+          trailing={isToolOverride(t) ? <OverrideWarning kind="tool" /> : undefined}
           selected={selected === t.name}
           onClick={() => onSelect(t.name)}
           ariaCurrent={selected === t.name ? "page" : undefined}
@@ -254,10 +257,20 @@ function ToolForm({
         void save();
       }}
     >
+      {isBuiltinOverride && (
+        <div className="override-banner" role="status">
+          <TriangleAlert size={14} aria-hidden="true" />
+          <span>
+            <strong>{tool.name}</strong> has been overridden — if it is not working properly, try resetting it
+            to default.
+          </span>
+        </div>
+      )}
       <SectionHeader
         title={
           <>
-            {tool.name} <span className="dim">({tool.origin})</span>
+            {tool.name} <span className="dim">({tool.origin})</span>{" "}
+            {isBuiltinOverride && <OverrideWarning kind="tool" />}
           </>
         }
       />

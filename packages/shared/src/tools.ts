@@ -25,3 +25,11 @@ export interface ToolListEntry {
 export function isValidToolName(name: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name);
 }
+
+/**
+ * True when a file tool shadows a built-in — deleting its file restores the
+ * original (surfaces render "reset to default" + an override warning).
+ */
+export function isToolOverride(tool: Pick<ToolListEntry, "origin" | "builtin">): boolean {
+  return tool.builtin === true && tool.origin !== "builtin";
+}

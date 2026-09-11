@@ -1380,6 +1380,49 @@ select:focus-visible,
 .tool-glyph-done { color: var(--success); }
 .tool-glyph-error { color: var(--danger); }
 
+/* Built-in override warning (agents/tools nav + detail headers): warning
+   tint so a shadowed built-in is scannable. In subnav items it pins to the
+   top-right like .check so the title/subtitle layout is undisturbed. */
+.override-warning {
+  display: inline-flex;
+  vertical-align: middle;
+  color: var(--warning);
+}
+
+.provider-item .override-warning {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Full-width override banner at the top of an overridden tool's detail
+   pane — warning tint, icon + text row. */
+.override-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.override-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.override-banner span {
+  color: var(--text);
+}
+
+.override-banner strong {
+  color: var(--warning);
+}
+
 /* Skill-load marker (skills.* tool nodes) — accent so a skill load is
    scannable among the other tool calls. */
 .tool-glyph.skill {
