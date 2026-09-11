@@ -93,6 +93,22 @@ describe("SelectDialog ctrl+j/k navigation", () => {
     expect(cursorLabel(frame)).toBeNull();
   });
 
+  test("renders capability tags after the model label", async () => {
+    const { lastFrame, unmount } = render(
+      <SelectDialog
+        title="models"
+        options={[{ value: "p/m", label: "Model", caps: "(think) (vision)" }]}
+        onPick={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    expect(frame).toContain("Model");
+    expect(frame).toContain("(think) (vision)");
+  });
+
   test("ctrl-chord actions fire (ctrl+a add) and plain letters type", async () => {
     const fired: string[] = [];
     const { stdin, lastFrame, unmount } = render(

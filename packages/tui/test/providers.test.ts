@@ -69,6 +69,32 @@ describe("provider picker logic", () => {
     expect(opts[0]?.hint).toContain("$3/M in");
   });
 
+  test("modelOptions annotate catalog capabilities (think/vision)", () => {
+    const p = provider({
+      id: "p",
+      models: [
+        { id: "p/both", provider: "p", label: "Both", reasoning: true, inputModalities: ["text", "image"] },
+        { id: "p/plain", provider: "p", label: "Plain" },
+      ],
+    });
+    const opts = modelOptions(p);
+    expect(opts[0]?.caps).toBe("(think) (vision)");
+    expect(opts[1]?.caps).toBeUndefined();
+    // Capability tags never leak into the filter/hint text.
+    expect(opts[0]?.label).toBe("Both");
+  });
+
+  test("allModelOptions carry capability tags too", () => {
+    const opts = allModelOptions([
+      provider({
+        id: "p",
+        connected: true,
+        models: [{ id: "p/vision", provider: "p", label: "Vision", inputModalities: ["image"] }],
+      }),
+    ]);
+    expect(opts[0]?.caps).toBe("(vision)");
+  });
+
   test("allModelOptions: flat list across connected providers, stub excluded", () => {
     const opts = allModelOptions(LIST.providers.concat(
       provider({

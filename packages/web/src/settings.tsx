@@ -11,6 +11,7 @@ import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/share
 import { sortProviders } from "./provider-utils";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
+import { ModelCapabilityBadges } from "./model-capabilities";
 import { Button, Card, Combobox, Field, PageHeader, SectionHeader, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -362,6 +363,7 @@ function DefaultModelCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const current = list.default.model ?? "stub/echo";
+  const currentModel = list.providers.flatMap((p) => p.models).find((m) => m.id === current);
 
   const saveCustom = (e: FormEvent): void => {
     e.preventDefault();
@@ -392,6 +394,7 @@ function DefaultModelCard({
         >
           <span className="dim">model</span>
           <span className="model-current">{current}</span>
+          {currentModel !== undefined && <ModelCapabilityBadges model={currentModel} />}
           <span className="model-caret" aria-hidden="true">
             <ChevronDown size={12} />
           </span>

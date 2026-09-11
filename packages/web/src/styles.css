@@ -2411,6 +2411,45 @@ select:focus-visible,
   opacity: 0.8;
 }
 
+/* Model name + inline capability glyphs (think/vision). The label keeps the
+   truncation so the glyphs never clip on long ids. */
+.model-row .model-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.model-row .model-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Per-model capability glyphs, hint on hover (global tooltip layer). */
+.model-caps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.model-cap {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dim);
+}
+
+.model-cap-thinking {
+  color: var(--warning);
+}
+
+.model-cap-vision {
+  color: var(--secondary);
+}
+
 /* The model modal's one search bar (TUI SelectDialog parity): sits above
    the flat model list and filters models across every connected provider.
    `type="search"` gives the native clear affordance. */

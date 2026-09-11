@@ -1,5 +1,5 @@
 import type { AccountInfo, ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
-import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
+import { isZdrCapableModel, modelCapabilities, sortModelsZdrFirst } from "@bai/shared";
 
 /**
  * Pure logic for the provider/model picker flow — no rendering, so the
@@ -14,6 +14,14 @@ export interface PickerOption {
   gutter?: string;
   /** Right-side warning badge (e.g. "△ 1" — a session's pending asks). */
   badge?: string;
+  /** Inline capability tags after the label, e.g. "(think) (vision)". */
+  caps?: string;
+}
+
+/** "(think) (vision)" inline tags for a model's catalog capabilities. */
+function capabilityTags(model: ModelInfo): string | undefined {
+  const caps = modelCapabilities(model);
+  return caps.length > 0 ? caps.map((c) => `(${c.label})`).join(" ") : undefined;
 }
 
 /** Provider list: connected first (both stable), stub last. */
@@ -61,9 +69,11 @@ export function modelOptions(provider: ProviderInfo, preferZdr = false): PickerO
     if (preferZdr && isZdrCapableModel(m.id, m.provider)) parts.push("zdr");
     if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
     if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
+    const caps = capabilityTags(m);
     return {
       value: m.id,
       label: m.label,
+      ...(caps !== undefined ? { caps } : {}),
       ...(parts.length > 0 ? { hint: parts.join(" · ") } : {}),
     };
   });
@@ -94,7 +104,17 @@ export function allModelOptions(providers: ProviderInfo[], preferZdr = false): P
       if (preferZdr && isZdrCapableModel(m.id, m.provider)) parts.push("zdr");
       if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
       if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
-      tagged.push({ id: m.id, provider: m.provider, opt: { value: m.id, label: m.label, hint: parts.join(" · ") } });
+      const caps = capabilityTags(m);
+      tagged.push({
+        id: m.id,
+        provider: m.provider,
+        opt: {
+          value: m.id,
+          label: m.label,
+          ...(caps !== undefined ? { caps } : {}),
+          hint: parts.join(" · "),
+        },
+      });
     }
   }
   const out = sortModelsZdrFirst(tagged, preferZdr).map((t) => t.opt);

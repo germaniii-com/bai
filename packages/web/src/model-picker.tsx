@@ -4,6 +4,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
+import { ModelCapabilityBadges } from "./model-capabilities";
 import { ListItem, Modal } from "./components";
 
 /**
@@ -51,6 +52,10 @@ export function ModelPicker({
       ? meta.model
       : (list?.default.model ?? configDefault ?? "stub/echo");
   const accountSuffix = accountLabel(list, current, meta) ?? "";
+  // Resolve the current model's catalog entry so the trigger can show the
+  // same capability glyphs as the picker rows (absent while the list loads).
+  const currentModel =
+    list === null ? undefined : list.providers.flatMap((p) => p.models).find((m) => m.id === current);
 
   return (
     <>
@@ -67,6 +72,7 @@ export function ModelPicker({
           {current}
           {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
         </span>
+        {currentModel !== undefined && <ModelCapabilityBadges model={currentModel} />}
         <span className="model-caret" aria-hidden="true">
           <ChevronDown size={12} />
         </span>
@@ -250,7 +256,12 @@ export function ModelModal({
                 <ListItem
                   key={m.id}
                   className="model-row"
-                  title={m.label}
+                  title={
+                    <span className="model-row-name">
+                      <span className="model-row-label">{m.label}</span>
+                      <ModelCapabilityBadges model={m} />
+                    </span>
+                  }
                   selected={isCurrent}
                   ariaCurrent={isCurrent ? "page" : undefined}
                   disabled={busy}

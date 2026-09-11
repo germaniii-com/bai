@@ -208,6 +208,7 @@ export function SelectDialog({
             {absolute === clamped ? "❯ " : "  "}
             {opt.gutter !== undefined ? <Text color={t.success}>{opt.gutter} </Text> : null}
             {opt.label}
+            {opt.caps !== undefined && <Text color={t.secondary}> {opt.caps}</Text>}
             {opt.badge !== undefined && <Text color={t.warning}> {opt.badge}</Text>}
             {opt.hint !== undefined && <Text color={t.dim}> {opt.hint}</Text>}
           </Text>
