@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderOutbound, type ToolCallPayload, type ToolResultPayload } from "../src/run/history";
 import { toAnthropicMessages, toAnthropicTools } from "../src/provider/adapters/anthropic";
 import { toOpenAiMessages, toOpenAiTools, OpenAiToolCallAccumulator } from "../src/provider/adapters/openai";
+import { buildToolNameMap, sanitizeToolName } from "../src/provider/tool-names";
+import type { OutboundMessage } from "../src/provider/types";
 import type { Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
 
 function part(ord: number, kind: Part["kind"], payload: unknown): Part {
@@ -70,7 +72,8 @@ describe("anthropic adapter mapping", () => {
         role: "assistant",
         content: [
           { type: "text", text: "reading" },
-          { type: "tool_use", id: "c1", name: "fs.read", input: { path: "a" } },
+          // Sanitized for the provider: Anthropic rejects the "." in "fs.read".
+          { type: "tool_use", id: "c1", name: "fs_read", input: { path: "a" } },
         ],
       },
       { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", content: [{ type: "text", text: "contents" }] }] },
@@ -101,9 +104,9 @@ describe("anthropic adapter mapping", () => {
     expect(out[0]?.content).toHaveLength(2);
   });
 
-  test("tools map with input_schema", () => {
+  test("tools map with input_schema and a provider-safe name", () => {
     const tools = toAnthropicTools([{ name: "fs.read", description: "read", schema: { type: "object" } }]);
-    expect(tools).toEqual([{ name: "fs.read", description: "read", input_schema: { type: "object" } }]);
+    expect(tools).toEqual([{ name: "fs_read", description: "read", input_schema: { type: "object" } }]);
   });
 });
 
@@ -122,7 +125,7 @@ describe("openai adapter mapping", () => {
     ]);
     expect(out).toEqual([
       { role: "user", content: "read it" },
-      { role: "assistant", content: "reading", tool_calls: [{ id: "c1", type: "function", function: { name: "fs.read", arguments: '{"path":"a"}' } }] },
+      { role: "assistant", content: "reading", tool_calls: [{ id: "c1", type: "function", function: { name: "fs_read", arguments: '{"path":"a"}' } }] },
       { role: "tool", tool_call_id: "c1", content: "contents" },
     ]);
   });
@@ -212,6 +215,49 @@ describe("attachment lowering", () => {
         { type: "file", file: { file_data: "data:application/pdf;base64,BBB", filename: "d.pdf" } },
       ],
     });
+  });
+});
+
+describe("provider tool-name sanitization", () => {
+  test("sanitizeToolName replaces rejected characters and caps at 64", () => {
+    expect(sanitizeToolName("fs.read")).toBe("fs_read");
+    expect(sanitizeToolName("mcp/server-a/search")).toBe("mcp_server-a_search");
+    expect(sanitizeToolName("already-ok_1")).toBe("already-ok_1");
+    expect(sanitizeToolName("a".repeat(80))).toHaveLength(64);
+    expect(sanitizeToolName("###")).toBe("___");
+    expect(sanitizeToolName("")).toBe("tool");
+  });
+
+  test("buildToolNameMap is bidirectional and collision-free", () => {
+    const map = buildToolNameMap([{ name: "fs.read" }, { name: "fs_read" }, { name: "mcp/s/x" }]);
+    expect(map.toProvider.get("fs.read")).toBe("fs_read");
+    // Collision with the previous alias gets a deterministic suffix.
+    expect(map.toProvider.get("fs_read")).toBe("fs_read_2");
+    expect(map.toProvider.get("mcp/s/x")).toBe("mcp_s_x");
+    expect(map.toReal.get("fs_read")).toBe("fs.read");
+    expect(map.toReal.get("fs_read_2")).toBe("fs_read");
+    expect(map.toReal.get("mcp_s_x")).toBe("mcp/s/x");
+  });
+
+  test("built-in dotted/slashed names all pass the provider name pattern", () => {
+    const pattern = /^[a-zA-Z0-9_-]{1,64}$/;
+    const builtinNames = ["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "task", "skills.view", "mcp/server-a/search"];
+    const openai = toOpenAiTools(builtinNames.map((name) => ({ name, schema: { type: "object" } })));
+    const anthropic = toAnthropicTools(builtinNames.map((name) => ({ name, schema: { type: "object" } })));
+    for (const tool of openai) expect(tool.function.name).toMatch(pattern);
+    for (const tool of anthropic) expect(tool.name).toMatch(pattern);
+  });
+
+  test("tool_use replay maps real names to their sent aliases", () => {
+    const tools = [{ name: "fs.read", description: "read", schema: { type: "object" } }];
+    const map = buildToolNameMap(tools);
+    const outbound: OutboundMessage[] = [
+      { role: "assistant", content: [{ type: "tool_use", callId: "c1", name: "fs.read", args: "{}" }] },
+    ];
+    const openai = toOpenAiMessages(outbound, { toolNames: map });
+    expect(openai[0]?.tool_calls?.[0]?.function.name).toBe("fs_read");
+    const anthropic = toAnthropicMessages(outbound, { toolNames: map });
+    expect((anthropic[0]?.content[0] as { name?: string }).name).toBe("fs_read");
   });
 });
 

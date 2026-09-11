@@ -1,5 +1,6 @@
 import type { ModelInfo } from "@bai/shared";
 import type { ContentBlock, LlmRequest, OutboundMessage, Provider, ProviderStream, StreamEvent, ToolDef } from "../types";
+import { buildToolNameMap, sanitizeToolName, type ToolNameMap } from "../tool-names";
 
 /**
  * OpenAI wire-protocol adapter over the official `openai` SDK — serves
@@ -29,9 +30,15 @@ export interface OpenAiMessage {
  * ride the assistant message as `tool_calls`; each result becomes a
  * `role:"tool"` message with the matching `tool_call_id`. Thinking blocks
  * are dropped (reasoning replay is not part of the chat-completions wire).
+ *
+ * `opts.toolNames` maps a replayed `tool_use` name (a real registry name like
+ * "fs.read") to the provider-safe alias the model originally saw; absent, the
+ * name is sanitized standalone. Without this, strict gateways reject the
+ * replayed assistant `tool_calls` the same way they reject the definitions.
  */
-export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
+export function toOpenAiMessages(messages: OutboundMessage[], opts: { toolNames?: ToolNameMap } = {}): OpenAiMessage[] {
   const out: OpenAiMessage[] = [];
+  const toolName = (name: string): string => opts.toolNames?.toProvider.get(name) ?? sanitizeToolName(name);
   for (const msg of messages) {
     if (msg.role === "system") {
       const text = typeof msg.content === "string" ? msg.content : msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
@@ -52,7 +59,7 @@ export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
       if (block.type === "text") {
         text += (text.length > 0 ? "\n" : "") + block.text;
       } else if (block.type === "tool_use") {
-        toolCalls.push({ id: block.callId, type: "function", function: { name: block.name, arguments: block.args } });
+        toolCalls.push({ id: block.callId, type: "function", function: { name: toolName(block.name), arguments: block.args } });
       } else if (block.type === "tool_result") {
         toolResults.push({ role: "tool", tool_call_id: block.callId, content: block.content });
       } else if (block.type === "image") {
@@ -84,11 +91,22 @@ export function toOpenAiMessages(messages: OutboundMessage[]): OpenAiMessage[] {
   return out;
 }
 
-/** Tool defs → OpenAI function-tool descriptors (pure; unit-tested). */
-export function toOpenAiTools(tools: ToolDef[]): { type: "function"; function: { name: string; description?: string; parameters: unknown } }[] {
+/**
+ * Tool defs → OpenAI function-tool descriptors (pure; unit-tested). Names are
+ * sanitized to `^[a-zA-Z0-9_-]+$` (strict OpenAI-compatible gateways reject
+ * dotted bai namespaces); the caller translates streamed aliases back.
+ */
+export function toOpenAiTools(
+  tools: ToolDef[],
+  names: ToolNameMap = buildToolNameMap(tools),
+): { type: "function"; function: { name: string; description?: string; parameters: unknown } }[] {
   return tools.map((t) => ({
     type: "function" as const,
-    function: { name: t.name, ...(t.description !== undefined ? { description: t.description } : {}), parameters: t.schema },
+    function: {
+      name: names.toProvider.get(t.name) ?? sanitizeToolName(t.name),
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      parameters: t.schema,
+    },
   }));
 }
 
@@ -179,13 +197,19 @@ export class OpenAiCompatProvider implements Provider {
       ...(req.sessionId !== undefined ? { defaultHeaders: { "x-opencode-session": req.sessionId } } : {}),
     });
 
-    const system = toOpenAiMessages(req.messages.filter((m) => m.role === "system"));
-    const conversation = toOpenAiMessages(req.messages.filter((m) => m.role !== "system"));
+    // Provider-safe aliases for this request's tools (dotted/slashed registry
+    // names are rejected by strict gateways). The same map translates the
+    // model's echoed aliases back to real names in the stream below.
+    const names = req.tools !== undefined && req.tools.length > 0 ? buildToolNameMap(req.tools) : undefined;
+    const msgOpts = names !== undefined ? { toolNames: names } : {};
+
+    const system = toOpenAiMessages(req.messages.filter((m) => m.role === "system"), msgOpts);
+    const conversation = toOpenAiMessages(req.messages.filter((m) => m.role !== "system"), msgOpts);
     const messages = [...system, ...conversation] as unknown as Parameters<typeof client.chat.completions.create>[0]["messages"];
 
     const apiTools =
-      req.tools !== undefined && req.tools.length > 0
-        ? (toOpenAiTools(req.tools) as unknown as NonNullable<Parameters<typeof client.chat.completions.create>[0]["tools"]>)
+      req.tools !== undefined && names !== undefined
+        ? (toOpenAiTools(req.tools, names) as unknown as NonNullable<Parameters<typeof client.chat.completions.create>[0]["tools"]>)
         : undefined;
 
     const stream = await client.chat.completions.create(
@@ -223,7 +247,10 @@ export class OpenAiCompatProvider implements Provider {
         }
         if (delta?.tool_calls !== undefined) {
           for (const grouped of toolAccum.map(delta.tool_calls as OpenAiToolCallDelta[])) {
-            yield { type: "tool_call_delta", id: grouped.id, name: grouped.name, argsDelta: grouped.argsDelta };
+            // Alias → real registry name (unknown/hallucinated aliases pass
+            // through unchanged and fail the gate as "unknown tool").
+            const name = grouped.name.length > 0 ? (names?.toReal.get(grouped.name) ?? grouped.name) : grouped.name;
+            yield { type: "tool_call_delta", id: grouped.id, name, argsDelta: grouped.argsDelta };
           }
         }
         if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {

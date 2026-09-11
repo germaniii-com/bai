@@ -1,5 +1,6 @@
 import type { ModelInfo } from "@bai/shared";
 import type { ContentBlock, LlmRequest, OutboundMessage, Provider, ProviderStream, StreamEvent, ToolDef } from "../types";
+import { buildToolNameMap, sanitizeToolName, type ToolNameMap } from "../tool-names";
 
 /** Anthropic's default when the request sets no cap (Go design §10). */
 const DEFAULT_MAX_TOKENS = 4096;
@@ -18,9 +19,14 @@ type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] 
  * results legally ride user-role messages, so user + tool_result mix is
  * valid. Thinking blocks are dropped: replaying them requires the provider's
  * signature, which bai does not persist.
+ *
+ * `opts.toolNames` maps a replayed `tool_use` name (a real registry name like
+ * "fs.read") to the provider-safe alias the model originally saw; absent, the
+ * name is sanitized standalone.
  */
-export function toAnthropicMessages(messages: OutboundMessage[]): AnthropicMessage[] {
+export function toAnthropicMessages(messages: OutboundMessage[], opts: { toolNames?: ToolNameMap } = {}): AnthropicMessage[] {
   const out: AnthropicMessage[] = [];
+  const toolName = (name: string): string => opts.toolNames?.toProvider.get(name) ?? sanitizeToolName(name);
   for (const msg of messages) {
     const role = msg.role === "assistant" ? "assistant" : "user";
     const blocks: AnthropicBlock[] = [];
@@ -31,7 +37,7 @@ export function toAnthropicMessages(messages: OutboundMessage[]): AnthropicMessa
         if (block.type === "text") {
           if (block.text.length > 0) blocks.push({ type: "text", text: block.text });
         } else if (block.type === "tool_use") {
-          blocks.push({ type: "tool_use", id: block.callId, name: block.name, input: parseArgs(block.args) });
+          blocks.push({ type: "tool_use", id: block.callId, name: toolName(block.name), input: parseArgs(block.args) });
         } else if (block.type === "tool_result") {
           blocks.push({
             type: "tool_result",
@@ -59,9 +65,20 @@ export function toAnthropicMessages(messages: OutboundMessage[]): AnthropicMessa
   return out;
 }
 
-/** Tool defs → Anthropic tool descriptors (pure; unit-tested). */
-export function toAnthropicTools(tools: ToolDef[]): { name: string; description?: string; input_schema: unknown }[] {
-  return tools.map((t) => ({ name: t.name, ...(t.description !== undefined ? { description: t.description } : {}), input_schema: t.schema }));
+/**
+ * Tool defs → Anthropic tool descriptors (pure; unit-tested). Names are
+ * sanitized to `^[a-zA-Z0-9_-]+$`; the caller translates streamed aliases
+ * back to the real registry names.
+ */
+export function toAnthropicTools(
+  tools: ToolDef[],
+  names: ToolNameMap = buildToolNameMap(tools),
+): { name: string; description?: string; input_schema: unknown }[] {
+  return tools.map((t) => ({
+    name: names.toProvider.get(t.name) ?? sanitizeToolName(t.name),
+    ...(t.description !== undefined ? { description: t.description } : {}),
+    input_schema: t.schema,
+  }));
 }
 
 /**
@@ -88,13 +105,19 @@ export class AnthropicProvider implements Provider {
       ...(req.auth?.baseUrl !== undefined ? { baseURL: req.auth.baseUrl } : {}),
     });
 
-    const tools = req.tools !== undefined && req.tools.length > 0 ? toAnthropicTools(req.tools) : undefined;
+    // Provider-safe aliases (dotted/slashed registry names are rejected);
+    // the same map translates the model's echoed aliases back below.
+    const names = req.tools !== undefined && req.tools.length > 0 ? buildToolNameMap(req.tools) : undefined;
+    const tools = req.tools !== undefined && names !== undefined ? toAnthropicTools(req.tools, names) : undefined;
     const systemText = req.messages
       .filter((m) => m.role === "system")
       .map((m) => (typeof m.content === "string" ? m.content : m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n")))
       .join("\n") || undefined;
 
-    const bodyMessages = toAnthropicMessages(req.messages.filter((m) => m.role !== "system"));
+    const bodyMessages = toAnthropicMessages(
+      req.messages.filter((m) => m.role !== "system"),
+      names !== undefined ? { toolNames: names } : {},
+    );
 
     // Extended thinking is a chat-mode feature: agentic turns (tools present)
     // skip it — replaying thinking blocks needs provider signatures we don't
@@ -149,8 +172,11 @@ export class AnthropicProvider implements Provider {
         if (evt.type === "content_block_start") {
           currentTool = undefined;
           if (evt.content_block.type === "tool_use") {
-            currentTool = { id: evt.content_block.id, name: evt.content_block.name };
-            yield { type: "tool_call_delta", id: evt.content_block.id, name: evt.content_block.name, argsDelta: "" };
+            // Alias → real registry name (unknown aliases pass through and
+            // fail the gate as "unknown tool").
+            const name = names?.toReal.get(evt.content_block.name) ?? evt.content_block.name;
+            currentTool = { id: evt.content_block.id, name };
+            yield { type: "tool_call_delta", id: evt.content_block.id, name, argsDelta: "" };
           }
         } else if (evt.type === "content_block_delta") {
           if (evt.delta.type === "text_delta") {
