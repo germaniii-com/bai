@@ -8,7 +8,7 @@ import { IconButton, useDialogFocus } from "../ui";
  * the Tab focus trap (with focus restore) are built in — callers only supply
  * content. Replaces the five hand-rolled copies of this plumbing.
  *
- * Sizes: sm 520px (pickers), md 720px (forms, three-column pickers),
+ * Sizes: sm 520px (pickers), md 720px (forms, the model picker),
  * lg 880px (galleries). Mobile (≤640px): full-width, 85vh, scrollable body.
  */
 export function Modal({

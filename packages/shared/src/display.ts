@@ -51,7 +51,7 @@ export function formatTokens(count: number): string {
 export type TrackerTone = "dim" | "warning" | "danger";
 
 export interface ContextTrackerView {
-  /** e.g. `45.2k (23%)`, `45.2k` (no window), `?/200k` (post-compaction). */
+  /** e.g. `45k/200k (23%)`, `45k` (no window), `?/200k` (post-compaction). */
   label: string;
   tone: TrackerTone;
 }
@@ -81,8 +81,10 @@ export function contextTracker(usage: SessionUsage | null | undefined): ContextT
     if (window === undefined) return undefined;
     return { label: `?/${formatTokens(window)}`, tone: "dim" };
   }
-  const pct = window !== undefined && window > 0 ? Math.round((tokens / window) * 100) : undefined;
-  const label = pct !== undefined ? `${formatTokens(tokens)} (${pct}%)` : formatTokens(tokens);
-  const tone: TrackerTone = pct !== undefined && pct > 90 ? "danger" : pct !== undefined && pct > 70 ? "warning" : "dim";
-  return { label, tone };
+  if (window !== undefined && window > 0) {
+    const pct = Math.round((tokens / window) * 100);
+    const tone: TrackerTone = pct > 90 ? "danger" : pct > 70 ? "warning" : "dim";
+    return { label: `${formatTokens(tokens)}/${formatTokens(window)} (${pct}%)`, tone };
+  }
+  return { label: formatTokens(tokens), tone: "dim" };
 }

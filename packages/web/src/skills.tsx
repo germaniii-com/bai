@@ -431,7 +431,7 @@ function SkillForm({
 
 /**
  * Learn with AI (hermes /learn parity, no slash command): describe what to
- * learn, optionally pin a model (the composer's three-column picker in
+ * learn, optionally pin a model (the composer's single-column picker in
  * capture mode), and submit — the server spawns a visible learn session
  * whose first turn distills the request into a skill. `onLearned` receives
  * the session id so the caller can navigate to it and watch.

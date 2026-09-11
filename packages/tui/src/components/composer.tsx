@@ -48,7 +48,7 @@ export function ComposerHub({
   /** Pending queued messages (message-queue feature) — the commands-row indicator. */
   queuedCount?: number;
   /** Context tracker readout (shared/display.ts contextTracker) — the
-   *  commands-row tail: ` · 45.2k (23%)`, tone-colored (pi's thresholds). */
+   *  commands-row tail: ` · 45.2k/200k (23%)`, tone-colored (pi's thresholds). */
   context?: ContextTrackerView;
   /** A workspace root is known — advertise the `#file` mention chord. */
   mentionEnabled?: boolean;
@@ -108,7 +108,7 @@ export function ComposerHub({
       </Text>
       {/* Row 3 — commands: the old footer hint line, now part of the hub.
           The context tracker rides the tail (opencode's hint-row placement):
-          ` · 45.2k (23%)`, tone-colored, in BOTH modes; it truncates first
+          ` · 45.2k/200k (23%)`, tone-colored, in BOTH modes; it truncates first
           on narrow terminals (wrap="truncate" cuts the end). */}
       <Text color={t.dim} wrap="truncate">
         {commands}

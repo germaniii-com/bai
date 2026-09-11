@@ -99,7 +99,7 @@ describe("ComposerHub render", () => {
       />,
     );
     await tick();
-    expect(lastFrame() ?? "").toContain("· 45k (23%)");
+    expect(lastFrame() ?? "").toContain("· 45k/200k (23%)");
     unmount();
 
     const normalLayout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });

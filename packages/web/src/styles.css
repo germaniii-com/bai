@@ -2258,34 +2258,10 @@ select:focus-visible,
   padding: var(--space-6) var(--space-4);
 }
 
-.model-columns {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.model-col {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--border);
-}
-
-.model-col:last-child {
-  border-right: 0;
-}
-
-.model-col-head {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dim);
-  padding: var(--space-3) var(--space-3) var(--space-2);
-}
-
-.model-col-list {
+/* The single scrollable model column (one row per model across every
+   connected provider): fills the unpadded modal body and scrolls on its own
+   so the search bar stays pinned above it. */
+.model-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -2295,9 +2271,29 @@ select:focus-visible,
   padding: 0 var(--space-2) var(--space-3);
 }
 
+/* Each row is a model: name, then `ctx · $/1M`, then `provider · account`
+   (the shared ListItem's single subtitle slot carries both meta lines). */
+.model-row .li-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: normal;
+}
+
+.model-row .model-row-meta,
+.model-row .model-row-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row .model-row-owner {
+  opacity: 0.8;
+}
+
 /* The model modal's one search bar (TUI SelectDialog parity): sits above
-   the three columns and filters MODELS only — the provider column cascades
-   to providers offering a match (accounts follow the selected provider).
+   the flat model list and filters models across every connected provider.
    `type="search"` gives the native clear affordance. */
 .model-search {
   display: block;
@@ -2795,17 +2791,6 @@ select:focus-visible,
 
   .composer .chip {
     max-width: 160px;
-  }
-
-  /* Three columns stay side by side, horizontally scrollable (the shared
-     Modal's mobile rules live in components.css). */
-  .model-columns {
-    overflow-x: auto;
-  }
-
-  .model-col {
-    flex: 0 0 auto;
-    min-width: 160px;
   }
 }
 

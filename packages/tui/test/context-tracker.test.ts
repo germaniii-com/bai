@@ -27,9 +27,9 @@ describe("contextTracker", () => {
     expect(contextTracker({})).toBeUndefined();
   });
 
-  test("tokens + window → `45k (23%)`", () => {
+  test("tokens + window → `45k/200k (23%)`", () => {
     const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000 };
-    expect(contextTracker(usage)).toEqual({ label: "45k (23%)", tone: "dim" });
+    expect(contextTracker(usage)).toEqual({ label: "45k/200k (23%)", tone: "dim" });
   });
 
   test("tokens without a window → no percentage", () => {
@@ -41,12 +41,12 @@ describe("contextTracker", () => {
 
   test("reasoning tokens are NOT added (subset of output — no double count)", () => {
     const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, reasoningTokens: 3_000, contextWindow: 200_000 };
-    expect(contextTracker(usage)).toEqual({ label: "45k (23%)", tone: "dim" });
+    expect(contextTracker(usage)).toEqual({ label: "45k/200k (23%)", tone: "dim" });
   });
 
   test("cache tokens count toward context (they occupy the window)", () => {
     const usage: SessionUsage = { inputTokens: 1_000, cacheReadTokens: 40_000, cacheWriteTokens: 4_200, contextWindow: 200_000 };
-    expect(contextTracker(usage)).toEqual({ label: "45k (23%)", tone: "dim" });
+    expect(contextTracker(usage)).toEqual({ label: "45k/200k (23%)", tone: "dim" });
   });
 
   test("thresholds: warning >70%, danger >90% of the window", () => {

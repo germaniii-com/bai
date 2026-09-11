@@ -633,8 +633,8 @@ export function ChatPane({
           )}
           {tracker !== undefined && (
             // The context tracker (pi/opencode parity): the session's live
-            // context usage as a static chip — `45k (23%)`, tone-shifted at
-            // the 70/90% thresholds; the tooltip carries the exact numbers.
+            // context usage as a static chip — `45k/200k (23%)`, tone-shifted
+            // at the 70/90% thresholds; the tooltip carries the exact numbers.
             <Chip
               className={tracker.tone !== "dim" ? tracker.tone : undefined}
               hint={contextChipTitle(usage)}

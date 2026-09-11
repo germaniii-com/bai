@@ -1051,8 +1051,8 @@ export function ChatView({
     model: modelLabel,
   });
 
-  // Context tracker readout (shared/src/display.ts): `45.2k (23%)` with the
-  // pi thresholds — undefined until the session's first usage lands.
+  // Context tracker readout (shared/src/display.ts): `45.2k/200k (23%)` with
+  // the pi thresholds — undefined until the session's first usage lands.
   const tracker = contextTracker(usage);
 
   // Message-actions options: Restore leads when a revert is pending (the

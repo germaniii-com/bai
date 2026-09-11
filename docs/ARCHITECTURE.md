@@ -559,7 +559,7 @@ Runs under Bun directly — no build step.
   (`deferInput` → `useInput` `isActive` gating) — Ink delivers input to
   every mounted handler, so ungated keys would double-handle.
 - **Context tracker** (the composer hub's commands-row tail, pi/opencode
-  parity): the session's live context usage — `45k (23%)`, tone-shifted at
+  parity): the session's live context usage — `45k/200k (23%)`, tone-shifted at
   70/90% of the window, `?/200k` after compaction. Data: the durable
   `run.usage` event per provider turn + the snapshot's `usage` seed
   (`meta.lastUsage`); the math is pure in `shared/src/display.ts`

@@ -1,25 +1,26 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown, Cpu } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import type { ModelInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
 import { ListItem, Modal } from "./components";
 
 /**
  * Chat-header model picker: a button showing the current model; clicking it
- * opens a three-column modal — provider → accounts → models. Lists CONNECTED
- * providers only: the composer hub picks a model to USE, while adding
- * accounts happens under Settings → Model Providers (which shows the full
- * catalog). Same stance as the TUI's ctrl+l flat list. Clicking a model
- * applies it and closes: session-scoped when a session is open, otherwise
- * the global default. With `preferZdr` (config models.preferZdr) the
- * ZDR-capable models float first and carry a badge.
+ * opens a single scrollable column of every CONNECTED provider's models.
+ * Each row carries the model name, its context window + input price, and the
+ * provider · account it would run on. The composer hub picks a model to USE,
+ * while adding accounts happens under Settings → Model Providers (which
+ * shows the full catalog). Clicking a model applies it and closes:
+ * session-scoped when a session is open, otherwise the global default. With
+ * `preferZdr` (config models.preferZdr) the ZDR-capable models float first
+ * and carry a badge.
  *
- * Account semantics mirror the TUI: "Server default" (no explicit account)
- * lets the server resolve the provider's default (config override → first
- * stored → env); picking an account pins it — `account` on the session
- * model, `defaultAccount` on the global config.
+ * Account semantics: a row shows the account the pick would pin — the
+ * session's pinned account when the provider owns it, otherwise "Server
+ * default" (the server resolves config override → first stored → env).
+ * Changing which account is pinned happens in Settings → Model Providers.
  */
 export function ModelPicker({
   client,
@@ -97,7 +98,7 @@ function accountLabel(
   return provider?.accounts.find((a) => a.id === meta.account)?.label ?? meta.account;
 }
 
-/** The three-column picker modal, exported for capture-mode reuse (the Learn form). */
+/** The single-column picker modal, exported for capture-mode reuse (the Learn form). */
 export function ModelModal({
   client,
   list,
@@ -122,14 +123,9 @@ export function ModelModal({
    */
   onPick?: (modelId: string, accountId: string | null) => void;
 }) {
-  const [providerId, setProviderId] = useState<string | null>(null);
-  // null = "Server default" (server resolves the provider's default account).
-  const [accountId, setAccountId] = useState<string | null>(null);
   // The one search bar (TUI SelectDialog parity): filters MODELS only —
-  // case-insensitive substring over the model's label OR id — and the
-  // provider column cascades to providers offering at least one match
-  // (accounts follow the selected provider). State dies with the modal (it
-  // unmounts on close), so the filter never lingers between opens.
+  // case-insensitive substring over the model's label OR id. State dies with
+  // the modal (it unmounts on close), so the filter never lingers.
   const [modelFilter, setModelFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,55 +139,47 @@ export function ModelModal({
   // Connected providers only (the composer hub picks a model to USE; account
   // setup lives in Settings → Model Providers). Connected first, stub last —
   // the shared sort stance.
-  const providers =
-    list === null ? [] : sortProviders(list.providers.filter((p) => p.connected));
+  const providers = list === null ? [] : sortProviders(list.providers.filter((p) => p.connected));
+  const providerById = new Map(providers.map((p) => [p.id, p]));
 
-  // The search (TUI SelectDialog filter semantics): case-insensitive
-  // substring over the model's label OR id. Non-empty, the provider column
-  // cascades to providers offering at least one matching model.
   const query = modelFilter.trim().toLowerCase();
   const modelMatches = (m: ModelInfo): boolean =>
     m.label.toLowerCase().includes(query) || m.id.toLowerCase().includes(query);
-  const visibleProviders = query.length > 0 ? providers.filter((p) => p.models.some(modelMatches)) : providers;
 
-  // Default selection: an explicit pick that is still visible wins; else the
-  // provider backing the current model (when visible); else the first
-  // visible one that actually offers models. Scoped to the VISIBLE list so
-  // a search that hides the picked/current provider falls back to a
-  // matching one (the explicit pick returns when the search clears).
-  const currentProviderId = current.split("/")[0];
-  const effectiveProviderId =
-    providerId !== null && visibleProviders.some((p) => p.id === providerId)
-      ? providerId
-      : visibleProviders.some((p) => p.id === currentProviderId)
-        ? currentProviderId
-        : (visibleProviders.find((p) => p.models.length > 0)?.id ?? visibleProviders[0]?.id ?? null);
-  const provider = providers.find((p) => p.id === effectiveProviderId);
+  // One flat catalog across every connected provider, label-sorted; with
+  // preferZdr the ZDR-capable models float first. The search narrows it.
+  const models: ModelInfo[] = sortModelsZdrFirst(
+    providers.flatMap((p) => p.models).sort((a, b) => a.label.localeCompare(b.label)),
+    preferZdr === true,
+  );
+  const visibleModels = query.length > 0 ? models.filter(modelMatches) : models;
 
-  // Scroll the active provider row into view — the default selection (the
-  // current model's provider) can sit far down a 200-entry catalog list.
-  // block:"nearest" makes this a no-op when the row is already visible
-  // (e.g. right after a click).
+  // Scroll the current model row into view — it can sit far down a large
+  // catalog. block:"nearest" makes this a no-op when already visible.
   useEffect(() => {
-    document
-      .querySelector(".model-col-list .list-item.selected")
-      ?.scrollIntoView({ block: "nearest" });
-  }, [effectiveProviderId]);
+    document.querySelector(".model-list .list-item.selected")?.scrollIntoView({ block: "nearest" });
+  }, [current]);
 
-  // Effective account: explicit pick wins; otherwise the session-pinned
-  // account when it belongs to this provider; otherwise server default.
+  // The session's pinned account applies only to a provider that owns it;
+  // every other row falls back to the server-resolved default.
   const meta = active?.meta as { model?: unknown; account?: unknown } | undefined;
   const pinnedAccount = typeof meta?.account === "string" ? meta.account : null;
-  const effectiveAccountId =
-    accountId ??
-    (pinnedAccount !== null && provider?.accounts.some((a) => a.id === pinnedAccount)
+  const accountFor = (provider: ProviderInfo | undefined): string | null =>
+    provider !== undefined && pinnedAccount !== null && provider.accounts.some((a) => a.id === pinnedAccount)
       ? pinnedAccount
-      : null);
+      : null;
+  const accountLabelFor = (provider: ProviderInfo | undefined): string => {
+    const id = accountFor(provider);
+    if (id === null) return "Server default";
+    return provider?.accounts.find((a) => a.id === id)?.label ?? id;
+  };
 
-  const apply = async (modelId: string): Promise<void> => {
+  const apply = async (model: ModelInfo): Promise<void> => {
+    const provider = providerById.get(model.provider);
+    const account = accountFor(provider);
     // Capture mode: hand the choice to the caller (no session/config write).
     if (onPick !== undefined) {
-      onPick(modelId, effectiveAccountId);
+      onPick(model.id, account);
       onClose();
       return;
     }
@@ -200,15 +188,15 @@ export function ModelModal({
     try {
       if (active !== null) {
         await client.setSessionModel(active.id, {
-          model: modelId,
-          ...(effectiveAccountId !== null ? { account: effectiveAccountId } : {}),
+          model: model.id,
+          ...(account !== null ? { account } : {}),
         });
       } else {
         await client.putConfig({
           models: {
-            default: modelId,
-            ...(effectiveAccountId !== null && provider !== undefined
-              ? { defaultAccount: { [provider.id]: effectiveAccountId } }
+            default: model.id,
+            ...(account !== null && provider !== undefined
+              ? { defaultAccount: { [provider.id]: account } }
               : {}),
           },
         });
@@ -222,26 +210,14 @@ export function ModelModal({
     }
   };
 
-  // Label-sorted; with preferZdr the ZDR-capable models float first. The
-  // search narrows this to the matches (empty query → everything).
-  const models: ModelInfo[] =
-    provider === undefined
-      ? []
-      : sortModelsZdrFirst(
-          [...provider.models].sort((a, b) => a.label.localeCompare(b.label)),
-          preferZdr === true,
-        );
-  const visibleModels = query.length > 0 ? models.filter(modelMatches) : models;
-
   return (
     <Modal open onClose={onClose} title="Pick a model" ariaLabel="Pick a model" bodyClassName="unpadded">
       {list === null ? (
         <p className="dim modal-loading">Loading providers…</p>
       ) : (
         <>
-          {/* The one search bar (TUI type-to-filter parity): filters
-              MODELS only; the provider column cascades to providers
-              offering a match, accounts follow the selected provider. */}
+          {/* The one search bar (TUI type-to-filter parity): filters models
+              across every connected provider. */}
           <input
             className="model-search"
             type="search"
@@ -250,94 +226,54 @@ export function ModelModal({
             onChange={(e) => setModelFilter(e.target.value)}
             aria-label="Filter models"
           />
-          <div className="model-columns">
-            <div className="model-col">
-              <div className="model-col-head">provider</div>
-              <div className="model-col-list">
-                {query.length > 0 && visibleProviders.length === 0 && (
-                  <p className="dim col-hint">No matches.</p>
-                )}
-                {visibleProviders.map((p) => (
-                  <ListItem
-                    key={p.id}
-                    title={p.name}
-                    subtitle={p.adapter}
-                    selected={p.id === effectiveProviderId}
-                    onClick={() => {
-                      setProviderId(p.id);
-                      setAccountId(null); // account choices are per-provider
-                    }}
-                    trailing={p.connected ? <Check size={12} aria-hidden="true" /> : undefined}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="model-col">
-              <div className="model-col-head">account</div>
-              <div className="model-col-list">
+          <div className="model-list">
+            {visibleModels.length === 0 && (
+              <p className="dim col-hint">{query.length > 0 ? "No matches." : "No models."}</p>
+            )}
+            {visibleModels.map((m) => {
+              const provider = providerById.get(m.provider);
+              const isCurrent = m.id === current;
+              const parts: string[] = [];
+              if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
+              if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/1M`);
+              return (
                 <ListItem
-                  title="Server default"
-                  subtitle="auto-resolve"
-                  selected={effectiveAccountId === null}
-                  onClick={() => setAccountId(null)}
+                  key={m.id}
+                  className="model-row"
+                  title={m.label}
+                  selected={isCurrent}
+                  ariaCurrent={isCurrent ? "page" : undefined}
+                  disabled={busy}
+                  onClick={() => void apply(m)}
+                  subtitle={
+                    <>
+                      {parts.length > 0 && <span className="model-row-meta">{parts.join(" · ")}</span>}
+                      <span className="model-row-owner">
+                        {provider?.name ?? m.provider} · {accountLabelFor(provider)}
+                      </span>
+                    </>
+                  }
+                  trailing={
+                    <>
+                      {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
+                        <span className="li-badge success" title="zero data retention capable">
+                          zdr
+                        </span>
+                      )}
+                      {isCurrent && <span className="li-badge accent">current</span>}
+                    </>
+                  }
                 />
-                {provider?.accounts.map((a) => (
-                  <ListItem
-                    key={a.id}
-                    title={a.label}
-                    subtitle={a.source === "env" ? "from environment" : "api key"}
-                    selected={effectiveAccountId === a.id}
-                    onClick={() => setAccountId(a.id)}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="model-col">
-              <div className="model-col-head">model</div>
-              <div className="model-col-list">
-                {query.length > 0 && visibleProviders.length === 0 ? (
-                  // No provider offers a match — the cascade emptied both
-                  // columns; one message covers them.
-                  <p className="dim col-hint">No matches.</p>
-                ) : (
-                  <>
-                    {models.length === 0 && <p className="dim col-hint">No models.</p>}
-                    {models.length > 0 && visibleModels.length === 0 && (
-                      <p className="dim col-hint">No matches.</p>
-                    )}
-                  </>
-                )}
-                {visibleModels.map((m) => {
-                  const isCurrent = provider !== undefined && provider.id === currentProviderId && m.id === current;
-                  const parts: string[] = [];
-                  if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
-                  if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
-                  return (
-                    <ListItem
-                      key={m.id}
-                      title={m.label}
-                      subtitle={parts.length > 0 ? parts.join(" · ") : undefined}
-                      disabled={busy}
-                      onClick={() => void apply(m.id)}
-                      trailing={
-                        <>
-                          {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
-                            <span className="li-badge success" title="zero data retention capable">
-                              zdr
-                            </span>
-                          )}
-                          {isCurrent && <span className="li-badge accent">current</span>}
-                        </>
-                      }
-                    />
-                  );
-                })}
-              </div>
-            </div>
+              );
+            })}
           </div>
         </>
       )}
-      {error !== null && <div className="error" role="alert">{error}</div>}
+      {error !== null && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
     </Modal>
   );
 }

@@ -47,7 +47,7 @@ The conversation modality and bai's default session type.
 - Per-session model override, live from any surface (`config.updated` /
   `provider.updated` propagate instantly)
 - **Context tracker** (pi/opencode parity): the composer hub shows the
-  session's live context usage — `45k (23%)` in the TUI's commands row, a
+  session's live context usage — `45k/200k (23%)` in the TUI's commands row, a
   chip on the web's composer status row — tone-shifted as the window fills
   (warning >70%, danger >90%), `?/200k` after compaction until the next
   model response. One durable `run.usage` event per provider turn keeps
