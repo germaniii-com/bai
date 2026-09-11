@@ -19,6 +19,8 @@ export type JobId = Brand<string, "job">;
 export type AssetId = Brand<string, "ast">;
 export type UsageId = Brand<string, "usg">;
 export type SkillEventId = Brand<string, "skl">;
+export type AutomationId = Brand<string, "auto">;
+export type AutomationRunId = Brand<string, "arun">;
 
 /** 80 bits of randomness as a bigint. */
 function randomBits(): bigint {
@@ -102,5 +104,11 @@ export const newId = {
   },
   skillEvent(): SkillEventId {
     return `skl_${ulid()}` as SkillEventId;
+  },
+  automation(): AutomationId {
+    return `auto_${ulid()}` as AutomationId;
+  },
+  automationRun(): AutomationRunId {
+    return `arun_${ulid()}` as AutomationRunId;
   },
 };

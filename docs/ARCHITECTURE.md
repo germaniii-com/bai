@@ -232,6 +232,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **Revert (two-phase)**| A boundary USER message recorded in `session.meta.revert`: everything from it on is hidden and the file changes after it are rolled back (shadow-repo snapshot), until restored — or committed (hard-deleted) by the next prompt. |
 | **Fork**              | A new independent session holding the history BEFORE a chosen message, with fresh ids; the boundary message's text seeds the composer.                  |
 | **Job**               | Long-running async unit of work (image generation, video generation). Queued, progress-reported, produces **Assets**.                                  |
+| **Automation**        | A named prompt on an interval/daily/weekly schedule. The scheduler fires it; each run creates a new auto-approved Chat session and records an **Automation run**. |
 | **Asset**             | Generated media artifact (image/video/audio/file) stored on disk, indexed in SQLite, surfaced in galleries.                                            |
 | **Workbench**         | A modality module registering tools, job types, asset kinds, and HTTP routes. The extension seam for new modalities.                                   |
 | **Pairing**           | Trust-on-first-use token flow granting a device access to a running server.                                                                            |
@@ -270,6 +271,11 @@ events(aggregate_id, seq, type, payload JSON, created_at,
 permissions(id PK, session_id FK, tool, args_digest, status, rule, created_at)
 jobs(id PK, kind, session_id NULL, status, input JSON, output JSON, error, created_at, updated_at)
 assets(id PK, kind, mime, path, bytes, meta JSON, job_id NULL, created_at)
+automations(id PK, name, prompt, schedule JSON, schedule_display, agent NULL, model NULL,
+            workspace NULL, enabled, next_run_at NULL, last_run_at NULL, last_status,
+            last_error NULL, last_session_id FK NULL, created_at, updated_at)  -- scheduled prompts
+automation_runs(id PK, automation_id FK, session_id FK NULL, status, error NULL, output NULL,
+                started_at, finished_at NULL)                        -- per-fire ledger
 kv(key PK, value JSON)                                        -- misc runtime state
 usage(id PK, session_id FK NULL, kind, agent NULL, workspace NULL, provider, account NULL,
       model, input_tokens, output_tokens, reasoning_tokens NULL, cache_read_tokens,
@@ -306,8 +312,9 @@ live feed; carries the full token breakdown + the model's context window;
 after compaction a token-less row means "unknown until the next turn"),
 `permission.asked|replied`, `job.updated`, `asset.created`,
 `config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
-`server.hello`. Live-only events (`config.updated`, `provider.updated`,
-`agents.updated`, `tools.updated`, `server.hello`) use seq 0 and are
+`skills.updated`, `automations.updated`, `server.hello`. Live-only events
+(`config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
+`skills.updated`, `automations.updated`, `server.hello`) use seq 0 and are
 best-effort; everything session-scoped is durable.
 
 **Client sync algorithm** (identical shape in TUI and web):
@@ -614,8 +621,10 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 - Views: sessions sidebar, chat, **Agents section** (nested sidebar list +
   form editor for agent markdown — `agents.tsx`), **Tools section** (nested
   sidebar list + code editor for custom tools — `tools.tsx`, separate nav
-  items), code (file tree + diffs), image gallery, video gallery, jobs
-  queue, settings (config editor), pairing screen.
+  items), **Skills section** (`skills.tsx`), **Automations section** (nested
+  sidebar list + schedule/prompt editor + run history — `automations.tsx`),
+  code (file tree + diffs), image gallery, video gallery, jobs queue, settings
+  (config editor), pairing screen.
 - Tool calls render as collapsible nodes beside the thinking panel
   (`chat-pane.tsx` + `state.ts` — the same kind-aware reducer semantics as
   the TUI).

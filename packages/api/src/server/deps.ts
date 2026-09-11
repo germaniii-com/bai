@@ -1,4 +1,4 @@
-import type { Bus, ConfigStore, EventLog, JobQueue, ProviderRegistry, Service, Store } from "@bai/core";
+import type { AutomationScheduler, Bus, ConfigStore, EventLog, JobQueue, ProviderRegistry, Service, Store } from "@bai/core";
 
 /** Everything the Hono app needs — handed in by the composition root (@bai/cli). */
 export interface ApiDeps {
@@ -8,6 +8,7 @@ export interface ApiDeps {
   log: EventLog;
   configStore: ConfigStore;
   jobs: JobQueue;
+  automations: AutomationScheduler;
   providers: ProviderRegistry;
   version: string;
   /** Home directory used by the fs endpoints (~ expansion, mkdir guard).

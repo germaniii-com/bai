@@ -1,6 +1,7 @@
 import { checkpointAndClose, openDb, type SqliteDb } from "./db";
 import type { Input, Message, SessionId } from "@bai/shared";
 import { AssetsRepo } from "./assets";
+import { AutomationsRepo, AutomationRunsRepo } from "./automations";
 import { EventsRepo } from "./events";
 import { InputsRepo } from "./inputs";
 import { JobsRepo } from "./jobs";
@@ -27,6 +28,8 @@ export class Store {
   readonly kv: KvRepo;
   readonly usage: UsageRepo;
   readonly skillUsage: SkillUsageRepo;
+  readonly automations: AutomationsRepo;
+  readonly automationRuns: AutomationRunsRepo;
   private readonly db: SqliteDb;
 
   constructor(file: string) {
@@ -42,6 +45,8 @@ export class Store {
     this.kv = new KvRepo(this.db);
     this.usage = new UsageRepo(this.db);
     this.skillUsage = new SkillUsageRepo(this.db);
+    this.automations = new AutomationsRepo(this.db);
+    this.automationRuns = new AutomationRunsRepo(this.db);
   }
 
   close(): void {

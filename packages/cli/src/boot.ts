@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   AuthStore,
   AgentRegistry,
+  AutomationScheduler,
   CatalogService,
   ConfigStore,
   EventLog,
@@ -182,6 +183,21 @@ export async function boot(args: CliArgs): Promise<Booted> {
     },
   });
 
+  // Scheduled automations. Constructed before the Service (like JobQueue) and
+  // launched through the `coreRef` late-binding: a fire calls back into
+  // Service.runAutomation once the core exists.
+  const automations = new AutomationScheduler({
+    store,
+    bus,
+    launch: async (automation) => {
+      if (coreRef === undefined) throw new Error("Automation fired before the core was ready");
+      const { session, done } = coreRef.runAutomation(automation);
+      return { sessionId: session.id, done };
+    },
+    agentExists: (name) => agents.get(name) !== undefined,
+    workspaceRoots: () => configStore.get().workspaces ?? [],
+  });
+
   const core = new Service({
     store,
     bus,
@@ -191,6 +207,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     workbenches,
     jobs,
     agents,
+    automations,
     skills,
     toolLoader,
     config: () => configStore.get(),
@@ -204,6 +221,10 @@ export async function boot(args: CliArgs): Promise<Booted> {
     snapshot: new Snapshot(snapshotDir(dataDir())),
   });
   coreRef = core;
+
+  // Automations ticker: fires due scheduled prompts. One-shot runs are
+  // ephemeral proxies with an in-memory store, so they never own a ticker.
+  if (args.mode !== "oneshot") automations.start();
 
   // TUI = workspace mode: the folder bai is opened in registers as a
   // workspace (webui-visible) and roots new TUI sessions. realpath'd so the
@@ -240,6 +261,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     log,
     configStore,
     jobs,
+    automations,
     providers,
     version: VERSION,
     ...(token !== undefined ? { token } : {}),
@@ -259,6 +281,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
     ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
     loopbackBind: args.mode !== "host",
     stop: async () => {
+      // Stop the ticker first so no new run starts while we drain.
+      automations.stop();
       core.coordinator.interruptAll();
       // Fail pending agent→user questions so no tool promise hangs.
       core.questions.stop();

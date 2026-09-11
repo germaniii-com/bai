@@ -86,6 +86,60 @@ export const enqueueJobSchema = z.object({
   input: z.unknown(),
 });
 
+/** The structured schedule stored/transported for an automation. */
+export const automationScheduleSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("interval"), minutes: z.number().int().min(1).max(100_000) }),
+  z.object({
+    kind: z.literal("daily"),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+  }),
+  z.object({
+    kind: z.literal("weekly"),
+    weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+  }),
+]);
+
+/** POST /api/automation — create an automation (name is unique). */
+export const createAutomationSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(
+      /^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9_-])?$/,
+      "Names start with a letter or digit and may contain letters, digits, spaces, - and _.",
+    ),
+  prompt: z.string().min(1).max(100_000),
+  schedule: automationScheduleSchema,
+  agent: z.string().max(100).optional(),
+  model: z.string().max(200).optional(),
+  workspace: z.string().max(1024).optional(),
+  enabled: z.boolean().optional(),
+});
+
+export type CreateAutomationBody = z.infer<typeof createAutomationSchema>;
+
+/** PUT /api/automation/:id — partial update; null clears agent/model/workspace. */
+export const updateAutomationSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9_-])?$/, "Invalid automation name.")
+    .optional(),
+  prompt: z.string().min(1).max(100_000).optional(),
+  schedule: automationScheduleSchema.optional(),
+  agent: z.string().max(100).nullable().optional(),
+  model: z.string().max(200).nullable().optional(),
+  workspace: z.string().max(1024).nullable().optional(),
+  enabled: z.boolean().optional(),
+});
+
+export type UpdateAutomationBody = z.infer<typeof updateAutomationSchema>;
+
 /** PUT /api/agent/:name — create or replace an agent markdown file. */
 export const putAgentSchema = z.object({
   description: z.string().max(2000).optional(),

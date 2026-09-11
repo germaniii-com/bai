@@ -8,8 +8,9 @@ Workbenches are bai's modalities — chat, code/workspace, image, video — each
 registered against the same core contract (`core/src/workbench/types.ts`).
 They all share one server, one event log, one store, and the same surfaces.
 The web nav groups them accordingly: **Chat, Workspace, Image, Video** (the
-workbenches) above the divider, **Agents, Tools** (the agent machinery)
-below it — and the same split lives in the TUI's supermenu (`ctrl+p`).
+workbenches) above the divider, **Agents, Tools, Skills, Automations** (the
+agent machinery) below it — and the same split lives in the TUI's supermenu
+(`ctrl+p`).
 
 ---
 
@@ -352,6 +353,49 @@ built-in file tools plus user-written TypeScript tools.
 **Coming next**
 
 - MCP tools (`mcp/<server>/<tool>`) merged into the same registry
+
+---
+
+## ⏰ Automations (scheduled jobs) — shipped
+
+Named prompts that run an agent on a schedule — the web nav's **Automations**
+section (its own rail item + nested sidebar with `+ New Automation` and the
+list of name / schedule).
+
+**What you can do today**
+
+- Create an automation: name, prompt, schedule, optional agent, optional
+  model override, optional workspace, enabled toggle
+- Schedules: **interval** (`every 30m`, `every 2h`, `every 1d`), **daily**
+  (`every day at 9am`), **weekly** (`every monday at 9am`, `weekdays at 9am`,
+  `mon, wed at 9:00`) — server-local time
+- **Run now** (works while paused), pause/resume, delete, and a per-automation
+  **run history** (status / time / error / truncated output) that links each
+  run to the Chat session it created
+- Each fire creates a fresh **Chat session** (title `<name> — <timestamp>`,
+  an `automation` badge in the Chat sidebar) and runs the prompt
+  **unattended**: automation sessions auto-approve every tool, overriding a
+  config-level `deny` for that session only
+- A due fire is **skipped** while the previous run is still in flight (no
+  pile-up); missed fires while bai was down run once on the next tick and
+  reschedule; runs interrupted by a crash are marked `error` on boot
+
+**Under the hood**
+
+- `core/src/automations/scheduler.ts` — a 30s `unref`'d ticker with a due
+  scan (`automations(enabled, next_run_at)` index), a per-automation in-flight
+  guard, boot recovery, and CRUD that broadcasts live `automations.updated`
+- `shared/src/automations.ts` — one pure source of truth for schedule parsing,
+  display, and next-run math (shared by core and web)
+- Run sessions are stamped `meta.autoApprove` + `meta.automationId/Name`;
+  `PermissionGate` appends a final `{ "*": "allow" }` layer for them
+- `automations` + `automation_runs` tables (migration 007), REST at
+  `/api/automation*`, `automation.list` + `automation.save` agent tools
+  (`save` is fail-closed — it can schedule unattended runs)
+
+**Coming next**
+
+- TUI surface · raw cron expressions · external delivery channels
 
 ---
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, ChartColumn, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, Clock, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { AttachmentRef, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
+import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
@@ -10,6 +10,7 @@ import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
 import { useSkills } from "./use-skills";
+import { useAutomations } from "./use-automations";
 import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
 import { parseRoute, routeToPath, type Route } from "./router";
 import { ThemeProvider } from "./theme";
@@ -21,19 +22,20 @@ import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
 import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
 import { SkillsNav, SkillsPane, SkillCreateForm, SkillLearnForm } from "./skills";
+import { AutomationsNav, AutomationsPane, AutomationCreateForm } from "./automations";
 import { AnalyticsPane } from "./analytics";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
-import { ListItem, NavItem } from "./components";
+import { Chip, ListItem, NavItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "analytics" | "image" | "video" | "shell" | "settings";
+type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automations" | "analytics" | "image" | "video" | "shell" | "settings";
 
 /**
  * Sections that render without the nested sidebar (single-pane views — no
@@ -212,6 +214,7 @@ export function App() {
   const { agents, refresh: refreshAgents } = useAgents(client);
   const { tools, refresh: refreshTools } = useTools(client);
   const { skills, refresh: refreshSkills } = useSkills(client);
+  const { automations, refresh: refreshAutomations } = useAutomations(client);
   // Selections per section; stale ids (deleted elsewhere) resolve to null
   // against the live lists — the settings pattern.
   const [selectedAgent, setSelectedAgent] = useState<string | null>(
@@ -223,11 +226,17 @@ export function App() {
   const [selectedSkill, setSelectedSkill] = useState<string | null>(
     bootRoute.section === "skills" ? bootRoute.name : null,
   );
+  const [selectedAutomation, setSelectedAutomation] = useState<string | null>(
+    bootRoute.section === "automations" ? bootRoute.name : null,
+  );
   // Creation flows: true while the create form (pre-filled, editable name)
   // is open in the main pane — no file is written until the form submits.
   const [creatingAgent, setCreatingAgent] = useState(bootRoute.section === "agents" && bootRoute.creating);
   const [creatingTool, setCreatingTool] = useState(bootRoute.section === "tools" && bootRoute.creating);
   const [creatingSkill, setCreatingSkill] = useState(bootRoute.section === "skills" && bootRoute.creating);
+  const [creatingAutomation, setCreatingAutomation] = useState(
+    bootRoute.section === "automations" && bootRoute.creating,
+  );
   // The Skills page's "Learn with AI" form (swapped in over the create form).
   const [skillLearnOpen, setSkillLearnOpen] = useState(false);
 
@@ -323,6 +332,7 @@ export function App() {
           void refreshConfig();
           void refreshAgents();
           void refreshTools();
+          void refreshAutomations();
           // File-change detection is live-only — events missed during a
           // firehose drop never replay. Heal the viewer and tree on every
           // (re)connect: one refetch of the active file + expanded dirs.
@@ -383,6 +393,9 @@ export function App() {
         if (evt.type === "skills.updated") {
           void refreshSkills();
         }
+        if (evt.type === "automations.updated") {
+          void refreshAutomations();
+        }
         // A subagent's permission ask pops the same modal a parent ask
         // gets — otherwise the child would sit blocked with no dialog.
         if (evt.type === "permission.asked" || evt.type === "permission.replied") {
@@ -399,7 +412,7 @@ export function App() {
         setSubagents((prev) => applySubagentEvent(prev, evt, activeRef.current?.id));
     });
     return unsubscribe;
-  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools, refreshSkills]);
+  }, [client, refreshConfig, refreshSessions, refreshWorkspaceSessions, refreshAgents, refreshTools, refreshSkills, refreshAutomations]);
 
   // The active session's ID — the session stream effect keys on this (not
   // the object reference) so session.updated patches don't tear it down.
@@ -539,6 +552,7 @@ export function App() {
   const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
   const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
   const effectiveSkillId = skills.some((s) => s.name === selectedSkill) ? selectedSkill : null;
+  const effectiveAutomationId = automations.some((a) => a.id === selectedAutomation) ? selectedAutomation : null;
   // The active session's resolved agent (meta → config default → build) —
   // the learn chip's in-session-vs-spawn decision.
   const activeAgentName =
@@ -582,7 +596,12 @@ export function App() {
       // Engagement refetch: skills changed anywhere → fresh list.
       void refreshSkills();
     }
-  }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools, refreshSkills]);
+    if (next === "automations") {
+      // Engagement refetch: automations changed or fired → fresh list + state.
+      void refreshAutomations();
+      void refreshAgents();
+    }
+  }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools, refreshSkills, refreshAutomations]);
 
   // Deep-link engagement: landing directly on Settings (refresh, shared
   // link) must fetch the catalogs the pane renders — the provider list is
@@ -620,6 +639,10 @@ export function App() {
       if (route.section === "skills") {
         setSelectedSkill(route.name);
         setCreatingSkill(route.creating);
+      }
+      if (route.section === "automations") {
+        setSelectedAutomation(route.name);
+        setCreatingAutomation(route.creating);
       }
       if (session !== undefined) {
         // Explicit session (sidebar click, fork, kept on section switch).
@@ -697,6 +720,9 @@ export function App() {
       case "skills":
         pushRoute({ section: "skills", name: effectiveSkillId, creating: false });
         break;
+      case "automations":
+        pushRoute({ section: "automations", name: effectiveAutomationId, creating: false });
+        break;
       case "analytics":
         pushRoute({ section: "analytics" });
         break;
@@ -758,7 +784,9 @@ export function App() {
           ? { section: "tools", name: effectiveToolId, creating: creatingTool }
           : section === "skills"
             ? { section: "skills", name: effectiveSkillId, creating: creatingSkill }
-            : section === "analytics"
+            : section === "automations"
+              ? { section: "automations", name: effectiveAutomationId, creating: creatingAutomation }
+              : section === "analytics"
             ? { section: "analytics" }
             : section === "shell"
               ? { section: "shell" }
@@ -945,6 +973,21 @@ export function App() {
     });
     await refreshSkills();
     pushRoute({ section: "skills", name, creating: false });
+  };
+
+  /** Create an automation from the (form-validated) draft, then select it. */
+  const createAutomation = async (input: {
+    name: string;
+    prompt: string;
+    schedule: AutomationSchedule;
+    agent?: string;
+    workspace?: string;
+  }): Promise<void> => {
+    const automation = await client.createAutomation(input);
+    // Refresh BEFORE routing: the canonical URL validates the selection
+    // against the live list (the agents pattern).
+    await refreshAutomations();
+    pushRoute({ section: "automations", name: automation.id, creating: false });
   };
 
   /**
@@ -1310,7 +1353,11 @@ export function App() {
                 ? "Agents"
                 : section === "tools"
                   ? "Tools"
-                  : "Chat"}
+                  : section === "skills"
+                    ? "Skills"
+                    : section === "automations"
+                      ? "Automations"
+                      : "Chat"}
          </div>
         {section === "chat" && (
           <>
@@ -1325,7 +1372,18 @@ export function App() {
                   key={s.id}
                   accentBar
                   title={s.title.length > 0 ? s.title : "(untitled)"}
-                  subtitle={s.workbench}
+                  subtitle={
+                    typeof s.meta.automationName === "string" ? (
+                      <span className="li-sub-line">
+                        <span>{s.workbench}</span>
+                        <Chip className="chip-automation" hint={`Automation: ${s.meta.automationName}`}>
+                          Automation
+                        </Chip>
+                      </span>
+                    ) : (
+                      s.workbench
+                    )
+                  }
                   selected={active?.id === s.id}
                   hint={s.title.length > 0 ? s.title : "Untitled session"}
                   onClick={() => pushRoute({ section: "chat", sessionId: s.id }, s)}
@@ -1430,6 +1488,15 @@ export function App() {
             busy={false}
           />
         )}
+        {section === "automations" && (
+          <AutomationsNav
+            automations={automations}
+            selected={effectiveAutomationId}
+            onSelect={(id) => pushRoute({ section: "automations", name: id, creating: false })}
+            onCreate={() => pushRoute({ section: "automations", name: null, creating: true })}
+            busy={false}
+          />
+        )}
       </aside>
       )}
 
@@ -1526,6 +1593,30 @@ export function App() {
               selectedId={effectiveSkillId}
               refresh={refreshSkills}
               onNotice={pushNotice}
+            />
+          )}
+        </main>
+      ) : section === "automations" ? (
+        <main id="main-content" className="agents-pane">
+          {creatingAutomation ? (
+            <AutomationCreateForm
+              agents={agents}
+              workspaces={workspaces}
+              existing={automations.map((a) => a.name)}
+              onSubmit={createAutomation}
+              onCancel={() => setCreatingAutomation(false)}
+            />
+          ) : (
+            <AutomationsPane
+              client={client}
+              automations={automations}
+              agents={agents}
+              workspaces={workspaces}
+              selectedId={effectiveAutomationId}
+              refresh={refreshAutomations}
+              onNotice={pushNotice}
+              onOpenSession={(sessionId) => pushRoute({ section: "chat", sessionId })}
+              onDeleted={() => pushRoute({ section: "automations", name: null, creating: false })}
             />
           )}
         </main>
@@ -1683,6 +1774,7 @@ function MasterNav({
         <NavItem icon={<Bot className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
         <NavItem icon={<Wrench className="nav-icon" aria-hidden="true" />} label="Tools" active={section === "tools"} onClick={() => onNavigate("tools")} />
         <NavItem icon={<Zap className="nav-icon" aria-hidden="true" />} label="Skills" active={section === "skills"} onClick={() => onNavigate("skills")} />
+        <NavItem icon={<Clock className="nav-icon" aria-hidden="true" />} label="Automations" active={section === "automations"} onClick={() => onNavigate("automations")} />
         <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
       </div>
       <div className="master-spacer" />

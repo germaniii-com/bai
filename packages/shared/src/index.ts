@@ -9,6 +9,7 @@ export * from "./providers";
 export * from "./agents";
 export * from "./skills";
 export * from "./learn";
+export * from "./automations";
 export * from "./tools";
 export * from "./api";
 export * from "./zdr";

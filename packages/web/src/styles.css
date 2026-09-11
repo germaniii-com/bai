@@ -3107,3 +3107,153 @@ select:focus-visible,
   line-height: var(--leading-normal);
   text-align: center;
 }
+
+/* --- Automations: schedule builder + run history ----------------------- */
+.schedule-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.schedule-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.schedule-row > .field {
+  flex: 1;
+}
+
+.schedule-amount {
+  max-width: 110px;
+}
+
+.weekday-toggles {
+  display: flex;
+  gap: 6px;
+}
+
+.weekday {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+
+.weekday:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.weekday.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-contrast, #fff);
+}
+
+.schedule-preview {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.automation-runs {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.run-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-row:disabled {
+  cursor: default;
+}
+
+.run-row:not(:disabled):hover {
+  background: var(--surface);
+}
+
+.run-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.run-indicator,
+.run-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+
+/* The live HH:mm:ss readout — tabular figures so it doesn't jitter. */
+.run-clock {
+  font-variant-numeric: tabular-nums;
+}
+
+.run-status.run-ok {
+  color: var(--success);
+}
+
+.run-status.run-error {
+  color: var(--danger);
+}
+
+.run-status.run-running {
+  color: var(--warning);
+}
+
+.run-time {
+  flex: none;
+  color: var(--dim);
+  font-size: var(--text-sm);
+}
+
+.run-error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-output {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

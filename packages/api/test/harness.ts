@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   AgentRegistry,
   AuthStore,
+  AutomationScheduler,
   Bus,
   CatalogService,
   EchoProvider,
@@ -64,6 +65,18 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   });
   const agents = new AgentRegistry({ dir: join(dir, "agents"), debounceMs: 50 });
   const skills = new SkillRegistry({ dir: join(dir, "skills"), debounceMs: 50 });
+  let coreRef: Service | undefined;
+  const automations = new AutomationScheduler({
+    store,
+    bus,
+    launch: async (automation) => {
+      if (coreRef === undefined) throw new Error("Automation fired before the core was ready");
+      const { session, done } = coreRef.runAutomation(automation);
+      return { sessionId: session.id, done };
+    },
+    agentExists: (name) => agents.get(name) !== undefined,
+    workspaceRoots: () => config.workspaces ?? [],
+  });
   const core = new Service({
     store,
     bus,
@@ -73,6 +86,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     workbenches,
     jobs,
     agents,
+    automations,
     skills,
     toolLoader,
     config: () => config,
@@ -83,6 +97,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     plansDir: join(dir, "plans"),
     assetsDir: join(dir, "assets"),
   });
+  coreRef = core;
   const deps: ApiDeps = {
     core,
     store,
@@ -96,6 +111,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
       update: (patch: ConfigPatch) => (config = deepMerge(config, patch)),
     } as unknown as ApiDeps["configStore"],
     jobs,
+    automations,
     providers,
     version: "test",
     loopbackBind: true,
@@ -108,6 +124,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     core,
     deps,
     cleanup: () => {
+      automations.stop();
       agents.stop();
       skills.stop();
       toolLoader.stop();

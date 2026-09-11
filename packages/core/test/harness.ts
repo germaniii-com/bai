@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   AgentRegistry,
   AuthStore,
+  AutomationScheduler,
   Bus,
   CatalogService,
   EchoProvider,
@@ -42,6 +43,7 @@ export interface TestCore {
   toolLoader: ToolLoader;
   agents: AgentRegistry;
   skills: SkillRegistry;
+  automations: AutomationScheduler;
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -118,6 +120,18 @@ export function makeCore(): TestCore {
       bus.publish({ seq: 0, type: "skills.updated", ts: new Date().toISOString(), payload: {} });
     },
   });
+  let coreRef: Service | undefined;
+  const automations = new AutomationScheduler({
+    store,
+    bus,
+    launch: async (automation) => {
+      if (coreRef === undefined) throw new Error("Automation fired before the core was ready");
+      const { session, done } = coreRef.runAutomation(automation);
+      return { sessionId: session.id, done };
+    },
+    agentExists: (name) => agents.get(name) !== undefined,
+    workspaceRoots: () => config.workspaces,
+  });
   const core = new Service({
     store,
     bus,
@@ -127,6 +141,7 @@ export function makeCore(): TestCore {
     workbenches,
     jobs,
     agents,
+    automations,
     skills,
     toolLoader,
     config: testConfig,
@@ -147,7 +162,8 @@ export function makeCore(): TestCore {
     // data dir; sessions without a cwd never touch it.
     snapshot: new Snapshot(join(dir, "snapshot")),
   });
-  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents, skills };
+  coreRef = core;
+  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents, skills, automations };
 }
 
 export function sleep(ms: number): Promise<void> {

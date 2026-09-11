@@ -5,6 +5,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import {
   configPatchSchema,
+  createAutomationSchema,
   createSessionSchema,
   customThemeSchema,
   enqueueJobSchema,
@@ -25,6 +26,7 @@ import {
   setSessionModelSchema,
   skillFilePathSchema,
   skillUsageQuerySchema,
+  updateAutomationSchema,
   usageAnalyticsQuerySchema,
   type AttachmentRef,
   type InputId,
@@ -599,6 +601,47 @@ function buildApi(deps: ApiDeps) {
       const job = deps.store.jobs.get(c.req.param("id"));
       if (job === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ job });
+    })
+
+    // --- automations (scheduled jobs) ---
+    .get("/automation", (c) => c.json({ automations: deps.automations.list() }))
+    .get("/automation/:id", (c) => {
+      const id = c.req.param("id");
+      const automation = deps.automations.get(id);
+      if (automation === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ automation, runs: deps.automations.runs(id) });
+    })
+    .post("/automation", zValidator("json", createAutomationSchema), (c) => {
+      try {
+        const automation = deps.automations.create(c.req.valid("json"));
+        return c.json({ automation }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .put("/automation/:id", zValidator("json", updateAutomationSchema), (c) => {
+      try {
+        const automation = deps.automations.update(c.req.param("id"), c.req.valid("json"));
+        if (automation === undefined) return c.json({ error: "not_found" }, 404);
+        return c.json({ automation });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/automation/:id", (c) => {
+      if (!deps.automations.remove(c.req.param("id"))) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true });
+    })
+    .post("/automation/:id/run", (c) => {
+      try {
+        const run = deps.automations.runNow(c.req.param("id"));
+        if (run === undefined) return c.json({ error: "not_found" }, 404);
+        return c.json({ run }, 202);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("already running")) return c.json({ error: message }, 409);
+        return c.json({ error: message }, 400);
+      }
     })
     .get("/asset", (c) => {
       const limit = Number(c.req.query("limit") ?? "100");

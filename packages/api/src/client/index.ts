@@ -2,8 +2,11 @@ import { hc } from "hono/client";
 import type {
   AgentInfo,
   AttachmentRef,
+  Automation,
+  AutomationRun,
   Config,
   ConfigPatch,
+  CreateAutomationBody,
   CreateSessionBody,
   CustomTheme,
   CustomThemeInput,
@@ -24,6 +27,7 @@ import type {
   SkillUsageResponse,
   SkillUsageTotals,
   ToolListEntry,
+  UpdateAutomationBody,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
 import type { ApiType } from "../server/app";
@@ -710,6 +714,50 @@ export class BaiClient {
     if (res.status === 404) return undefined;
     if (!res.ok) throw new Error(`get job failed: ${res.status}`);
     return (await res.json()).job;
+  }
+
+  // --- automations (scheduled jobs) ---
+
+  async listAutomations(): Promise<Automation[]> {
+    const res = await this.rpc().automation.$get();
+    if (!res.ok) throw new Error(`list automations failed: ${res.status}`);
+    return (await res.json()).automations;
+  }
+
+  async getAutomation(id: string): Promise<{ automation: Automation; runs: AutomationRun[] } | undefined> {
+    const res = await this.rpc().automation[":id"].$get({ param: { id: encodeURIComponent(id) } });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`get automation failed: ${res.status}`);
+    return await res.json();
+  }
+
+  async createAutomation(body: CreateAutomationBody): Promise<Automation> {
+    const res = await this.rpc().automation.$post({ json: body });
+    if (!res.ok) throw new Error(await errorMessage(res, `create automation failed: ${res.status}`));
+    return (await res.json()).automation;
+  }
+
+  async updateAutomation(id: string, body: UpdateAutomationBody): Promise<Automation> {
+    const res = await this.rpc().automation[":id"].$put({
+      param: { id: encodeURIComponent(id) },
+      json: body,
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `update automation failed: ${res.status}`));
+    return (await res.json()).automation;
+  }
+
+  async deleteAutomation(id: string): Promise<boolean> {
+    const res = await this.rpc().automation[":id"].$delete({ param: { id: encodeURIComponent(id) } });
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(`delete automation failed: ${res.status}`);
+    return true;
+  }
+
+  /** Trigger a run immediately (works while paused); 409 when already running. */
+  async runAutomation(id: string): Promise<AutomationRun> {
+    const res = await this.rpc().automation[":id"].run.$post({ param: { id: encodeURIComponent(id) } });
+    if (!res.ok) throw new Error(await errorMessage(res, `run automation failed: ${res.status}`));
+    return (await res.json()).run;
   }
 
   // --- SSE streams ---

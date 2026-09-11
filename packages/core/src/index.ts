@@ -17,6 +17,7 @@ export { createFolder, statPath, expandHomeInput, FsError, ioError, toReal, type
 export { findFiles, clearFindCache, fuzzyScore, rank, type FoundEntry, type FindResult } from "./fs/find";
 export * from "./workbench";
 export { JobQueue } from "./jobs/queue";
+export { AutomationScheduler, type AutomationSchedulerDeps, type AutomationDraft, type AutomationUpdate } from "./automations/scheduler";
 export { RunCoordinator } from "./run";
 export { Snapshot, snapshotDir, type SnapshotPatch } from "./snapshot";
 export { forkedTitle, isPatchPayload, readRevert, SNAPSHOT_TOOLS } from "./revert";

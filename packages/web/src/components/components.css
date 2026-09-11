@@ -570,6 +570,27 @@ textarea.input {
   color: var(--success);
 }
 
+/* Session rows: the automation marker rides the subtitle line as a chip. */
+.list-item .li-sub-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chip.chip-automation {
+  min-height: 0;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 /* Inline rows keep the trailing slot in-flow (no absolute overlap). */
 .list-item.inline .li-trailing {
   position: static;

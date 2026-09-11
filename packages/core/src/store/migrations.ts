@@ -157,4 +157,44 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_skill_events_skill ON skill_events(skill, created_at);
   CREATE INDEX IF NOT EXISTS idx_skill_events_created ON skill_events(created_at);
   `,
+  // 007 — automations (scheduled prompts). `automations` holds the definition
+  // + scheduling state; `automation_runs` is the per-fire ledger (status,
+  // error, truncated final output, and the created session link). Additive:
+  // no existing table is touched.
+  `
+  CREATE TABLE IF NOT EXISTS automations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    schedule_display TEXT NOT NULL,
+    agent TEXT,
+    model TEXT,
+    workspace TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_status TEXT NOT NULL DEFAULT 'idle',
+    last_error TEXT,
+    last_session_id TEXT REFERENCES sessions(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_automations_due ON automations(enabled, next_run_at);
+
+  CREATE TABLE IF NOT EXISTS automation_runs (
+    id TEXT PRIMARY KEY,
+    automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+    session_id TEXT REFERENCES sessions(id),
+    status TEXT NOT NULL,
+    error TEXT,
+    output TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_automation_runs_automation
+    ON automation_runs(automation_id, started_at DESC);
+  `,
 ];

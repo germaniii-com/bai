@@ -8,6 +8,7 @@ import {
   type Event,
   type EventType,
   type AttachmentRef,
+  type Automation,
   type Input,
   type InputId,
   type JobKind,
@@ -39,6 +40,7 @@ import {
 } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import { AttachmentStore } from "./attachments";
+import type { AutomationScheduler } from "./automations/scheduler";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
@@ -62,6 +64,7 @@ import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import { skillsViewTool } from "./tools/skills";
 import { skillsSaveTool, skillsWriteFileTool, skillsPatchTool, skillsDeleteTool } from "./tools/skills-write";
 import { agentViewTool, agentSaveTool } from "./tools/agent-write";
+import { automationListTool, automationSaveTool } from "./tools/automation";
 import { toolCreateTool } from "./tools/tool-create";
 import { workspaceCreateTool } from "./tools/workspace-create";
 import type { ToolLoader } from "./tools/loader";
@@ -81,6 +84,8 @@ export interface ServiceDeps {
   workbenches: Workbench[];
   jobs: JobQueue;
   agents: AgentRegistry;
+  /** Scheduled automations (the ticker + definition/run ledger). */
+  automations: AutomationScheduler;
   /** File-defined skills (~/.config/bai/skills/<name>/SKILL.md), hot-reloaded. */
   skills: SkillRegistry;
   toolLoader: ToolLoader;
@@ -200,6 +205,11 @@ export class Service {
       // auto-allowed like skills.save — see DEFAULT_PERMISSIONS.
       agentViewTool({ agents: deps.agents }),
       agentSaveTool({ agents: deps.agents }),
+      // Automation authoring (the AI's scheduling capability). list is
+      // read-only + auto-allowed; save raises an ask (fail-closed) because it
+      // can schedule unattended auto-approved runs — the tool.create stance.
+      automationListTool({ automations: deps.automations }),
+      automationSaveTool({ automations: deps.automations }),
       // Custom-tool authoring: writes through Service.putTool (atomic write +
       // loader rescan). Deliberately NOT auto-allowed — a tool file is
       // arbitrary executable code; first use asks (fail-closed default).
@@ -281,6 +291,11 @@ export class Service {
     agent?: string;
     /** Explicit model id pinned into meta (the task tool's model rule). */
     model?: string;
+    /**
+     * Extra meta merged last (caller-controlled). The automation runner stamps
+     * `autoApprove` + automation identity; explicit flags above win on overlap.
+     */
+    meta?: Record<string, unknown>;
   } = {}): Session {
     const workbench = opts.workbench ?? "chat";
     if (!this.deps.workbenches.some((wb) => wb.name() === workbench)) {
@@ -301,6 +316,7 @@ export class Service {
         ...(opts.parent !== undefined ? { parent: opts.parent } : {}),
         ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
         ...(opts.model !== undefined ? { model: opts.model } : {}),
+        ...(opts.meta ?? {}),
       },
       now: this.clock.iso(),
     });
@@ -863,6 +879,34 @@ export class Service {
     }
     this.submitPrompt(session.id, { text: buildLearnRequest(request) });
     return this.getSession(session.id) ?? session;
+  }
+
+  // --- automations ---
+
+  /**
+   * Run an automation: create the run session (a normal Chat session, so it
+   * appears in the Chat sidebar and carries an `automation` badge), stamp
+   * auto-approve + automation identity into meta, submit the prompt, and
+   * return the session plus a promise that resolves when the drain goes idle.
+   * The scheduler owns the run ledger and calls this via its launch callback.
+   */
+  runAutomation(automation: Automation): { session: Session; done: Promise<void> } {
+    const session = this.createSession({
+      title: `${automation.name} — ${this.clock.iso()}`,
+      workbench: "chat",
+      ...(automation.workspace !== undefined && automation.workspace.length > 0
+        ? { cwd: automation.workspace }
+        : {}),
+      ...(automation.agent !== undefined && automation.agent.length > 0 ? { agent: automation.agent } : {}),
+      ...(automation.model !== undefined && automation.model.length > 0 ? { model: automation.model } : {}),
+      meta: {
+        autoApprove: true,
+        automationId: automation.id,
+        automationName: automation.name,
+      },
+    });
+    this.submitPrompt(session.id, { text: automation.prompt });
+    return { session, done: this.drainNow(session.id) };
   }
 
   // --- custom tools ---

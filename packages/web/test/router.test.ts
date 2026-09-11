@@ -108,6 +108,21 @@ describe("parseRoute", () => {
     expect(parseRoute("/analytics", "")).toEqual({ section: "analytics" });
   });
 
+  test("automations: list, new, detail; extra segments → list", () => {
+    expect(parseRoute("/automations", "")).toEqual({ section: "automations", name: null, creating: false });
+    expect(parseRoute("/automations/new", "")).toEqual({ section: "automations", name: null, creating: true });
+    expect(parseRoute("/automations/auto_01ABC", "")).toEqual({
+      section: "automations",
+      name: "auto_01ABC",
+      creating: false,
+    });
+    expect(parseRoute("/automations/auto_01ABC/extra", "")).toEqual({
+      section: "automations",
+      name: null,
+      creating: false,
+    });
+  });
+
   test("trailing slashes are harmless", () => {
     expect(parseRoute("/chat/", "")).toEqual({ section: "chat", sessionId: null });
     expect(parseRoute("/settings/providers/", "")).toEqual({ section: "settings", settingsSection: "providers" });
@@ -130,6 +145,9 @@ describe("routeToPath", () => {
     roundTrip({ section: "skills", name: null, creating: false });
     roundTrip({ section: "skills", name: null, creating: true });
     roundTrip({ section: "skills", name: "arxiv", creating: false });
+    roundTrip({ section: "automations", name: null, creating: false });
+    roundTrip({ section: "automations", name: null, creating: true });
+    roundTrip({ section: "automations", name: "auto_01ABC", creating: false });
     roundTrip({ section: "analytics" });
   });
 
@@ -142,6 +160,10 @@ describe("routeToPath", () => {
     expect(routeToPath({ section: "tools", name: "fs.read", creating: false })).toBe("/tools/fs.read");
     expect(routeToPath({ section: "skills", name: "arxiv", creating: false })).toBe("/skills/arxiv");
     expect(routeToPath({ section: "skills", name: null, creating: true })).toBe("/skills/new");
+    expect(routeToPath({ section: "automations", name: "auto_01ABC", creating: false })).toBe(
+      "/automations/auto_01ABC",
+    );
+    expect(routeToPath({ section: "automations", name: null, creating: true })).toBe("/automations/new");
     expect(routeToPath({ section: "analytics" })).toBe("/analytics");
   });
 

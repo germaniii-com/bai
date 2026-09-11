@@ -39,6 +39,7 @@ export type Route =
   | { section: "agents"; name: string | null; creating: boolean }
   | { section: "tools"; name: string | null; creating: boolean }
   | { section: "skills"; name: string | null; creating: boolean }
+  | { section: "automations"; name: string | null; creating: boolean }
   | { section: "analytics" }
   | { section: "shell" };
 
@@ -111,7 +112,8 @@ export function parseRoute(pathname: string, search: string): Route {
     }
     case "agents":
     case "tools":
-    case "skills": {
+    case "skills":
+    case "automations": {
       // /{section} (list), /{section}/new (create form), /{section}/{name}.
       if (next === undefined || segments.length !== 2) return { section: head, name: null, creating: false };
       if (next === "new") return { section: head, name: null, creating: true };
@@ -150,6 +152,7 @@ export function routeToPath(route: Route): string {
     case "agents":
     case "tools":
     case "skills":
+    case "automations":
       if (route.creating) return `/${route.section}/new`;
       return route.name !== null
         ? `/${route.section}/${encodeURIComponent(route.name)}`

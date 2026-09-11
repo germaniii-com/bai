@@ -58,6 +58,10 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   // same stance as skills.save. There is deliberately no agent.delete tool.
   "agent.view": "allow",
   "agent.save": "allow",
+  // Reading the automation catalog is read-only (list, like agent.view).
+  // automation.save is deliberately ABSENT: scheduling an unattended,
+  // auto-approved run is a sensitive capability and asks on first use.
+  "automation.list": "allow",
   // workspace.create carries its own consent gate: a dedicated path ask
   // ("Where should the workspace be created?") pre-filled with the agent's
   // suggestion, freely editable, blocking until confirmed or dismissed —
@@ -274,6 +278,10 @@ export class PermissionGate {
    * layer is arg-aware: an fs tool targeting the session cwd defaults to
    * allow (fail-closed everywhere else). Config entries and approvals
    * override it — last matching pattern wins.
+   *
+   * Automation run sessions set `meta.autoApprove` (unattended jobs): a final
+   * `{ "*": "allow" }` layer is appended so every tool runs without an ask,
+   * overriding config `deny` for that session only.
    */
   private layers(
     session: Session | undefined,
@@ -284,8 +292,11 @@ export class PermissionGate {
       defaults[input.tool] = "allow";
     }
     const configLayer = this.deps.config().permissions ?? {};
-    const approvals = (session?.meta as { approvals?: Record<string, PermissionAction> } | undefined)?.approvals ?? {};
-    return [defaults, configLayer, approvals];
+    const meta = session?.meta as { approvals?: Record<string, PermissionAction>; autoApprove?: unknown } | undefined;
+    const approvals = meta?.approvals ?? {};
+    const layers = [defaults, configLayer, approvals];
+    if (meta?.autoApprove === true) layers.push({ "*": "allow" });
+    return layers;
   }
 
   private emitDurable(sessionId: string | undefined, type: Parameters<EventLog["append"]>[1], payload: unknown): void {
