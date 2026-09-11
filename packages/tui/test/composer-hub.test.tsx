@@ -80,7 +80,7 @@ describe("ComposerHub render", () => {
   });
 
   test("context tracker: leads the commands row in both modes", async () => {
-    const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000 };
+    const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000, costUsd: 0.0123 };
     const tracker = contextTracker(usage);
     expect(tracker).toBeDefined();
     // The tracker LEADS the commands row in BOTH modes, so the full label
@@ -100,6 +100,7 @@ describe("ComposerHub render", () => {
     await tick();
     const inputFrame = lastFrame() ?? "";
     expect(inputFrame).toContain("45k/200k (23%)");
+    expect(inputFrame).toContain("$0.012");
     expect(inputFrame.indexOf("45k/200k (23%)")).toBeLessThan(inputFrame.indexOf("enter send"));
     unmount();
 

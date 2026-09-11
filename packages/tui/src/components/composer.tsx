@@ -47,7 +47,8 @@ export function ComposerHub({
   /** Pending queued messages (message-queue feature) — the commands-row indicator. */
   queuedCount?: number;
   /** Context tracker readout (shared/display.ts contextTracker) — leads the
-   *  commands row: `45.2k/200k (23%) · hints…`, tone-colored (pi's thresholds). */
+   *  commands row: `45.2k/200k (23%) $0.01 · hints…`, tone-colored (pi's
+   *  thresholds) with the cumulative session cost after the percentage. */
   context?: ContextTrackerView;
 }) {
   const t = useTheme();
@@ -104,13 +105,15 @@ export function ComposerHub({
         )}
       </Text>
       {/* Row 3 — commands: the old footer hint line, now part of the hub.
-          The context tracker LEADS the row (`45.2k/200k (23%) · hints…`),
-          tone-colored, in BOTH modes — so narrow terminals truncate the
-          hint tail, never the tracker (wrap="truncate" cuts the end). */}
+          The context tracker LEADS the row (`45.2k/200k (23%) $0.01 · hints…`),
+          tone-colored with the cumulative session cost after the percentage,
+          in BOTH modes — so narrow terminals truncate the hint tail, never
+          the tracker (wrap="truncate" cuts the end). */}
       <Text color={t.dim} wrap="truncate">
         {context !== undefined && contextColor !== undefined && (
           <>
             <Text color={contextColor}>{context.label}</Text>
+            {context.costLabel !== undefined && <Text color={t.secondary}> {context.costLabel}</Text>}
             <Text> · </Text>
           </>
         )}

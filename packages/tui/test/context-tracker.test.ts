@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contextBreakdownRows, contextTokensUsed, contextTracker, formatTokens } from "@bai/shared";
+import { contextBreakdownRows, contextTokensUsed, contextTracker, formatCost, formatTokens } from "@bai/shared";
 import type { SessionUsage } from "@bai/shared";
 
 /**
@@ -61,6 +61,29 @@ describe("contextTracker", () => {
 
   test("token-less row without a window → nothing to show", () => {
     expect(contextTracker({ model: "stub/echo" })).toBeUndefined();
+  });
+
+  test("cumulative session cost rides along when present", () => {
+    const usage: SessionUsage = { inputTokens: 40_000, outputTokens: 5_200, contextWindow: 200_000, costUsd: 0.0123 };
+    expect(contextTracker(usage)).toEqual({ label: "45k/200k (23%)", tone: "dim", costLabel: "$0.012" });
+  });
+
+  test("zero cost adds no cost label", () => {
+    const usage: SessionUsage = { inputTokens: 40_000, contextWindow: 200_000, costUsd: 0 };
+    expect(contextTracker(usage)).toEqual({ label: "40k/200k (20%)", tone: "dim" });
+  });
+});
+
+describe("formatCost", () => {
+  test("compact USD with sub-cent precision", () => {
+    expect(formatCost(0)).toBe("$0.00");
+    expect(formatCost(-1)).toBe("$0.00");
+    expect(formatCost(Number.NaN)).toBe("$0.00");
+    expect(formatCost(0.00042)).toBe("$0.0004");
+    expect(formatCost(0.0123)).toBe("$0.012");
+    expect(formatCost(0.5)).toBe("$0.500");
+    expect(formatCost(1.234)).toBe("$1.23");
+    expect(formatCost(123.4)).toBe("$123.40");
   });
 });
 

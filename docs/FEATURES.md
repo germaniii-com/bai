@@ -47,14 +47,16 @@ The conversation modality and bai's default session type.
 - Per-session model override, live from any surface (`config.updated` /
   `provider.updated` propagate instantly)
 - **Context tracker** (pi/opencode parity): the composer hub shows the
-  session's live context usage — `45k/200k (23%)` in the TUI's commands row, a
-  chip on the web's composer status row — tone-shifted as the window fills
-  (warning >70%, danger >90%), `?/200k` after compaction until the next
-  model response. One durable `run.usage` event per provider turn keeps
-  every surface in sync. In the web, clicking the chip opens a **Context
-  Usage** modal — a fullness bar over the exact provider tokens plus the
-  estimated (`~`, chars/4) per-category composition of that turn's prompt
-  (system prompt · tools · skills · mcp · subagents · conversation)
+  session's live context usage — `45k/200k (23%) $0.01` in the TUI's commands
+  row, a chip on the web's composer status row — tone-shifted as the window
+  fills (warning >70%, danger >90%), `?/200k` after compaction until the next
+  model response. The trailing figure is the cumulative estimated session
+  cost (Σ tokens × frozen per-row rates; survives compaction). One durable
+  `run.usage` event per provider turn keeps every surface in sync. In the
+  web, clicking the chip opens a **Context Usage** modal — a fullness bar
+  over the exact provider tokens plus the estimated (`~`, chars/4)
+  per-category composition of that turn's prompt (system prompt · tools ·
+  skills · mcp · subagents · conversation) and a session-cost line
 - **`#file` mentions** (opencode2's completion): type `#` in the composer to
   fuzzy-search the session's workspace and insert a file reference. The
   composer shows the shortest unique leaf (`#button.tsx`, extending to

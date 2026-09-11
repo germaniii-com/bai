@@ -20,6 +20,40 @@ export interface UsageRates {
 
 export const ZERO_RATES: UsageRates = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
 
+/**
+ * Fetch-time USD cost of a row from its own frozen rates (per 1M tokens).
+ * Shared by the analytics aggregation and the per-session spend lookup, so
+ * both always agree.
+ */
+const SPEND_SQL = `(
+  input_tokens * input_rate_usd_1m
+  + output_tokens * output_rate_usd_1m
+  + cache_read_tokens * cache_read_rate_usd_1m
+  + cache_write_tokens * cache_write_rate_usd_1m
+  + cache_write_1h_tokens * cache_write_1h_rate_usd_1m
+) / 1000000.0`;
+
+/** Estimated USD cost of one token bundle at the given rates. */
+export function usageSpend(
+  rates: UsageRates,
+  tokens: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    cacheWrite1hTokens?: number;
+  },
+): number {
+  return (
+    ((tokens.inputTokens ?? 0) * rates.input +
+      (tokens.outputTokens ?? 0) * rates.output +
+      (tokens.cacheReadTokens ?? 0) * rates.cacheRead +
+      (tokens.cacheWriteTokens ?? 0) * rates.cacheWrite +
+      (tokens.cacheWrite1hTokens ?? 0) * rates.cacheWrite1h) /
+    1_000_000
+  );
+}
+
 /** What kind of LLM call produced this row — user-driven runs vs the two
  *  background call families (both real spend, filterable separately). */
 export type UsageKind = "run" | "title" | "compaction";
@@ -182,6 +216,20 @@ export class UsageRepo {
   }
 
   /**
+   * Cumulative estimated spend (USD) for one session — Σ over its rows'
+   * frozen rates, including background title/compaction calls. The context
+   * tracker's session-cost figure; unlike `meta.lastUsage`, it survives
+   * compaction (the rows do) and needs no running accumulator.
+   */
+  spendForSession(sessionId: SessionId): number {
+    const row = q<{ spend: number }>(
+      this.db,
+      `SELECT COALESCE(SUM(${SPEND_SQL}), 0) AS spend FROM usage WHERE session_id = ?`,
+    ).get(sessionId);
+    return row?.spend ?? 0;
+  }
+
+  /**
    * The analytics aggregation (GET /api/usage/analytics): KPIs, per-model
    * totals, and the four chart series, all computed in SQL over the frozen
    * per-row rates. Dollars are derived at fetch time — Σ(tokens × rate) /
@@ -218,14 +266,9 @@ export class UsageRepo {
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
 
-    // Fetch-time cost from the row's own frozen rates (USD).
-    const COST = `(
-      input_tokens * input_rate_usd_1m
-      + output_tokens * output_rate_usd_1m
-      + cache_read_tokens * cache_read_rate_usd_1m
-      + cache_write_tokens * cache_write_rate_usd_1m
-      + cache_write_1h_tokens * cache_write_1h_rate_usd_1m
-    ) / 1000000.0`;
+    // Fetch-time cost from the row's own frozen rates (USD) — the shared
+    // SPEND_SQL so the per-session lookup and analytics always agree.
+    const COST = SPEND_SQL;
     // Components are disjoint (adapters normalize) — the true token total.
     const TOTAL_TOKENS = `(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)`;
 

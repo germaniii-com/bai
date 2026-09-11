@@ -567,7 +567,10 @@ Runs under Bun directly — no build step.
   clickable: `web/src/context-modal.tsx` renders a fullness bar over the
   exact provider tokens plus the estimated per-category prompt composition
   (`SessionUsage.breakdown`, chars/4, emitted by `run.ts` and labelled `~`
-  because providers report only the total).
+  because providers report only the total). Both surfaces also show the
+  cumulative estimated session cost (`SessionUsage.costUsd`) — summed from
+  the usage rows' frozen per-row rates (`UsageRepo.spendForSession`), so it
+  survives compaction and includes background title/compaction calls.
 - **Supermenu** (`ctrl+p`, `views/command-palette.tsx` + `state/commands.ts`):
   the single entry point for app commands — a searchable palette with
   category headers and a contextual Suggested section (opencode's command

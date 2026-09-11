@@ -61,6 +61,13 @@ export interface SessionUsage {
   model?: string;
   /** Estimated per-category prompt composition for that turn (web modal). */
   breakdown?: ContextBreakdown;
+  /**
+   * Cumulative ESTIMATED session spend in USD so far — the sum of every
+   * recorded call's tokens × its frozen per-row rates (includes background
+   * title/compaction calls, survives compaction). "Estimated" because it
+   * prices catalog listings; exact provider billing may differ.
+   */
+  costUsd?: number;
 }
 
 /** Time-bucket size for the analytics series (UTC; RFC3339 substr). */

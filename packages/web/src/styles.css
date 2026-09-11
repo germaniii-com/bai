@@ -2283,6 +2283,7 @@ select:focus-visible,
 }
 
 .ctx-bar {
+  display: flex;
   height: 10px;
   border-radius: 999px;
   background: var(--inset);
@@ -2290,6 +2291,21 @@ select:focus-visible,
   overflow: hidden;
 }
 
+/* One category segment — its background comes from the shared
+   `.ctx-swatch-*` map so the bar and the legend below always agree. */
+.ctx-bar-seg {
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+}
+
+/* The unfilled tail of the track (free context window). */
+.ctx-bar-free {
+  flex: 1 1 0;
+  height: 100%;
+}
+
+/* Fallback when no breakdown is recorded yet (single accent fill). */
 .ctx-bar-fill {
   height: 100%;
   border-radius: 999px;
@@ -2340,6 +2356,25 @@ select:focus-visible,
 
 .ctx-empty {
   margin: 0;
+}
+
+/* Cumulative session cost (estimate) — a summary row under the breakdown. */
+.ctx-cost {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.ctx-cost-label {
+  color: var(--dim);
+}
+
+.ctx-cost-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 /* The single scrollable model column (one row per model across every

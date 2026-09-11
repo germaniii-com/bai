@@ -110,6 +110,9 @@ describe("run.usage events (context tracker feed)", () => {
     expect(breakdown!.conversation).toBeGreaterThan(0);
     // No MCP tools are loaded in v1 — the category is present but zero.
     expect(breakdown!.mcp).toBe(0);
+    // The cumulative session cost is always written; the echo stub has no
+    // catalog pricing, so its frozen rates are zero → $0.
+    expect(payload.usage.costUsd).toBe(0);
     // The snapshot seed mirrors the event's breakdown.
     expect(t.core.sessionSnapshot(session.id).usage?.breakdown).toEqual(breakdown);
   });

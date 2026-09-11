@@ -18,6 +18,7 @@ import { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sl
 import type { Provider, ProviderStream, StreamEvent, StreamUsage, ToolDef } from "./provider/types";
 import { mergeUsage } from "./provider/types";
 import type { Store } from "./store/store";
+import { usageSpend, type UsageRates } from "./store/usage";
 import type { ToolContext, ToolRegistry } from "./tools/registry";
 import { askDetailFor } from "./tools/ask-detail";
 import { isDefaultTitle, sanitizeGeneratedTitle, TITLE_SYSTEM_PROMPT } from "./title";
@@ -122,6 +123,8 @@ interface RunContext {
   modelId: string;
   reasoning: boolean | undefined;
   contextWindow: number | undefined;
+  /** Frozen USD/1M rates for this model — used to cost the turn's tokens. */
+  rates: UsageRates | undefined;
   credentials: ResolvedCredentials;
   toolDefs: ToolDef[];
   auth: { apiKey?: string; baseUrl?: string };
@@ -434,7 +437,7 @@ export class RunCoordinator {
         }
 
         if (usage?.inputTokens !== undefined) {
-          this.recordUsage(sessionId, usage, run.modelId, run.contextWindow, breakdown);
+          const costUsd = this.recordUsage(sessionId, usage, run.modelId, run.contextWindow, breakdown, run.rates);
           // The context tracker's live feed (durable — replay heals drops):
           // one event per provider turn with the full breakdown + window.
           this.emitDurable(sessionId, "run.usage", {
@@ -443,6 +446,7 @@ export class RunCoordinator {
               model: run.modelId,
               ...(run.contextWindow !== undefined ? { contextWindow: run.contextWindow } : {}),
               breakdown,
+              costUsd,
             },
           });
           // D26: every provider call records a usage row. All dimensions are
@@ -663,6 +667,8 @@ export class RunCoordinator {
     const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
     const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
     const credentials = await this.deps.providers.resolveCredentials(providerId, account);
+    // Pricing snapshot for the turn-cost figure (ZERO rates when omitted).
+    const rates = this.deps.usageRates !== undefined ? await this.deps.usageRates(providerId, model) : undefined;
 
     return {
       agent,
@@ -672,6 +678,7 @@ export class RunCoordinator {
       modelId,
       reasoning,
       contextWindow,
+      rates,
       credentials,
       toolDefs: this.toolDefsFor(agent, typeof meta.parent === "string" && meta.parent.length > 0),
       auth: {
@@ -740,9 +747,9 @@ export class RunCoordinator {
    * Persist the latest provider-reported usage — the compaction trigger
    * input AND the context tracker's snapshot seed (surfaces read it via
    * `sessionSnapshot().usage` without waiting for the next turn). The full
-   * breakdown + window/model ride along so the tracker never needs the
-   * provider catalog (and the web modal can render the per-category
-   * estimate without re-deriving the prompt).
+   * breakdown + window/model + cumulative cost ride along so the tracker
+   * never needs the provider catalog (and the web modal can render the
+   * per-category estimate without re-deriving the prompt).
    */
   private recordUsage(
     sessionId: SessionId,
@@ -750,19 +757,27 @@ export class RunCoordinator {
     modelId: string,
     contextWindow: number | undefined,
     breakdown: ContextBreakdown,
-  ): void {
+    rates: UsageRates | undefined,
+  ): number {
     const existing = this.deps.store.sessions.get(sessionId);
-    if (existing === undefined) return;
+    if (existing === undefined) return 0;
     const meta = { ...(existing.meta as Record<string, unknown>) };
+    // Cumulative session spend = every already-recorded row's frozen-rate
+    // cost (survives compaction, includes background calls) + THIS turn's
+    // cost, whose usage row is inserted just after this returns.
+    const turnCost = rates !== undefined ? usageSpend(rates, usage) : 0;
+    const costUsd = this.deps.store.usage.spendForSession(sessionId) + turnCost;
     meta.lastUsage = {
       ...usage,
       model: modelId,
       ...(contextWindow !== undefined ? { contextWindow } : {}),
       breakdown,
+      costUsd,
     } satisfies SessionUsage;
     // Quiet bookkeeping — no session.updated spam; surfaces read usage via
     // meta (snapshot) and the run.usage event.
     this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
+    return costUsd;
   }
 
   /**
@@ -925,9 +940,14 @@ export class RunCoordinator {
       this.deps.store.sessions.update(sessionId, { meta, now: this.deps.clock.iso() });
       // The tracker's post-compaction semantics (pi parity): context tokens
       // are unknown until the next turn re-reports — a token-less event
-      // renders `?/window` instead of a stale pre-compaction percentage.
+      // renders `?/window` instead of a stale pre-compaction percentage. The
+      // session cost survives (summed from the usage rows) so it still shows.
+      const costUsd = this.deps.store.usage.spendForSession(sessionId);
       this.emitDurable(sessionId, "run.usage", {
-        usage: contextWindow !== undefined ? { contextWindow } : {},
+        usage: {
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+          ...(costUsd > 0 ? { costUsd } : {}),
+        },
       });
     } catch (err) {
       // D26: a failure at/after the stream call is a failed provider call —

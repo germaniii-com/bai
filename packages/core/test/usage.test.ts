@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import type { ModelInfo } from "@bai/shared";
 import { Store } from "../src";
 import { MIGRATIONS } from "../src/store/migrations";
+import { usageSpend } from "../src/store/usage";
 import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
 import { makeCore, sleep, type TestCore } from "./harness";
 
@@ -62,6 +63,48 @@ describe("usage store", () => {
       rates: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 },
       createdAt: "2026-01-01T00:00:01Z",
     });
+  });
+
+  test("spendForSession: Σ frozen-rate cost over the session's rows; usageSpend agrees", () => {
+    const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const other = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const rates = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 };
+    store.usage.insert({
+      sessionId: ses.id,
+      kind: "run",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      inputTokens: 1_000_000,
+      rates,
+      now: "2026-01-01T00:00:01Z",
+    });
+    store.usage.insert({
+      sessionId: ses.id,
+      kind: "title",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      outputTokens: 1_000_000,
+      rates,
+      now: "2026-01-01T00:00:02Z",
+    });
+    // Another session's rows never leak into the sum.
+    store.usage.insert({
+      sessionId: other.id,
+      kind: "run",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      inputTokens: 1_000_000,
+      rates,
+      now: "2026-01-01T00:00:03Z",
+    });
+    // 1M input @ $3/1M + 1M output @ $15/1M = $18; other session = $3.
+    expect(store.usage.spendForSession(ses.id)).toBeCloseTo(18, 6);
+    expect(store.usage.spendForSession(other.id)).toBeCloseTo(3, 6);
+    // The pure helper agrees component-for-component.
+    expect(usageSpend(rates, { inputTokens: 1_000_000 })).toBeCloseTo(3, 6);
+    expect(usageSpend(rates, { outputTokens: 1_000_000 })).toBeCloseTo(15, 6);
+    expect(usageSpend(rates, { cacheReadTokens: 1_000_000 })).toBeCloseTo(0.3, 6);
+    expect(usageSpend(rates, {})).toBe(0);
   });
 
   test("background rows (title/compaction) carry no agent; optional fields default", () => {

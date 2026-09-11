@@ -47,6 +47,17 @@ export function formatTokens(count: number): string {
   return `${Math.round(count / 1_000_000)}M`;
 }
 
+/**
+ * Compact USD for tight UI rows: `$0.0123` (sub-cent precision), `$0.123`,
+ * `$1.23`, `$123.45`. Non-positive/invalid → `$0.00`.
+ */
+export function formatCost(usd: number): string {
+  if (!Number.isFinite(usd) || usd <= 0) return "$0.00";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
 /** Visual severity of the context tracker readout. */
 export type TrackerTone = "dim" | "warning" | "danger";
 
@@ -69,6 +80,8 @@ export interface ContextTrackerView {
   /** e.g. `45k/200k (23%)`, `45k` (no window), `?/200k` (post-compaction). */
   label: string;
   tone: TrackerTone;
+  /** Cumulative session spend, pre-formatted (`$0.0123`) — omitted at zero. */
+  costLabel?: string;
 }
 
 /**
@@ -86,18 +99,22 @@ export function contextTracker(usage: SessionUsage | null | undefined): ContextT
   const tokens = contextTokensUsed(usage);
   const tokensKnown = usage.inputTokens !== undefined || usage.outputTokens !== undefined;
   const window = usage.contextWindow;
+  // Extra fields every branch merges in (spread so the key stays absent when
+  // there is nothing to show — keeps deep-equality tests honest).
+  const extras: Pick<ContextTrackerView, "costLabel"> =
+    usage.costUsd !== undefined && usage.costUsd > 0 ? { costLabel: formatCost(usage.costUsd) } : {};
   if (!tokensKnown) {
     // Post-compaction: the next turn re-reports; until then it's unknown.
     // No window either → nothing to show.
     if (window === undefined) return undefined;
-    return { label: `?/${formatTokens(window)}`, tone: "dim" };
+    return { label: `?/${formatTokens(window)}`, tone: "dim", ...extras };
   }
   if (window !== undefined && window > 0) {
     const pct = Math.round((tokens / window) * 100);
     const tone: TrackerTone = pct > 90 ? "danger" : pct > 70 ? "warning" : "dim";
-    return { label: `${formatTokens(tokens)}/${formatTokens(window)} (${pct}%)`, tone };
+    return { label: `${formatTokens(tokens)}/${formatTokens(window)} (${pct}%)`, tone, ...extras };
   }
-  return { label: formatTokens(tokens), tone: "dim" };
+  return { label: formatTokens(tokens), tone: "dim", ...extras };
 }
 
 // --- context breakdown (the web breakdown modal's rows) ---
