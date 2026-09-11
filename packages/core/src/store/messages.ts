@@ -27,6 +27,36 @@ function toPart(row: PartRow): Part {
   };
 }
 
+/** Cursor for paged history reads (opaque to clients — base64url JSON). */
+export interface HistoryCursor {
+  id: string;
+  createdAt: string;
+}
+
+export function encodeHistoryCursor(cursor: HistoryCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+export function decodeHistoryCursor(raw: string): HistoryCursor | undefined {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const { id, createdAt } = parsed as { id?: unknown; createdAt?: unknown };
+    if (typeof id !== "string" || typeof createdAt !== "string") return undefined;
+    return { id, createdAt };
+  } catch {
+    return undefined;
+  }
+}
+
+export interface HistoryPage {
+  messages: Message[];
+  /** True when older messages exist before this page. */
+  hasMore: boolean;
+  /** Opaque cursor to fetch the next (older) page — absent when !hasMore. */
+  nextCursor?: string;
+}
+
 export class MessagesRepo {
   constructor(private db: SqliteDb) {}
 
@@ -38,18 +68,70 @@ export class MessagesRepo {
     return { id, sessionId, role, createdAt: now, parts: [] };
   }
 
-  /** Full history for a session, oldest first, parts attached. */
-  history(sessionId: SessionId): Message[] {
-    const msgRows = q<MessageRow>(this.db,
-        "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at, id",
-      )
-      .all(sessionId);
+  /**
+   * History for a session, oldest first, parts attached.
+   * No opts → full history (provider/discipline/fork paths).
+   * With `{limit}` → newest N messages (TUI window); with `{before}` →
+   * the N messages strictly older than the cursor. Use `historyPage` when
+   * the caller also needs `hasMore`/`nextCursor`.
+   */
+  history(sessionId: SessionId, opts: { limit?: number; before?: HistoryCursor } = {}): Message[] {
+    return this.historyPage(sessionId, opts).messages;
+  }
+
+  /** Paged history read — newest-first scan, oldest-first return. */
+  historyPage(
+    sessionId: SessionId,
+    opts: { limit?: number; before?: HistoryCursor } = {},
+  ): HistoryPage {
+    const { limit, before } = opts;
+    if (limit === undefined) {
+      const msgRows = q<MessageRow>(this.db,
+          "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at, id",
+        )
+        .all(sessionId);
+      if (msgRows.length === 0) return { messages: [], hasMore: false };
+      return { messages: this.attachParts(sessionId, msgRows), hasMore: false };
+    }
+    const safeLimit = Math.max(1, Math.min(Math.floor(limit), 500));
+    const msgRows = (
+      before === undefined
+        ? q<MessageRow>(this.db,
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+          ).all(sessionId, safeLimit + 1)
+        : q<MessageRow>(this.db,
+            `SELECT * FROM messages WHERE session_id = ?
+             AND (created_at < ? OR (created_at = ? AND id < ?))
+             ORDER BY created_at DESC, id DESC LIMIT ?`,
+          ).all(sessionId, before.createdAt, before.createdAt, before.id, safeLimit + 1)
+    );
+    const hasMore = msgRows.length > safeLimit;
+    const pageRows = hasMore ? msgRows.slice(0, safeLimit) : msgRows;
+    if (pageRows.length === 0) return { messages: [], hasMore: false };
+    // Oldest-first for surfaces.
+    const ordered = [...pageRows].reverse();
+    const messages = this.attachParts(sessionId, ordered);
+    const oldest = pageRows[pageRows.length - 1];
+    return {
+      messages,
+      hasMore,
+      ...(hasMore && oldest !== undefined
+        ? { nextCursor: encodeHistoryCursor({ id: oldest.id, createdAt: oldest.created_at }) }
+        : {}),
+    };
+  }
+
+  /** Attach parts for exactly the given message rows (one IN query). */
+  private attachParts(sessionId: SessionId, msgRows: MessageRow[]): Message[] {
     if (msgRows.length === 0) return [];
+    const ids = msgRows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(",");
     const partRows = q<PartRow>(this.db,
-        `SELECT p.* FROM parts p JOIN messages m ON m.id = p.message_id
-         WHERE m.session_id = ? ORDER BY p.ord, p.id`,
-      )
-      .all(sessionId);
+        `SELECT p.* FROM parts p WHERE p.message_id IN (${placeholders}) ORDER BY p.ord, p.id`,
+      ).all(...ids);
+    // Scope parts to this session's rows (message ids are globally unique,
+    // so the IN set is already exact — sessionId kept for call clarity).
+    void sessionId;
     const byMessage = new Map<string, Part[]>();
     for (const row of partRows) {
       const list = byMessage.get(row.message_id) ?? [];

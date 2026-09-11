@@ -16,7 +16,7 @@ import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
 import { DialogOverlay, overlayWindowSize } from "./components/dialog-overlay";
-import { applyChildAskEvent, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot } from "./state/sync";
+import { applyChildAskEvent, applyDeltaBatch, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, createDeltaBuffer, emptyQueuedInputs, queuedInputsFromSnapshot } from "./state/sync";
 import {
   applySubagentEvent,
   emptySubagentState,
@@ -80,6 +80,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Paged-history window (opencode parity: last 100, scroll-back pages older).
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Transient auto-retry status ("API error, retrying 2/3…") — set by
   // run.retry, cleared by the next run.started/run.finished.
@@ -185,6 +189,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   // (the firehose subscribes once and must not resubscribe on every switch).
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
+  // Delta coalescing buffer (75ms): per-token SSE frames accumulate here and
+  // flush as ONE setMessages — recreated per session below.
+  const deltaBufferRef = useRef<ReturnType<typeof createDeltaBuffer> | null>(null);
   // ctrl+c double-press arming (mirrors the chat composer's esc arming):
   // first press arms, second interrupts a running drain or quits.
   const [quitArmed, setQuitArmed] = useState(false);
@@ -369,7 +376,15 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       return;
     }
     const ctrl = new AbortController();
+    deltaBufferRef.current?.dispose();
+    deltaBufferRef.current = createDeltaBuffer({
+      flushMs: 75,
+      onFlush: (deltas) => applyDeltaBatch(setMessages, deltas),
+    });
     setMessages([]);
+    setHistoryHasMore(false);
+    setHistoryCursor(null);
+    setLoadingOlder(false);
     setRunActive(false); // a mid-run switch can't see the earlier run.started
     setPendingAsks([]); // session switch: the new session's asks arrive below
     setPendingChildAsks([]); // subagent asks of the previous parent are gone
@@ -380,9 +395,13 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
         // Snapshot first, then follow the durable stream from its frontier.
         // followSession resumes from the cursor on drops (idle timeouts,
         // restarts) — replaying from 0 would duplicate the snapshot instead.
-        const snap = await client.historySnapshot(activeId);
+        // Windowed to the newest 100 (opencode parity) — older pages load
+        // on scroll-back via loadOlder below.
+        const snap = await client.historySnapshot(activeId, { limit: 100 });
         if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
         setMessages(snap.messages);
+        setHistoryHasMore(snap.hasMore === true);
+        setHistoryCursor(snap.nextCursor ?? null);
         // A run may already be draining (mid-run switch, or the snapshot was
         // taken right after our own submit) — its run.started predates the
         // cursor, so the snapshot is the only reliable signal.
@@ -403,7 +422,24 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           from: snap.afterSeq,
           signal: ctrl.signal,
           onEvent: (evt) => {
+            // Streaming deltas coalesce in the 75ms buffer (one setState per
+            // burst, not per token). Any structural event flushes pending
+            // deltas first so ordering is preserved (full payload never
+            // lands before its own deltas).
+            if (evt.type === "message.part.delta") {
+              const payload = evt.payload as { messageId: string; partId: string; delta: string };
+              deltaBufferRef.current?.push(payload.messageId, payload.partId, payload.delta);
+              return;
+            }
+            deltaBufferRef.current?.flush();
             applyEvent(setMessages, evt);
+            // Window the resident transcript to the newest 100: live inserts
+            // at the tail evict the oldest head (its parts die with it —
+            // opencode's draft.part eviction parity). Length-only events
+            // (deltas) never trigger the trim.
+            if (evt.type === "message.created") {
+              setMessages((prev) => (prev.length > 100 ? prev.slice(prev.length - 100) : prev));
+            }
             // Run lifecycle drives the waiting indicator (and surfaces
             // provider failures, which otherwise die silently). A fresh
             // run.started clears the previous run's failure line — the
@@ -444,8 +480,35 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
         if (!ctrl.signal.aborted) setError(err instanceof Error ? err.message : String(err));
       }
     })();
-    return () => ctrl.abort();
+    return () => {
+      ctrl.abort();
+      deltaBufferRef.current?.flush();
+      deltaBufferRef.current?.dispose();
+      deltaBufferRef.current = null;
+    };
   }, [activeId, client]);
+
+  // Scroll-back: prepend the next older page above the window. The ChatView
+  // offset is from the TOP, so prepending while scrolled up keeps the reading
+  // window stable (new rows appear above the viewport, follow stays off).
+  const loadOlder = useCallback(async () => {
+    if (activeId === undefined || !historyHasMore || historyCursor === null || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const older = await client.historySnapshot(activeId, { limit: 100, before: historyCursor });
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        const fresh = older.messages.filter((m) => !seen.has(m.id));
+        return [...fresh, ...prev];
+      });
+      setHistoryHasMore(older.hasMore === true);
+      setHistoryCursor(older.nextCursor ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [activeId, client, historyHasMore, historyCursor, loadingOlder]);
 
   // ctrl+c is global in BOTH modes (even over dialogs — dialogs ignore ctrl
   // keys): first press arms, second interrupts a running drain or quits.
@@ -749,10 +812,13 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                  onSendQueued={(input) => void client.sendInputNow(input.sessionId, input.id)}
                  onCancelQueued={(input) => void client.cancelInput(input.sessionId, input.id)}
                  onEditQueued={(input) => {
-                   void client.cancelInput(input.sessionId, input.id);
-                   setComposerSeed({ sessionId: input.sessionId, text: input.payload.text });
-                 }}
-               />
+                    void client.cancelInput(input.sessionId, input.id);
+                    setComposerSeed({ sessionId: input.sessionId, text: input.payload.text });
+                  }}
+                  historyHasMore={historyHasMore}
+                  loadingOlder={loadingOlder}
+                  onLoadOlder={() => void loadOlder()}
+                />
             )}
             {view === "gallery" && <PlaceholderView title="Gallery" phase={5} />}
             {view === "jobs" && <PlaceholderView title="Jobs" phase={5} />}

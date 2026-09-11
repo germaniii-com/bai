@@ -33,6 +33,7 @@ import {
   type MessageId,
   type SessionId,
 } from "@bai/shared";
+import { decodeHistoryCursor, type HistoryCursor } from "@bai/core";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
 import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, FS_UPLOAD_MAX_BYTES, listDir, readFile, statPath, writeFile } from "./fs";
@@ -76,13 +77,31 @@ function buildApi(deps: ApiDeps) {
       if (session === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ session });
     })
-    .get("/session/:id/message", (c) => {
-      const id = c.req.param("id") as SessionId;
-      if (deps.core.getSession(id) === undefined) return c.json({ error: "not_found" }, 404);
-      // Snapshot + cursor: clients resume the durable stream from afterSeq,
-      // so replay never duplicates what this response already contains.
-      return c.json(deps.core.sessionSnapshot(id));
-    })
+    .get(
+      "/session/:id/message",
+      zValidator("query", z.object({ limit: z.string().optional(), before: z.string().optional() })),
+      (c) => {
+        const id = c.req.param("id") as SessionId;
+        if (deps.core.getSession(id) === undefined) return c.json({ error: "not_found" }, 404);
+        // Snapshot + cursor: clients resume the durable stream from afterSeq,
+        // so replay never duplicates what this response already contains.
+        // Paged: ?limit=N (default 100, max 500) + ?before=<opaque cursor>
+        // returns the newest N (or the N older than the cursor) + hasMore.
+        const query = c.req.valid("query");
+        const rawLimit = query.limit;
+        const rawBefore = query.before;
+        const limit =
+          rawLimit === undefined || rawLimit.length === 0
+            ? 100
+            : Math.max(1, Math.min(Number(rawLimit) || 100, 500));
+        let before: HistoryCursor | undefined;
+        if (rawBefore !== undefined && rawBefore.length > 0) {
+          before = decodeHistoryCursor(rawBefore);
+          if (before === undefined) return c.json({ error: "invalid before cursor" }, 400);
+        }
+        return c.json(deps.core.sessionSnapshot(id, { limit, ...(before !== undefined ? { before } : {}) }));
+      },
+    )
     .post("/session/:id/message", zValidator("json", promptPayloadSchema), async (c) => {
       const id = c.req.param("id") as SessionId;
       const body = c.req.valid("json");

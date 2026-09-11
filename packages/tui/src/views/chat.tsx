@@ -1,5 +1,5 @@
 import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
@@ -13,6 +13,7 @@ import { emptySubagentState, findChildForTask, type SubagentActivity, type Subag
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
 import { Markdown } from "../components/markdown";
+import { ToolOutputBody } from "../components/tool-output";
 import { ComposerHub } from "../components/composer";
 import { MentionPicker } from "../components/mention-picker";
 import { emptyMentionUi, moveMention, openedMention, selectedMention, withMentionResults, type MentionUiState } from "../state/mention";
@@ -102,6 +103,9 @@ export function ChatView({
   onSendQueued,
   onCancelQueued,
   onEditQueued,
+  historyHasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
 }: {
   client: BaiClient;
   session: Session | null;
@@ -185,6 +189,12 @@ export function ChatView({
   onCancelQueued?: (input: Input) => void;
   /** Edit: cancel the queued input and reseed the composer with its text. */
   onEditQueued?: (input: Input) => void;
+  /** Older pages exist above the window (server hasMore). */
+  historyHasMore?: boolean;
+  /** A scroll-back page fetch is in flight. */
+  loadingOlder?: boolean;
+  /** Fetch the next older page (prepend above the window). */
+  onLoadOlder?: () => void;
 }) {
   const [editor, setEditor] = useState<Editor>({ text: "", cursor: 0 });
   const [busy, setBusy] = useState(false);
@@ -242,7 +252,9 @@ export function ChatView({
   // Tool-output nodes: every tool call is its own transcript node, and
   // non-task tools expand inline to their result content (task nodes open
   // the subagent dialog instead). Keyed `${messageId}:${callId}`.
+  // Two-stage: preview (≤10 lines) → full (bounded 500 lines) → collapsed.
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [expandedToolsFull, setExpandedToolsFull] = useState<Set<string>>(new Set());
 
   // NORMAL-mode transcript focus: index into the flattened NODE list
   // (buildTranscriptItems — thought, each tool call, text, user message),
@@ -285,26 +297,53 @@ export function ChatView({
   const visibleMessages = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
   const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
 
-  // The flattened node list — one focusable/clickable item per renderable
-  // piece. Rebuilt per render (cheap); identities are stable per content.
-  const items = buildTranscriptItems(visibleMessages);
+  // Evict expansion state for messages that fell out of the window — the
+  // Sets otherwise grow unbounded across a long session.
+  useEffect(() => {
+    const ids = new Set<string>(visibleMessages.map((m) => m.id as string));
+    const live = (key: string): boolean => ids.has((key.split(":")[0] ?? "") as string);
+    setExpandedThinking((prev) => {
+      if ([...prev].every((id) => ids.has(id as string))) return prev;
+      return new Set([...prev].filter((id) => ids.has(id as string)));
+    });
+    setExpandedTools((prev) => {
+      if ([...prev].every(live)) return prev;
+      return new Set([...prev].filter(live));
+    });
+    setExpandedToolsFull((prev) => {
+      if ([...prev].every(live)) return prev;
+      return new Set([...prev].filter(live));
+    });
+  }, [visibleMessages]);
+
+  // The flattened node list — memoized on the visible window so unrelated
+  // renders (scroll, focus, typing) skip the rebuild + JSON.parse digests.
+  const items = useMemo(() => buildTranscriptItems(visibleMessages), [visibleMessages]);
 
   // Queued nodes (message-queue feature): pending inputs render at the
   // transcript tail as focusable/clickable items — future messages, dimmed
   // with a queued chip. Send-now flips re-chip their node "sending…" IN
   // PLACE (no vanish-then-reshow gap) until promotion; sending nodes don't
   // open the actions dialog.
-  const sending = new Set(sendingIds);
-  const queuedItems: Array<{ kind: "queued-input"; input: Input; sending: boolean }> = queuedInputs.map(
-    (input) => ({ kind: "queued-input" as const, input, sending: sending.has(input.id) }),
+  const queuedItems = useMemo(
+    () => {
+      const sending = new Set(sendingIds);
+      return queuedInputs.map((input) => ({
+        kind: "queued-input" as const,
+        input,
+        sending: sending.has(input.id),
+      }));
+    },
+    [queuedInputs, sendingIds],
   );
 
   // The banner marking the pending-revert cut is itself focusable/clickable
   // (enter restores) — critical when the revert hid EVERY user message and
   // the dialog is otherwise unreachable.
-  const focusItems: Array<
-    TranscriptItem | { kind: "revert-banner" } | { kind: "queued-input"; input: Input; sending: boolean }
-  > = [...(revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items), ...queuedItems];
+  const focusItems = useMemo(
+    () => [...(revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items), ...queuedItems],
+    [items, queuedItems, revertedCount],
+  );
 
   // App-seeded composer text (fork flow): when the freshly forked session
   // becomes active, its message's prompt text lands in the composer once.
@@ -557,14 +596,46 @@ export function ChatView({
     revealItem(next);
   };
 
-  /** Toggle one tool node's inline output (non-task tools). */
-  const toggleToolOutput = (key: string): void => {
+  /**
+   * Toggle one tool node's inline preview (non-task tools):
+   * enter/space shows the ≤10-line preview, enter/space again hides it.
+   * Hiding from full collapses fully (no preview-full-preview stepping).
+   */
+  const toggleToolPreview = (key: string): void => {
+    if (expandedToolsFull.has(key)) {
+      setExpandedTools((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setExpandedToolsFull((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
     setExpandedTools((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+  };
+
+  /** Toggle the bounded full output (the f key): preview ↔ full. */
+  const toggleToolFull = (key: string): void => {
+    if (expandedToolsFull.has(key)) {
+      // Back to the truncated preview (preview set keeps the key).
+      setExpandedToolsFull((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
+    setExpandedTools((prev) => new Set(prev).add(key));
+    setExpandedToolsFull((prev) => new Set(prev).add(key));
   };
 
   /** Toggle one message's thought node. */
@@ -789,7 +860,8 @@ export function ChatView({
             if (item.call.name === "task") {
               onOpenSubagent(resolveTaskChild(item)?.sessionId);
             } else {
-              toggleToolOutput(`${item.messageId}:${item.call.callId}`);
+              // Mouse has no shift modifier — click toggles the preview.
+              toggleToolPreview(`${item.messageId}:${item.call.callId}`);
             }
           } else if (item.kind === "queued-input") {
             // Sending nodes are in flight — no actions to offer.
@@ -803,7 +875,13 @@ export function ChatView({
     // pageUp/pageDown = half a viewport; ctrl+u/ctrl+d = a quarter (opencode).
     const pageRows = Math.max(1, Math.floor(viewportHeight / 2));
     const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
-    if (key.pageUp) return scrollBy(-pageRows);
+    if (key.pageUp) {
+      // At the very top with older pages available → fetch them instead.
+      if (scrollOffsetRef.current <= 0 && historyHasMore === true && onLoadOlder !== undefined) {
+        return onLoadOlder();
+      }
+      return scrollBy(-pageRows);
+    }
     if (key.pageDown) return scrollBy(pageRows);
 
     // The message-actions / queued-actions dialogs own the keyboard (their
@@ -916,6 +994,15 @@ export function ChatView({
         scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
         return onEnterInput();
       }
+      // f on a focused non-task tool node toggles the bounded full
+      // output (preview ↔ full; plain enter/space below toggles preview).
+      if (ch === "f") {
+        const fullItem = focus !== null ? focusItems[focus] : undefined;
+        if (fullItem?.kind === "tool" && fullItem.call.name !== "task") {
+          toggleToolFull(`${fullItem.messageId}:${fullItem.call.callId}`);
+        }
+        return;
+      }
       // Enter/Space act on the focused NODE: thought toggles, a task opens
       // the subagent dialog, a user message opens the message-actions modal
       // (revert/copy/fork/restore), the revert banner restores, any other
@@ -935,7 +1022,9 @@ export function ChatView({
             if (focusedItem.call.name === "task") {
               onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
             } else {
-              toggleToolOutput(`${focusedItem.messageId}:${focusedItem.call.callId}`);
+              // Plain enter/space toggles the preview (or hides).
+              // f is handled above (toggleToolFull).
+              toggleToolPreview(`${focusedItem.messageId}:${focusedItem.call.callId}`);
             }
             return;
           }
@@ -1275,7 +1364,9 @@ export function ChatView({
             // carries the verdict, expanding reviews the ask (summary +
             // diff) that was approved/refused — history-backed, survives
             // reloads (task-node parity for the ask UX).
-            const expanded = expandedTools.has(`${item.messageId}:${c.callId}`);
+            const toolKey = `${item.messageId}:${c.callId}`;
+            const expanded = expandedTools.has(toolKey);
+            const full = expandedToolsFull.has(toolKey);
             const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
             const color = c.status === "running" ? t.warning : c.status === "error" ? t.danger : t.success;
             const perm = c.permission;
@@ -1300,7 +1391,13 @@ export function ChatView({
                     {permVerdict !== undefined && <Text color={t.dim}> · {permVerdict}</Text>}
                     {c.result !== undefined && c.result.isError && <Text color={t.danger}> · denied/failed</Text>}
                     {c.result !== undefined && focused && (
-                      <Text color={t.dim}> · enter to {expanded ? "hide" : "view"} output</Text>
+                      <Text color={t.dim}>
+                        {expanded
+                          ? full
+                            ? " · enter to hide · f to truncate"
+                            : " · enter to hide · f for full"
+                          : " · enter to view output"}
+                      </Text>
                     )}
                   </Text>
                   {expanded && perm !== undefined && (
@@ -1343,13 +1440,7 @@ export function ChatView({
                   ) : (
                     expanded &&
                     c.result !== undefined && (
-                      <Box flexDirection="column" paddingLeft={2}>
-                        {c.result.content.split("\n").map((line, li) => (
-                          <Text key={li} color={t.dim} wrap="wrap">
-                            {line.length > 0 ? line : " "}
-                          </Text>
-                        ))}
-                      </Box>
+                      <ToolOutputBody content={c.result.content} mode={full ? "full" : "preview"} />
                     )
                   )}
                 </Box>
@@ -1379,11 +1470,16 @@ export function ChatView({
         )}
       </ScrollView>
 
-      {aboveCount > 0 && (
+      {(aboveCount > 0 || historyHasMore === true || loadingOlder === true) && (
         <Box marginBottom={1}>
           <Text color={t.dim}>
-            ↑ {aboveCount} earlier message{aboveCount === 1 ? "" : "s"} · mouse
-            wheel / pageUp-pageDown to scroll · ctrl+j/k to focus
+            {loadingOlder === true
+              ? "↑ loading older messages…"
+              : historyHasMore === true && aboveCount === 0
+                ? "↑ older messages available · pageUp to load"
+                : `↑ ${aboveCount} earlier message${aboveCount === 1 ? "" : "s"}${
+                    historyHasMore === true ? " · pageUp for older" : ""
+                  } · mouse wheel / pageUp-pageDown to scroll · ctrl+j/k to focus`}
           </Text>
         </Box>
       )}

@@ -88,6 +88,115 @@ function appendDelta(message: Message, partId: Part["id"], delta: string): Part[
   ];
 }
 
+/**
+ * Coalesce per-token `message.part.delta` frames into one state update.
+ * Streaming produces dozens of deltas per second; applying each via its own
+ * `setMessages(prev => prev.map(...))` is O(N) per token + a full-tree
+ * re-render per token. Buffer for `flushMs` and flush once: N tokens →
+ * one array copy + one render.
+ *
+ * Non-delta events bypass the buffer — callers must `flush()` first so a
+ * `message.part.updated` (full payload) never lands before buffered deltas
+ * for the same part.
+ */
+export interface BufferedDelta {
+  messageId: string;
+  partId: string;
+  delta: string;
+}
+
+export function createDeltaBuffer(opts: {
+  flushMs?: number;
+  onFlush: (deltas: BufferedDelta[]) => void;
+} = { onFlush: () => {} }): {
+  push: (messageId: string, partId: string, delta: string) => void;
+  flush: () => void;
+  dispose: () => void;
+  pending: () => number;
+} {
+  const flushMs = opts.flushMs ?? 75;
+  const onFlush = opts.onFlush;
+  const pending = new Map<string, BufferedDelta>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (pending.size === 0) return;
+    const batch = [...pending.values()];
+    pending.clear();
+    onFlush(batch);
+  };
+  return {
+    push: (messageId, partId, delta) => {
+      const key = `${messageId}:${partId}`;
+      const existing = pending.get(key);
+      if (existing !== undefined) existing.delta += delta;
+      else pending.set(key, { messageId, partId, delta });
+      if (timer === null) timer = setTimeout(flush, flushMs);
+    },
+    flush,
+    dispose: () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pending.clear();
+    },
+    pending: () => pending.size,
+  };
+}
+
+/**
+ * Apply a whole batch of coalesced deltas in a SINGLE message-array pass.
+ * One `prev.map` for the batch (not one per token), and one parts-array
+ * rebuild per touched message. Unmentioned messages keep their reference —
+ * memoized rows below skip them.
+ */
+export function applyDeltaBatch(
+  setMessages: Dispatch<SetStateAction<Message[]>>,
+  deltas: BufferedDelta[],
+): void {
+  if (deltas.length === 0) return;
+  const byMessage = new Map<string, Map<string, string>>();
+  for (const d of deltas) {
+    let parts = byMessage.get(d.messageId);
+    if (parts === undefined) {
+      parts = new Map();
+      byMessage.set(d.messageId, parts);
+    }
+    parts.set(d.partId, (parts.get(d.partId) ?? "") + d.delta);
+  }
+  setMessages((prev) =>
+    prev.map((m) => {
+      const parts = byMessage.get(m.id as string);
+      if (parts === undefined) return m;
+      let changed = false;
+      const nextParts = m.parts.map((p) => {
+        const delta = parts.get(p.id as string);
+        if (delta === undefined) return p;
+        changed = true;
+        if (p.kind === "tool_call") {
+          const payload = (p.payload ?? {}) as Record<string, unknown>;
+          return { ...p, payload: { ...payload, args: ((payload.args as string | undefined) ?? "") + delta } };
+        }
+        const current = (p.payload as { text?: string } | null)?.text ?? "";
+        return { ...p, payload: { text: current + delta } };
+      });
+      // Part not yet created (first delta for a new part) → append per part.
+      // appendDelta handles the missing-part case; run it once per new part.
+      let extra = nextParts;
+      for (const [partId] of parts) {
+        if (!m.parts.some((p) => (p.id as string) === partId)) {
+          extra = appendDelta({ ...m, parts: extra }, partId as Part["id"], parts.get(partId) ?? "");
+          changed = true;
+        }
+      }
+      return changed ? { ...m, parts: extra } : m;
+    }),
+  );
+}
+
 /** Flatten a message's text parts for display. */
 export function messageText(message: Message): string {
   return message.parts
@@ -365,8 +474,60 @@ export function toolCalls(message: Message): ToolCallView[] {
   return views;
 }
 
-/** One-line args digest: first string-ish field (path/pattern/input). */
+/**
+ * Collapsed tool-output preview (opencode parity: 3 lines generic, 10 lines
+ * expanded preview). Collapsed nodes mount ZERO output rows; expanded nodes
+ * mount at most `maxLines` preview rows — a 10k-line `bash` result no longer
+ * becomes 10k `<Text>` nodes + 10k Yoga measures. Full content stays in the
+ * DB (second expand stage renders a bounded full view).
+ */
+export const TOOL_PREVIEW_LINES = 3;
+export const TOOL_EXPANDED_LINES = 10;
+export const TOOL_EXPANDED_CHARS = 2000;
+export const TOOL_FULL_LINES = 500;
+export const TOOL_FULL_CHARS = 50_000;
+
+export interface ToolPreview {
+  preview: string;
+  totalLines: number;
+  truncated: boolean;
+  omittedLines: number;
+  omittedChars: number;
+}
+
+export function collapseToolOutput(output: string, maxLines: number, maxChars: number): ToolPreview {
+  const lines = output.split("\n");
+  const totalLines = lines.length;
+  const previewLines = lines.slice(0, maxLines).join("\n");
+  if (lines.length <= maxLines && Array.from(output).length <= maxChars) {
+    return { preview: output, totalLines, truncated: false, omittedLines: 0, omittedChars: 0 };
+  }
+  let preview = previewLines;
+  // Enforce the char budget on top of the line budget (codepoints, not UTF-16).
+  if (Array.from(preview).length > maxChars) {
+    preview = Array.from(preview).slice(0, maxChars).join("");
+  }
+  const omittedLines = Math.max(0, totalLines - preview.split("\n").length);
+  const omittedChars = Math.max(0, Array.from(output).length - Array.from(preview).length);
+  return { preview, totalLines, truncated: true, omittedLines, omittedChars };
+}
+
+const argsDigestCache = new Map<string, string>();
+
+/** One-line args digest: first string-ish field (path/pattern/input). Cached
+ *  by name+args — stable older calls skip JSON.parse per render; streaming
+ *  partial args naturally miss until they settle. Bounded (cleared past 1k). */
 export function argsDigest(name: string, args: string): string {
+  const cacheKey = `${name}:${args}`;
+  const hit = argsDigestCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const digest = argsDigestUncached(name, args);
+  argsDigestCache.set(cacheKey, digest);
+  if (argsDigestCache.size > 1000) argsDigestCache.clear();
+  return digest;
+}
+
+function argsDigestUncached(name: string, args: string): string {
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
     // task: the description + which agent runs (opencode's task card).

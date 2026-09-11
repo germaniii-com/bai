@@ -449,7 +449,9 @@ export function App() {
       // Snapshot first, then follow the durable stream from its frontier.
       // followSession resumes from the cursor on drops (idle timeouts,
       // restarts) — replaying from 0 would duplicate the snapshot instead.
-      const snap = await client.historySnapshot(activeId);
+      // Bounded window (server caps at 500): the web pane renders the full
+      // snapshot it holds — infinite scroll-back is a follow-up.
+      const snap = await client.historySnapshot(activeId, { limit: 500 });
       if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
       setMessages(snap.messages);
       // A run may already be draining (mid-run switch, or the snapshot was

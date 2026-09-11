@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Marked, type Token, type Tokens } from "marked";
 import { useTheme, type TuiTheme } from "../theme";
 
@@ -20,7 +20,20 @@ import { useTheme, type TuiTheme } from "../theme";
 // One lexer instance for the app; lex() is stateless (no async extensions).
 const LEXER = new Marked({ gfm: true });
 
-export function Markdown({ text, marker, dim = false }: { text: string; marker?: ReactNode; /** Thinking bodies render dim overall. */ dim?: boolean }) {
+/**
+ * Memoized: the parent transcript re-renders on every delta, but unchanged
+ * `text` props skip re-render AND re-lex here — only the streaming tail
+ * node re-lexes. `t` (theme) is referentially stable via ThemeProvider.
+ */
+export const Markdown = memo(function Markdown({
+  text,
+  marker,
+  dim = false,
+}: {
+  text: string;
+  marker?: ReactNode;
+  /** Thinking bodies render dim overall. */ dim?: boolean;
+}) {
   const t = useTheme();
   // Blocks are memoized on content: streaming re-renders every frame but
   // only re-lexes when the text actually changed.
@@ -47,7 +60,7 @@ export function Markdown({ text, marker, dim = false }: { text: string; marker?:
       {blocks}
     </Box>
   );
-}
+});
 
 /** The raw text of any token (falls back to empty — never print `[object]`). */
 function textOf(token: Token): string {

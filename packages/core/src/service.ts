@@ -51,6 +51,7 @@ import { RunCoordinator } from "./run";
 import { forkedTitle, isPatchPayload, readRevert } from "./revert";
 import type { Snapshot, SnapshotPatch } from "./snapshot";
 import { defaultTitle } from "./title";
+import type { HistoryCursor, HistoryPage } from "./store/messages";
 import type { Store } from "./store/store";
 import { questionTool } from "./tools/question";
 import { todoTool } from "./tools/todo";
@@ -656,8 +657,15 @@ export class Service {
   drainNow(sessionId: SessionId): Promise<void> {
     return this.coordinator.drainNow(sessionId);
   }
-  history(sessionId: SessionId): Message[] {
-    return this.deps.store.messages.history(sessionId);
+  history(sessionId: SessionId, opts: { limit?: number; before?: HistoryCursor } = {}): Message[] {
+    return this.deps.store.messages.history(sessionId, opts);
+  }
+
+  historyPage(
+    sessionId: SessionId,
+    opts: { limit?: number; before?: HistoryCursor } = {},
+  ): HistoryPage {
+    return this.deps.store.messages.historyPage(sessionId, opts);
   }
 
   /**
@@ -670,13 +678,18 @@ export class Service {
    * immediately (the replayed `permission.asked` covers the same case; this
    * is the cheap authoritative answer).
    */
-  sessionSnapshot(sessionId: SessionId): {
+  sessionSnapshot(
+    sessionId: SessionId,
+    opts: { limit?: number; before?: HistoryCursor } = {},
+  ): {
     messages: Message[];
     afterSeq: number;
     runActive: boolean;
     pendingPermissions: PermissionRequest[];
     pendingQuestions: QuestionRequest[];
     pendingInputs: Input[];
+    hasMore: boolean;
+    nextCursor?: string;
     /** The session's latest provider-reported usage (meta.lastUsage) — the
      *  context tracker's seed; null before the first turn or post-compaction. */
     usage: SessionUsage | null;
@@ -684,7 +697,7 @@ export class Service {
     const session = this.deps.store.sessions.get(sessionId);
     const lastUsage = (session?.meta as { lastUsage?: unknown } | undefined)?.lastUsage;
     return {
-      ...this.deps.store.sessionSnapshot(sessionId),
+      ...this.deps.store.sessionSnapshot(sessionId, opts),
       runActive: this.coordinator.isActive(sessionId),
       pendingPermissions: this.deps.store.permissions.pendingBySession(sessionId),
       pendingQuestions: this.questions.pendingBySession(sessionId),

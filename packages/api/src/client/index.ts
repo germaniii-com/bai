@@ -100,15 +100,23 @@ export class BaiClient {
     return (await res.json()).session;
   }
 
-  async history(id: string): Promise<Message[]> {
-    const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
+  async history(id: string, opts: { limit?: number; before?: string } = {}): Promise<Message[]> {
+    const res = await this.rpc().session[":id"].message.$get({
+      param: { id: encodeURIComponent(id) },
+      query: {
+        ...(opts.limit !== undefined ? { limit: String(opts.limit) } : {}),
+        ...(opts.before !== undefined ? { before: opts.before } : {}),
+      },
+    });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);
     return (await res.json()).messages;
   }
 
   /**
-   * Snapshot-then-stream bootstrap: full history plus the event-log cursor to
+   * Snapshot-then-stream bootstrap: paged history plus the event-log cursor to
    * pass as `after` when opening the session stream (no replay duplicates).
+   * No opts → newest 100 (server default); pass `{limit, before}` to page
+   * backwards. `hasMore`/`nextCursor` drive scroll-back fetching.
    * `runActive` reports a run already in flight at snapshot time;
    * `pendingPermissions` carries asks raised before this surface connected;
    * `pendingInputs` seeds the queued-message list (admitted, not yet
@@ -117,6 +125,7 @@ export class BaiClient {
    */
   async historySnapshot(
     id: string,
+    opts: { limit?: number; before?: string } = {},
   ): Promise<{
     messages: Message[];
     afterSeq: number;
@@ -125,8 +134,16 @@ export class BaiClient {
     pendingQuestions: QuestionRequest[];
     pendingInputs: Input[];
     usage: SessionUsage | null;
+    hasMore: boolean;
+    nextCursor?: string;
   }> {
-    const res = await this.rpc().session[":id"].message.$get({ param: { id: encodeURIComponent(id) } });
+    const res = await this.rpc().session[":id"].message.$get({
+      param: { id: encodeURIComponent(id) },
+      query: {
+        ...(opts.limit !== undefined ? { limit: String(opts.limit) } : {}),
+        ...(opts.before !== undefined ? { before: opts.before } : {}),
+      },
+    });
     if (!res.ok) throw new Error(`history failed: ${res.status}`);
     return res.json();
   }

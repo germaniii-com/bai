@@ -49,7 +49,7 @@ export function SubagentStream({
       if (fetchingRef.current) return;
       fetchingRef.current = true;
       try {
-        const snap = await client.historySnapshot(child.sessionId);
+        const snap = await client.historySnapshot(child.sessionId, { limit: 200 });
         if (!disposed) {
           setMessages(snap.messages);
           setError(null);

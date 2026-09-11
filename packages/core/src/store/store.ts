@@ -1,5 +1,6 @@
 import { checkpointAndClose, openDb, type SqliteDb } from "./db";
 import type { Input, Message, SessionId } from "@bai/shared";
+import type { HistoryCursor } from "./messages";
 import { AssetsRepo } from "./assets";
 import { AutomationsRepo, AutomationRunsRepo } from "./automations";
 import { EventsRepo } from "./events";
@@ -54,20 +55,30 @@ export class Store {
   }
 
   /**
-   * Consistent snapshot for snapshot-then-stream surfaces: full history plus
+   * Consistent snapshot for snapshot-then-stream surfaces: paged history plus
    * the event-log frontier to resume the session stream from. Both reads share
    * one transaction — reading them separately races an in-flight run (either a
    * missing message or a replayed duplicate). `pendingInputs` seeds the
    * surfaces' queued-message lists (admitted, not yet promoted).
+   * No opts → full history (legacy); `{limit}` → newest N + hasMore cursor.
    */
-  sessionSnapshot(sessionId: SessionId): { messages: Message[]; afterSeq: number; pendingInputs: Input[] } {
-    return this.db.transaction(
-      () => ({
-        messages: this.messages.history(sessionId),
+  sessionSnapshot(sessionId: SessionId, opts: { limit?: number; before?: HistoryCursor } = {}): {
+    messages: Message[];
+    afterSeq: number;
+    pendingInputs: Input[];
+    hasMore: boolean;
+    nextCursor?: string;
+  } {
+    return this.db.transaction(() => {
+      const page = this.messages.historyPage(sessionId, opts);
+      return {
+        messages: page.messages,
         afterSeq: this.events.latestSeq(sessionId),
         pendingInputs: this.inputs.pendingBySession(sessionId),
-      }),
-    )();
+        hasMore: page.hasMore,
+        ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+      };
+    })();
   }
 }
 

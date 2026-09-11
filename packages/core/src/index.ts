@@ -1,4 +1,10 @@
 export { Store, openDb, checkpointAndClose } from "./store/store";
+export {
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  type HistoryCursor,
+  type HistoryPage,
+} from "./store/messages";
 export { Bus, type Subscription } from "./event";
 export { EventLog } from "./event";
 export { loadConfig, ConfigStore, findProjectConfig, readJsoncFile, atomicWriteJson, stripJsonComments, type LoadedConfig } from "./config";
