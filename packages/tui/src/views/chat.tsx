@@ -862,14 +862,17 @@ export function ChatView({
     if (session === null) return;
     setMsgActions(null);
     if (runActive) void client.interrupt(session.id);
+    // The reverted prompt returns to the composer, ready to edit & resend
+    // (opencode's setPrompt round-trip; local — no remount in between).
+    // Collapse stored full paths back to leaves for display.
+    const { text, paths } = collapseMentions(messageText(message));
+    setMentionPaths(paths);
+    setEditor({ text, cursor: text.length });
+    // Auto-enter INPUT mode so the reverted prompt is ready to edit without
+    // an extra `i` — the whole point of sending it back to the composer.
+    onEnterInput();
     void runWithBusyRetry(async () => {
       await client.revertSession(session.id, message.id);
-      // The reverted prompt returns to the composer, ready to edit & resend
-      // (opencode's setPrompt round-trip; local — no remount in between).
-      // Collapse stored full paths back to leaves for display.
-      const { text, paths } = collapseMentions(messageText(message));
-      setMentionPaths(paths);
-      setEditor({ text, cursor: text.length });
     });
   };
 
