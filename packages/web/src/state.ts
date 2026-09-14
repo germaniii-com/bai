@@ -10,6 +10,7 @@ import type {
   QuestionReview,
   Session,
   SessionId,
+  TodoItem,
 } from "@bai/shared";
 import { unwrapTaskOutput } from "@bai/shared";
 
@@ -241,6 +242,26 @@ export function queuedInputsFromSnapshot(pending: Input[] | undefined): QueuedIn
     inputs,
     sendingIds: inputs.filter((i) => !i.queued).map((i) => i.id),
   };
+}
+
+/**
+ * Seed the active session's todo list from `session.meta.todos`. The `todo`
+ * tool persists the list there but does NOT emit `session.updated`, so this is
+ * only the initial read — live changes arrive as `todos.updated` on the
+ * durable session stream (applyTodosEvent).
+ */
+export function todosFromSession(session: Session | null): TodoItem[] {
+  const raw = session?.meta?.todos;
+  return Array.isArray(raw) ? (raw as TodoItem[]) : [];
+}
+
+/**
+ * Pure reducer for the session todo list over session-stream events:
+ * `todos.updated` carries the COMPLETE list (the tool always sends all items),
+ * so it replaces the previous list wholesale. Everything else is a no-op.
+ */
+export function applyTodosEvent(list: TodoItem[], evt: Event): TodoItem[] {
+  return evt.type === "todos.updated" ? evt.payload.todos : list;
 }
 
 /** Flatten a message's reasoning (thinking) parts — shown behind the reveal panel. */

@@ -1,9 +1,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, ChartColumn, Clock, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
+import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
-import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
+import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useHistoryPager } from "./use-history-pager";
@@ -19,6 +19,7 @@ import { ThemeProvider } from "./theme";
 import { ThemeSelectorModal } from "./theme-picker";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
+import { TodosPanel } from "./todos-panel";
 import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
@@ -177,6 +178,10 @@ export function App() {
   // live by the durable run.usage events (one per provider turn; the
   // compaction clearing event renders `?` until the next turn).
   const [usage, setUsage] = useState<SessionUsage | null>(null);
+  // The active session's agent-maintained task list (the `todo` tool) —
+  // seeded from meta.todos and kept live by durable `todos.updated` events;
+  // rendered in the workspace right rail below the file tree.
+  const [todos, setTodos] = useState<TodoItem[]>([]);
   // Live subagent tracking for the chat pane's task nodes (TUI parity):
   // children of the active session, fed from the firehose — live status
   // (asking/running) and the child session ids the inline transcripts open.
@@ -441,6 +446,7 @@ export function App() {
     setPendingQuestions([]);
     setQueuedState(emptyQueuedInputs());
     setUsage(null); // draft state: no session, no usage
+    setTodos([]); // draft state: the previous session's todos are gone
     return;
   }
   const ctrl = new AbortController();
@@ -452,6 +458,7 @@ export function App() {
   setPendingChildAsks([]); // subagent asks of the previous parent are gone
   setPendingQuestions([]);
   setQueuedState(emptyQueuedInputs());
+  setTodos([]); // clear the previous session's list while the snapshot loads
   void (async () => {
     try {
       // Snapshot first, then follow the durable stream from its frontier.
@@ -470,6 +477,9 @@ export function App() {
       // The context tracker seeds from meta.lastUsage (no wait for the next
       // turn); live run.usage events take over from here.
       setUsage(snap.usage ?? null);
+      // The todo list seeds from meta.todos (the snapshot doesn't carry it);
+      // replayed/durable todos.updated events take over live.
+      setTodos(todosFromSession(activeRef.current));
         // Asks/questions raised before this surface connected (snapshot is
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
@@ -504,6 +514,10 @@ export function App() {
               // The context tracker's live feed (one event per provider
               // turn; the compaction clearing event carries no tokens).
               setUsage(evt.payload.usage);
+            } else if (evt.type === "todos.updated") {
+              // The workspace todo panel's live feed (the todo tool replaces
+              // the whole list each call).
+              setTodos((list) => applyTodosEvent(list, evt));
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -1754,14 +1768,19 @@ export function App() {
             chatPane
           )}
           {section === "workspace" && effectiveWorkspacePath !== null && (
-            <FileTree
-              client={client}
-              root={effectiveWorkspacePath}
-              onOpenFile={openFile}
-              activePath={workspaceView === "files" ? activeFile : null}
-              refreshToken={fsRevision}
-              onUpload={(dir, files) => void uploadToWorkspace(dir, files)}
-            />
+            // Right rail: the file tree on top, the session todo panel beneath
+            // it. Workspace-only — chat mode never renders the rail.
+            <div className="workspace-sidebar">
+              <FileTree
+                client={client}
+                root={effectiveWorkspacePath}
+                onOpenFile={openFile}
+                activePath={workspaceView === "files" ? activeFile : null}
+                refreshToken={fsRevision}
+                onUpload={(dir, files) => void uploadToWorkspace(dir, files)}
+              />
+              <TodosPanel todos={todos} />
+            </div>
           )}
         </>
       )}

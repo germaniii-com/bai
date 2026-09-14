@@ -14,7 +14,7 @@
  * is one flat, filtered list.
  */
 
-export type CommandCategory = "Session" | "Model" | "Agent" | "Skills" | "Provider" | "Theme" | "View" | "System";
+export type CommandCategory = "Session" | "Model" | "Agent" | "Skills" | "Todos" | "Provider" | "Theme" | "View" | "System";
 
 export interface CommandSpec {
   /** Stable dispatch id — the App's runCommand switch keys on it. */
@@ -43,6 +43,7 @@ export function buildCommandSpecs(ctx: CommandContext): CommandSpec[] {
     { id: "provider.connect", title: "Connect provider", category: "Provider", suggested: ctx.needsSetup },
     { id: "agent.switch", title: "Switch agent", category: "Agent" },
     { id: "skill.manage", title: "Browse skills", category: "Skills" },
+    { id: "todo.show", title: "Show todos", category: "Todos" },
     { id: "theme.switch", title: "Switch theme", category: "Theme" },
     { id: "view.gallery", title: "Open gallery", category: "View" },
     { id: "view.settings", title: "Open settings", category: "View" },

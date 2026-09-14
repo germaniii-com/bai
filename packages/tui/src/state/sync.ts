@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { AskOutcome, Event, Input, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId } from "@bai/shared";
+import type { AskOutcome, Event, Input, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId, TodoItem } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list. */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
@@ -360,6 +360,26 @@ export function applyChildAskEvent(
     return list.filter((r) => r.id !== requestId);
   }
   return list;
+}
+
+/**
+ * Seed the active session's todo list from `session.meta.todos`. The `todo`
+ * tool persists the list there but does NOT emit `session.updated`, so this is
+ * only the initial/greeting read — live changes arrive as `todos.updated` on
+ * the durable session stream (applyTodoEvent).
+ */
+export function todosFromMeta(session: Session | null | undefined): TodoItem[] {
+  const raw = session?.meta?.todos;
+  return Array.isArray(raw) ? (raw as TodoItem[]) : [];
+}
+
+/**
+ * Pure reducer for the session todo list over session-stream events:
+ * `todos.updated` carries the COMPLETE list (the tool always sends all items),
+ * so it replaces the previous list wholesale. Everything else is a no-op.
+ */
+export function applyTodoEvent(list: TodoItem[], evt: Event): TodoItem[] {
+  return evt.type === "todos.updated" ? evt.payload.todos : list;
 }
 
 /** Flatten a message's reasoning (thinking) parts — shown behind the reveal panel. */

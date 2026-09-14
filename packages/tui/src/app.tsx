@@ -1,7 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { followGlobal, followSession, type BaiClient } from "@bai/api/client";
-import type { AgentInfo, CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session, SessionUsage } from "@bai/shared";
+import type { AgentInfo, CustomTheme, Input, Message, PermissionRequest, ProviderListResponse, QuestionRequest, Session, SessionUsage, TodoItem } from "@bai/shared";
 import { isThemeId } from "@bai/shared";
 import { ChatView } from "./views/chat";
 import { SessionsView } from "./views/sessions";
@@ -11,12 +11,13 @@ import { SkillsDialog } from "./views/skills";
 import { SubagentDialog } from "./views/subagent-dialog";
 import { ThemePicker } from "./views/theme-picker";
 import { CommandPalette } from "./views/command-palette";
+import { TodosDialog } from "./views/todos";
 import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
 import { ProviderFlow } from "./components/provider-flow";
 import { DialogOverlay, overlayWindowSize } from "./components/dialog-overlay";
-import { applyChildAskEvent, applyDeltaBatch, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, createDeltaBuffer, emptyQueuedInputs, queuedInputsFromSnapshot } from "./state/sync";
+import { applyChildAskEvent, applyDeltaBatch, applyEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodoEvent, createDeltaBuffer, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromMeta } from "./state/sync";
 import {
   applySubagentEvent,
   emptySubagentState,
@@ -55,6 +56,7 @@ type DialogOpen =
   | { kind: "skills" }
   | { kind: "sessions" }
   | { kind: "themes" }
+  | { kind: "todos" }
   | { kind: "subagents"; index: number };
 
 /**
@@ -63,7 +65,7 @@ type DialogOpen =
  * The rest (agents, skills, subagents) keep the full-screen render-branch
  * swap: they are workspace-like views, not pickers.
  */
-const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes"]);
+const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes", "todos"]);
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -138,6 +140,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   // by the durable run.usage events (one per provider turn; the compaction
   // clearing event renders `?` until the next turn).
   const [usage, setUsage] = useState<SessionUsage | null>(null);
+  // The active session's agent-maintained task list (the `todo` tool) —
+  // seeded from meta.todos and kept live by durable `todos.updated` events;
+  // shown by the ctrl+t / supermenu todos panel.
+  const [todos, setTodos] = useState<TodoItem[]>([]);
   // Inline prompt UI state (stage, typed buffers, question progress) —
   // hoisted here and reset when the head ask's id changes, so opening a
   // ctrl-chord dialog (which unmounts the chat view) never loses
@@ -440,6 +446,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       setPendingQuestions([]);
       setQueuedState(emptyQueuedInputs());
       setUsage(null); // draft state: no session, no usage
+      setTodos([]); // draft state: the previous session's todos are gone
       return;
     }
     const ctrl = new AbortController();
@@ -458,6 +465,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     setPendingChildAsks([]); // subagent asks of the previous parent are gone
     setPendingQuestions([]);
     setQueuedState(emptyQueuedInputs());
+    setTodos([]); // clear the previous session's list while the snapshot loads
     void (async () => {
       try {
         // Snapshot first, then follow the durable stream from its frontier.
@@ -477,6 +485,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
         // The context tracker seeds from meta.lastUsage (no wait for the
         // next turn); live run.usage events take over from here.
         setUsage(snap.usage ?? null);
+        // The todo list seeds from meta.todos (the snapshot doesn't carry
+        // it); the replayed/durable todos.updated events take over live.
+        setTodos(todosFromMeta(activeRef.current));
         // Asks/questions raised before this surface connected (snapshot is
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
@@ -529,6 +540,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
               // The context tracker's live feed (one event per provider
               // turn; the compaction clearing event carries no tokens).
               setUsage(evt.payload.usage);
+            } else if (evt.type === "todos.updated") {
+              // The todo panel's live feed (the todo tool replaces the whole
+              // list each call).
+              setTodos((list) => applyTodoEvent(list, evt));
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -626,6 +641,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const openThemesDialog = useCallback(() => {
     setDialog({ kind: "themes" });
   }, []);
+  const openTodosDialog = useCallback(() => {
+    setDialog({ kind: "todos" });
+  }, []);
 
   // The supermenu's registry (state/commands.ts) — context flags are live so
   // the Suggested section tracks the current surface (no provider connected,
@@ -665,6 +683,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           return openSkillsDialog();
         case "theme.switch":
           return openThemesDialog();
+        case "todo.show":
+          return openTodosDialog();
         case "view.gallery":
           setDialog(null);
           setView("gallery");
@@ -681,7 +701,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           return exit();
       }
     },
-    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openSkillsDialog, openThemesDialog, exit],
+    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openSkillsDialog, openThemesDialog, openTodosDialog, exit],
   );
 
   useInput((ch, key) => {
@@ -697,6 +717,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       // The Suggested section keys on needsSetup — keep the (on-demand)
       // provider list fresh so "Connect provider" floats on a bare install.
       void refreshProviders();
+      return;
+    }
+    if (ch === "t") {
+      setDialog({ kind: "todos" });
     }
   }, { isActive: mode === "normal" });
 
@@ -991,6 +1015,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 setDialog(null);
               }}
             />
+          ) : overlayDialog.kind === "todos" ? (
+            // Todo panel (ctrl+t / supermenu "Show todos"): the active
+            // session's agent-maintained task list. Read-only; esc closes.
+            <TodosDialog todos={todos} windowSize={overlayListRows} onClose={() => setDialog(null)} />
           ) : overlayDialog.kind === "providers" || overlayDialog.kind === "all-models" ? (
             providers !== null ? (
               // Provider wizard / flat model list. Re-open with the list
