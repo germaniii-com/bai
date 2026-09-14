@@ -58,6 +58,7 @@ export function FileTree({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(false);
   const [dropDir, setDropDir] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   // Current extra folders readable from the stable `load` callback.
   const foldersRef = useRef(folders);
@@ -176,15 +177,26 @@ export function FileTree({
 
   return (
     <aside
-      className={"file-tree" + (dropDir === root ? " drop-active" : "")}
+      className={"file-tree" + (collapsed ? " collapsed" : "") + (dropDir === root ? " drop-active" : "")}
       aria-label={`files in ${root}`}
       onDragOver={(e) => dragOver(root, e)}
       onDragLeave={(e) => dragLeave(root, e)}
       onDrop={(e) => dropOn(root, e)}
     >
-      <div className="file-tree-head" title={root}>
-        {basename(root)}
-      </div>
+      <button
+        type="button"
+        className="file-tree-head"
+        data-tooltip={root}
+        aria-expanded={!collapsed}
+        aria-controls="file-tree-body"
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <Folder className="file-tree-head-icon" size={14} aria-hidden="true" />
+        <span className="file-tree-head-name">{basename(root)}</span>
+        <span className="file-tree-chevron" aria-hidden="true">
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
       <div className="file-tree-bar">
         <label className="ws-dotfiles-toggle">
           <input
@@ -231,7 +243,32 @@ export function FileTree({
           </>
         )}
       </div>
-      <div className="file-tree-body">
+      <div className="file-tree-body" id="file-tree-body">
+        {/* The workspace's own tree leads; attached external folders follow. */}
+        {rootState === undefined || rootState.status === "loading" ? (
+          <p className="dim">Loading…</p>
+        ) : rootState.status === "error" ? (
+          <p className="dim">Cannot read folder: {rootState.error}</p>
+        ) : rootState.entries.length === 0 ? (
+          <p className="dim">Empty folder.</p>
+        ) : (
+          <DirEntries
+            dir={root}
+            depth={0}
+            dirs={dirs}
+            expanded={expanded}
+            onToggle={toggle}
+            showDotfiles={showDotfiles}
+            onOpenFile={onOpenFile}
+            activePath={activePath}
+            dropDir={dropDir}
+            dragOver={dragOver}
+            dragLeave={dragLeave}
+            dropOn={dropOn}
+            onItemContextMenu={onItemContextMenu}
+          />
+        )}
+        {rootState?.truncated === true && <p className="dim">listing truncated</p>}
         {folders.length > 0 && (
           <ul className="tree-entries tree-external">
             {folders.map((folder) => {
@@ -300,30 +337,6 @@ export function FileTree({
             })}
           </ul>
         )}
-        {rootState === undefined || rootState.status === "loading" ? (
-          <p className="dim">Loading…</p>
-        ) : rootState.status === "error" ? (
-          <p className="dim">Cannot read folder: {rootState.error}</p>
-        ) : rootState.entries.length === 0 ? (
-          <p className="dim">Empty folder.</p>
-        ) : (
-          <DirEntries
-            dir={root}
-            depth={0}
-            dirs={dirs}
-            expanded={expanded}
-            onToggle={toggle}
-            showDotfiles={showDotfiles}
-            onOpenFile={onOpenFile}
-            activePath={activePath}
-            dropDir={dropDir}
-            dragOver={dragOver}
-            dragLeave={dragLeave}
-            dropOn={dropOn}
-            onItemContextMenu={onItemContextMenu}
-          />
-        )}
-        {rootState?.truncated === true && <p className="dim">listing truncated</p>}
       </div>
     </aside>
   );

@@ -715,16 +715,50 @@ select:focus-visible,
 }
 
 .file-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
   padding: 10px 12px;
+  border: 0;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.file-tree-head:hover {
+  color: var(--text);
+}
+
+.file-tree-head-icon {
+  flex-shrink: 0;
+}
+
+.file-tree-head-name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-tree-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Collapsed: keep only the header row (the todo panel pattern). */
+.file-tree.collapsed .file-tree-bar,
+.file-tree.collapsed .file-tree-body {
+  display: none;
 }
 
 /* Explorer toolbar (dotfiles toggle + root upload) — mirrors the
@@ -844,12 +878,17 @@ select:focus-visible,
   min-height: 0;
 }
 
-/* External folders render as tree roots above the workspace's own entries;
+/* Collapsed tree shrinks to its header so the panels below move up. */
+.workspace-sidebar > .file-tree.collapsed {
+  flex: 0 0 auto;
+}
+
+/* External folders render as tree roots below the workspace's own entries;
    a divider separates them. */
 .tree-external {
-  padding-bottom: 4px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
 }
 
 /* Trailing slot on an external-folder row: the mention alias + remove ✕. */
@@ -866,6 +905,8 @@ select:focus-visible,
   flex-shrink: 0;
 }
 
+/* Ghost remove ✕ — transparent, and revealed only while the row is
+   hovered/focused. */
 .file-tree-remove {
   display: inline-flex;
   align-items: center;
@@ -873,17 +914,31 @@ select:focus-visible,
   width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 5px;
-  background: var(--bg);
+  background: transparent;
   color: var(--dim);
   cursor: pointer;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.list-item:hover .file-tree-remove,
+.list-item:focus-within .file-tree-remove,
+.file-tree-remove:focus-visible {
+  opacity: 1;
 }
 
 .file-tree-remove:hover {
   color: var(--danger);
-  border-color: var(--danger);
+}
+
+/* Touch devices have no hover — keep the control reachable. */
+@media (pointer: coarse) {
+  .file-tree-remove {
+    opacity: 1;
+  }
 }
 
 .todos-panel {
@@ -899,12 +954,27 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   padding: 8px 12px 6px;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.todos-head:hover {
+  color: var(--text);
+}
+
+.todos-chevron {
+  display: inline-flex;
   flex-shrink: 0;
 }
 
