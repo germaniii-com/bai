@@ -1,6 +1,6 @@
 ---
 description: Review code changes with an evidence-first checklist.
-version: 1.0.0
+version: 1.1.0
 author: bai
 tags: [Code Review, Quality, Checklist]
 ---
@@ -24,10 +24,11 @@ This skill covers the review method. It does NOT replace project-specific conven
 
 ## How to Run
 
-1. Establish the change surface: `git diff` / `git diff --stat` (via `bash`) or the file list the user gave.
+1. Establish the change surface: `git diff` / `git diff --stat` (via `bash`) or the file list the user gave. Drive from the diff — do not browse the repo file by file.
 2. Read every changed file IN FULL — never review a hunk without its surrounding context.
-3. Walk the checklist below; note each finding as file:line + one-sentence why.
-4. Report: verdict first (approve / request changes), then findings ordered by severity, then nits.
+3. Locate related code (callers, siblings, tests) with `fs.grep`, batching independent searches in one turn instead of reading directories one file at a time.
+4. Walk the checklist below; note each finding as file:line + one-sentence why.
+5. Report: verdict first (approve / request changes), then findings ordered by severity, then nits.
 
 ## Quick Reference
 
@@ -37,7 +38,7 @@ Severity order: correctness bugs → security → API/contract breaks → tests 
 
 1. **Correctness**: does the code do what the change claims? Trace the main path end-to-end; check edge cases the diff touches (empty, zero, negative, huge, concurrent, error paths).
 2. **Security**: unvalidated input reaching exec/SQL/fs paths; secrets logged; new attack surface (endpoints, deserialization, path traversal). Check any user-supplied path resolves where it claims.
-3. **Contracts**: renamed/moved exports, changed function signatures, changed response shapes — grep for every caller of the changed symbols and confirm each was updated.
+3. **Contracts**: renamed/moved exports, changed function signatures, changed response shapes — locate every caller of the changed symbols with `fs.grep` (batch the searches in one turn) and confirm each was updated.
 4. **Tests**: do the changes come with tests that would FAIL without them? Do existing tests still assert the right behavior (updated, not deleted)?
 5. **Error handling**: new failure modes handled or propagated? Swallowed errors (`catch {}`) justified? User-facing error messages actionable?
 6. **Consistency**: naming, patterns, and structure match the surrounding code and the repo's conventions.
@@ -45,6 +46,7 @@ Severity order: correctness bugs → security → API/contract breaks → tests 
 
 ## Pitfalls
 
+- Browsing the repo file by file — derive the surface from the diff and locate callers with `fs.grep`; read in full only the files the change touched.
 - Reviewing the diff without reading the whole file — context bugs hide outside the hunks.
 - Style opinions dressed as blockers — put them in nits, not the verdict.
 - "Looks good" without tracing the main path is not a review.

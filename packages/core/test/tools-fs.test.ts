@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolRegistry, type ToolContext } from "../src";
 import { CodeWorkbench } from "../src/workbench/code";
+import { fsGrepTool } from "../src/tools/fs-grep";
+import { bashTool } from "../src/tools/bash";
 import { BUILTIN_BUILD_AGENT } from "@bai/shared";
 
 describe("fs tools", () => {
@@ -30,6 +32,13 @@ describe("fs tools", () => {
   test("code workbench registers the five fs tools; build agent lists them", () => {
     expect(toolNames()).toEqual(["fs.edit", "fs.glob", "fs.list", "fs.read", "fs.write"]);
     for (const name of toolNames()) expect(BUILTIN_BUILD_AGENT.tools).toContain(name);
+  });
+
+  test("read/list/glob descriptions state the locate-then-read order", () => {
+    expect(registry.get("fs.read")?.description).toContain("Locate the region with fs.grep first");
+    expect(registry.get("fs.read")?.description).toContain("do not re-read a file that has not changed");
+    expect(registry.get("fs.list")?.description).toContain("orient in an unfamiliar tree first");
+    expect(registry.get("fs.glob")?.description).toContain("Find files before reading them");
   });
 
   test("fs.read returns numbered lines with an end marker", async () => {
@@ -140,4 +149,12 @@ describe("fs tools", () => {
   function readFileText(rel: string): string {
     return require("node:fs").readFileSync(join(dir, ...rel.split("/")), "utf8") as string;
   }
+});
+
+describe("tool descriptions teach the scan-before-read order", () => {
+  test("fs.grep and bash point at the fs tools instead of one-by-one reads", () => {
+    expect(fsGrepTool().description).toContain("Prefer this to reading files one by one");
+    expect(fsGrepTool().description).toContain("together in one turn");
+    expect(bashTool().description).toContain("Do not use it for code search or reading files");
+  });
 });

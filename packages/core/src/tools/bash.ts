@@ -24,7 +24,8 @@ export function bashTool(): Tool {
       "Execute a bash command in the session's working directory and return its output. " +
       "Use for running tests, builds, git, and other shell work. Prefer file tools for file edits. " +
       "Long-running servers are not supported — commands should terminate on their own. " +
-      "Output is truncated if very large (the full output spills to a file whose path is returned).",
+      "Output is truncated if very large (the full output spills to a file whose path is returned). " +
+      "Do not use it for code search or reading files — use fs.grep/fs.glob/fs.read.",
     schema: {
       type: "object",
       properties: {

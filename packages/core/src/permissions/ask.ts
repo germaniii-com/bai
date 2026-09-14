@@ -30,6 +30,9 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   "fs.read": "allow",
   "fs.list": "allow",
   "fs.glob": "allow",
+  // fs.grep is read-only like the tools above; its path arg is cwd-checked by
+  // fsPathInsideCwd. Without this, a whole-tree search (no path) asked.
+  "fs.grep": "allow",
   // skills.view reads the user's own skill files (traversal-guarded inside
   // the tool) — read-only knowledge loading, same stance as fs.read.
   "skills.view": "allow",
@@ -84,7 +87,7 @@ export function fsPathInsideCwd(tool: string, metadata: Record<string, unknown> 
   if (!FS_TOOLS.has(tool)) return false;
   const raw = metadata?.path;
   if (typeof raw !== "string" || raw.trim().length === 0) {
-    return tool === "fs.list" || tool === "fs.glob";
+    return tool === "fs.list" || tool === "fs.glob" || tool === "fs.grep";
   }
   const abs = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(cwd, raw);
   const rel = path.relative(cwd, abs);

@@ -23,7 +23,7 @@ export function fsReadTool(roots: FsRoots): Tool {
     name: "fs.read",
     origin: "builtin",
     description:
-      `Read a text file with line numbers. Returns as many whole lines as fit the ~${Math.round(OUTPUT_LIMIT / 1000)}k-char tool output budget (at most 2000); the reply always states the line range, and offset/limit page through bigger files. Directory paths list their entries instead.`,
+      `Read a text file with line numbers. Returns as many whole lines as fit the ~${Math.round(OUTPUT_LIMIT / 1000)}k-char tool output budget (at most 2000); the reply always states the line range, and offset/limit page through bigger files. Directory paths list their entries instead. Locate the region with fs.grep first and page with offset/limit instead of reading a whole large file; do not re-read a file that has not changed.`,
     schema: {
       type: "object",
       properties: {

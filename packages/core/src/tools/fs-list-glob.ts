@@ -18,7 +18,7 @@ export function fsListTool(roots: FsRoots): Tool {
     name: "fs.list",
     origin: "builtin",
     description:
-      "List files and directories under a path as an indented tree. Hidden directories and build output (node_modules, dist, …) are skipped. Capped at 500 entries — list a subdirectory for the rest. Use fs.glob for pattern search.",
+      "List files and directories under a path as an indented tree. Hidden directories and build output (node_modules, dist, …) are skipped. Capped at 500 entries — list a subdirectory for the rest. Use fs.glob for pattern search. Use it to orient in an unfamiliar tree first; prefer fs.glob for patterns and fs.grep to search contents.",
     schema: {
       type: "object",
       properties: {
@@ -86,7 +86,7 @@ export function fsGlobTool(roots: FsRoots): Tool {
     name: "fs.glob",
     origin: "builtin",
     description:
-      "Find files matching a glob pattern (e.g. 'src/**/*.ts', '*.json'). Hidden dirs and build output are skipped. Returns at most 100 paths.",
+      "Find files matching a glob pattern (e.g. 'src/**/*.ts', '*.json'). Hidden dirs and build output are skipped. Returns at most 100 paths. Find files before reading them; pair with fs.grep to search their contents.",
     schema: {
       type: "object",
       properties: {

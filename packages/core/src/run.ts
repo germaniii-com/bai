@@ -55,6 +55,22 @@ const SUBAGENT_STRIPPED = new Set([
   "tool.create",
   "workspace.create",
 ]);
+/**
+ * Tools safe to run concurrently when an ENTIRE batch is made of them:
+ * independent read-only lookups that neither mutate the workspace nor depend
+ * on each other. Mixed batches (anything with a write, bash, custom, or mcp
+ * tool) stay sequential to preserve call-order semantics.
+ */
+export const PARALLEL_READ_ONLY_TOOLS = new Set([
+  "fs.read",
+  "fs.list",
+  "fs.glob",
+  "fs.grep",
+  "web.search",
+  "web.fetch",
+  "skills.view",
+  "agent.view",
+]);
 /** The compaction summarizer's hard budget — a hung provider must not leak. */
 const COMPACT_TIMEOUT_MS = 60_000;
 
@@ -1077,9 +1093,10 @@ export class RunCoordinator {
    * unknown-tool → subagent strip → central permission check), run the
    * tools, then persist results in original call order. A batch made
    * entirely of `task` calls runs concurrently (independent child sessions
-   * by contract); every other composition stays sequential. Throws become
-   * error results (errors-as-results convention: only infra failures kill
-   * the turn).
+   * by contract); so does a batch made entirely of read-only lookups
+   * (PARALLEL_READ_ONLY_TOOLS). Every mixed composition stays sequential.
+   * Throws become error results (errors-as-results convention: only infra
+   * failures kill the turn).
    */
   private async executeCalls(
     sessionId: SessionId,
@@ -1202,7 +1219,10 @@ export class RunCoordinator {
       patchHash = await snapshot.track(snapshotCwd).catch(() => undefined);
     }
 
-    const parallel = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
+    const allTask = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
+    const allReadOnly =
+      readyIdx.length > 1 && readyIdx.every((i) => PARALLEL_READ_ONLY_TOOLS.has(gated[i]?.call.name ?? ""));
+    const parallel = allTask || allReadOnly;
     const executed: Array<
       {
         content: string;

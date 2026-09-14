@@ -196,6 +196,9 @@ export class ResponsesProvider implements Provider {
     async function* generate(): AsyncGenerator<StreamEvent> {
       let stopReason = "end_turn";
       const pending = new Map<string, PendingCall>();
+      // Per-call arguments already forwarded as deltas, so the `.done` event
+      // (which carries the complete JSON) only contributes the suffix.
+      const streamedArgs = new Map<string, string>();
       let currentItemKey = "";
       // The SDK's stream is an async iterable of typed events.
       for await (const raw of stream as unknown as AsyncIterable<Record<string, unknown>>) {
@@ -235,6 +238,7 @@ export class ResponsesProvider implements Provider {
         if (type === "response.function_call_arguments.delta" && typeof raw.delta === "string") {
           const call = resolvePending(pending, raw, currentItemKey);
           if (call !== undefined) {
+            streamedArgs.set(call.callId, (streamedArgs.get(call.callId) ?? "") + (raw.delta as string));
             yield { type: "tool_call_delta", id: call.callId, name: call.name, argsDelta: raw.delta as string };
           }
           continue;
@@ -242,7 +246,18 @@ export class ResponsesProvider implements Provider {
         if (type === "response.function_call_arguments.done" && typeof raw.arguments === "string") {
           const call = resolvePending(pending, raw, currentItemKey);
           if (call !== undefined) {
-            yield { type: "tool_call_delta", id: call.callId, name: call.name, argsDelta: raw.arguments as string };
+            // `done.arguments` is the COMPLETE arguments JSON, not a delta:
+            // the `.delta` events above already streamed it. run.ts appends
+            // every argsDelta, so re-emitting the full string duplicates the
+            // payload (the `{"path":"a"}{"path":"a"}` malformed-JSON bug).
+            // Emit only the un-streamed suffix; a server that skips the delta
+            // events still gets the full string (alreadyStreamed is "").
+            const already = streamedArgs.get(call.callId) ?? "";
+            const missing = functionCallArgsDelta(already, raw.arguments as string);
+            streamedArgs.set(call.callId, raw.arguments as string);
+            if (missing.length > 0) {
+              yield { type: "tool_call_delta", id: call.callId, name: call.name, argsDelta: missing };
+            }
           }
           continue;
         }
@@ -296,6 +311,20 @@ function responsesApi(client: unknown): { create: (body: unknown, opts?: unknown
   }
   if (typeof params?.reasoning_effort === "string") return { effort: params.reasoning_effort };
   return undefined;
+}
+
+/**
+ * The un-streamed suffix of a Responses `function_call_arguments.done`
+ * payload. Responses streams `...arguments.delta` fragments and then a
+ * `...arguments.done` event whose `arguments` is the COMPLETE JSON. Since the
+ * consumer (run.ts) appends every argsDelta, re-emitting the whole payload
+ * duplicates the arguments and produces malformed JSON. Returns only what the
+ * deltas have not already carried: the full string when nothing streamed, the
+ * suffix when `done.arguments` extends it, and "" when it was already sent.
+ */
+export function functionCallArgsDelta(alreadyStreamed: string, doneArguments: string): string {
+  if (alreadyStreamed.length === 0) return doneArguments;
+  return doneArguments.startsWith(alreadyStreamed) ? doneArguments.slice(alreadyStreamed.length) : "";
 }
 
 function resolvePending(

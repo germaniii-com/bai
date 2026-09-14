@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { BUILTIN_BUILD_AGENT, BUILTIN_CHAT_AGENT, BUILTIN_PLAN_AGENT, type SessionId, type ModelInfo } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
 import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
-import type { ToolContext } from "../src/tools/registry";
+import type { Tool, ToolContext } from "../src/tools/registry";
 
 /**
  * A provider that replays a per-turn script (same pattern as
@@ -360,6 +360,9 @@ describe("task tool (subagent spawning)", () => {
     expect(before).toBeDefined();
     expect(before?.description).toContain("Available agent types");
     expect(before?.description).toContain("- build:");
+    // Delegated exploration must be told to scan in phases, not read file by file.
+    expect(before?.description).toContain("scan in phases");
+    expect(before?.description).toContain("file:line evidence");
 
     // put/remove broadcast agents.updated synchronously (registry fires
     // onChange when its scan detects a change) → the Service re-registers
@@ -576,6 +579,54 @@ describe("task tool (subagent spawning)", () => {
     expect((results[1]?.payload as { content: string }).content).toContain("file body here");
     // Sequential: parent, child, then the parent's final turn.
     expect(provider.requests).toHaveLength(3);
+  });
+
+  test("an all-read-only batch runs concurrently and persists results in call order", async () => {
+    t.config.models.default = "scripted/main";
+    // Two barrier executors registered under names in PARALLEL_READ_ONLY_TOOLS.
+    // Each waits until the OTHER has started: if execution were sequential, the
+    // first would burn the full barrier window. Overlap proves concurrency.
+    const state = { a: false, b: false };
+    const barrierTool = (name: string, mine: "a" | "b"): Tool => ({
+      name,
+      description: "barrier probe",
+      schema: { type: "object", properties: {} },
+      async execute() {
+        if (mine === "a") state.a = true;
+        else state.b = true;
+        const deadline = Date.now() + 1500;
+        while (!(mine === "a" ? state.b : state.a) && Date.now() < deadline) await sleep(5);
+        return { content: mine === "a" ? "READ-A" : "READ-B" };
+      },
+    });
+    t.tools.replace(barrierTool("fs.grep", "a"));
+    t.tools.replace(barrierTool("fs.glob", "b"));
+
+    const provider = new ScriptedToolProvider([
+      twoCalls(
+        { id: "g1", name: "fs.grep", args: JSON.stringify({ pattern: "x" }) },
+        { id: "g2", name: "fs.glob", args: JSON.stringify({ pattern: "**/*.ts" }) },
+      ),
+      finalText("parent done"),
+    ]);
+    t.providers.register(provider);
+    const parent = t.core.createSession({ workbench: "code", cwd: dir });
+    await t.core.setSessionAgent(parent.id, { agent: "build" });
+
+    const startedAt = Date.now();
+    const finished = waitForRunFinished(t.bus, parent.id);
+    t.core.submitPrompt(parent.id, { text: "search both" });
+    await finished;
+    const elapsed = Date.now() - startedAt;
+
+    // Sequential would burn the full 1500ms barrier; overlap releases it fast.
+    expect(elapsed).toBeLessThan(1200);
+
+    const assistant = t.core.history(parent.id).find((m) => m.role === "assistant");
+    const results = (assistant?.parts ?? []).filter((p) => p.kind === "tool_result");
+    expect(results).toHaveLength(2);
+    expect((results[0]?.payload as { content: string }).content).toContain("READ-A");
+    expect((results[1]?.payload as { content: string }).content).toContain("READ-B");
   });
 
   test("one child producing no answer doesn't kill its sibling in a parallel batch", async () => {

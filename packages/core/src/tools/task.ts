@@ -54,7 +54,7 @@ Usage notes:
 1. Multiple task calls in a single message run concurrently — launch independent subagents together to maximize throughput.
 2. Once you have delegated work to a subagent, do not duplicate that work yourself. Continue with non-overlapping work, or wait for the result.
 3. When the subagent is done, it returns a single final message to you. The result returned by the subagent is not visible to the user — summarize it in your own response. The output includes the subagent's session id.
-4. Each invocation starts with a fresh context. Your prompt should contain a highly detailed task description for the subagent to perform autonomously, and you should specify exactly what information it should return back to you in its final and only message to you.
+4. Each invocation starts with a fresh context. Your prompt should contain a highly detailed task description for the subagent to perform autonomously, and you should specify exactly what information it should return back to you in its final and only message to you. For exploration, tell the subagent to scan in phases (fs.glob/fs.grep to locate, then fs.read only the ranges that matter) and to return file:line evidence rather than raw file dumps.
 5. The subagent's outputs should generally be trusted.
 6. Clearly tell the subagent whether you expect it to write code or just do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g. relevant test commands).
 7. Subagents cannot spawn their own subagents, cannot ask the user questions, and cannot use plan.exit — they run autonomously and return one final message.`;

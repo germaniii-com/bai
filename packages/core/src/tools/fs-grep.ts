@@ -32,7 +32,9 @@ export function fsGrepTool(): Tool {
     description:
       "Search file contents with a regular expression. Returns up to 100 matches as file:line: text. " +
       "Use include (a glob like *.ts) to filter file types. Case-sensitive; use inline (?i) for case-insensitive. " +
-      "List or glob first when unsure where to look.",
+      "List or glob first when unsure where to look. " +
+      "Prefer this to reading files one by one: search first, then fs.read only the matches you need. " +
+      "Independent searches can be issued together in one turn.",
     schema: {
       type: "object",
       properties: {

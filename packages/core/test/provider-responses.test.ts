@@ -8,6 +8,7 @@ import { ProviderRegistry } from "../src";
 import { AuthStore } from "../src";
 import {
   codexAccountId,
+  functionCallArgsDelta,
   instructionsFrom,
   isCodexEndpoint,
   toResponsesInput,
@@ -116,6 +117,22 @@ describe("Responses adapter lowering", () => {
     expect(tools[0]?.strict).toBe(false);
     expect(tools[0]?.description).toBe("read");
     expect(tools[1]?.name).toMatch(/^[a-zA-Z0-9_-]+$/);
+  });
+
+  test("done arguments are not re-emitted after the deltas streamed them", () => {
+    const full = '{"path":"README.md"}';
+    // The real stream: fragments arrive as deltas, then `done` repeats the
+    // whole JSON — emitting it again would append a second copy.
+    const streamed = '{"path"' + ':"README.md"}';
+    expect(streamed).toBe(full);
+    expect(functionCallArgsDelta(full, full)).toBe("");
+    expect(functionCallArgsDelta(streamed, full)).toBe("");
+    // A server that skips the delta events still gets the full payload.
+    expect(functionCallArgsDelta("", full)).toBe(full);
+    // Partial deltas (e.g. dropped/late fragments) get only the tail.
+    expect(functionCallArgsDelta('{"path"', full)).toBe(':"README.md"}');
+    // Unreconcilable accumulation never double-appends.
+    expect(functionCallArgsDelta("garbage", full)).toBe("");
   });
 
   test("codex endpoint detection and account-id claim extraction", () => {

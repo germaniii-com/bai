@@ -69,6 +69,8 @@ describe("fsPathInsideCwd", () => {
     expect(fsPathInsideCwd("fs.write", { content: "no path" }, cwd)).toBe(false);
     expect(fsPathInsideCwd("fs.glob", { pattern: "**/*.ts" }, cwd)).toBe(true);
     expect(fsPathInsideCwd("fs.list", {}, cwd)).toBe(true);
+    // fs.grep with no path searches the cwd (whole-tree search) — same stance.
+    expect(fsPathInsideCwd("fs.grep", { pattern: "x" }, cwd)).toBe(true);
   });
 });
 

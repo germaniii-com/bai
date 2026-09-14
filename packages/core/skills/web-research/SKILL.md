@@ -1,6 +1,6 @@
 ---
 description: "Research the live web: search, fetch, and cite sources."
-version: 1.0.0
+version: 1.1.0
 author: bai
 tags: [Research, Web, Search, Citations]
 ---
@@ -31,6 +31,8 @@ Do NOT use it for stable knowledge you already hold (language semantics, well-kn
 3. `web.fetch` the 1-2 most promising results and read them fully.
 4. Answer from what you read; cite each load-bearing claim with its site or URL.
 5. If the fetches don't answer it, refine the query (different terms, site-scoped) and repeat — twice max, then say what you could and could not confirm.
+
+Issue independent searches and fetches in one turn rather than one at a time, and never repeat a query or re-fetch a URL you already read.
 
 ## Quick Reference
 
