@@ -58,6 +58,11 @@ export function SelectDialog({
   onHighlight,
   windowSize = WINDOW,
   deferInput = false,
+  onQueryChange,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
+  total,
 }: {
   title: string;
   options: PickerOption[];
@@ -76,17 +81,57 @@ export function SelectDialog({
   /** True while an App-level overlay dialog owns the keyboard (Ink delivers
    *  input to every mounted handler — this one must go silent). */
   deferInput?: boolean;
+  /**
+   * Server-side filter mode: when provided, `options` are treated as already
+   * filtered by the caller (no local matching), and typed queries are
+   * debounced out through this callback. Used by the paged pickers (sessions,
+   * models) so matches beyond the loaded page are reachable.
+   */
+  onQueryChange?: (query: string) => void;
+  /** Fetch the next page (fires when the highlight nears the loaded end). */
+  onLoadMore?: () => void;
+  /** More pages exist after the loaded options. */
+  hasMore?: boolean;
+  /** A page fetch is in flight. */
+  loadingMore?: boolean;
+  /**
+   * Total options matching the current filter across ALL pages (server
+   * `total`). Drives the true "↓ N more" indicator — without it the count
+   * only reflects the loaded window.
+   */
+  total?: number;
 }) {
   const t = useTheme();
   const [filter, setFilter] = useState("");
   const [index, setIndex] = useState(initialIndex);
 
+  const serverFiltered = onQueryChange !== undefined;
   const query = filter.toLowerCase();
-  const visible =
-    query.length > 0
+  const visible = serverFiltered
+    ? options
+    : query.length > 0
       ? options.filter((o) => o.label.toLowerCase().includes(query) || o.value.toLowerCase().includes(query))
       : options;
   const clamped = Math.min(index, Math.max(0, visible.length - 1));
+
+  // Server-side filtering: debounce typed input out to the caller (ref-held,
+  // so an unstable callback identity can't reset the timer every render).
+  const onQueryChangeRef = useRef(onQueryChange);
+  onQueryChangeRef.current = onQueryChange;
+  useEffect(() => {
+    if (onQueryChangeRef.current === undefined) return;
+    const handle = setTimeout(() => onQueryChangeRef.current?.(filter), 150);
+    return () => clearTimeout(handle);
+  }, [filter]);
+
+  // Infinite-scroll paging: fetch the next page when the highlight nears the
+  // loaded end (ref-held callback, same reasoning as above).
+  const onLoadMoreRef = useRef(onLoadMore);
+  onLoadMoreRef.current = onLoadMore;
+  useEffect(() => {
+    if (!hasMore || loadingMore || onLoadMoreRef.current === undefined) return;
+    if (clamped >= visible.length - 5) onLoadMoreRef.current();
+  }, [clamped, visible.length, hasMore, loadingMore]);
 
   // Live preview: report the highlighted value whenever it moves (navigation
   // or filtering). Ref-held callback — the caller's handler is stable enough
@@ -147,8 +192,9 @@ export function SelectDialog({
       if (body.length === 0 && !endsWithEnter) return;
 
       const newQuery = (query + body.toLowerCase()).trim();
-      const nextVisible =
-        newQuery.length > 0
+      const nextVisible = serverFiltered
+        ? options
+        : newQuery.length > 0
           ? options.filter(
               (o) => o.label.toLowerCase().includes(newQuery) || o.value.toLowerCase().includes(newQuery),
             )
@@ -214,8 +260,11 @@ export function SelectDialog({
           </Text>
         );
       })}
-      {end < visible.length && (
-        <Text color={t.dim}>  ↓ {visible.length - end} more</Text>
+      {end < (total ?? visible.length) && (
+        <Text color={t.dim}>
+          {"  ↓ "}
+          {(total ?? visible.length) - end} more{hasMore && end >= visible.length ? " · loading…" : ""}
+        </Text>
       )}
       <Text color={t.dim}>{hints.join(" · ")}</Text>
     </Box>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { Message } from "@bai/shared";
 import { messageText, thinkingText, toolCalls } from "./state";
@@ -8,6 +8,8 @@ import { Chevron, SubagentStatusIcon, ToolStatusIcon } from "./icons";
 
 /** Live-refresh cadence while the child is still running (TUI parity). */
 const REFRESH_MS = 1500;
+/** Messages per page (newest window + older scroll-back pages). */
+const PAGE = 50;
 
 /**
  * Inline live subagent transcript (TUI SubagentDialog parity): the child
@@ -22,9 +24,12 @@ const REFRESH_MS = 1500;
  * browser until a stream closes. Polling is one short-lived GET per tick,
  * held connections stay at two, and everything stays responsive.
  *
- * `active` (task result not yet landed, or the tracked child still
- * running) drives the cadence: poll while active, one final fetch when it
- * flips false, plain static transcript afterwards.
+ * Paging: the newest page lives in `latest` (replaced each poll; messages
+ * aged out of it are appended to `older` so nothing is lost), and `older`
+ * grows upward on scroll-back (`loadOlder` prepends older pages). `active`
+ * (task result not yet landed, or the tracked child still running) drives
+ * the cadence: poll while active, one final fetch when it flips false,
+ * plain static transcript afterwards.
  */
 export function SubagentStream({
   client,
@@ -36,24 +41,67 @@ export function SubagentStream({
   /** The task is still executing (or the tracked child is running). */
   active: boolean;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [older, setOlder] = useState<Message[]>([]);
+  const [latest, setLatest] = useState<Message[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // In-flight guard: a slow snapshot must never stack with the next tick's.
   const fetchingRef = useRef(false);
+  // Newest window mirrored in a ref so a poll can age messages into `older`
+  // without a state-updater side effect.
+  const latestRef = useRef<Message[]>([]);
+  // Scroll anchor for prepends (preserve reading position).
+  const anchorRef = useRef<{ height: number; top: number; firstId: string | undefined } | null>(null);
+  const seededRef = useRef(false);
+  const childIdRef = useRef<string | undefined>(undefined);
+
+  /** Replace the newest window, aging evicted messages into `older`. */
+  const applyLatest = useCallback((messages: Message[]): void => {
+    const newIds = new Set(messages.map((m) => m.id));
+    const dropped = latestRef.current.filter((m) => !newIds.has(m.id));
+    if (dropped.length > 0) {
+      setOlder((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        return [...prev, ...dropped.filter((m) => !known.has(m.id))];
+      });
+    }
+    latestRef.current = messages;
+    setLatest(messages);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
+    // Reset paging state only for a NEW child. An `active` flip (the run
+    // finishing) re-runs this effect for its trailing fetch — it must not
+    // discard pages the user scrolled back to.
+    if (childIdRef.current !== child.sessionId) {
+      childIdRef.current = child.sessionId;
+      setOlder([]);
+      setLatest([]);
+      latestRef.current = [];
+      setHasMore(false);
+      setCursor(null);
+      setLoadingOlder(false);
+      seededRef.current = false;
+    }
 
     const fetchSnapshot = async (): Promise<void> => {
       if (fetchingRef.current) return;
       fetchingRef.current = true;
       try {
-        const snap = await client.historySnapshot(child.sessionId, { limit: 200 });
-        if (!disposed) {
-          setMessages(snap.messages);
-          setError(null);
+        const snap = await client.historySnapshot(child.sessionId, { limit: PAGE });
+        if (disposed) return;
+        applyLatest(snap.messages);
+        // Seed hasMore/cursor once (poll ticks keep the existing older cursor).
+        if (!seededRef.current) {
+          seededRef.current = true;
+          setHasMore(snap.hasMore === true);
+          setCursor(snap.nextCursor ?? null);
         }
+        setError(null);
       } catch (err) {
         if (!disposed) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -74,7 +122,30 @@ export function SubagentStream({
       disposed = true;
       if (timer !== null) clearInterval(timer);
     };
-  }, [client, child.sessionId, active]);
+  }, [client, child.sessionId, active, applyLatest]);
+
+  const loadOlder = useCallback((): void => {
+    if (!hasMore || cursor === null || loadingOlder) return;
+    setLoadingOlder(true);
+    void (async () => {
+      try {
+        const page = await client.historySnapshot(child.sessionId, { limit: PAGE, before: cursor });
+        setOlder((prev) => {
+          const known = new Set([...prev, ...latestRef.current].map((m) => m.id));
+          return [...page.messages.filter((m) => !known.has(m.id)), ...prev];
+        });
+        setHasMore(page.hasMore === true);
+        setCursor(page.nextCursor ?? null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoadingOlder(false);
+      }
+    })();
+  }, [client, child.sessionId, hasMore, cursor, loadingOlder]);
+
+  // Combined render list, deduped at the older/latest seam.
+  const messages: Message[] = [...older, ...latest.filter((m) => !older.some((o) => o.id === m.id))];
 
   // Follow the bottom: every transcript change snaps to the latest row
   // unless the user scrolled up (small panel — any upward scroll pins).
@@ -84,9 +155,31 @@ export function SubagentStream({
     if (el === null) return;
     if (pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // Preserve the reading position when a page is prepended above.
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (anchor === null) return;
+    if (messages[0]?.id !== anchor.firstId) {
+      const el = bodyRef.current;
+      if (el !== null) {
+        const delta = el.scrollHeight - anchor.height;
+        if (delta > 0) el.scrollTop = anchor.top + delta;
+      }
+      anchorRef.current = null;
+    } else if (!loadingOlder) {
+      anchorRef.current = null;
+    }
+  }, [messages, loadingOlder]);
+
   const onScroll = (): void => {
     const el = bodyRef.current;
     if (el === null) return;
+    if (el.scrollTop <= 24 && hasMore && !loadingOlder) {
+      anchorRef.current = { height: el.scrollHeight, top: el.scrollTop, firstId: messages[0]?.id };
+      loadOlder();
+      return;
+    }
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
   };
 
@@ -110,6 +203,25 @@ export function SubagentStream({
         <div className="subagent-stream-error">{error}</div>
       ) : (
         <div className="subagent-stream-body" ref={bodyRef} onScroll={onScroll}>
+          {(hasMore || loadingOlder) && (
+            <div className="load-older" role="status">
+              {loadingOlder ? (
+                <span className="dim">Loading earlier messages…</span>
+              ) : (
+                <button
+                  type="button"
+                  className="load-older-btn"
+                  onClick={() => {
+                    const el = bodyRef.current;
+                    if (el !== null) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop, firstId: messages[0]?.id };
+                    loadOlder();
+                  }}
+                >
+                  Load earlier messages
+                </button>
+              )}
+            </div>
+          )}
           {messages.length === 0 && <p className="dim">waiting for the subagent…</p>}
           {messages.map((m) => (
             <div key={m.id} className={`subagent-message subagent-${m.role}`}>

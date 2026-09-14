@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text } from "ink";
 import type { BaiClient } from "@bai/api/client";
 import type { Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
@@ -37,7 +37,17 @@ function msg(i: number, role: Message["role"]): Message {
 
 const messages = Array.from({ length: 30 }, (_, i) => msg(i, i % 2 === 0 ? "user" : "assistant"));
 
-function ChatHarness({ messages: msgs }: { messages: Message[] }) {
+function ChatHarness({
+  messages: msgs,
+  historyHasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
+}: {
+  messages: Message[];
+  historyHasMore?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
+}) {
   // Mirrors app.tsx's shell (headerless): fixed-height root, flex body with
   // paddingX, one footer line — the ScrollView must scroll inside THIS
   // nesting. footerRows mirrors the footer's line count (hub chip math).
@@ -48,6 +58,9 @@ function ChatHarness({ messages: msgs }: { messages: Message[] }) {
           client={{} as BaiClient}
           session={null}
           messages={messages}
+          historyHasMore={historyHasMore}
+          loadingOlder={loadingOlder}
+          {...(onLoadOlder !== undefined ? { onLoadOlder } : {})}
           runActive={false}
           mode="normal"
           modelLabel="stub/echo"
@@ -173,6 +186,113 @@ describe("ChatView scrolling (continuous, follow-the-bottom)", () => {
     await tick();
     expect(lastFrame() ?? "").toContain("❯ msg-27");
     unmount();
+  });
+
+  test("wheel-up at the top loads older messages (and the affordance is present)", async () => {
+    let loaded = 0;
+    const { stdin, lastFrame, unmount } = render(
+      <ChatHarness
+        messages={messages}
+        historyHasMore
+        onLoadOlder={() => {
+          loaded += 1;
+        }}
+      />,
+    );
+    await tick();
+    // The "Load more messages" affordance shows while older pages exist.
+    expect(lastFrame() ?? "").toContain("Load more messages");
+
+    // Wheel up past the top: reaching offset 0 then wheeling up fetches older
+    // pages (previously only pageUp did).
+    for (let i = 0; i < 80; i++) {
+      stdin.write("\x1b[<64;10;5M");
+      await tick(2);
+    }
+    unmount();
+    expect(loaded).toBeGreaterThan(0);
+  });
+
+  test("focused 'Load more messages' boundary row loads older pages with enter", async () => {
+    let loaded = 0;
+    const { stdin, lastFrame, unmount } = render(
+      <ChatHarness
+        messages={messages}
+        historyHasMore
+        onLoadOlder={() => {
+          loaded += 1;
+        }}
+      />,
+    );
+    await tick();
+    // Walk the focus up to the boundary row (index 0) with ctrl+k.
+    for (let i = 0; i < 40; i++) {
+      stdin.write("\x1b[107;5u"); // kitty ctrl+k
+      await tick(2);
+    }
+    expect(lastFrame() ?? "").toContain("❯ --- ↑ Load more messages ---");
+
+    stdin.write("\r"); // enter selects the boundary row
+    await tick();
+    unmount();
+    expect(loaded).toBe(1);
+  });
+
+  test("selecting load-more focuses the newest message of the new batch", async () => {
+    const older: Message[] = [
+      { id: "msg-old-1" as MessageId, sessionId: "ses_1" as SessionId, role: "user", createdAt: "t", parts: [textPart(0, "old-1 body")] },
+      { id: "msg-old-2" as MessageId, sessionId: "ses_1" as SessionId, role: "assistant", createdAt: "t", parts: [textPart(0, "old-2 body")] },
+    ];
+    function Harness() {
+      const [msgs, setMsgs] = useState<Message[]>(messages);
+      return (
+        <Box flexDirection="column" width={60} height={24}>
+          <Box flexDirection="column" flexGrow={1} paddingX={1}>
+            <ChatView
+              client={{} as BaiClient}
+              session={null}
+              messages={msgs}
+              historyHasMore
+              onLoadOlder={() => setMsgs((prev) => [...older, ...prev])}
+              runActive={false}
+              mode="normal"
+              modelLabel="stub/echo"
+              agent="build"
+              footerRows={1}
+              onEnterInput={() => {}}
+              onExitInput={() => {}}
+              onSessionCreated={() => {}}
+              onOpenSubagent={() => {}}
+              onOpenModels={() => {}}
+              onOpenAgents={() => {}}
+              onOpenSessions={() => {}}
+            />
+          </Box>
+          <Box paddingX={1}>
+            <Text dimColor>footer hints</Text>
+          </Box>
+        </Box>
+      );
+    }
+
+    const { stdin, lastFrame, unmount } = render(<Harness />);
+    await tick();
+    // Walk focus up to the boundary row, then select it.
+    for (let i = 0; i < 40; i++) {
+      stdin.write("\x1b[107;5u"); // kitty ctrl+k
+      await tick(2);
+    }
+    expect(lastFrame() ?? "").toContain("❯ --- ↑ Load more messages ---");
+    stdin.write("\r");
+    await tick(60);
+
+    const frame = lastFrame() ?? "";
+    unmount();
+    // Focus moved into the batch: the newest new message (old-2) is focused,
+    // not the boundary row.
+    expect(frame).toContain("old-2 body");
+    expect(frame).toContain("❯ old-2 body");
+    expect(frame).not.toContain("❯ --- ↑ Load more messages ---");
   });
 
   test("focus traversal scrolls by rows to reveal offscreen messages", async () => {

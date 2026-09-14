@@ -50,6 +50,15 @@ export interface SkillInfo {
   linkedFiles: string[];
 }
 
+/** One page of the skills browser list (name-sorted) plus the next offset. */
+export interface SkillsPage {
+  skills: SkillInfo[];
+  hasMore: boolean;
+  nextOffset?: number;
+  /** Total skills matching the same filter (all pages). */
+  total: number;
+}
+
 /** Frontmatter of a SKILL.md file — description is required (the index needs it). */
 export const skillFrontmatterSchema = z.object({
   description: z.string().min(1).max(2000),

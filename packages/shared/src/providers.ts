@@ -43,6 +43,12 @@ export interface ProviderInfo {
   accounts: AccountInfo[];
   /** Convenience: `accounts.length > 0`. */
   connected: boolean;
+  /**
+   * Catalog size when `models` is intentionally omitted (`GET /provider?models=0`
+   * — UI fetches that only need connection/account state). Undefined when the
+   * full model array is present.
+   */
+  modelCount?: number;
 }
 
 /** GET /api/provider response. */

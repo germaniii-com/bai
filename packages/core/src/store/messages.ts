@@ -1,6 +1,7 @@
 import type { Message, MessageId, Part, PartId, PartKind, Role, SessionId } from "@bai/shared";
 import { newId } from "@bai/shared";
 import { q, type SqliteDb } from "./db";
+import { decodeCursor, encodeCursor } from "./cursor";
 
 interface MessageRow {
   id: string;
@@ -34,19 +35,15 @@ export interface HistoryCursor {
 }
 
 export function encodeHistoryCursor(cursor: HistoryCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+  return encodeCursor(cursor);
 }
 
 export function decodeHistoryCursor(raw: string): HistoryCursor | undefined {
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const { id, createdAt } = parsed as { id?: unknown; createdAt?: unknown };
-    if (typeof id !== "string" || typeof createdAt !== "string") return undefined;
-    return { id, createdAt };
-  } catch {
-    return undefined;
-  }
+  const parsed = decodeCursor<{ id?: unknown; createdAt?: unknown }>(raw);
+  if (parsed === undefined) return undefined;
+  const { id, createdAt } = parsed;
+  if (typeof id !== "string" || typeof createdAt !== "string") return undefined;
+  return { id, createdAt };
 }
 
 export interface HistoryPage {

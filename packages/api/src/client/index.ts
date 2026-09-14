@@ -15,6 +15,8 @@ import type {
    Input,
    Job,
   Message,
+  ModelPageEntry,
+  ModelsPage,
   PermissionRequest,
   PutAgentBody,
   PutSkillBody,
@@ -22,7 +24,9 @@ import type {
   QuestionRequest,
   Session,
   SessionUsage,
+  SessionsPage,
   SkillInfo,
+  SkillsPage,
   SkillUsageQuery,
   SkillUsageResponse,
   SkillUsageTotals,
@@ -70,10 +74,14 @@ export class BaiClient {
     return res.json();
   }
 
+  /**
+   * Legacy offset list — internal full-ish reads (one-shot, archive counts).
+   * UI lists use `listSessionsPage` (cursor paging + `hasMore`).
+   */
   async listSessions(
     limit = 50,
     offset = 0,
-    filters: { workbench?: string; cwd?: string } = {},
+    filters: { workbench?: string; cwd?: string; q?: string; roots?: boolean } = {},
   ): Promise<Session[]> {
     const res = await this.rpc().session.$get({
       query: {
@@ -81,10 +89,36 @@ export class BaiClient {
         offset: String(offset),
         ...(filters.workbench !== undefined ? { workbench: filters.workbench } : {}),
         ...(filters.cwd !== undefined ? { cwd: filters.cwd } : {}),
+        ...(filters.q !== undefined && filters.q.length > 0 ? { q: filters.q } : {}),
+        ...(filters.roots === true ? { roots: "1" } : {}),
       },
     });
     if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
     return (await res.json()).sessions;
+  }
+
+  /**
+   * Cursor-paged session list (newest first). The first call omits `before`;
+   * pass the returned `nextCursor` to fetch older pages. `q` filters by
+   * title/id server-side (type-ahead across pages); `roots` excludes child
+   * (subagent) sessions.
+   */
+  async listSessionsPage(
+    limit = 50,
+    opts: { before?: string; q?: string; workbench?: string; cwd?: string; roots?: boolean } = {},
+  ): Promise<SessionsPage> {
+    const res = await this.rpc().session.$get({
+      query: {
+        limit: String(limit),
+        ...(opts.before !== undefined ? { before: opts.before } : {}),
+        ...(opts.q !== undefined && opts.q.length > 0 ? { q: opts.q } : {}),
+        ...(opts.workbench !== undefined ? { workbench: opts.workbench } : {}),
+        ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+        ...(opts.roots === true ? { roots: "1" } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
+    return res.json();
   }
 
   async createSession(body: CreateSessionBody): Promise<Session> {
@@ -478,10 +512,24 @@ export class BaiClient {
 
   // --- skills ---
 
+  /** Full skill list (legacy/agent-adjacent callers). UI browses `listSkillsPage`. */
   async listSkills(): Promise<SkillInfo[]> {
     const res = await this.rpc().skill.$get();
     if (!res.ok) throw new Error(`list skills failed: ${res.status}`);
     return (await res.json()).skills;
+  }
+
+  /** Offset-paged skill browse (name-sorted; `q` filters name/description/tags). */
+  async listSkillsPage(limit = 50, offset = 0, q?: string): Promise<SkillsPage> {
+    const res = await this.rpc().skill.$get({
+      query: {
+        limit: String(limit),
+        offset: String(offset),
+        ...(q !== undefined && q.length > 0 ? { q } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`list skills failed: ${res.status}`);
+    return res.json();
   }
 
   /** Skill detail + per-skill usage totals (undefined when the skill doesn't exist). */
@@ -615,10 +663,42 @@ export class BaiClient {
     return true;
   }
 
-  async providers(): Promise<ProviderListResponse> {
-    const res = await this.rpc().provider.$get();
+  /**
+   * Merged provider/account view. Pass `{ models: false }` for the slim
+   * fetch (model arrays dropped, `modelCount` reported) — UI that only needs
+   * connection/account state. Model pickers page `modelsPage` instead.
+   */
+  async providers(opts: { models?: boolean } = {}): Promise<ProviderListResponse> {
+    const res =
+      opts.models === false
+        ? await this.rpc().provider.$get({ query: { models: "0" } })
+        : await this.rpc().provider.$get();
     if (!res.ok) throw new Error(`providers failed: ${res.status}`);
     return res.json();
+  }
+
+  /** One page of the flat model catalog (UI pickers). See the `/model` route. */
+  async modelsPage(
+    opts: { limit?: number; offset?: number; q?: string; provider?: string; id?: string; zdr?: boolean } = {},
+  ): Promise<ModelsPage> {
+    const res = await this.rpc().model.$get({
+      query: {
+        ...(opts.limit !== undefined ? { limit: String(opts.limit) } : {}),
+        ...(opts.offset !== undefined ? { offset: String(opts.offset) } : {}),
+        ...(opts.q !== undefined && opts.q.length > 0 ? { q: opts.q } : {}),
+        ...(opts.provider !== undefined && opts.provider.length > 0 ? { provider: opts.provider } : {}),
+        ...(opts.id !== undefined && opts.id.length > 0 ? { id: opts.id } : {}),
+        ...(opts.zdr === true ? { zdr: "1" } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`models page failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** One catalog model by full id (label/capability badges) — undefined when absent. */
+  async getModel(id: string): Promise<ModelPageEntry | undefined> {
+    const page = await this.modelsPage({ id, limit: 1 });
+    return page.models[0];
   }
 
   /** Usage analytics aggregation (D26) — KPIs, per-model totals, chart series. */

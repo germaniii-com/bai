@@ -10,10 +10,10 @@ package that knows about the network.
 
 ```
 GET    /api/health                      hello-world / liveness
-GET    /api/session                     list (paged)
+GET    /api/session                     list (paged: ?limit&before&q&workbench&cwd&roots)
 POST   /api/session                     create
 GET    /api/session/:id
-GET    /api/session/:id/message         history
+GET    /api/session/:id/message         history (paged: ?limit&before)
 POST   /api/session/:id/message         submit prompt (durable admit + wake)
 POST   /api/session/:id/interrupt
 POST   /api/session/:id/revert          two-phase revert (hide tail + roll back files)
@@ -23,7 +23,8 @@ GET    /api/session/:id/event?after=N   durable SSE stream (replay-then-live)
 GET    /api/event                       global live SSE firehose
 POST   /api/permission/:id/reply        first reply wins
 GET|PUT /api/config                     effective config / mutate (writes back)
-GET    /api/provider                    providers + models
+GET    /api/provider                    providers + accounts (?models=0 drops model arrays + adds modelCount)
+GET    /api/model                       flat model catalog (paged UI picker: ?limit&offset&q&provider&id&zdr)
 POST   /api/job                         enqueue job (media generation)
 GET    /api/job/:id
 GET    /api/asset                       list; GET /api/asset/:id/content  (bytes)
@@ -34,6 +35,11 @@ GET    /api/usage/analytics             usage aggregation (D26): KPIs, per-model
 
 - Served by `Bun.serve({ fetch: app.fetch })`; Hono's Web-standard handlers
   map 1:1 onto Bun.
+- List paging is **UI-only**: `GET /session` (keyset cursor), `GET /skill`
+  with `limit` (offset), and `GET /model` (flat catalog) return `hasMore`
+  plus `nextCursor`/`nextOffset`. Agent-facing reads — the skills index, the
+  tool registry, provider/model resolution — go through `@bai/core`
+  directly and are never paged. No-limit reads still return the full list.
 - Request bodies validated with zod via `@hono/zod-validator`.
 - Export `type AppType = typeof app` so surfaces get fully typed REST calls
   through `hc<AppType>()`. Pitfalls honored: never `c.notFound()` (breaks

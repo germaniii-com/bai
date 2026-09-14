@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, ChartColumn, Clock, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId } from "@bai/shared";
@@ -6,6 +6,8 @@ import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, emptyQueuedInputs, queuedInputsFromSnapshot, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
+import { useHistoryPager } from "./use-history-pager";
+import { usePagedSessions } from "./use-paged-sessions";
 import { useProviders } from "./use-providers";
 import { useAgents } from "./use-agents";
 import { useTools } from "./use-tools";
@@ -74,7 +76,34 @@ export function App() {
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     bootRoute.section === "workspace" ? bootRoute.wsPath : null,
   );
-  const [workspaceSessions, setWorkspaceSessions] = useState<Session[]>([]);
+  // Paged session lists (UI): newest window first, older pages on demand via
+  // a keyset cursor. Filter inputs are deferred so typing doesn't thrash the
+  // server; the filter runs server-side so it matches rows beyond the loaded
+  // window. `roots` excludes child (subagent) sessions, keeping pages dense.
+  const [chatSessionFilter, setChatSessionFilter] = useState("");
+  const deferredChatFilter = useDeferredValue(chatSessionFilter);
+  const [wsSessionFilter, setWsSessionFilter] = useState("");
+  const deferredWsFilter = useDeferredValue(wsSessionFilter);
+  const {
+    sessions,
+    setSessions,
+    hasMore: chatSessionsHasMore,
+    loadingMore: chatSessionsLoadingMore,
+    loadMore: loadMoreChatSessions,
+    refresh: refreshSessions,
+  } = usePagedSessions(client, { workbench: "chat", q: deferredChatFilter });
+  const {
+    sessions: workspaceSessions,
+    setSessions: setWorkspaceSessions,
+    hasMore: wsSessionsHasMore,
+    loadingMore: wsSessionsLoadingMore,
+    loadMore: loadMoreWsSessions,
+    refresh: refreshWorkspaceSessions,
+  } = usePagedSessions(client, {
+    cwd: workspacePath ?? undefined,
+    q: deferredWsFilter,
+    enabled: workspacePath !== null,
+  });
   // Workspace center-pane view: the chat surface or the file viewer. The
   // [Chat | Files] segmented control above the pane switches it; opening a
   // file from the tree flips it to "files" automatically.
@@ -89,7 +118,6 @@ export function App() {
   // dots) and a refresh trigger the viewer/tree watch for re-listing.
   const [changedFiles, setChangedFiles] = useState<Set<string>>(new Set());
   const [fsRevision, setFsRevision] = useState(0);
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   // Deep-linked / popstate-applied session id awaiting resolution via
   // client.getSession (one direct fetch — no waiting for the session
@@ -153,6 +181,11 @@ export function App() {
   // children of the active session, fed from the firehose — live status
   // (asking/running) and the child session ids the inline transcripts open.
   const [subagents, setSubagents] = useState<SubagentState>(emptySubagentState);
+  // Latest tracked children readable from the firehose closure (the
+  // subscription is created once; the child-ask gate keys on tracked
+  // children, not the paged session list).
+  const subagentsRef = useRef<SubagentState>(emptySubagentState);
+  subagentsRef.current = subagents;
   // The merged, prioritized pending ask (parent permission > subagent
   // permission > question — the modal era's ordering), rendered INLINE in
   // the chat pane between the transcript and the composer. First reply
@@ -286,37 +319,6 @@ export function App() {
   }, [runActive, hasVisibleReply]);
   const waiting = (sentPending || runActive) && !hasVisibleReply;
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      // Chat section lists general chat sessions only — workspace sessions
-      // (workbench "code") live in the workspace view.
-      setSessions(await client.listSessions(50, 0, { workbench: "chat" }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [client]);
-
-  useEffect(() => {
-    void refreshSessions();
-  }, [refreshSessions]);
-
-  const refreshWorkspaceSessions = useCallback(async () => {
-    if (workspacePath === null) {
-      setWorkspaceSessions([]);
-      return;
-    }
-    try {
-      setWorkspaceSessions(await client.listSessions(50, 0, { cwd: workspacePath }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [client, workspacePath]);
-
-  useEffect(() => {
-    void refreshWorkspaceSessions();
-  }, [refreshWorkspaceSessions]);
-
   // Live refresh of session state (e.g. model picked from another surface).
   // The firehose rides the shared EventMux — ONE global SSE connection for
   // the whole page (this sync engine + useProviders' watcher used to open
@@ -399,11 +401,11 @@ export function App() {
         // A subagent's permission ask pops the same modal a parent ask
         // gets — otherwise the child would sit blocked with no dialog.
         if (evt.type === "permission.asked" || evt.type === "permission.replied") {
-          const parentId = activeRef.current?.id;
+          // Gate on TRACKED children (TUI parity) — the session lists are
+          // paged, so a scan of loaded sessions would miss an ask from a
+          // child beyond the current page.
           setPendingChildAsks((list) =>
-            applyChildAskEvent(list, evt, (id) =>
-              knownSessionsRef.current.some((s) => s.id === id && parentId !== undefined && s.meta.parent === parentId),
-            ),
+            applyChildAskEvent(list, evt, (id) => subagentsRef.current.children.has(id)),
           );
         }
         // Subagent tracking (TUI parity): every firehose event may advance
@@ -417,11 +419,17 @@ export function App() {
   // The active session's ID — the session stream effect keys on this (not
   // the object reference) so session.updated patches don't tear it down.
   const activeId = active?.id;
+  // Scroll-back pagination: newest 100 messages first; older pages prepend on
+  // demand (chat pane scroll-to-top). Live events still flow through the
+  // effect's own reducer into `setMessages`.
+  const pager = useHistoryPager({ client, sessionId: activeId, setMessages });
+  const { reset: resetPager, seed: seedPager } = pager;
 
   useEffect(() => {
     streamCtrl.current?.abort();
     setError(null); // a session switch drops the previous session's error banner
     setSubagents(emptySubagentState); // the previous session's children are gone
+    resetPager();
     if (activeId === undefined) {
       // Draft state (+ new session): a NEW session — the previous
       // session's transcript and its asks/questions must not linger.
@@ -449,11 +457,12 @@ export function App() {
       // Snapshot first, then follow the durable stream from its frontier.
       // followSession resumes from the cursor on drops (idle timeouts,
       // restarts) — replaying from 0 would duplicate the snapshot instead.
-      // Bounded window (server caps at 500): the web pane renders the full
-      // snapshot it holds — infinite scroll-back is a follow-up.
-      const snap = await client.historySnapshot(activeId, { limit: 500 });
+      // Windowed to the newest page — older pages load on scroll-back via
+      // the pager (`loadOlder`) using the snapshot's `nextCursor`.
+      const snap = await client.historySnapshot(activeId, { limit: 100 });
       if (ctrl.signal.aborted) return; // switched again mid-fetch — stale
       setMessages(snap.messages);
+      seedPager(snap.hasMore === true, snap.nextCursor ?? null);
       // A run may already be draining (mid-run switch, or the snapshot was
       // taken right after our own submit) — its run.started predates the
       // cursor, so the snapshot is the only reliable signal.
@@ -527,7 +536,9 @@ export function App() {
     // patch (title refine, compaction, renames from other surfaces) must
     // NOT tear down the stream and wipe/reseed the transcript + queued
     // state — metadata flows through the firehose patch instead.
-  }, [activeId, client, bfcacheEpoch]);
+    // resetPager/seedPager are stable (useCallback), so paging state changes
+    // never re-run this effect.
+  }, [activeId, client, bfcacheEpoch, resetPager, seedPager]);
 
   // Bfcache restore: the pagehide abort killed the stream — a fresh snapshot
   // re-establishes it (the DB is the buffer; nothing was lost).
@@ -1265,6 +1276,9 @@ export function App() {
       refreshProviders={refreshProviders}
       providersFetching={providersFetching}
       messages={messages}
+      historyHasMore={pager.hasMore}
+      loadingOlder={pager.loadingOlder}
+      onLoadOlder={pager.loadOlder}
       draft={draft}
       setDraft={setDraft}
       mentionPaths={draftMentions}
@@ -1368,8 +1382,20 @@ export function App() {
             <button className="new-session" onClick={() => pushRoute({ section: "chat", sessionId: null })}>
               + New session
             </button>
+            {/* Server-side filter: matches sessions beyond the loaded page. */}
+            <input
+              className="session-filter"
+              type="search"
+              placeholder="Filter sessions…"
+              value={chatSessionFilter}
+              onChange={(e) => setChatSessionFilter(e.target.value)}
+              aria-label="Filter chat sessions"
+            />
             <nav className="session-list">
-              {sessions.filter((s) => s.meta.parent === undefined).map((s) => (
+              {sessions.length === 0 && (
+                <p className="dim">{deferredChatFilter.length > 0 ? "No matches." : "No sessions yet."}</p>
+              )}
+              {sessions.map((s) => (
                 <ListItem
                   key={s.id}
                   accentBar
@@ -1392,6 +1418,16 @@ export function App() {
                   ariaCurrent={active?.id === s.id ? "page" : undefined}
                 />
               ))}
+              {chatSessionsHasMore && (
+                <button
+                  type="button"
+                  className="load-more"
+                  onClick={loadMoreChatSessions}
+                  disabled={chatSessionsLoadingMore}
+                >
+                  {chatSessionsLoadingMore ? "Loading…" : "Load more"}
+                </button>
+              )}
             </nav>
           </>
         )}
@@ -1435,11 +1471,21 @@ export function App() {
             >
               + New session
             </button>
+            <input
+              className="session-filter"
+              type="search"
+              placeholder="Filter sessions…"
+              value={wsSessionFilter}
+              onChange={(e) => setWsSessionFilter(e.target.value)}
+              aria-label="Filter workspace sessions"
+            />
             <nav className="session-list">
               {workspaceSessions.length === 0 && (
-                <p className="dim">No sessions in this workspace yet.</p>
+                <p className="dim">
+                  {deferredWsFilter.length > 0 ? "No matches." : "No sessions in this workspace yet."}
+                </p>
               )}
-              {workspaceSessions.filter((s) => s.meta.parent === undefined).map((s) => (
+              {workspaceSessions.map((s) => (
                 <ListItem
                   key={s.id}
                   accentBar
@@ -1454,6 +1500,16 @@ export function App() {
                   }
                 />
               ))}
+              {wsSessionsHasMore && (
+                <button
+                  type="button"
+                  className="load-more"
+                  onClick={loadMoreWsSessions}
+                  disabled={wsSessionsLoadingMore}
+                >
+                  {wsSessionsLoadingMore ? "Loading…" : "Load more"}
+                </button>
+              )}
             </nav>
           </>
         )}

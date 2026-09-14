@@ -63,6 +63,17 @@ describe("subagent tracking (web task nodes)", () => {
     expect(trackSubagents(seeded, [childSession("ses_child1")], undefined).children.size).toBe(0);
   });
 
+  test("trackSubagents preserves tracked children missing from a partial (paged) list", () => {
+    const seeded = withChild(emptySubagentState, "ses_child1", "scout");
+    // The paged list only carries an unrelated session — the firehose-tracked
+    // child must survive (its live status/asks stay visible).
+    const partial = trackSubagents(seeded, [{ ...childSession("ses_x"), meta: { parent: "ses_elsewhere" } }], PARENT);
+    expect(partial.children.size).toBe(1);
+    expect(partial.children.get("ses_child1")?.agent).toBe("scout");
+    // Switching parents still drops the previous parent's children.
+    expect(trackSubagents(partial, [], "ses_new_parent").children.size).toBe(0);
+  });
+
   test("session.created adds only children of the active parent, without duplicates", () => {
     const state = applySubagentEvent(emptySubagentState, evt("session.created", undefined, { session: childSession("ses_c1") }), PARENT);
     expect(state.children.size).toBe(1);

@@ -3,20 +3,57 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
-import type { Input, Message, PermissionRequest, QuestionRequest, Session, SessionUsage } from "@bai/shared";
-import { contextTracker, applyMention, collapseMentions, expandMentionPaths, formatMentionRange, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
+import type {
+  Input,
+  Message,
+  PermissionRequest,
+  QuestionRequest,
+  Session,
+  SessionUsage,
+} from "@bai/shared";
+import {
+  contextTracker,
+  applyMention,
+  collapseMentions,
+  expandMentionPaths,
+  formatMentionRange,
+  mentionDisplayToken,
+  mentionLeaf,
+  mentionTrigger,
+  splitMentionQuery,
+  splitMentions,
+} from "@bai/shared";
 import type { Mode } from "../app";
-import { attachmentMarkers, buildTranscriptItems, messageText, revertBoundary, thinkingText, type TranscriptItem } from "../state/sync";
+import {
+  attachmentMarkers,
+  buildTranscriptItems,
+  messageText,
+  revertBoundary,
+  thinkingText,
+  type TranscriptItem,
+} from "../state/sync";
 import type { PickerOption } from "../state/providers";
 import { agentCycleDelta } from "../state/agents";
-import { emptySubagentState, findChildForTask, type SubagentActivity, type SubagentState } from "../state/subagents";
+import {
+  emptySubagentState,
+  findChildForTask,
+  type SubagentActivity,
+  type SubagentState,
+} from "../state/subagents";
 import { emptyAskUi, type AskUiState } from "../state/asks";
 import { Spinner } from "../components/spinner";
 import { Markdown } from "../components/markdown";
 import { ToolOutputBody } from "../components/tool-output";
 import { ComposerHub } from "../components/composer";
 import { MentionPicker } from "../components/mention-picker";
-import { emptyMentionUi, moveMention, openedMention, selectedMention, withMentionResults, type MentionUiState } from "../state/mention";
+import {
+  emptyMentionUi,
+  moveMention,
+  openedMention,
+  selectedMention,
+  withMentionResults,
+  type MentionUiState,
+} from "../state/mention";
 import { layoutHubStatus } from "../state/hub";
 import { PermissionPrompt } from "./permission-prompt";
 import { QuestionPrompt } from "./question-prompt";
@@ -211,10 +248,15 @@ export function ChatView({
   // transcript (mouse wheel, paging, ctrl+u/d), ctrl-chords, view
   // switching, and session switching all stay live.
   const headPermission = pendingAsks[0] ?? pendingChildAsks[0];
-  const headFromChild = pendingAsks.length === 0 && headPermission !== undefined;
-  const headQuestion = headPermission === undefined ? pendingQuestions[0] : undefined;
+  const headFromChild =
+    pendingAsks.length === 0 && headPermission !== undefined;
+  const headQuestion =
+    headPermission === undefined ? pendingQuestions[0] : undefined;
   const askPending = headPermission !== undefined || headQuestion !== undefined;
-  const askQueued = Math.max(0, pendingAsks.length + pendingChildAsks.length + pendingQuestions.length - 1);
+  const askQueued = Math.max(
+    0,
+    pendingAsks.length + pendingChildAsks.length + pendingQuestions.length - 1,
+  );
   // Origin line for a subagent's ask (who is asking).
   const childContext =
     headFromChild && headPermission !== undefined
@@ -254,7 +296,9 @@ export function ChatView({
   // the subagent dialog instead). Keyed `${messageId}:${callId}`.
   // Two-stage: preview (≤10 lines) → full (bounded 500 lines) → collapsed.
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
-  const [expandedToolsFull, setExpandedToolsFull] = useState<Set<string>>(new Set());
+  const [expandedToolsFull, setExpandedToolsFull] = useState<Set<string>>(
+    new Set(),
+  );
 
   // NORMAL-mode transcript focus: index into the flattened NODE list
   // (buildTranscriptItems — thought, each tool call, text, user message),
@@ -268,15 +312,21 @@ export function ChatView({
   // The message-actions modal (Enter/Space on a focused user message):
   // Revert / Copy / Fork / Restore. Like the inline ask prompts it takes
   // the composer hub's slot and owns the keyboard while open.
-  const [msgActions, setMsgActions] = useState<{ messageId: string } | null>(null);
+  const [msgActions, setMsgActions] = useState<{ messageId: string } | null>(
+    null,
+  );
 
   // ---- queued-message actions (message-queue feature) --------------------
   // The queued-actions modal (Enter/Space on a focused queued node, or a
   // click): Send now / Edit / Cancel. Same hub-slot + keyboard-ownership
   // pattern as the message-actions modal.
-  const [queuedActions, setQueuedActions] = useState<{ inputId: string } | null>(null);
+  const [queuedActions, setQueuedActions] = useState<{
+    inputId: string;
+  } | null>(null);
   const queuedActionsInput =
-    queuedActions !== null ? queuedInputs.find((i) => i.id === queuedActions.inputId) : undefined;
+    queuedActions !== null
+      ? queuedInputs.find((i) => i.id === queuedActions.inputId)
+      : undefined;
 
   // ---- `#file` mention picker (composer hub) -----------------------------
   // Opens while the draft holds a `#token` and a workspace root is known.
@@ -293,15 +343,18 @@ export function ChatView({
   // and a banner at the cut offers the restore. Items and the render loop
   // below index against the VISIBLE slice (messageIndex stays consistent).
   const revertId = revertBoundary(session);
-  const boundaryIdx = revertId === undefined ? -1 : messages.findIndex((m) => m.id === revertId);
-  const visibleMessages = boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
+  const boundaryIdx =
+    revertId === undefined ? -1 : messages.findIndex((m) => m.id === revertId);
+  const visibleMessages =
+    boundaryIdx < 0 ? messages : messages.slice(0, boundaryIdx);
   const revertedCount = boundaryIdx < 0 ? 0 : messages.length - boundaryIdx;
 
   // Evict expansion state for messages that fell out of the window — the
   // Sets otherwise grow unbounded across a long session.
   useEffect(() => {
     const ids = new Set<string>(visibleMessages.map((m) => m.id as string));
-    const live = (key: string): boolean => ids.has((key.split(":")[0] ?? "") as string);
+    const live = (key: string): boolean =>
+      ids.has((key.split(":")[0] ?? "") as string);
     setExpandedThinking((prev) => {
       if ([...prev].every((id) => ids.has(id as string))) return prev;
       return new Set([...prev].filter((id) => ids.has(id as string)));
@@ -318,32 +371,66 @@ export function ChatView({
 
   // The flattened node list — memoized on the visible window so unrelated
   // renders (scroll, focus, typing) skip the rebuild + JSON.parse digests.
-  const items = useMemo(() => buildTranscriptItems(visibleMessages), [visibleMessages]);
+  const items = useMemo(
+    () => buildTranscriptItems(visibleMessages),
+    [visibleMessages],
+  );
 
   // Queued nodes (message-queue feature): pending inputs render at the
   // transcript tail as focusable/clickable items — future messages, dimmed
   // with a queued chip. Send-now flips re-chip their node "sending…" IN
   // PLACE (no vanish-then-reshow gap) until promotion; sending nodes don't
   // open the actions dialog.
-  const queuedItems = useMemo(
-    () => {
-      const sending = new Set(sendingIds);
-      return queuedInputs.map((input) => ({
-        kind: "queued-input" as const,
-        input,
-        sending: sending.has(input.id),
-      }));
-    },
-    [queuedInputs, sendingIds],
+  const queuedItems = useMemo(() => {
+    const sending = new Set(sendingIds);
+    return queuedInputs.map((input) => ({
+      kind: "queued-input" as const,
+      input,
+      sending: sending.has(input.id),
+    }));
+  }, [queuedInputs, sendingIds]);
+
+  // The "--- Load more messages ---" boundary row: the first focusable node
+  // when older pages exist. Enter/space (or a click) fetches the next page —
+  // the explicit, selectable counterpart to wheel-up/pageUp auto-loading.
+  const loadMoreItems = useMemo(
+    () => (historyHasMore === true ? [{ kind: "load-more" as const }] : []),
+    [historyHasMore],
   );
 
   // The banner marking the pending-revert cut is itself focusable/clickable
   // (enter restores) — critical when the revert hid EVERY user message and
   // the dialog is otherwise unreachable.
   const focusItems = useMemo(
-    () => [...(revertedCount > 0 ? [...items, { kind: "revert-banner" as const }] : items), ...queuedItems],
-    [items, queuedItems, revertedCount],
+    () => [
+      ...loadMoreItems,
+      ...(revertedCount > 0
+        ? [...items, { kind: "revert-banner" as const }]
+        : items),
+      ...queuedItems,
+    ],
+    [loadMoreItems, items, queuedItems, revertedCount],
   );
+  // Focus-item index of the first real transcript node (the load-more row, if
+  // present, occupies index 0) — aboveCount's position lookups offset by this.
+  const itemsOffset = loadMoreItems.length;
+  // Keep the focused node stable when the boundary row appears/disappears
+  // (it shifts every focus index by one).
+  const prevLoadMoreRef = useRef(loadMoreItems.length);
+  useEffect(() => {
+    const delta = loadMoreItems.length - prevLoadMoreRef.current;
+    prevLoadMoreRef.current = loadMoreItems.length;
+    if (delta !== 0) setFocus((f) => (f === null ? f : Math.max(0, f + delta)));
+  }, [loadMoreItems.length]);
+
+  // Explicit load-more selection (enter/space/click): remember the transcript
+  // length so the post-load effect can focus the newest message of the batch
+  // that just arrived (rather than leaving focus on the boundary row).
+  const pendingLoadFocusRef = useRef<number | null>(null);
+  const triggerLoadOlder = useCallback((): void => {
+    pendingLoadFocusRef.current = messages.length;
+    onLoadOlder?.();
+  }, [messages.length, onLoadOlder]);
 
   // App-seeded composer text (fork flow): when the freshly forked session
   // becomes active, its message's prompt text lands in the composer once.
@@ -380,7 +467,9 @@ export function ChatView({
     }
     const { pathQuery } = splitMentionQuery(trigger.raw);
     setMention((current) =>
-      current.open && current.raw === trigger.raw ? current : openedMention(trigger.raw, pathQuery),
+      current.open && current.raw === trigger.raw
+        ? current
+        : openedMention(trigger.raw, pathQuery),
     );
     const token = ++mentionReq.current;
     const handle = setTimeout(() => {
@@ -389,20 +478,37 @@ export function ChatView({
         .then((found) => {
           if (token !== mentionReq.current) return;
           setMention((current) =>
-            current.open && current.raw === trigger.raw ? withMentionResults(current, found.results) : current,
+            current.open && current.raw === trigger.raw
+              ? withMentionResults(current, found.results)
+              : current,
           );
         })
         .catch((err: unknown) => {
           if (token !== mentionReq.current) return;
           setMention((current) =>
             current.open && current.raw === trigger.raw
-              ? { ...current, results: [], loading: false, error: err instanceof Error ? err.message : String(err) }
+              ? {
+                  ...current,
+                  results: [],
+                  loading: false,
+                  error: err instanceof Error ? err.message : String(err),
+                }
               : current,
           );
         });
     }, 120);
     return () => clearTimeout(handle);
-  }, [editor.text, editor.cursor, mode, askPending, msgActions, queuedActions, deferInput, mentionRoot, client]);
+  }, [
+    editor.text,
+    editor.cursor,
+    mode,
+    askPending,
+    msgActions,
+    queuedActions,
+    deferInput,
+    mentionRoot,
+    client,
+  ]);
 
   // ---- Continuous scroll state (terminal rows from the transcript top) ----
   const scrollRef = useRef<ScrollViewRef>(null);
@@ -420,6 +526,14 @@ export function ChatView({
   // subscribes once) without re-subscribing.
   const scrollOffsetRef = useRef(0);
   scrollOffsetRef.current = scrollOffset;
+  // Latest messages readable from the stable content-height callback (used to
+  // detect a prepend vs. a tail append when content grows).
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  // The first message id of the previous commit. When it changes, an older
+  // page was prepended above the viewport — the reading position must shift
+  // down by the prepended height to stay on the same rows.
+  const prevFirstIdRef = useRef<string | undefined>(undefined);
 
   // Session switched → follow the new transcript from the bottom, no stale
   // pending state, focus cleared (the transcript it pointed into is gone),
@@ -435,6 +549,7 @@ export function ChatView({
     setMsgActions(null);
     setQueuedActions(null);
     setMentionPaths({}); // leaf tokens belong to the previous workspace
+    prevFirstIdRef.current = undefined; // fresh transcript: no prepend anchor
     resetTraversal();
   }, [session?.id]);
 
@@ -490,7 +605,10 @@ export function ChatView({
         onSessionCreated(created);
         await client.submitPrompt(created.id, { text: outbound });
       } else {
-        await client.submitPrompt(session.id, { text: outbound, ...(queuing ? { queue: true } : {}) });
+        await client.submitPrompt(session.id, {
+          text: outbound,
+          ...(queuing ? { queue: true } : {}),
+        });
       }
       recordPrompt(trimmed);
       setEditor((e) =>
@@ -538,17 +656,40 @@ export function ChatView({
   // thinking expand/collapse, and the waiting spinner all ride this. Scrolled
   // up, the offset is from the TOP, so new rows appear out of view and the
   // reading window is stable with no compensation at all.
-  const handleContentHeightChange = useCallback((height: number): void => {
-    setContentHeight(height);
-    const bottom = Math.max(0, height - (scrollRef.current?.getViewportHeight() ?? 0));
-    if (pendingBottomRef.current || followRef.current) {
-      pendingBottomRef.current = false;
-      followRef.current = true;
-      setScrollOffset(bottom);
-    } else if (scrollOffsetRef.current > bottom) {
-      setScrollOffset(bottom); // content shrank below the reading position
-    }
-  }, []);
+  const handleContentHeightChange = useCallback(
+    (height: number, previousHeight: number): void => {
+      setContentHeight(height);
+      const bottom = Math.max(
+        0,
+        height - (scrollRef.current?.getViewportHeight() ?? 0),
+      );
+      const firstId = messagesRef.current[0]?.id as string | undefined;
+      const prepended =
+        prevFirstIdRef.current !== undefined &&
+        firstId !== undefined &&
+        firstId !== prevFirstIdRef.current;
+      prevFirstIdRef.current = firstId;
+      if (pendingBottomRef.current || followRef.current) {
+        pendingBottomRef.current = false;
+        followRef.current = true;
+        setScrollOffset(bottom);
+        return;
+      }
+      if (prepended) {
+        // A page was prepended ABOVE the viewport: shift the offset by the
+        // prepended height so the same rows stay in view (offset is from the
+        // top, so growing content would otherwise scroll the reader away).
+        const delta = height - previousHeight;
+        if (delta > 0)
+          setScrollOffset(Math.min(bottom, scrollOffsetRef.current + delta));
+        return;
+      }
+      if (scrollOffsetRef.current > bottom) {
+        setScrollOffset(bottom); // content shrank below the reading position
+      }
+    },
+    [],
+  );
 
   const handleViewportSizeChange = useCallback(
     (size: { width: number; height: number }): void => {
@@ -557,7 +698,10 @@ export function ChatView({
         pendingBottomRef.current = false;
         followRef.current = true;
         setScrollOffset(
-          Math.max(0, (scrollRef.current?.getContentHeight() ?? 0) - size.height),
+          Math.max(
+            0,
+            (scrollRef.current?.getContentHeight() ?? 0) - size.height,
+          ),
         );
       }
     },
@@ -595,6 +739,29 @@ export function ChatView({
     setFocus(next);
     revealItem(next);
   };
+
+  // Post-load focus: an explicit load-more selection moves the focus off the
+  // boundary row onto the newest message of the batch that just arrived.
+  // (Auto-loads — wheel/pageUp — leave focus alone.) `itemsOffset` accounts
+  // for the boundary row still being present when more pages remain.
+  useEffect(() => {
+    const before = pendingLoadFocusRef.current;
+    if (before === null) return;
+    const added = messages.length - before;
+    if (added > 0) {
+      pendingLoadFocusRef.current = null;
+      const next = itemsOffset + added - 1;
+      if (next >= 0 && next < focusItems.length) {
+        setFocus(next);
+        revealItem(next);
+      }
+    } else if (!loadingOlder) {
+      // Settled with nothing new (or failed) — drop the intent.
+      pendingLoadFocusRef.current = null;
+    }
+    // revealItem reads live refs; length/cursor changes drive this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, loadingOlder, itemsOffset, focusItems.length]);
 
   /**
    * Toggle one tool node's inline preview (non-task tools):
@@ -649,16 +816,25 @@ export function ChatView({
   };
 
   /** The tracked child a tool item's task spawned (exact via title/link). */
-  const resolveTaskChild = (item: Extract<TranscriptItem, { kind: "tool" }>): SubagentActivity | undefined => {
+  const resolveTaskChild = (
+    item: Extract<TranscriptItem, { kind: "tool" }>,
+  ): SubagentActivity | undefined => {
     if (item.call.name !== "task") return undefined;
     const message = visibleMessages[item.messageIndex];
-    return findChildForTask(subagents.children, item.rawArgs, taskChildId(message, item.call.callId));
+    return findChildForTask(
+      subagents.children,
+      item.rawArgs,
+      taskChildId(message, item.call.callId),
+    );
   };
 
   // ---- message actions (opencode's DialogMessage parity) -----------------
   /** The message the modal is open for — looked up from the FULL history:
       the revert boundary itself is hidden from the transcript but still known. */
-  const msgActionsMessage = msgActions !== null ? messages.find((m) => m.id === msgActions.messageId) : undefined;
+  const msgActionsMessage =
+    msgActions !== null
+      ? messages.find((m) => m.id === msgActions.messageId)
+      : undefined;
 
   /**
    * Run a revert-family mutation, absorbing the post-interrupt busy window:
@@ -722,7 +898,9 @@ export function ChatView({
     setMsgActions(null);
     // OSC 52 — the terminal clipboard escape: honored locally and over SSH
     // by most modern terminals, with no subprocess dependency.
-    const encoded = Buffer.from(messageText(message), "utf8").toString("base64");
+    const encoded = Buffer.from(messageText(message), "utf8").toString(
+      "base64",
+    );
     stdout.write(`\x1b]52;c;${encoded}\x07`);
   };
 
@@ -756,7 +934,9 @@ export function ChatView({
       const row = { path: entry.path, type: "dir" } as const;
       setEditor((current) => {
         const trig = mentionTrigger(current.text, current.cursor);
-        return trig === null ? current : applyMention(current.text, current.cursor, trig, row);
+        return trig === null
+          ? current
+          : applyMention(current.text, current.cursor, trig, row);
       });
       return;
     }
@@ -766,7 +946,13 @@ export function ChatView({
       const trig = mentionTrigger(current.text, current.cursor);
       if (trig === null) return current;
       const { range } = splitMentionQuery(trig.raw);
-      const next = applyMention(current.text, current.cursor, trig, { path: token, type: "file" }, range);
+      const next = applyMention(
+        current.text,
+        current.cursor,
+        trig,
+        { path: token, type: "file" },
+        range,
+      );
       return { text: next.text, cursor: next.cursor };
     });
     setMentionPaths((paths) => ({ ...paths, [token]: entry.path }));
@@ -807,102 +993,173 @@ export function ChatView({
 
   useInput(
     (ch, key) => {
-    // SGR mouse events arrive as literal input (ESC stripped): press
-    // `ESC[<button;col;rowM`, release `…m`. Coordinates are 1-based. Works
-    // even while busy — reading history during a run.
-    const mouse =
-      ch !== undefined ? /^\x1b?\[<(\d+);(\d+);(\d+)([Mm])$/.exec(ch) : null;
-    if (mouse !== null) {
-      const button = Number(mouse[1]);
-      // Wheel: continuous row scrolling. The offset is from the transcript
-      // TOP, so wheel-up (toward older content) is a negative delta.
-      if (button === WHEEL_UP) return scrollBy(-WHEEL_ROWS);
-      if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
-      // Left press (release ignored — one click, one action): first the
-      // composer hub's chips, then the transcript items. Hub chips are
-      // BOTTOM-anchored (input wrapping above them is variable, but the
-      // status row sits at a fixed offset above the App footer), while
-      // transcript items are top-anchored (VIEWPORT_TOP_ROW). Only live
-      // when the hub itself is on screen — a pending ask swaps the prompt
-      // into the hub's slot.
-      if (button === 0 && mouse[4] === "M") {
-        const row = Number(mouse[3]);
-        if (!askPending && msgActions === null && rows > 3 && row === rows - footerRows - 2) {
-          // 1-based screen column → 0-based inner content column: border
-          // (1) + paddingX (1) each side.
-          const col = Number(mouse[2]) - 3;
-          const chip = hubLayout.chips.find((c) => col >= c.start && col < c.end);
-          if (chip !== undefined) {
-            if (chip.kind === "agent") return onOpenAgents();
-            if (chip.kind === "model") return onOpenModels();
-            return onOpenSessions();
+      // SGR mouse events arrive as literal input (ESC stripped): press
+      // `ESC[<button;col;rowM`, release `…m`. Coordinates are 1-based. Works
+      // even while busy — reading history during a run.
+      const mouse =
+        ch !== undefined ? /^\x1b?\[<(\d+);(\d+);(\d+)([Mm])$/.exec(ch) : null;
+      if (mouse !== null) {
+        const button = Number(mouse[1]);
+        // Wheel: continuous row scrolling. The offset is from the transcript
+        // TOP, so wheel-up (toward older content) is a negative delta. At the
+        // very top with older pages available, wheel-up fetches them — the
+        // natural scroll-to-load gesture (pageUp does the same).
+        if (button === WHEEL_UP) {
+          if (
+            scrollOffsetRef.current <= 0 &&
+            historyHasMore === true &&
+            onLoadOlder !== undefined
+          ) {
+            return onLoadOlder();
           }
-          return;
+          return scrollBy(-WHEEL_ROWS);
         }
-        // The item whose measured block contains the clicked row acts —
-        // thought toggles, a task opens the subagent dialog, any other tool
-        // toggles its inline output. Positions are exact per node (each
-        // item is measured).
-        for (let ii = 0; ii < focusItems.length; ii++) {
-          const pos = scrollRef.current?.getItemPosition(ii);
-          if (pos === null || pos === undefined) continue;
-          const gap = ii === 0 ? 0 : 1;
-          const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
-          const bottom = VIEWPORT_TOP_ROW + pos.top + pos.height - shownOffset;
-          if (row < top || row >= bottom) continue;
-          const item = focusItems[ii];
-          if (item === undefined) return;
-          if (item.kind === "revert-banner") {
-            actionRestore();
-          } else if (item.kind === "thought") {
-            toggleThought(item.messageId);
-          } else if (item.kind === "tool") {
-            if (item.call.name === "task") {
-              onOpenSubagent(resolveTaskChild(item)?.sessionId);
-            } else {
-              // Mouse has no shift modifier — click toggles the preview.
-              toggleToolPreview(`${item.messageId}:${item.call.callId}`);
+        if (button === WHEEL_DOWN) return scrollBy(WHEEL_ROWS);
+        // Left press (release ignored — one click, one action): first the
+        // composer hub's chips, then the transcript items. Hub chips are
+        // BOTTOM-anchored (input wrapping above them is variable, but the
+        // status row sits at a fixed offset above the App footer), while
+        // transcript items are top-anchored (VIEWPORT_TOP_ROW). Only live
+        // when the hub itself is on screen — a pending ask swaps the prompt
+        // into the hub's slot.
+        if (button === 0 && mouse[4] === "M") {
+          const row = Number(mouse[3]);
+          if (
+            !askPending &&
+            msgActions === null &&
+            rows > 3 &&
+            row === rows - footerRows - 2
+          ) {
+            // 1-based screen column → 0-based inner content column: border
+            // (1) + paddingX (1) each side.
+            const col = Number(mouse[2]) - 3;
+            const chip = hubLayout.chips.find(
+              (c) => col >= c.start && col < c.end,
+            );
+            if (chip !== undefined) {
+              if (chip.kind === "agent") return onOpenAgents();
+              if (chip.kind === "model") return onOpenModels();
+              return onOpenSessions();
             }
-          } else if (item.kind === "queued-input") {
-            // Sending nodes are in flight — no actions to offer.
-            if (!item.sending) setQueuedActions({ inputId: item.input.id });
+            return;
+          }
+          // The item whose measured block contains the clicked row acts —
+          // thought toggles, a task opens the subagent dialog, any other tool
+          // toggles its inline output. Positions are exact per node (each
+          // item is measured).
+          for (let ii = 0; ii < focusItems.length; ii++) {
+            const pos = scrollRef.current?.getItemPosition(ii);
+            if (pos === null || pos === undefined) continue;
+            const gap = ii === 0 ? 0 : 1;
+            const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
+            const bottom =
+              VIEWPORT_TOP_ROW + pos.top + pos.height - shownOffset;
+            if (row < top || row >= bottom) continue;
+            const item = focusItems[ii];
+            if (item === undefined) return;
+          if (item.kind === "load-more") {
+            triggerLoadOlder();
+          } else if (item.kind === "revert-banner") {
+              actionRestore();
+            } else if (item.kind === "thought") {
+              toggleThought(item.messageId);
+            } else if (item.kind === "tool") {
+              if (item.call.name === "task") {
+                onOpenSubagent(resolveTaskChild(item)?.sessionId);
+              } else {
+                // Mouse has no shift modifier — click toggles the preview.
+                toggleToolPreview(`${item.messageId}:${item.call.callId}`);
+              }
+            } else if (item.kind === "queued-input") {
+              // Sending nodes are in flight — no actions to offer.
+              if (!item.sending) setQueuedActions({ inputId: item.input.id });
+            }
+            return;
+          }
+        }
+        return;
+      }
+      // pageUp/pageDown = half a viewport; ctrl+u/ctrl+d = a quarter (opencode).
+      const pageRows = Math.max(1, Math.floor(viewportHeight / 2));
+      const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
+      if (key.pageUp) {
+        // At the very top with older pages available → fetch them instead.
+        if (
+          scrollOffsetRef.current <= 0 &&
+          historyHasMore === true &&
+          onLoadOlder !== undefined
+        ) {
+          return onLoadOlder();
+        }
+        return scrollBy(-pageRows);
+      }
+      if (key.pageDown) return scrollBy(pageRows);
+
+      // The message-actions / queued-actions dialogs own the keyboard (their
+      // own useInput handles arrows/enter/esc/filter): everything defers
+      // except scrolling.
+      if (msgActions !== null || queuedActions !== null) {
+        if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
+        if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
+        return;
+      }
+
+      // An ask is pending: the inline prompt (its own useInput) owns plain
+      // keys, arrows, enter/space, and — for questions and the permission
+      // reject stage — esc. The chat keeps mouse (above), paging, and
+      // ctrl+u/d scroll; other ctrl chords fall through to App's globals
+      // (the supermenu stays reachable mid-ask — the point of going inline).
+      if (askPending) {
+        if (key.escape && !escOwnedByPrompt) {
+          // The chat's esc semantics: clear transcript focus first, then the
+          // double-press interrupt (abandoning the blocked run answers the
+          // ask the hard way — core fails the pending ask on stop).
+          if (focus !== null) {
+            setFocus(null);
+            return;
+          }
+          if (runActive && session !== null) {
+            if (escArmed) {
+              disarmEsc();
+              void client.interrupt(session.id);
+            } else {
+              setEscArmed(true);
+              if (escTimer.current !== null) clearTimeout(escTimer.current);
+              escTimer.current = setTimeout(disarmEsc, 2500);
+            }
           }
           return;
         }
+        if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
+        if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
+        return;
       }
-      return;
-    }
-    // pageUp/pageDown = half a viewport; ctrl+u/ctrl+d = a quarter (opencode).
-    const pageRows = Math.max(1, Math.floor(viewportHeight / 2));
-    const halfPageRows = Math.max(1, Math.floor(viewportHeight / 4));
-    if (key.pageUp) {
-      // At the very top with older pages available → fetch them instead.
-      if (scrollOffsetRef.current <= 0 && historyHasMore === true && onLoadOlder !== undefined) {
-        return onLoadOlder();
+
+      // `#file` mention picker owns navigation while open; typed characters
+      // still flow to the editor so the query filters live.
+      if (mention.open) {
+        if (key.upArrow) return setMention((m) => moveMention(m, -1));
+        if (key.downArrow) return setMention((m) => moveMention(m, 1));
+        if (key.tab || key.return) return selectMention();
+        if (key.escape) return setMention(emptyMentionUi());
       }
-      return scrollBy(-pageRows);
-    }
-    if (key.pageDown) return scrollBy(pageRows);
 
-    // The message-actions / queued-actions dialogs own the keyboard (their
-    // own useInput handles arrows/enter/esc/filter): everything defers
-    // except scrolling.
-    if (msgActions !== null || queuedActions !== null) {
-      if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
-      if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
-      return;
-    }
+      // Tab / Shift+Tab: cycle the session's agent (opencode's agent_cycle /
+      // agent_cycle_reverse). Live in BOTH modes — the fast switch while
+      // typing. The mention picker above owns Tab while it is open; the ask
+      // and modal-prompt guards return earlier.
+      const agentDelta = agentCycleDelta(ch, key);
+      if (agentDelta !== null) {
+        onCycleAgent?.(agentDelta);
+        return;
+      }
 
-    // An ask is pending: the inline prompt (its own useInput) owns plain
-    // keys, arrows, enter/space, and — for questions and the permission
-    // reject stage — esc. The chat keeps mouse (above), paging, and
-     // ctrl+u/d scroll; other ctrl chords fall through to App's globals
-     // (the supermenu stays reachable mid-ask — the point of going inline).
-    if (askPending) {
-      if (key.escape && !escOwnedByPrompt) {
-        // The chat's esc semantics: clear transcript focus first, then the
-        // double-press interrupt (abandoning the blocked run answers the
-        // ask the hard way — core fails the pending ask on stop).
+      // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
+      // then interrupts the running drain (double-press: first arms, second
+      // fires). Safe on an idle session; dialogs handle their own esc and
+      // replace this view.
+      if (key.escape) {
+        if (mode === "input") return onExitInput();
         if (focus !== null) {
           setFocus(null);
           return;
@@ -919,204 +1176,167 @@ export function ChatView({
         }
         return;
       }
-      if (key.ctrl && ch === "u") return scrollBy(-halfPageRows);
-      if (key.ctrl && ch === "d") return scrollBy(halfPageRows);
-      return;
-    }
 
-    // `#file` mention picker owns navigation while open; typed characters
-    // still flow to the editor so the query filters live.
-    if (mention.open) {
-      if (key.upArrow) return setMention((m) => moveMention(m, -1));
-      if (key.downArrow) return setMention((m) => moveMention(m, 1));
-      if (key.tab || key.return) return selectMention();
-      if (key.escape) return setMention(emptyMentionUi());
-    }
-
-    // Tab / Shift+Tab: cycle the session's agent (opencode's agent_cycle /
-    // agent_cycle_reverse). Live in BOTH modes — the fast switch while
-    // typing. The mention picker above owns Tab while it is open; the ask
-    // and modal-prompt guards return earlier.
-    const agentDelta = agentCycleDelta(ch, key);
-    if (agentDelta !== null) {
-      onCycleAgent?.(agentDelta);
-      return;
-    }
-
-    // esc: INPUT exits the mode; NORMAL clears the transcript focus first,
-    // then interrupts the running drain (double-press: first arms, second
-    // fires). Safe on an idle session; dialogs handle their own esc and
-    // replace this view.
-    if (key.escape) {
-      if (mode === "input") return onExitInput();
-      if (focus !== null) {
-        setFocus(null);
-        return;
-      }
-      if (runActive && session !== null) {
-        if (escArmed) {
-          disarmEsc();
-          void client.interrupt(session.id);
-        } else {
-          setEscArmed(true);
-          if (escTimer.current !== null) clearTimeout(escTimer.current);
-          escTimer.current = setTimeout(disarmEsc, 2500);
+      if (mode === "normal") {
+        // NORMAL: vim motions + ctrl chords. Plain typing is
+        // ignored — only single-char mode entries count (batched chunks are
+        // rapid-typing artifacts that belong to INPUT).
+        if (key.ctrl) {
+          if (ch === "u") return scrollBy(-halfPageRows);
+          if (ch === "d") return scrollBy(halfPageRows);
+          // ctrl+j/ctrl+k: transcript focus traversal (the accent highlight) —
+          // steps message-by-message and scrolls by rows to reveal the target.
+          if (ch === "j") return stepFocus(true);
+          if (ch === "k") return stepFocus(false);
+          // Editing chords stay live in both modes (the draft persists).
+          if (ch === "w") return setEditor(deleteWordBefore);
+          return; // remaining ctrl chords belong to App's globals handler
         }
-      }
-      return;
-    }
-
-    if (mode === "normal") {
-      // NORMAL: vim motions + ctrl chords. Plain typing is
-      // ignored — only single-char mode entries count (batched chunks are
-      // rapid-typing artifacts that belong to INPUT).
-      if (key.ctrl) {
-        if (ch === "u") return scrollBy(-halfPageRows);
-        if (ch === "d") return scrollBy(halfPageRows);
-        // ctrl+j/ctrl+k: transcript focus traversal (the accent highlight) —
-        // steps message-by-message and scrolls by rows to reveal the target.
-        if (ch === "j") return stepFocus(true);
-        if (ch === "k") return stepFocus(false);
-        // Editing chords stay live in both modes (the draft persists).
-        if (ch === "w") return setEditor(deleteWordBefore);
-        return; // remaining ctrl chords belong to App's globals handler
-      }
-      // ctrl+j's legacy spelling (lone "\n": ink parses the raw linefeed byte
-      // as name:'enter' with ctrl=false, so it never reaches the ctrl branch
-      // above). Typing is ignored in NORMAL mode, so a lone "\n" here is
-      // unambiguously ctrl+j → focus traversal down.
-      if (ch === "\n") return stepFocus(true);
-      if (ch === "i" || ch === "a") {
-        // Entering INPUT resets the transcript to the tail: a stale focus or
-        // a scrolled-up reading position must not hide the growing queued
-        // tail while typing (new nodes land at the bottom).
-        setFocus(null);
-        scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
-        return onEnterInput();
-      }
-      // f on a focused non-task tool node toggles the bounded full
-      // output (preview ↔ full; plain enter/space below toggles preview).
-      if (ch === "f") {
-        const fullItem = focus !== null ? focusItems[focus] : undefined;
-        if (fullItem?.kind === "tool" && fullItem.call.name !== "task") {
-          toggleToolFull(`${fullItem.messageId}:${fullItem.call.callId}`);
+        // ctrl+j's legacy spelling (lone "\n": ink parses the raw linefeed byte
+        // as name:'enter' with ctrl=false, so it never reaches the ctrl branch
+        // above). Typing is ignored in NORMAL mode, so a lone "\n" here is
+        // unambiguously ctrl+j → focus traversal down.
+        if (ch === "\n") return stepFocus(true);
+        if (ch === "i" || ch === "a") {
+          // Entering INPUT resets the transcript to the tail: a stale focus or
+          // a scrolled-up reading position must not hide the growing queued
+          // tail while typing (new nodes land at the bottom).
+          setFocus(null);
+          scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
+          return onEnterInput();
         }
-        return;
-      }
-      // Enter/Space act on the focused NODE: thought toggles, a task opens
-      // the subagent dialog, a user message opens the message-actions modal
-      // (revert/copy/fork/restore), the revert banner restores, any other
-      // tool toggles its inline output.
-      if (key.return || ch === " ") {
-        const focusedItem = focus !== null ? focusItems[focus] : undefined;
-        if (focusedItem !== undefined) {
-          if (focusedItem.kind === "revert-banner") {
-            actionRestore();
+        // f on a focused non-task tool node toggles the bounded full
+        // output (preview ↔ full; plain enter/space below toggles preview).
+        if (ch === "f") {
+          const fullItem = focus !== null ? focusItems[focus] : undefined;
+          if (fullItem?.kind === "tool" && fullItem.call.name !== "task") {
+            toggleToolFull(`${fullItem.messageId}:${fullItem.call.callId}`);
+          }
+          return;
+        }
+        // Enter/Space act on the focused NODE: thought toggles, a task opens
+        // the subagent dialog, a user message opens the message-actions modal
+        // (revert/copy/fork/restore), the revert banner restores, any other
+        // tool toggles its inline output.
+        if (key.return || ch === " ") {
+          const focusedItem = focus !== null ? focusItems[focus] : undefined;
+          if (focusedItem !== undefined) {
+          if (focusedItem.kind === "load-more") {
+            triggerLoadOlder();
             return;
           }
-          if (focusedItem.kind === "thought") {
-            toggleThought(focusedItem.messageId);
-            return;
-          }
-          if (focusedItem.kind === "tool") {
-            if (focusedItem.call.name === "task") {
-              onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
-            } else {
-              // Plain enter/space toggles the preview (or hides).
-              // f is handled above (toggleToolFull).
-              toggleToolPreview(`${focusedItem.messageId}:${focusedItem.call.callId}`);
+            if (focusedItem.kind === "revert-banner") {
+              actionRestore();
+              return;
             }
-            return;
+            if (focusedItem.kind === "thought") {
+              toggleThought(focusedItem.messageId);
+              return;
+            }
+            if (focusedItem.kind === "tool") {
+              if (focusedItem.call.name === "task") {
+                onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
+              } else {
+                // Plain enter/space toggles the preview (or hides).
+                // f is handled above (toggleToolFull).
+                toggleToolPreview(
+                  `${focusedItem.messageId}:${focusedItem.call.callId}`,
+                );
+              }
+              return;
+            }
+            if (focusedItem.kind === "user") {
+              setMsgActions({ messageId: focusedItem.messageId });
+              return;
+            }
+            if (focusedItem.kind === "queued-input") {
+              // Sending nodes are in flight — no actions to offer.
+              if (!focusedItem.sending)
+                setQueuedActions({ inputId: focusedItem.input.id });
+              return;
+            }
           }
-          if (focusedItem.kind === "user") {
-            setMsgActions({ messageId: focusedItem.messageId });
-            return;
-          }
-          if (focusedItem.kind === "queued-input") {
-            // Sending nodes are in flight — no actions to offer.
-            if (!focusedItem.sending) setQueuedActions({ inputId: focusedItem.input.id });
-            return;
-          }
+          if (key.return) return onEnterInput();
+          return; // space on user/text: no-op
         }
-        if (key.return) return onEnterInput();
-        return; // space on user/text: no-op
+        // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
+        if (key.upArrow || ch === "k") return scrollBy(-1);
+        if (key.downArrow || ch === "j") return scrollBy(1);
+        return;
       }
-      // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
-      if (key.upArrow || ch === "k") return scrollBy(-1);
-      if (key.downArrow || ch === "j") return scrollBy(1);
-      return;
-    }
 
-    // ---- INPUT mode: typing into the draft ----
-    // Kept editing chords; every other ctrl chord is dead while typing.
-    if (key.ctrl) {
-      if (ch === "w") return setEditor(deleteWordBefore);
-      if (ch === "j") return setEditor(openBelow);
-      if (ch === "k") return setEditor(openAbove);
-      return;
-    }
-    // ctrl+j's legacy spelling (lone "\n", key.ctrl=false in legacy
-    // terminals) is a kept editing chord in INPUT mode only — NORMAL's
-    // ctrl+j/k now drive focus traversal.
-    if (ch === "\n") return setEditor(openBelow);
-    if (busy || key.meta) return;
-    // Up/down are line-wise cursor movement in the draft (standard editor
-    // behavior). History traversal only engages from an empty draft — once
-    // an entry is recalled, the arrows move within it; clear the draft to
-    // traverse further. Recalled entries put the cursor at their end.
-    if (key.upArrow) {
-      if (editor.text.length === 0) {
-        const recalled = traverse(true, editor.text);
-        if (recalled !== null) setEditor({ text: recalled, cursor: recalled.length });
-      } else {
-        setEditor(moveLineUp);
+      // ---- INPUT mode: typing into the draft ----
+      // Kept editing chords; every other ctrl chord is dead while typing.
+      if (key.ctrl) {
+        if (ch === "w") return setEditor(deleteWordBefore);
+        if (ch === "j") return setEditor(openBelow);
+        if (ch === "k") return setEditor(openAbove);
+        return;
       }
-      return;
-    }
-    if (key.downArrow) {
-      if (editor.text.length === 0) {
-        const recalled = traverse(false, editor.text);
-        if (recalled !== null) setEditor({ text: recalled, cursor: recalled.length });
-      } else {
-        setEditor(moveLineDown);
+      // ctrl+j's legacy spelling (lone "\n", key.ctrl=false in legacy
+      // terminals) is a kept editing chord in INPUT mode only — NORMAL's
+      // ctrl+j/k now drive focus traversal.
+      if (ch === "\n") return setEditor(openBelow);
+      if (busy || key.meta) return;
+      // Up/down are line-wise cursor movement in the draft (standard editor
+      // behavior). History traversal only engages from an empty draft — once
+      // an entry is recalled, the arrows move within it; clear the draft to
+      // traverse further. Recalled entries put the cursor at their end.
+      if (key.upArrow) {
+        if (editor.text.length === 0) {
+          const recalled = traverse(true, editor.text);
+          if (recalled !== null)
+            setEditor({ text: recalled, cursor: recalled.length });
+        } else {
+          setEditor(moveLineUp);
+        }
+        return;
       }
-      return;
-    }
-    if (key.return) {
-      void submit();
-    } else if (key.backspace) {
-      setEditor(backspace);
-    } else if (key.delete) {
-      setEditor(deleteForward);
-    } else if (key.home) {
-      setEditor(moveLineStart);
-    } else if (key.end) {
-      setEditor(moveLineEnd);
-    } else if (key.leftArrow) {
-      setEditor(moveLeft);
-    } else if (key.rightArrow) {
-      setEditor(moveRight);
-    } else if (ch !== undefined && ch.length > 0) {
-      // Typed input can arrive batched (several keystrokes in one chunk).
-      // \r is the only submit boundary (Enter); "\n" is ctrl+j and stays in
-      // the draft as a structural newline (insertMultiline → vim o).
-      const parts = ch.split(/\r/);
-      const tail = sanitize(parts.pop() ?? "");
-      if (parts.length > 0) {
-        // Enter inside the burst: the draft (with the completed segment
-        // inserted at the cursor) goes out; the tail becomes the new draft.
-        const completed = parts.map((s) => sanitize(s)).join(" ");
-        const value =
-          editor.text.slice(0, editor.cursor) +
-          completed +
-          editor.text.slice(editor.cursor);
-        setEditor({ text: tail, cursor: tail.length });
-        void submitText(value, tail);
-      } else if (tail.length > 0) {
-        setEditor((e) => insertMultiline(e, tail));
+      if (key.downArrow) {
+        if (editor.text.length === 0) {
+          const recalled = traverse(false, editor.text);
+          if (recalled !== null)
+            setEditor({ text: recalled, cursor: recalled.length });
+        } else {
+          setEditor(moveLineDown);
+        }
+        return;
       }
-    }
-  },
+      if (key.return) {
+        void submit();
+      } else if (key.backspace) {
+        setEditor(backspace);
+      } else if (key.delete) {
+        setEditor(deleteForward);
+      } else if (key.home) {
+        setEditor(moveLineStart);
+      } else if (key.end) {
+        setEditor(moveLineEnd);
+      } else if (key.leftArrow) {
+        setEditor(moveLeft);
+      } else if (key.rightArrow) {
+        setEditor(moveRight);
+      } else if (ch !== undefined && ch.length > 0) {
+        // Typed input can arrive batched (several keystrokes in one chunk).
+        // \r is the only submit boundary (Enter); "\n" is ctrl+j and stays in
+        // the draft as a structural newline (insertMultiline → vim o).
+        const parts = ch.split(/\r/);
+        const tail = sanitize(parts.pop() ?? "");
+        if (parts.length > 0) {
+          // Enter inside the burst: the draft (with the completed segment
+          // inserted at the cursor) goes out; the tail becomes the new draft.
+          const completed = parts.map((s) => sanitize(s)).join(" ");
+          const value =
+            editor.text.slice(0, editor.cursor) +
+            completed +
+            editor.text.slice(editor.cursor);
+          setEditor({ text: tail, cursor: tail.length });
+          void submitText(value, tail);
+        } else if (tail.length > 0) {
+          setEditor((e) => insertMultiline(e, tail));
+        }
+      }
+    },
     // Deferred while an App-level overlay dialog is open: the view stays
     // mounted behind it, and Ink would deliver every key/mouse event twice.
     { isActive: !deferInput },
@@ -1134,7 +1354,8 @@ export function ChatView({
   if (len > 0 && contentHeight > 0) {
     const seen = new Set<number>();
     for (let ii = 0; ii < items.length; ii++) {
-      const pos = scrollRef.current?.getItemPosition(ii);
+      // Skip the load-more boundary row (index 0 when present).
+      const pos = scrollRef.current?.getItemPosition(ii + itemsOffset);
       if (pos === null || pos === undefined) break;
       if (pos.top + pos.height <= shownOffset) {
         seen.add(items[ii]!.messageIndex);
@@ -1170,17 +1391,39 @@ export function ChatView({
   // dialog is reachable on any user message — the boundary itself is hidden).
   const messageActionOptions: PickerOption[] = [
     ...(revertId !== undefined
-      ? [{ value: "restore", label: "Restore reverted messages", hint: "bring back the hidden messages" }]
+      ? [
+          {
+            value: "restore",
+            label: "Restore reverted messages",
+            hint: "bring back the hidden messages",
+          },
+        ]
       : []),
-    { value: "revert", label: "Revert to here", hint: "undo this message + everything after" },
+    {
+      value: "revert",
+      label: "Revert to here",
+      hint: "undo this message + everything after",
+    },
     { value: "copy", label: "Copy", hint: "message text to clipboard" },
-    { value: "fork", label: "Fork from here", hint: "new session with the earlier history" },
+    {
+      value: "fork",
+      label: "Fork from here",
+      hint: "new session with the earlier history",
+    },
   ];
 
   // Queued-message options (message-queue feature): send now / edit / cancel.
   const queuedActionOptions: PickerOption[] = [
-    { value: "send", label: "Send now", hint: "promote immediately — the next provider turn" },
-    { value: "edit", label: "Edit", hint: "cancel and put the text back in the composer" },
+    {
+      value: "send",
+      label: "Send now",
+      hint: "promote immediately — the next provider turn",
+    },
+    {
+      value: "edit",
+      label: "Edit",
+      hint: "cancel and put the text back in the composer",
+    },
     { value: "cancel", label: "Cancel queue", hint: "drop it — it never runs" },
   ];
 
@@ -1215,14 +1458,38 @@ export function ChatView({
           // INSIDE the measured item so measured positions stay exact.
           const gap = ii === 0 ? 0 : 1;
           const focused = focus === ii;
+          if (item.kind === "load-more") {
+            // The explicit boundary affordance: select (enter/space) or click
+            // to fetch the next older page.
+            return (
+              <Box
+                key="load-more"
+                marginTop={gap}
+                flexShrink={0}
+                {...assistantInset}
+              >
+                <Text color={focused ? t.accent : t.dim}>
+                  {focused ? "❯ " : "  "}
+                  {loadingOlder === true
+                    ? "--- loading older messages… ---"
+                    : "--- ↑ Load more messages ---"}
+                </Text>
+              </Box>
+            );
+          }
           if (item.kind === "revert-banner") {
             // The pending-revert cut: a banner where the hidden messages
             // were (opencode's reverted banner). Focus/click → restore.
             return (
-              <Box key="revert-banner" marginTop={gap} flexShrink={0} {...assistantInset}>
+              <Box
+                key="revert-banner"
+                marginTop={gap}
+                flexShrink={0}
+                {...assistantInset}
+              >
                 <Text color={focused ? t.accent : t.dim}>
-                  {focused ? "❯ " : "  "}↩ {revertedCount} message{revertedCount === 1 ? "" : "s"} reverted — enter
-                  to restore
+                  {focused ? "❯ " : "  "}↩ {revertedCount} message
+                  {revertedCount === 1 ? "" : "s"} reverted — enter to restore
                 </Text>
               </Box>
             );
@@ -1232,7 +1499,11 @@ export function ChatView({
             // transcript tail — future messages, dimmed with a queued chip
             // ("sending…" once send-now flipped them, accent-tinted).
             return (
-              <Box key={`queued:${item.input.id}`} marginTop={gap} flexShrink={0}>
+              <Box
+                key={`queued:${item.input.id}`}
+                marginTop={gap}
+                flexShrink={0}
+              >
                 <Box
                   borderStyle="round"
                   // Dim border at rest; the accent is reserved for the
@@ -1259,7 +1530,11 @@ export function ChatView({
           const marker = focused ? <Text color={t.accent}>❯ </Text> : null;
           if (item.kind === "user") {
             return (
-              <Box key={`${item.messageId}:user`} marginTop={gap} flexShrink={0}>
+              <Box
+                key={`${item.messageId}:user`}
+                marginTop={gap}
+                flexShrink={0}
+              >
                 <Box
                   borderStyle="round"
                   // Neutral outline at rest; the accent is reserved for the
@@ -1274,12 +1549,17 @@ export function ChatView({
                     {(() => {
                       const body = messageText(m);
                       const segments = splitMentions(body);
-                      if (!segments.some((seg) => seg.type === "mention")) return body;
+                      if (!segments.some((seg) => seg.type === "mention"))
+                        return body;
                       return segments.map((seg, si) => {
-                        if (seg.type === "text") return <Text key={si}>{seg.text}</Text>;
+                        if (seg.type === "text")
+                          return <Text key={si}>{seg.text}</Text>;
                         const range =
                           seg.from !== undefined
-                            ? { from: seg.from, ...(seg.to !== undefined ? { to: seg.to } : {}) }
+                            ? {
+                                from: seg.from,
+                                ...(seg.to !== undefined ? { to: seg.to } : {}),
+                              }
                             : undefined;
                         return (
                           <Text key={si} color={t.secondary}>
@@ -1293,7 +1573,9 @@ export function ChatView({
                     // Attached image marker (no terminal image rendering):
                     // `[image: shot.png]` / `[omitted: …]`.
                     const markers = attachmentMarkers(m);
-                    return markers.length > 0 ? <Text color={t.secondary}>{markers.join(" ")}</Text> : null;
+                    return markers.length > 0 ? (
+                      <Text color={t.secondary}>{markers.join(" ")}</Text>
+                    ) : null;
                   })()}
                 </Box>
               </Box>
@@ -1304,13 +1586,15 @@ export function ChatView({
             const lineCount = thinking.split("\n").length;
             const expanded = expandedThinking.has(item.messageId);
             return (
-              <Box key={`${item.messageId}:thought`} marginTop={gap} flexShrink={0}>
+              <Box
+                key={`${item.messageId}:thought`}
+                marginTop={gap}
+                flexShrink={0}
+              >
                 <Box {...assistantInset} flexShrink={0}>
                   {expanded ? (
                     <Box flexDirection="column">
-                      <Text color={t.dim}>
-                        {marker}── thought ──
-                      </Text>
+                      <Text color={t.dim}>{marker}── thought ──</Text>
                       {/* Thinking renders markdown too, dimmed overall. */}
                       <Markdown text={thinking} dim />
                     </Box>
@@ -1332,12 +1616,29 @@ export function ChatView({
             if (c.name === "task") {
               const child = resolveTaskChild(item);
               const asking = child?.needsApproval === true;
-              const live = c.result === undefined && (asking || child?.running === true);
+              const live =
+                c.result === undefined && (asking || child?.running === true);
               const status = live ? "running" : c.status;
-              const glyph = asking ? "⚠" : status === "running" ? "◦" : status === "error" ? "✗" : "▸";
-              const statusColor = asking ? t.danger : status === "running" ? t.warning : status === "error" ? t.danger : t.success;
+              const glyph = asking
+                ? "⚠"
+                : status === "running"
+                  ? "◦"
+                  : status === "error"
+                    ? "✗"
+                    : "▸";
+              const statusColor = asking
+                ? t.danger
+                : status === "running"
+                  ? t.warning
+                  : status === "error"
+                    ? t.danger
+                    : t.success;
               return (
-                <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
+                <Box
+                  key={`${item.messageId}:${c.callId}`}
+                  marginTop={gap}
+                  flexShrink={0}
+                >
                   <Box {...assistantInset} flexShrink={0}>
                     <Text wrap="truncate">
                       {marker}
@@ -1345,14 +1646,32 @@ export function ChatView({
                         {status === "done" ? "" : `${glyph} `}
                       </Text>
                       <Text
-                        color={focused ? t.accent : (asking ? t.danger : status === "running" ? t.warning : status === "error" ? t.danger : t.dim)}
+                        color={
+                          focused
+                            ? t.accent
+                            : asking
+                              ? t.danger
+                              : status === "running"
+                                ? t.warning
+                                : status === "error"
+                                  ? t.danger
+                                  : t.dim
+                        }
                       >
                         task {c.argsPreview}
                       </Text>
-                      {asking && <Text color={t.danger}> · needs approval</Text>}
-                      {!asking && status === "running" && <Text color={t.dim}> · working…</Text>}
-                      {status === "error" && <Text color={t.danger}> · failed</Text>}
-                      {focused && status !== "running" && <Text color={t.dim}> · enter to view</Text>}
+                      {asking && (
+                        <Text color={t.danger}> · needs approval</Text>
+                      )}
+                      {!asking && status === "running" && (
+                        <Text color={t.dim}> · working…</Text>
+                      )}
+                      {status === "error" && (
+                        <Text color={t.danger}> · failed</Text>
+                      )}
+                      {focused && status !== "running" && (
+                        <Text color={t.dim}> · enter to view</Text>
+                      )}
                     </Text>
                   </Box>
                 </Box>
@@ -1367,8 +1686,14 @@ export function ChatView({
             const toolKey = `${item.messageId}:${c.callId}`;
             const expanded = expandedTools.has(toolKey);
             const full = expandedToolsFull.has(toolKey);
-            const glyph = c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
-            const color = c.status === "running" ? t.warning : c.status === "error" ? t.danger : t.success;
+            const glyph =
+              c.status === "running" ? "◦" : c.status === "error" ? "✗" : "✓";
+            const color =
+              c.status === "running"
+                ? t.warning
+                : c.status === "error"
+                  ? t.danger
+                  : t.success;
             const perm = c.permission;
             const permVerdict =
               perm === undefined
@@ -1379,17 +1704,25 @@ export function ChatView({
                     ? `rejected — "${perm.message}"`
                     : "rejected";
             return (
-              <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} flexShrink={0}>
+              <Box
+                key={`${item.messageId}:${c.callId}`}
+                marginTop={gap}
+                flexShrink={0}
+              >
                 <Box {...assistantInset} flexDirection="column" flexShrink={0}>
                   <Text wrap="truncate">
                     {marker}
                     <Text color={focused ? t.accent : color}>{glyph} </Text>
-                    <Text color={focused ? t.accent : t.text}>
-                      {c.name}
-                    </Text>
-                    {c.argsPreview.length > 0 && <Text color={t.text}> {c.argsPreview}</Text>}
-                    {permVerdict !== undefined && <Text color={t.dim}> · {permVerdict}</Text>}
-                    {c.result !== undefined && c.result.isError && <Text color={t.danger}> · denied/failed</Text>}
+                    <Text color={focused ? t.accent : t.text}>{c.name}</Text>
+                    {c.argsPreview.length > 0 && (
+                      <Text color={t.text}> {c.argsPreview}</Text>
+                    )}
+                    {permVerdict !== undefined && (
+                      <Text color={t.dim}> · {permVerdict}</Text>
+                    )}
+                    {c.result !== undefined && c.result.isError && (
+                      <Text color={t.danger}> · denied/failed</Text>
+                    )}
                     {c.result !== undefined && focused && (
                       <Text color={t.dim}>
                         {expanded
@@ -1401,7 +1734,11 @@ export function ChatView({
                     )}
                   </Text>
                   {expanded && perm !== undefined && (
-                    <Box flexDirection="column" paddingLeft={2} marginBottom={perm.detail?.diff !== undefined ? 1 : 0}>
+                    <Box
+                      flexDirection="column"
+                      paddingLeft={2}
+                      marginBottom={perm.detail?.diff !== undefined ? 1 : 0}
+                    >
                       {perm.detail?.summary !== undefined && (
                         <Text color={t.dim} wrap="wrap">
                           ask: {perm.detail.summary}
@@ -1415,7 +1752,9 @@ export function ChatView({
                         ))}
                     </Box>
                   )}
-                  {expanded && c.questions !== undefined && c.result !== undefined ? (
+                  {expanded &&
+                  c.questions !== undefined &&
+                  c.result !== undefined ? (
                     // Retained Q&A review (question tool): pretty per-row
                     // question → answer instead of the model-facing sentence.
                     <Box flexDirection="column" paddingLeft={2}>
@@ -1432,7 +1771,9 @@ export function ChatView({
                               </Text>
                             ))
                           ) : (
-                            <Text color={t.dim} italic>· unanswered</Text>
+                            <Text color={t.dim} italic>
+                              · unanswered
+                            </Text>
                           )}
                         </Box>
                       ))}
@@ -1440,7 +1781,10 @@ export function ChatView({
                   ) : (
                     expanded &&
                     c.result !== undefined && (
-                      <ToolOutputBody content={c.result.content} mode={full ? "full" : "preview"} />
+                      <ToolOutputBody
+                        content={c.result.content}
+                        mode={full ? "full" : "preview"}
+                      />
                     )
                   )}
                 </Box>
@@ -1476,10 +1820,10 @@ export function ChatView({
             {loadingOlder === true
               ? "↑ loading older messages…"
               : historyHasMore === true && aboveCount === 0
-                ? "↑ older messages available · pageUp to load"
+                ? "↑ Load more messages · scroll up / pageUp"
                 : `↑ ${aboveCount} earlier message${aboveCount === 1 ? "" : "s"}${
-                    historyHasMore === true ? " · pageUp for older" : ""
-                  } · mouse wheel / pageUp-pageDown to scroll · ctrl+j/k to focus`}
+                    historyHasMore === true ? " · Load more messages (scroll up / pageUp)" : ""
+                  } · j/k to scroll · ctrl+j/k to focus`}
           </Text>
         </Box>
       )}
@@ -1557,7 +1901,11 @@ export function ChatView({
           onUi={setAskUi ?? (() => {})}
           queued={askQueued}
           deferInput={deferInput}
-          onDone={headFromChild ? (onChildAskDone ?? (() => {})) : (onPermissionDone ?? (() => {}))}
+          onDone={
+            headFromChild
+              ? (onChildAskDone ?? (() => {}))
+              : (onPermissionDone ?? (() => {}))
+          }
         />
       ) : headQuestion !== undefined ? (
         <QuestionPrompt
@@ -1592,14 +1940,22 @@ export function ChatView({
  * while the task is still running; the dialog then focuses the first
  * running/asking child instead.
  */
-function taskChildId(message: Message | undefined, callId: string): string | undefined {
+function taskChildId(
+  message: Message | undefined,
+  callId: string,
+): string | undefined {
   if (message === undefined) return undefined;
   for (const p of message.parts) {
     if (p.kind !== "tool_result") continue;
-    const payload = p.payload as { callId?: string; subagent?: { sessionId?: unknown } } | null;
+    const payload = p.payload as {
+      callId?: string;
+      subagent?: { sessionId?: unknown };
+    } | null;
     if (payload?.callId !== callId) continue;
     const sessionId = payload.subagent?.sessionId;
-    return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined;
+    return typeof sessionId === "string" && sessionId.length > 0
+      ? sessionId
+      : undefined;
   }
   return undefined;
 }

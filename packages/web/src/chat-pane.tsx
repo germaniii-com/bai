@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
@@ -129,6 +129,9 @@ export function ChatPane({
   refreshProviders,
   providersFetching,
   messages,
+  historyHasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
   draft,
   setDraft,
   onSubmit,
@@ -179,6 +182,12 @@ export function ChatPane({
   refreshProviders: () => Promise<void>;
   providersFetching: boolean;
   messages: Message[];
+  /** Older messages exist above the loaded window (server hasMore). */
+  historyHasMore?: boolean;
+  /** A scroll-back page fetch is in flight. */
+  loadingOlder?: boolean;
+  /** Fetch the next older page (prepended above the window). */
+  onLoadOlder?: () => void;
   draft: string;
   setDraft: (value: string) => void;
   /** Composer `#file` alias map (leaf token → full workspace-relative path). */
@@ -278,6 +287,41 @@ export function ChatPane({
   const tracker = contextTracker(usage);
   // Mentions resolve against the session's workspace root (a code session).
   const openFileRoot = active?.cwd ?? workspaceRoot;
+
+  // ---- scroll-back paging (TUI parity) ---------------------------------
+  // `.messages` is the scroll container: near the top it fetches the next
+  // older page, and the height delta is applied back to scrollTop so the
+  // reading position is preserved as rows are prepended above.
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef<{ height: number; top: number; firstId: string | undefined } | null>(null);
+
+  const requestOlder = (): void => {
+    const el = messagesRef.current;
+    if (el === null || !historyHasMore || loadingOlder) return;
+    anchorRef.current = { height: el.scrollHeight, top: el.scrollTop, firstId: messages[0]?.id };
+    onLoadOlder?.();
+  };
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (anchor === null) return;
+    if (messages[0]?.id !== anchor.firstId) {
+      const el = messagesRef.current;
+      if (el !== null) {
+        const delta = el.scrollHeight - anchor.height;
+        if (delta > 0) el.scrollTop = anchor.top + delta;
+      }
+      anchorRef.current = null;
+    } else if (!loadingOlder) {
+      // The fetch landed with nothing new (or was skipped) — drop the anchor.
+      anchorRef.current = null;
+    }
+  }, [messages, loadingOlder]);
+
+  const onMessagesScroll = (): void => {
+    const el = messagesRef.current;
+    if (el !== null && el.scrollTop <= 48) requestOlder();
+  };
 
   // ---- `#file` mention picker (opencode2 completion) --------------------
   // The draft's `#token` is derived from the input cursor; matches come from
@@ -428,7 +472,26 @@ export function ChatPane({
 
   return (
     <main className="chat">
-      <div className="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text">
+      <div
+        className="messages"
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
+        aria-relevant="additions text"
+        ref={messagesRef}
+        onScroll={onMessagesScroll}
+      >
+        {(historyHasMore || loadingOlder) && (
+          <div className="load-older" role="status">
+            {loadingOlder ? (
+              <span className="dim">Loading earlier messages…</span>
+            ) : (
+              <button type="button" className="load-older-btn" onClick={requestOlder}>
+                Load earlier messages
+              </button>
+            )}
+          </div>
+        )}
         {visible.length === 0 && revertedCount === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
         {visible.map((m) => (
            <article key={m.id} className={`message ${m.role}`} aria-label={`${m.role === "user" ? "You" : "Assistant"} message`}>

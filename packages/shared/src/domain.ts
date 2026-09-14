@@ -274,3 +274,37 @@ export interface ModelInfo {
   /** models.dev input modalities (e.g. ["text","image","pdf"]) when known. */
   inputModalities?: string[];
 }
+
+// --- UI paging envelopes -------------------------------------------------
+// Used by the HTTP list endpoints and the surfaces' paged list hooks. Agent
+// tool/skill/model context never goes through these — core `list()` reads
+// stay full (see the pagination plan's agent-context guarantee).
+
+/** Keyset cursor for paged session lists — ordered by (updated_at, id) DESC. */
+export interface SessionsCursor {
+  updatedAt: string;
+  id: string;
+}
+
+/** One page of sessions (newest first) plus the older-page cursor. */
+export interface SessionsPage {
+  sessions: Session[];
+  hasMore: boolean;
+  nextCursor?: string;
+  /** Total sessions matching the same filters (all pages) — list indicators. */
+  total: number;
+}
+
+/** A flat model-picker row: the catalog entry plus its provider's label. */
+export interface ModelPageEntry extends ModelInfo {
+  providerName: string;
+}
+
+/** One page of the flat model catalog (label-sorted, ZDR float aware). */
+export interface ModelsPage {
+  models: ModelPageEntry[];
+  hasMore: boolean;
+  nextOffset?: number;
+  /** Total models matching the same filters (all pages). */
+  total: number;
+}

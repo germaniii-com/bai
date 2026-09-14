@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { spawnSync } from "node:child_process";
 import type { BaiClient } from "@bai/api/client";
 import type { Session, SkillInfo, SkillUsageTotals } from "@bai/shared";
@@ -11,6 +11,8 @@ import { useTheme } from "../theme";
 const WINDOW = 12;
 /** Detail view cap — the rest is one $EDITOR press away. */
 const DETAIL_LINES = 60;
+/** Skills per page (offset paging; the list is name-sorted server-side). */
+const SKILL_PAGE = 50;
 
 /**
  * Skills manager (the agent-manager pattern): list, view (enter), edit in
@@ -34,20 +36,61 @@ export function SkillsDialog({
 }) {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [index, setIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [learnOpen, setLearnOpen] = useState(false);
   const [detail, setDetail] = useState<{ skill: SkillInfo; usage: SkillUsageTotals | null } | null>(null);
+  const nextOffsetRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const generationRef = useRef(0);
   const t = useTheme();
 
   const refresh = useCallback(async () => {
+    const generation = ++generationRef.current;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     try {
-      setSkills(await client.listSkills());
+      const page = await client.listSkillsPage(SKILL_PAGE, 0);
+      if (generation !== generationRef.current) return;
+      setSkills(page.skills);
+      nextOffsetRef.current = page.nextOffset ?? page.skills.length;
+      setHasMore(page.hasMore === true);
+      setTotal(page.total);
       setNotice(null);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      if (generation === generationRef.current) setNotice(err instanceof Error ? err.message : String(err));
     }
   }, [client]);
+
+  const loadMore = useCallback(() => {
+    if (!hasMore || loadingMoreRef.current) return;
+    const generation = generationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    void (async () => {
+      try {
+        const page = await client.listSkillsPage(SKILL_PAGE, nextOffsetRef.current);
+        if (generation !== generationRef.current) return;
+        setSkills((prev) => {
+          const seen = new Set(prev.map((s) => s.name));
+          return [...prev, ...page.skills.filter((s) => !seen.has(s.name))];
+        });
+        nextOffsetRef.current = page.nextOffset ?? nextOffsetRef.current + page.skills.length;
+        setHasMore(page.hasMore === true);
+        setTotal(page.total);
+      } catch (err) {
+        if (generation === generationRef.current) setNotice(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (generation === generationRef.current) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
+      }
+    })();
+  }, [client, hasMore]);
 
   useEffect(() => {
     void refresh();
@@ -57,6 +100,12 @@ export function SkillsDialog({
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, skills.length - 1)));
   }, [skills.length]);
+
+  // Infinite-scroll paging: the cursor nearing the loaded end pulls the next
+  // page (the list is name-sorted, so appended pages continue seamlessly).
+  useEffect(() => {
+    if (hasMore && !loadingMore && index >= skills.length - 3) loadMore();
+  }, [index, skills.length, hasMore, loadingMore, loadMore]);
 
   const openEditor = useCallback((path: string | undefined) => {
     if (path === undefined) return;
@@ -195,7 +244,12 @@ export function SkillsDialog({
                   </Text>
                 );
               })}
-              {end < skills.length && <Text color={t.dim}>  ↓ {skills.length - end} more</Text>}
+              {end < total && (
+                <Text color={t.dim}>
+                  {"  ↓ "}
+                  {total - end} more{hasMore && end >= skills.length ? " · loading…" : ""}
+                </Text>
+              )}
               {skills.length === 0 && <Text color={t.dim}>  (no skills yet — n to create, l to learn one)</Text>}
             </>
           );

@@ -15,6 +15,12 @@ const TEXT_TAIL_CHARS = 160;
 /** One tracked subagent of the active session and its live activity. */
 export interface SubagentActivity {
   sessionId: string;
+  /**
+   * The parent session this child belongs to (meta.parent). Kept so
+   * `trackSubagents` can preserve firehose-tracked children across a
+   * partial/paged session list without retaining another parent's children.
+   */
+  parentId: string;
   agent: string;
   title: string;
   running: boolean;
@@ -45,7 +51,16 @@ function isChildOf(session: Session, parentId: string): boolean {
 
 function activityFor(session: Session): SubagentActivity {
   const agent = typeof session.meta.agent === "string" ? session.meta.agent : "agent";
-  return { sessionId: session.id, agent, title: session.title, running: false, needsApproval: false, partKinds: {} };
+  const parentId = typeof session.meta.parent === "string" ? session.meta.parent : "";
+  return {
+    sessionId: session.id,
+    parentId,
+    agent,
+    title: session.title,
+    running: false,
+    needsApproval: false,
+    partKinds: {},
+  };
 }
 
 /**
@@ -54,13 +69,18 @@ function activityFor(session: Session): SubagentActivity {
  * of other parents are dropped.
  */
 export function trackSubagents(prev: SubagentState, sessions: Session[], parentId: string | undefined): SubagentState {
+  if (parentId === undefined) return { children: new Map() };
   const children = new Map<string, SubagentActivity>();
-  if (parentId !== undefined) {
-    for (const session of sessions) {
-      if (!isChildOf(session, parentId)) continue;
-      const existing = prev.children.get(session.id);
-      children.set(session.id, existing ?? activityFor(session));
-    }
+  // Preserve firehose-tracked children of the ACTIVE parent. Session lists
+  // are paged, so a child the firehose introduced may not be in the loaded
+  // page — dropping it here would blank its live status/ask.
+  for (const [id, activity] of prev.children) {
+    if (activity.parentId === parentId) children.set(id, activity);
+  }
+  for (const session of sessions) {
+    if (!isChildOf(session, parentId)) continue;
+    const existing = children.get(session.id);
+    children.set(session.id, existing ?? activityFor(session));
   }
   return { children };
 }

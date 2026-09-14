@@ -1,4 +1,4 @@
-import type { AccountInfo, ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { AccountInfo, ModelInfo, ModelPageEntry, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, modelCapabilities, sortModelsZdrFirst } from "@bai/shared";
 
 /**
@@ -81,6 +81,28 @@ export function modelOptions(provider: ProviderInfo, preferZdr = false): PickerO
   // is accepted at call time.
   out.push({ value: "__custom__", label: "Type a model id…", hint: "any id accepted" });
   return out;
+}
+
+/**
+ * Map a server-paged flat model list into picker options, preserving the
+ * server's order (provider-alpha + label, with ZDR already floated when
+ * requested). `withProvider` prefixes the provider's display name in the
+ * hint (the flat picker); the per-provider step omits it.
+ */
+export function modelPageOptions(models: ModelPageEntry[], preferZdr = false, withProvider = true): PickerOption[] {
+  return models.map((m) => {
+    const parts: string[] = withProvider ? [m.providerName] : [];
+    if (preferZdr && isZdrCapableModel(m.id, m.provider)) parts.push("zdr");
+    if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
+    if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/M in`);
+    const caps = capabilityTags(m);
+    return {
+      value: m.id,
+      label: m.label,
+      ...(caps !== undefined ? { caps } : {}),
+      ...(parts.length > 0 ? { hint: parts.join(" · ") } : {}),
+    };
+  });
 }
 
 /**

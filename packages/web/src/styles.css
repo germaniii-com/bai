@@ -386,6 +386,37 @@ select:focus-visible,
   cursor: pointer;
 }
 
+/* Session sidebar: server-side filter input + paging button. */
+.session-filter {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  width: 100%;
+}
+.session-filter::placeholder {
+  color: var(--dim);
+}
+.load-more {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--dim);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.load-more:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--dim);
+}
+.load-more:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 /* --- workspace nav (nested panel) --- */
 
 .workspace-nav {
@@ -988,6 +1019,27 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Scroll-back paging affordance (transcript top): a status line while a page
+   loads, a button at the idle boundary (keyboard/reduced-motion users). */
+.load-older {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 4px;
+}
+.load-older-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.load-older-btn:hover {
+  color: var(--text);
+  border-color: var(--dim);
 }
 
 .message {

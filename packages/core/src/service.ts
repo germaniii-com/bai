@@ -33,10 +33,16 @@ import {
   type SkillUsageQuery,
   type SkillUsageResponse,
   type SkillUsageTotals,
+  type SkillsPage,
   type ToolListEntry,
+  type ModelPageEntry,
+  type ModelsPage,
+  type SessionsCursor,
+  type SessionsPage,
   buildLearnRequest,
   isValidToolName,
   LEARN_AGENT_NAME,
+  sortModelsZdrFirst,
 } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import { AttachmentStore } from "./attachments";
@@ -328,9 +334,26 @@ export class Service {
   listSessions(
     limit = 50,
     offset = 0,
-    filters: { workbench?: string; cwd?: string } = {},
+    filters: { workbench?: string; cwd?: string; q?: string; roots?: boolean } = {},
   ): Session[] {
     return this.deps.store.sessions.list(limit, offset, filters);
+  }
+
+  /**
+   * Keyset-paged session list for UI surfaces (cursor on `(updatedAt, id)`).
+   * Agent-facing reads never use this — they don't list sessions at all.
+   */
+  listSessionsPage(
+    limit = 50,
+    cursor?: SessionsCursor,
+    filters: { workbench?: string; cwd?: string; q?: string; roots?: boolean } = {},
+  ): SessionsPage {
+    return this.deps.store.sessions.listPage(limit, cursor, filters);
+  }
+
+  /** Total sessions matching the list filters — list indicators. */
+  countSessions(filters: { workbench?: string; cwd?: string; q?: string; roots?: boolean } = {}): number {
+    return this.deps.store.sessions.count(filters);
   }
 
   getSession(id: SessionId): Session | undefined {
@@ -799,6 +822,14 @@ export class Service {
     return this.deps.skills.list();
   }
 
+  /**
+   * Offset-paged skills for the browse UI. The agent's skills index and the
+   * `skills.*` tools keep using `listSkills()` (full) — this is UI only.
+   */
+  listSkillsPage(limit = 50, offset = 0, q?: string): SkillsPage {
+    return this.deps.skills.listPage(limit, offset, q);
+  }
+
   getSkill(name: string): SkillInfo | undefined {
     return this.deps.skills.get(name);
   }
@@ -1009,6 +1040,63 @@ export class Service {
   /** Merged provider view (catalog ⊕ config ⊕ accounts) for the API layer. */
   providers(): Promise<ProviderListResponse> {
     return this.deps.providers.listResponse();
+  }
+
+  /**
+   * Flat, filtered, offset-paged model catalog for UI pickers (TUI model
+   * wizard, web model modal). Built from the same merged `providers()` view
+   * the agent runtime uses — server-side slicing only, so the heavy catalog
+   * never ships to a surface in one payload. Agent model resolution is
+   * untouched (it reads the registry directly).
+   */
+  async listModelsPage(
+    opts: { limit?: number; offset?: number; q?: string; provider?: string; id?: string; zdr?: boolean } = {},
+  ): Promise<ModelsPage> {
+    const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 100), 200));
+    const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+    const all = await this.providers();
+    // Scope: an explicit provider (any connection state — the wizard's
+    // per-provider step); an exact-id lookup (any provider); else only
+    // connected, non-stub providers (the flat picker).
+    const scoped = all.providers.filter((p) =>
+      opts.provider !== undefined
+        ? p.id === opts.provider
+        : opts.id !== undefined
+          ? p.models.length > 0
+          : p.connected && p.id !== "stub",
+    );
+    const tagged: { id: string; provider: string; entry: ModelPageEntry }[] = [];
+    for (const p of [...scoped].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const m of [...p.models].sort((a, b) => a.label.localeCompare(b.label))) {
+        tagged.push({ id: m.id, provider: m.provider, entry: { ...m, providerName: p.name } });
+      }
+    }
+    const query = opts.q?.trim().toLowerCase();
+    const filtered = tagged.filter((t) => {
+      if (opts.id !== undefined && t.entry.id !== opts.id) return false;
+      if (query === undefined || query.length === 0) return true;
+      return (
+        t.entry.label.toLowerCase().includes(query) ||
+        t.entry.id.toLowerCase().includes(query) ||
+        t.provider.toLowerCase().includes(query) ||
+        t.entry.providerName.toLowerCase().includes(query)
+      );
+    });
+    const ordered = sortModelsZdrFirst(filtered, opts.zdr === true);
+    const page = ordered.slice(offset, offset + limit);
+    const hasMore = offset + limit < ordered.length;
+    return {
+      models: page.map((t) => t.entry),
+      hasMore,
+      total: ordered.length,
+      ...(hasMore ? { nextOffset: offset + limit } : {}),
+    };
+  }
+
+  /** One catalog model by full id (UI label/capability badges) — undefined when absent. */
+  async getModel(id: string): Promise<ModelPageEntry | undefined> {
+    const page = await this.listModelsPage({ id, limit: 1 });
+    return page.models[0];
   }
 
   /** Upsert an account and notify every surface (live event, no restart). */

@@ -32,8 +32,9 @@ import {
   type InputId,
   type MessageId,
   type SessionId,
+  type SessionsCursor,
 } from "@bai/shared";
-import { decodeHistoryCursor, type HistoryCursor } from "@bai/core";
+import { decodeCursor, decodeHistoryCursor, encodeCursor, type HistoryCursor } from "@bai/core";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
 import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, FS_UPLOAD_MAX_BYTES, listDir, readFile, statPath, writeFile } from "./fs";
@@ -53,18 +54,50 @@ function buildApi(deps: ApiDeps) {
     .get("/health", (c) => c.json({ ok: true, version: deps.version }))
 
     // --- sessions ---
-    // Optional filters (web: chat section lists workbench=chat; the
-    // workspace view lists cwd=<workspace path>).
+    // Paged list. Optional filters (web: chat section lists workbench=chat;
+    // the workspace view lists cwd=<workspace path>); `q` = title/id
+    // substring; `roots=1` excludes child (subagent) sessions. Page with
+    // `?before=<cursor>` (keyset on updatedAt+id) — the first page may also
+    // use the legacy `offset`, and still returns a cursor to continue.
     .get("/session", (c) => {
-      const limit = Number(c.req.query("limit") ?? "50");
-      const offset = Number(c.req.query("offset") ?? "0");
+      const rawLimit = Number(c.req.query("limit") ?? "50");
+      // Offset/legacy callers (e.g. the workspace archive count) may ask for
+      // more than a UI page; cursor pages are further capped in listPage.
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 1000) : 50;
+      const offset = Math.max(0, Number(c.req.query("offset") ?? "0") || 0);
       const workbench = c.req.query("workbench");
       const cwd = c.req.query("cwd");
+      const q = c.req.query("q");
+      const roots = c.req.query("roots") === "1" || c.req.query("roots") === "true";
+      const filters = {
+        ...(workbench !== undefined && workbench.length > 0 ? { workbench } : {}),
+        ...(cwd !== undefined && cwd.length > 0 ? { cwd } : {}),
+        ...(q !== undefined && q.length > 0 ? { q } : {}),
+        ...(roots ? { roots: true } : {}),
+      };
+      const rawBefore = c.req.query("before");
+      if (rawBefore !== undefined && rawBefore.length > 0) {
+        const cursor = decodeCursor<SessionsCursor>(rawBefore);
+        if (
+          cursor === undefined ||
+          typeof cursor.updatedAt !== "string" ||
+          typeof cursor.id !== "string"
+        ) {
+          return c.json({ error: "invalid before cursor" }, 400);
+        }
+        return c.json(deps.core.listSessionsPage(limit, cursor, filters));
+      }
+      const rows = deps.core.listSessions(limit + 1, offset, filters);
+      const hasMore = rows.length > limit;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const oldest = page[page.length - 1];
       return c.json({
-        sessions: deps.core.listSessions(limit, offset, {
-          ...(workbench !== undefined && workbench.length > 0 ? { workbench } : {}),
-          ...(cwd !== undefined && cwd.length > 0 ? { cwd } : {}),
-        }),
+        sessions: page,
+        hasMore,
+        total: deps.core.countSessions(filters),
+        ...(hasMore && oldest !== undefined
+          ? { nextCursor: encodeCursor({ updatedAt: oldest.updatedAt, id: oldest.id } satisfies SessionsCursor) }
+          : {}),
       });
     })
     .post("/session", zValidator("json", createSessionSchema), (c) => {
@@ -288,7 +321,20 @@ function buildApi(deps: ApiDeps) {
     })
 
     // --- skills (file-defined, hot-reloaded; routes write the SKILL.md files) ---
-    .get("/skill", (c) => c.json({ skills: deps.core.listSkills() }))
+    // Paged browse for UI when `limit` is present; no limit → the full list
+    // (legacy/agent-adjacent callers). The agent's skills index always reads
+    // core `listSkills()` directly, never this route.
+    .get("/skill", (c) => {
+      const rawLimit = c.req.query("limit");
+      if (rawLimit === undefined || rawLimit.length === 0) {
+        const skills = deps.core.listSkills();
+        return c.json({ skills, hasMore: false, total: skills.length });
+      }
+      const limit = Math.max(1, Math.min(Math.floor(Number(rawLimit) || 50), 200));
+      const offset = Math.max(0, Number(c.req.query("offset") ?? "0") || 0);
+      const q = c.req.query("q");
+      return c.json(deps.core.listSkillsPage(limit, offset, q));
+    })
     // Registered BEFORE /skill/:name so "usage" is never captured as a name.
     .get("/skill/usage", zValidator("query", skillUsageQuerySchema), (c) => {
       return c.json(deps.core.skillUsageAnalytics(c.req.valid("query")));
@@ -510,7 +556,42 @@ function buildApi(deps: ApiDeps) {
 
     // --- providers & accounts ---
     // Merged view: catalog ⊕ config ⊕ accounts (keys never leave the server).
-    .get("/provider", async (c) => c.json(await deps.core.providers()))
+    // `?models=0` drops each provider's (potentially thousands-strong) model
+    // array and reports `modelCount` — the connection/account pane's slim
+    // fetch. Model pickers page `GET /model` instead.
+    .get("/provider", async (c) => {
+      const full = await deps.core.providers();
+      const slim = c.req.query("models") === "0" || c.req.query("models") === "false";
+      if (!slim) return c.json(full);
+      return c.json({
+        default: full.default,
+        providers: full.providers.map((p) => ({ ...p, models: [], modelCount: p.models.length })),
+      });
+    })
+
+    // --- models (flat, paged catalog for UI pickers) ---
+    // Server-side slice of the merged catalog. `q` = substring over label/id/
+    // provider; `provider` scopes to one provider (any connection state);
+    // `id` is an exact lookup (capability/label badges); `zdr=1` floats
+    // ZDR-capable models first — mirroring the surface pickers' ordering.
+    .get("/model", async (c) => {
+      const rawLimit = Number(c.req.query("limit") ?? "100");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 100;
+      const offset = Math.max(0, Number(c.req.query("offset") ?? "0") || 0);
+      const q = c.req.query("q");
+      const provider = c.req.query("provider");
+      const id = c.req.query("id");
+      const zdr = c.req.query("zdr") === "1" || c.req.query("zdr") === "true";
+      const page = await deps.core.listModelsPage({
+        limit,
+        offset,
+        ...(q !== undefined && q.length > 0 ? { q } : {}),
+        ...(provider !== undefined && provider.length > 0 ? { provider } : {}),
+        ...(id !== undefined && id.length > 0 ? { id } : {}),
+        ...(zdr ? { zdr: true } : {}),
+      });
+      return c.json(page);
+    })
     .put(
       "/provider/:provider/account/:account",
       zValidator("json", putAccountSchema),

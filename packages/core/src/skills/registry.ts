@@ -8,6 +8,7 @@ import {
   type PutSkillBody,
   type SkillFrontmatter,
   type SkillInfo,
+  type SkillsPage,
 } from "@bai/shared";
 
 /**
@@ -195,9 +196,37 @@ export class SkillRegistry {
     return this.skills.get(name);
   }
 
-  /** Alphabetically by name. */
+  /** Alphabetically by name. Full set — the agent skills index uses this. */
   list(): SkillInfo[] {
     return [...this.skills.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Offset-paged, optionally filtered skills for the browse UI. The full
+   * `list()` stays the agent-facing read; this never feeds tool context.
+   */
+  listPage(limit = 50, offset = 0, q?: string): SkillsPage {
+    const all = this.list();
+    const query = q?.trim().toLowerCase();
+    const filtered =
+      query === undefined || query.length === 0
+        ? all
+        : all.filter(
+            (s) =>
+              s.name.toLowerCase().includes(query) ||
+              s.description.toLowerCase().includes(query) ||
+              (s.tags ?? []).some((tag) => tag.toLowerCase().includes(query)),
+          );
+    const safeLimit = Math.max(1, Math.min(Math.floor(limit), 200));
+    const start = Math.max(0, Math.floor(offset));
+    const page = filtered.slice(start, start + safeLimit);
+    const hasMore = start + safeLimit < filtered.length;
+    return {
+      skills: page,
+      hasMore,
+      total: filtered.length,
+      ...(hasMore ? { nextOffset: start + safeLimit } : {}),
+    };
   }
 
   /** Absolute path of the SKILL.md file that defines (or would define) `name`. */

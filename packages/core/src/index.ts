@@ -5,6 +5,8 @@ export {
   type HistoryCursor,
   type HistoryPage,
 } from "./store/messages";
+export { encodeCursor, decodeCursor, escapeLike } from "./store/cursor";
+export type { SessionsFilters } from "./store/sessions";
 export { Bus, type Subscription } from "./event";
 export { EventLog } from "./event";
 export { loadConfig, ConfigStore, findProjectConfig, readJsoncFile, atomicWriteJson, stripJsonComments, type LoadedConfig } from "./config";

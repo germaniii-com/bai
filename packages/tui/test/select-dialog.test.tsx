@@ -140,6 +140,79 @@ describe("SelectDialog ctrl+j/k navigation", () => {
   });
 });
 
+describe("SelectDialog paging + server-side filter", () => {
+  test("fires onLoadMore when the highlight nears the loaded end", async () => {
+    let loads = 0;
+    const opts: PickerOption[] = Array.from({ length: 10 }, (_, i) => ({
+      value: `o${i}`,
+      label: `Opt ${i}`,
+    }));
+    const { stdin, unmount } = render(
+      <SelectDialog
+        title="paged"
+        options={opts}
+        hasMore
+        onLoadMore={() => {
+          loads += 1;
+        }}
+        onPick={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await tick();
+    expect(loads).toBe(0); // highlight at the top — far from the end
+    for (let i = 0; i < 6; i++) {
+      stdin.write("\n"); // ctrl+j (legacy) — step down
+      await tick(5);
+    }
+    expect(loads).toBeGreaterThan(0);
+    unmount();
+  });
+
+  test("shows the true remaining count from `total` (not just the loaded window)", async () => {
+    const opts: PickerOption[] = Array.from({ length: 10 }, (_, i) => ({
+      value: `o${i}`,
+      label: `Opt ${i}`,
+    }));
+    const { lastFrame, unmount } = render(
+      <SelectDialog title="total" options={opts} total={42} onPick={() => {}} onClose={() => {}} />,
+    );
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+    // 10 loaded of 42 total, window ends after row 10 → 32 remaining.
+    expect(frame).toContain("↓ 32 more");
+  });
+
+  test("server-filter mode passes typed queries through and skips local filtering", async () => {
+    const queries: string[] = [];
+    const opts: PickerOption[] = [
+      { value: "s1", label: "Alpha" },
+      { value: "s2", label: "Beta" },
+    ];
+    const { stdin, lastFrame, unmount } = render(
+      <SelectDialog
+        title="filtered"
+        options={opts}
+        onQueryChange={(q) => queries.push(q)}
+        onPick={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await tick();
+    stdin.write("zzz");
+    await tick(250); // debounce window
+
+    // Options are NOT locally filtered (the caller owns filtering)…
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Alpha");
+    expect(frame).toContain("Beta");
+    // …and the typed query was emitted for the server fetch.
+    expect(queries.at(-1)).toBe("zzz");
+    unmount();
+  });
+});
+
 describe("mouse input is blocked (never types into the dialog)", () => {
   test("isMouseInput matches the SGR shapes (click + wheel, ESC prefix optional)", () => {
     expect(isMouseInput("[<0;10;5M")).toBe(true); // left click (ESC stripped by ink)

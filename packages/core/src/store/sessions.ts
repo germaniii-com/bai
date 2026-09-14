@@ -1,7 +1,18 @@
-import type { Session, SessionId, WorkbenchName } from "@bai/shared";
+import type { Session, SessionId, SessionsCursor, SessionsPage, WorkbenchName } from "@bai/shared";
 import { newId } from "@bai/shared";
 import type { SQLQueryBindings } from "bun:sqlite";
 import { q, type SqliteDb } from "./db";
+import { encodeCursor, escapeLike } from "./cursor";
+
+/** Optional equality/substring filters every session list shares. */
+export interface SessionsFilters {
+  workbench?: string;
+  cwd?: string;
+  /** Case-insensitive substring over title or id (UI type-to-filter). */
+  q?: string;
+  /** Exclude child (subagent) sessions — meta.parent set. */
+  roots?: boolean;
+}
 
 interface SessionRow {
   id: string;
@@ -68,12 +79,14 @@ export class SessionsRepo {
     return row ? toSession(row) : undefined;
   }
 
-  list(limit = 50, offset = 0, filters: { workbench?: string; cwd?: string } = {}): Session[] {
-    // Dynamic WHERE from validated equality filters (parameterized — no
-    // interpolation of values, only fixed clause text). Archived sessions
-    // (meta.archived — the workspace-archive flow) are excluded by default:
-    // every surface's lists hide them; getSession still returns them so an
-    // open transcript doesn't break.
+  /**
+   * Shared WHERE builder. Dynamic from validated equality/substring filters —
+   * parameterized (no value interpolation, only fixed clause text). Archived
+   * sessions (meta.archived — the workspace-archive flow) are excluded by
+   * default: every surface's lists hide them; getSession still returns them
+   * so an open transcript doesn't break.
+   */
+  private where(filters: SessionsFilters): { sql: string; params: SQLQueryBindings[] } {
     const clauses: string[] = ["json_extract(meta, '$.archived') IS NOT 1"];
     const params: SQLQueryBindings[] = [];
     if (filters.workbench !== undefined) {
@@ -84,12 +97,63 @@ export class SessionsRepo {
       clauses.push("cwd = ?");
       params.push(filters.cwd);
     }
-    const where = `WHERE ${clauses.join(" AND ")}`;
+    if (filters.roots === true) {
+      clauses.push("json_extract(meta, '$.parent') IS NULL");
+    }
+    const trimmed = filters.q?.trim();
+    if (trimmed !== undefined && trimmed.length > 0) {
+      const like = `%${escapeLike(trimmed)}%`;
+      clauses.push("(title LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')");
+      params.push(like, like);
+    }
+    return { sql: `WHERE ${clauses.join(" AND ")}`, params };
+  }
+
+  /** Offset-based list (legacy/internal reads; UI uses `listPage`). */
+  list(limit = 50, offset = 0, filters: SessionsFilters = {}): Session[] {
+    const { sql, params } = this.where(filters);
     const rows = q<SessionRow>(
       this.db,
-      `SELECT * FROM sessions ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM sessions ${sql} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`,
     ).all(...params, limit, offset);
     return rows.map(toSession);
+  }
+
+  /** Total sessions matching the filters (all pages) — the list indicator. */
+  count(filters: SessionsFilters = {}): number {
+    const { sql, params } = this.where(filters);
+    const row = q<{ n: number }>(this.db, `SELECT COUNT(*) AS n FROM sessions ${sql}`).get(...params);
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Keyset-paged list (newest first) with an `(updated_at, id)` cursor —
+   * stable under live reordering (offset would skip/duplicate rows as
+   * sessions bump to the top). Fetches limit+1 to report `hasMore` and the
+   * cursor for the next older page.
+   */
+  listPage(limit = 50, cursor?: SessionsCursor, filters: SessionsFilters = {}): SessionsPage {
+    const safeLimit = Math.max(1, Math.min(Math.floor(limit), 200));
+    const { sql, params } = this.where(filters);
+    const cursorClause =
+      cursor !== undefined ? `${sql} AND (updated_at < ? OR (updated_at = ? AND id < ?))` : sql;
+    const cursorParams: SQLQueryBindings[] =
+      cursor !== undefined ? [cursor.updatedAt, cursor.updatedAt, cursor.id] : [];
+    const rows = q<SessionRow>(
+      this.db,
+      `SELECT * FROM sessions ${cursorClause} ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    ).all(...params, ...cursorParams, safeLimit + 1);
+    const hasMore = rows.length > safeLimit;
+    const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+    const oldest = pageRows[pageRows.length - 1];
+    return {
+      sessions: pageRows.map(toSession),
+      hasMore,
+      total: this.count(filters),
+      ...(hasMore && oldest !== undefined
+        ? { nextCursor: encodeCursor({ updatedAt: oldest.updated_at, id: oldest.id } satisfies SessionsCursor) }
+        : {}),
+    };
   }
 
   /**

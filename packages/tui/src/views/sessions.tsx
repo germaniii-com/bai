@@ -22,6 +22,11 @@ export function SessionsView({
   onNew,
   onDone,
   windowSize,
+  onQueryChange,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
+  total,
 }: {
   sessions: Session[];
   /** Currently open session — marked and pre-selected in the list. */
@@ -35,6 +40,16 @@ export function SessionsView({
   onDone: () => void;
   /** Sliding-window size (overlay height cap). */
   windowSize?: number;
+  /** Server-side filter (paged list: matches sessions beyond the page). */
+  onQueryChange?: (query: string) => void;
+  /** Fetch the next page (fires as the highlight nears the loaded end). */
+  onLoadMore?: () => void;
+  /** Older pages exist after the loaded window. */
+  hasMore?: boolean;
+  /** A page fetch is in flight. */
+  loadingMore?: boolean;
+  /** Total sessions matching the filter across all pages (server `total`). */
+  total?: number;
 }) {
   const options = sessions.map((s) => {
     const asks = askIndex?.get(s.id) ?? 0;
@@ -60,6 +75,11 @@ export function SessionsView({
       initialIndex={initialIndex}
       emptyHint="none yet — ctrl+n to start one"
       windowSize={windowSize}
+      {...(onQueryChange !== undefined ? { onQueryChange } : {})}
+      {...(onLoadMore !== undefined ? { onLoadMore } : {})}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      {...(total !== undefined ? { total } : {})}
       actions={[{ key: "n", label: "new", onAction: () => onNew() }]}
       onPick={(id) => {
         const picked = sessions.find((s) => s.id === id);

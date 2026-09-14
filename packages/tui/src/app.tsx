@@ -84,6 +84,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Ref guard so rapid wheel-up/pageUp bursts can't stack duplicate fetches
+  // (state updates lag within one event burst).
+  const loadingOlderRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // Transient auto-retry status ("API error, retrying 2/3…") — set by
   // run.retry, cleared by the next run.started/run.finished.
@@ -201,19 +204,83 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const providersLoadedRef = useRef(false);
   providersLoadedRef.current = providers !== null;
 
-  const refreshSessions = useCallback(async () => {
+  // Paged session list (UI only): newest 50 + older pages on scroll toward
+  // the end of the picker. `roots: true` excludes child (subagent) sessions;
+  // the server-side `q` filter reaches sessions beyond the loaded page.
+  const [sessionHasMore, setSessionHasMore] = useState(false);
+  const [sessionLoadingMore, setSessionLoadingMore] = useState(false);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const sessionCursorRef = useRef<string | null>(null);
+  const sessionQueryRef = useRef("");
+  const sessionGenerationRef = useRef(0);
+  const sessionLoadingMoreRef = useRef(false);
+
+  const refreshSessions = useCallback(async (query: string = sessionQueryRef.current) => {
+    const generation = ++sessionGenerationRef.current;
+    sessionLoadingMoreRef.current = false;
+    setSessionLoadingMore(false);
     try {
-      setSessions(await client.listSessions());
+      const page = await client.listSessionsPage(50, {
+        roots: true,
+        ...(query.length > 0 ? { q: query } : {}),
+      });
+      if (generation !== sessionGenerationRef.current) return;
+      setSessions(page.sessions);
+      sessionCursorRef.current = page.nextCursor ?? null;
+      setSessionHasMore(page.hasMore === true);
+      setSessionTotal(page.total);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (generation === sessionGenerationRef.current) setError(err instanceof Error ? err.message : String(err));
     }
   }, [client]);
+
+  const loadMoreSessions = useCallback(() => {
+    const cursor = sessionCursorRef.current;
+    if (cursor === null || sessionLoadingMoreRef.current) return;
+    const generation = sessionGenerationRef.current;
+    sessionLoadingMoreRef.current = true;
+    setSessionLoadingMore(true);
+    void (async () => {
+      try {
+        const page = await client.listSessionsPage(50, {
+          before: cursor,
+          roots: true,
+          ...(sessionQueryRef.current.length > 0 ? { q: sessionQueryRef.current } : {}),
+        });
+        if (generation !== sessionGenerationRef.current) return;
+        setSessions((prev) => {
+          const seen = new Set(prev.map((s) => s.id));
+          return [...prev, ...page.sessions.filter((s) => !seen.has(s.id))];
+        });
+        sessionCursorRef.current = page.nextCursor ?? null;
+        setSessionHasMore(page.hasMore === true);
+        setSessionTotal(page.total);
+      } catch (err) {
+        if (generation === sessionGenerationRef.current) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (generation === sessionGenerationRef.current) {
+          sessionLoadingMoreRef.current = false;
+          setSessionLoadingMore(false);
+        }
+      }
+    })();
+  }, [client]);
+
+  const onSessionQuery = useCallback(
+    (query: string) => {
+      sessionQueryRef.current = query;
+      void refreshSessions(query);
+    },
+    [refreshSessions],
+  );
 
   const refreshProviders = useCallback(async () => {
     setProvidersFetching(true);
     try {
-      setProviders(await client.providers());
+      // Slim fetch: connection/account state only. Model lists are far too
+      // large to ship in one payload — the pickers page `GET /model`.
+      setProviders(await client.providers({ models: false }));
     } catch {
       // Provider list is advisory; the footer hint covers the empty case.
     } finally {
@@ -384,6 +451,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     setMessages([]);
     setHistoryHasMore(false);
     setHistoryCursor(null);
+    loadingOlderRef.current = false;
     setLoadingOlder(false);
     setRunActive(false); // a mid-run switch can't see the earlier run.started
     setPendingAsks([]); // session switch: the new session's asks arrive below
@@ -492,7 +560,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   // offset is from the TOP, so prepending while scrolled up keeps the reading
   // window stable (new rows appear above the viewport, follow stays off).
   const loadOlder = useCallback(async () => {
-    if (activeId === undefined || !historyHasMore || historyCursor === null || loadingOlder) return;
+    if (activeId === undefined || !historyHasMore || historyCursor === null || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
     setLoadingOlder(true);
     try {
       const older = await client.historySnapshot(activeId, { limit: 100, before: historyCursor });
@@ -506,9 +575,10 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
-  }, [activeId, client, historyHasMore, historyCursor, loadingOlder]);
+  }, [activeId, client, historyHasMore, historyCursor]);
 
   // ctrl+c is global in BOTH modes (even over dialogs — dialogs ignore ctrl
   // keys): first press arms, second interrupts a running drain or quits.
@@ -547,8 +617,12 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     setDialog({ kind: "skills" });
   }, []);
   const openSessionsDialog = useCallback(() => {
+    // Fresh picker: clear any previous type-ahead filter (the server-side
+    // `q` otherwise lingers on the stored list).
+    sessionQueryRef.current = "";
+    void refreshSessions("");
     setDialog({ kind: "sessions" });
-  }, []);
+  }, [refreshSessions]);
   const openThemesDialog = useCallback(() => {
     setDialog({ kind: "themes" });
   }, []);
@@ -877,6 +951,11 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
               activeId={active?.id}
               askIndex={askIndex}
               windowSize={overlayListRows}
+              onQueryChange={onSessionQuery}
+              onLoadMore={loadMoreSessions}
+              hasMore={sessionHasMore}
+              loadingMore={sessionLoadingMore}
+              total={sessionTotal}
               onPick={(s) => {
                 setDialog(null);
                 setActive(s);

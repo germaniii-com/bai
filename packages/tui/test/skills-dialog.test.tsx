@@ -29,6 +29,7 @@ const skills = Array.from({ length: 30 }, (_, i) => skill(i));
 function stubClient(opts: { learned?: unknown[] } = {}): BaiClient {
   return {
     listSkills: async () => skills,
+    listSkillsPage: async () => ({ skills, hasMore: false, total: skills.length }),
     getSkill: async (name: string) => {
       const found = skills.find((s) => s.name === name);
       return found === undefined ? undefined : { skill: found, usage: { views: 3, sessions: 2 } };

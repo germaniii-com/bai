@@ -44,6 +44,10 @@ export function WorkspaceNav({
   onRestore: (path: string) => Promise<void>;
 }) {
   const [tab, setTab] = useState<"active" | "archived">("active");
+  // Incremental reveal: a long workspace list renders a page at a time
+  // (config-driven, so no server paging — pure UI windowing).
+  const [activeLimit, setActiveLimit] = useState(25);
+  const [archivedLimit, setArchivedLimit] = useState(25);
   const [modalOpen, setModalOpen] = useState(false);
   // The row pending removal (the confirm modal's subject); null = closed.
   const [removing, setRemoving] = useState<string | null>(null);
@@ -82,6 +86,11 @@ export function WorkspaceNav({
     }
   };
 
+  // Keep the selected workspace visible even when it falls past the page.
+  const selectedIdx = selected !== null ? workspaces.indexOf(selected) : -1;
+  const activeShown = workspaces.slice(0, Math.max(activeLimit, selectedIdx + 1));
+  const archivedShown = archivedWorkspaces.slice(0, archivedLimit);
+
   return (
     <div className="workspace-nav">
       {/* Active | Archived selector — archived hides the add button. */}
@@ -109,7 +118,7 @@ export function WorkspaceNav({
         <>
           <SubNavCreate className="add-workspace-btn" label="+ Add a Workspace" onClick={() => setModalOpen(true)} />
           {workspaces.length === 0 && <p className="dim">No workspaces yet.</p>}
-          {workspaces.map((w) => (
+          {activeShown.map((w) => (
             <ListItem
               key={w}
               accentBar
@@ -136,11 +145,16 @@ export function WorkspaceNav({
               }
             />
           ))}
+          {workspaces.length > activeShown.length && (
+            <button type="button" className="load-more" onClick={() => setActiveLimit((n) => n + 25)}>
+              Show {Math.min(25, workspaces.length - activeShown.length)} more
+            </button>
+          )}
         </>
       ) : (
         <>
           {archivedWorkspaces.length === 0 && <p className="dim">No archived workspaces.</p>}
-          {archivedWorkspaces.map((w) => (
+          {archivedShown.map((w) => (
             <ListItem
               key={w}
               icon={<ArchiveGlyph />}
@@ -164,6 +178,11 @@ export function WorkspaceNav({
               }
             />
           ))}
+          {archivedWorkspaces.length > archivedShown.length && (
+            <button type="button" className="load-more" onClick={() => setArchivedLimit((n) => n + 25)}>
+              Show {Math.min(25, archivedWorkspaces.length - archivedShown.length)} more
+            </button>
+          )}
         </>
       )}
       {modalOpen && (

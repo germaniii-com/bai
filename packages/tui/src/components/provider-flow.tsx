@@ -1,15 +1,10 @@
 import { Box, Text } from "ink";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import type { ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { ModelPageEntry, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { PromptDialog, SelectDialog } from "./dialog";
 import { useTheme } from "../theme";
-import {
-  accountOptions,
-  allModelOptions,
-  modelOptions,
-  providerOptions,
-} from "../state/providers";
+import { accountOptions, modelPageOptions, providerOptions } from "../state/providers";
 
 /**
  * Provider wizard (the opencode /connect pattern, extended for multi-account):
@@ -229,10 +224,12 @@ export function ProviderFlow({
       provider === undefined ? (
         <StepError message="Provider vanished" onClose={onDone} />
       ) : (
-        <SelectDialog
+        <PagedModelPicker
           key={`models:${provider.id}:${step.accountId ?? ""}`}
+          client={client}
           title={`Models · ${provider.name}${step.accountId !== undefined ? ` · ${step.accountId}` : ""}`}
-          options={modelOptions(provider, preferZdr === true)}
+          providerId={provider.id}
+          preferZdr={preferZdr === true}
           windowSize={windowSize}
           onPick={(value) => {
             if (value === "__custom__") {
@@ -246,13 +243,15 @@ export function ProviderFlow({
       );
   } else if (step.kind === "all-models") {
     // Flat entry: every connected provider's models in one type-to-filter
-    // list. Account is omitted on apply — the server resolves the provider's
-    // default (config override → first stored → env).
+    // list, paged server-side (the catalog is thousands strong). Account is
+    // omitted on apply — the server resolves the provider's default
+    // (config override → first stored → env).
     dialog = (
-      <SelectDialog
+      <PagedModelPicker
         key="all-models"
+        client={client}
         title="Models"
-        options={allModelOptions(list.providers, preferZdr === true)}
+        preferZdr={preferZdr === true}
         windowSize={windowSize}
         onPick={(value) => {
           if (value === "__custom__") {
@@ -291,6 +290,138 @@ export function ProviderFlow({
       {error !== null && <ErrorLine error={error} />}
       {dialog}
     </Box>
+  );
+}
+
+/** Models per page (the flat catalog can be thousands strong). */
+const MODEL_PAGE = 100;
+
+/**
+ * Server-paged model picker: fetches one page at a time from `/model`,
+ * type-ahead filtering runs server-side (so it matches models beyond the
+ * loaded page), and the next page loads as the highlight nears the end.
+ * The custom "type a model id" escape hatch stays last.
+ */
+function PagedModelPicker({
+  client,
+  title,
+  providerId,
+  preferZdr,
+  windowSize,
+  onPick,
+  onClose,
+}: {
+  client: BaiClient;
+  title: string;
+  /** Scope to one provider's models; omitted → the flat connected catalog. */
+  providerId?: string;
+  preferZdr: boolean;
+  windowSize?: number;
+  onPick: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [entries, setEntries] = useState<ModelPageEntry[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const generationRef = useRef(0);
+  const offsetRef = useRef(0);
+  const queryRef = useRef("");
+  const loadingMoreRef = useRef(false);
+
+  const loadFirst = useCallback(
+    async (query: string): Promise<void> => {
+      const generation = ++generationRef.current;
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+      try {
+        const page = await client.modelsPage({
+          limit: MODEL_PAGE,
+          offset: 0,
+          ...(providerId !== undefined ? { provider: providerId } : {}),
+          ...(query.length > 0 ? { q: query } : {}),
+          ...(preferZdr ? { zdr: true } : {}),
+        });
+        if (generation !== generationRef.current) return;
+        setEntries(page.models);
+        offsetRef.current = page.nextOffset ?? page.models.length;
+        setHasMore(page.hasMore === true);
+        setTotal(page.total);
+      } catch {
+        // Advisory; keep whatever page is loaded.
+      }
+    },
+    [client, providerId, preferZdr],
+  );
+
+  useEffect(() => {
+    void loadFirst(queryRef.current);
+  }, [loadFirst]);
+
+  const loadMore = useCallback((): void => {
+    if (!hasMore || loadingMoreRef.current) return;
+    const generation = generationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    void (async () => {
+      try {
+        const page = await client.modelsPage({
+          limit: MODEL_PAGE,
+          offset: offsetRef.current,
+          ...(providerId !== undefined ? { provider: providerId } : {}),
+          ...(queryRef.current.length > 0 ? { q: queryRef.current } : {}),
+          ...(preferZdr ? { zdr: true } : {}),
+        });
+        if (generation !== generationRef.current) return;
+        setEntries((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...page.models.filter((m) => !seen.has(m.id))];
+        });
+        offsetRef.current = page.nextOffset ?? offsetRef.current + page.models.length;
+        setHasMore(page.hasMore === true);
+        setTotal(page.total);
+      } catch {
+        // Retry on the next scroll toward the end.
+      } finally {
+        if (generation === generationRef.current) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
+      }
+    })();
+  }, [client, providerId, preferZdr, hasMore]);
+
+  const onQueryChange = useCallback(
+    (query: string): void => {
+      queryRef.current = query;
+      void loadFirst(query);
+    },
+    [loadFirst],
+  );
+
+  const options = [
+    ...modelPageOptions(entries, preferZdr, providerId === undefined),
+    {
+      value: "__custom__",
+      label: "Type a model id…",
+      hint: providerId === undefined ? "provider/model" : "any id accepted",
+    },
+  ];
+
+  return (
+    <SelectDialog
+      title={title}
+      options={options}
+      windowSize={windowSize}
+      emptyHint="no models"
+      onQueryChange={onQueryChange}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      total={total}
+      onLoadMore={loadMore}
+      onPick={onPick}
+      onClose={onClose}
+    />
   );
 }
 
