@@ -107,7 +107,7 @@ export function parseRoute(pathname: string, search: string): Route {
     case "settings": {
       const sub = next;
       const settingsSection: RouteSettingsSection =
-        sub === "user" || sub === "providers" || sub === "webSearch" ? sub : "general";
+        sub === "user" || sub === "providers" || sub === "webSearch" || sub === "integrations" ? sub : "general";
       return { section: "settings", settingsSection };
     }
     case "agents":

@@ -29,6 +29,9 @@ import {
   type AgentInfo,
   type ConfigPatch,
   type LearnSkillBody,
+  type MCPServerConfig,
+  type McpCatalogEntry,
+  type McpServerInfo,
   type PutAgentBody,
   type PutSkillBody,
   type SkillInfo,
@@ -48,9 +51,12 @@ import {
   buildLearnRequest,
   isValidToolName,
   LEARN_AGENT_NAME,
+  MCP_CATALOG,
+  mcpCatalogEntry,
   registeredRoots,
   sortModelsZdrFirst,
 } from "@bai/shared";
+import type { McpManager } from "./mcp";
 import type { AgentRegistry } from "./agent/registry";
 import { AttachmentStore } from "./attachments";
 import type { AutomationScheduler } from "./automations/scheduler";
@@ -116,6 +122,8 @@ export interface ServiceDeps {
   /** File-defined skills (~/.config/bai/skills/<name>/SKILL.md), hot-reloaded. */
   skills: SkillRegistry;
   toolLoader: ToolLoader;
+  /** External MCP servers (files + config), when wired by boot. */
+  mcp?: McpManager;
   config(): Config;
   /**
    * Directory attachment bytes are written under
@@ -1117,6 +1125,60 @@ export class Service {
     rmSync(target);
     await this.deps.toolLoader.rescan();
     return true;
+  }
+
+  // --- MCP servers (external integrations) ---
+
+  /** Effective MCP servers (files + config) with live connection status. */
+  mcpServers(): McpServerInfo[] {
+    return this.deps.mcp?.status() ?? [];
+  }
+
+  /** Curated one-click install catalog. */
+  mcpCatalog(): McpCatalogEntry[] {
+    return MCP_CATALOG;
+  }
+
+  private requireMcp(): McpManager {
+    if (this.deps.mcp === undefined) throw new Error("MCP is not available in this process");
+    return this.deps.mcp;
+  }
+
+  /** Create/replace a drop-in MCP server file and (re)connect it. */
+  async mcpPut(name: string, config: MCPServerConfig): Promise<void> {
+    await this.requireMcp().put(name, config);
+  }
+
+  async mcpRemove(name: string): Promise<boolean> {
+    return this.requireMcp().remove(name);
+  }
+
+  /** Begin an interactive OAuth flow; returns the authorization URL. */
+  async mcpStartAuth(name: string): Promise<string> {
+    return this.requireMcp().startAuth(name);
+  }
+
+  /** Finish an OAuth flow with the pasted code (or full callback URL). */
+  async mcpFinishAuth(name: string, codeOrUrl: string): Promise<void> {
+    await this.requireMcp().finishAuth(name, codeOrUrl);
+  }
+
+  async mcpSetEnabled(name: string, enabled: boolean): Promise<void> {
+    await this.requireMcp().setEnabled(name, enabled);
+  }
+
+  /** Retry failed/disconnected MCP servers. */
+  async mcpReconnect(): Promise<void> {
+    await this.requireMcp().reconnect();
+  }
+
+  /** Install a curated catalog entry (writes a drop-in file); returns an OAuth URL when required. */
+  async mcpInstall(name: string): Promise<string | undefined> {
+    const entry = mcpCatalogEntry(name);
+    if (entry === undefined) throw new Error(`Unknown catalog entry: ${name}`);
+    const mcp = this.requireMcp();
+    await mcp.put(entry.name, { ...entry.server, enabled: true });
+    return entry.oauth === true ? await mcp.startAuth(entry.name) : undefined;
   }
 
   /** Custom-tool file path for surface-side editing. */

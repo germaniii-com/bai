@@ -90,11 +90,86 @@ export interface AgentsConfig {
   subagentDepth?: number;
 }
 
+/** How an MCP server is reached. Inferred from `command` vs `url` when absent. */
+export type McpTransport = "stdio" | "http";
+
+/** One external MCP server definition (config.json `mcp.<name>` or a `mcp/<name>.json` file). */
 export interface MCPServerConfig {
+  /** Optional discriminator; inferred from `command` (stdio) vs `url` (http). */
+  transport?: McpTransport;
+  // --- stdio ---
   command?: string;
   args?: string[];
-  url?: string;
   env?: Record<string, string>;
+  cwd?: string;
+  // --- http ---
+  url?: string;
+  headers?: Record<string, string>;
+  /** Enable the interactive OAuth flow (remote servers). */
+  oauth?: boolean | { clientId?: string; clientSecret?: string; scope?: string };
+  // --- shared ---
+  /** Disabled servers are listed but never connected (default true). */
+  enabled?: boolean;
+  /** Connect/request timeout in milliseconds. */
+  timeout?: number;
+  /** Optional tool whitelist/blacklist for this server. */
+  tools?: { include?: string[]; exclude?: string[] };
+}
+
+/** A `~/.config/bai/mcp/<name>.json` file: one server, or a multi-server import wrapper. */
+export type MCPServerFile = MCPServerConfig | { mcpServers: Record<string, MCPServerConfig> };
+
+/** Where a resolved MCP server definition came from. */
+export type McpServerSource = "file" | "config";
+
+/** Live connection state for one MCP server (settings UI + tool gating). */
+export type McpServerState = "connected" | "connecting" | "failed" | "disabled" | "needs_auth";
+
+export interface McpServerInfo {
+  name: string;
+  source: McpServerSource;
+  state: McpServerState;
+  transport: McpTransport;
+  /** Connected tool count (0 until the handshake completes). */
+  tools: number;
+  /** Present when state is "failed" or "needs_auth". */
+  error?: string;
+  /** Absolute path of the defining file (file-sourced servers only). */
+  path?: string;
+}
+
+/** A curated MCP catalog entry (Integrations pane, one-click install). */
+export interface McpCatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  /** Server definition to write on install. */
+  server: MCPServerConfig;
+  /** Env vars the user must provide (shown as hints; values live in the shell env). */
+  envVars?: { name: string; prompt: string; url?: string; secret?: boolean }[];
+  /** True when install should start the OAuth flow after writing the file. */
+  oauth?: boolean;
+}
+
+/** Valid MCP server names: filename stems — letter first, then letters/digits/-/_. */
+export function isValidMcpServerName(name: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name);
+}
+
+const ENV_REF_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/** Substitute `${VAR}` references from `env` (leaving unknown refs untouched). */
+export function interpolateEnv<T>(value: T, env: Record<string, string | undefined>): T {
+  if (typeof value === "string") {
+    return value.replace(ENV_REF_RE, (match, name: string) => env[name] ?? match) as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => interpolateEnv(v, env)) as T;
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = interpolateEnv(v, env);
+    return out as T;
+  }
+  return value;
 }
 
 export interface ServerConfig {
@@ -200,12 +275,39 @@ const providerSchema = z.object({
   authType: z.enum(["api_key", "redirect", "device_code", "paste_code", "import", "adc"]).optional(),
 });
 
-const mcpServerSchema = z.object({
+const oauthConfigSchema = z.union([
+  z.boolean(),
+  z.object({
+    clientId: z.string().optional(),
+    clientSecret: z.string().optional(),
+    scope: z.string().optional(),
+  }),
+]);
+
+export const mcpServerSchema = z.object({
+  transport: z.enum(["stdio", "http"]).optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  url: z.string().url().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  cwd: z.string().optional(),
+  url: z.string().url().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  oauth: oauthConfigSchema.optional(),
+  enabled: z.boolean().optional(),
+  timeout: z.number().int().positive().max(600_000).optional(),
+  tools: z
+    .object({
+      include: z.array(z.string()).optional(),
+      exclude: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
+
+/** Validates one MCP file (single server or `{ "mcpServers": {...} }` wrapper). */
+export const mcpServerFileSchema = z.union([
+  z.object({ mcpServers: z.record(z.string(), mcpServerSchema) }),
+  mcpServerSchema,
+]);
 
 const agentsSchema = z.object({
   default: z.string().max(100).optional(),

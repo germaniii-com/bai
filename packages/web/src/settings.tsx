@@ -3,6 +3,8 @@ import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
+  McpCatalogEntry,
+  McpServerInfo,
   MediaGenConfig,
   OAuthProviderInfo,
   ProviderInfo,
@@ -42,7 +44,7 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
  */
 
 /** The settings sections (the nested sidebar's entries). */
-export type SettingsSection = "user" | "general" | "providers" | "webSearch";
+export type SettingsSection = "user" | "general" | "providers" | "webSearch" | "integrations";
 
 /** Nested-sidebar list: the settings sections. */
 export function SettingsNav({
@@ -57,6 +59,7 @@ export function SettingsNav({
     { id: "general", title: "General", dim: "default agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
     { id: "webSearch", title: "Web Search", dim: "provider · fallback" },
+    { id: "integrations", title: "Integrations", dim: "MCP servers" },
   ];
   return (
     <SubNav>
@@ -141,6 +144,14 @@ export function SettingsPane({
     return (
       <div className="settings">
         <WebSearchPane client={client} onNotice={onNotice} />
+      </div>
+    );
+  }
+
+  if (section === "integrations") {
+    return (
+      <div className="settings">
+        <IntegrationsPane client={client} onNotice={onNotice} />
       </div>
     );
   }
@@ -1150,6 +1161,225 @@ function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNo
           {keyLine("Exa", status.keys.exa)} · {keyLine("Parallel", status.keys.parallel)}
         </p>
         <p className="dim">Available now: {available.length > 0 ? available : "none"}</p>
+      </Card>
+    </>
+  );
+}
+
+const MCP_STATE_LABELS: Record<McpServerInfo["state"], string> = {
+  connected: "connected",
+  connecting: "connecting",
+  failed: "failed",
+  disabled: "disabled",
+  needs_auth: "needs authorization",
+};
+
+/**
+ * Integrations section: installed MCP servers (status, enable/disable,
+ * authorize, retry, remove) plus the curated catalog. Installing a catalog
+ * entry writes a drop-in file under ~/.config/bai/mcp/ and starts OAuth.
+ */
+function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: OnNotice }) {
+  const [servers, setServers] = useState<McpServerInfo[] | null>(null);
+  const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [authName, setAuthName] = useState<string | null>(null);
+  const [authCode, setAuthCode] = useState("");
+
+  const load = async (): Promise<void> => {
+    try {
+      const [nextServers, nextCatalog] = await Promise.all([client.getMcpServers(), client.getMcpCatalog()]);
+      setServers(nextServers);
+      setCatalog(nextCatalog);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = async (key: string, fn: () => Promise<void>, ok: string): Promise<void> => {
+    setBusy(key);
+    try {
+      await fn();
+      await load();
+      onNotice(ok);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const beginAuth = (name: string, url: string): void => {
+    window.open(url, "_blank", "noopener,noreferrer");
+    setAuthName(name);
+    setAuthCode("");
+    onNotice("Complete authorization in the browser, then paste the code below.");
+  };
+
+  const authorize = async (name: string): Promise<void> => {
+    setBusy(name);
+    try {
+      beginAuth(name, await client.startMcpAuth(name));
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const install = async (name: string): Promise<void> => {
+    setBusy(`install:${name}`);
+    try {
+      const url = await client.installMcpCatalogEntry(name);
+      await load();
+      if (url !== undefined) beginAuth(name, url);
+      else onNotice(`Installed ${name}`);
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const finishAuth = async (): Promise<void> => {
+    if (authName === null || authCode.trim().length === 0) return;
+    const name = authName;
+    await run(name, () => client.finishMcpAuth(name, authCode.trim()), `${name} authorized`);
+    setAuthName(null);
+    setAuthCode("");
+  };
+
+  if (servers === null) {
+    return <p className="dim">Loading…</p>;
+  }
+
+  const installed = new Set(servers.map((s) => s.name));
+
+  return (
+    <>
+      <PageHeader title="Integrations" />
+      {authName !== null && (
+        <Card>
+          <SectionHeader
+            title={`Authorize ${authName}`}
+            lede="Finish the browser flow, then paste the authorization code (or the full callback URL) here."
+          />
+          <Field label="Authorization code">
+            <TextInput value={authCode} placeholder="paste code…" onChange={(e) => setAuthCode(e.target.value)} />
+          </Field>
+          <div>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={authCode.trim().length === 0 || busy !== null}
+              onClick={() => void finishAuth()}
+            >
+              Finish authorization
+            </Button>{" "}
+            <Button type="button" variant="ghost" onClick={() => setAuthName(null)}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <SectionHeader
+          title="Installed servers"
+          lede="External MCP servers, defined as files in ~/.config/bai/mcp/ (or config.json). Their tools appear as mcp/<server>/<tool>."
+        />
+        {servers.length === 0 ? (
+          <p className="dim">No MCP servers yet. Install one below, or drop a file into ~/.config/bai/mcp/.</p>
+        ) : (
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            {servers.map((server) => (
+              <div
+                key={server.name}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}
+              >
+                <div>
+                  <strong>{server.name}</strong>{" "}
+                  <span className="dim">
+                    {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
+                    {server.tools === 1 ? "" : "s"}
+                    {server.error !== undefined ? ` · ${server.error}` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+                  {server.state === "needs_auth" && (
+                    <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void authorize(server.name)}>
+                      Authorize
+                    </Button>
+                  )}
+                  {server.state === "failed" && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy !== null}
+                      onClick={() => void run(server.name, () => client.reconnectMcpServer(server.name), "Reconnect requested")}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      void run(
+                        server.name,
+                        () => client.setMcpServerEnabled(server.name, server.state === "disabled"),
+                        server.state === "disabled" ? "Enabled" : "Disabled",
+                      )
+                    }
+                  >
+                    {server.state === "disabled" ? "Enable" : "Disable"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={busy !== null}
+                    onClick={() => void run(server.name, () => client.deleteMcpServer(server.name), `Removed ${server.name}`)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <SectionHeader
+          title="Catalog"
+          lede="Official vendor-hosted MCP servers. Install writes a drop-in file, then starts OAuth."
+        />
+        <div style={{ display: "grid", gap: "0.75rem" }}>
+          {catalog.map((entry) => (
+            <div
+              key={entry.name}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}
+            >
+              <div>
+                <strong>{entry.title}</strong> <span className="dim">{entry.description}</span>
+              </div>
+              <Button
+                type="button"
+                variant={installed.has(entry.name) ? "ghost" : "primary"}
+                disabled={busy !== null || installed.has(entry.name)}
+                onClick={() => void install(entry.name)}
+              >
+                {installed.has(entry.name) ? "Installed" : "Install"}
+              </Button>
+            </div>
+          ))}
+        </div>
       </Card>
     </>
   );

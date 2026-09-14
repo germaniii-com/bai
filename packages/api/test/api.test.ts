@@ -273,6 +273,26 @@ describe("api contract", () => {
     expect(Array.isArray(status.available)).toBe(true);
   });
 
+  test("GET /api/mcp/servers and /api/mcp/catalog", async () => {
+    const servers = await app.request("/api/mcp/servers");
+    expect(servers.status).toBe(200);
+    expect((await servers.json()) as { servers: unknown[] }).toEqual({ servers: [] });
+
+    const catalog = await app.request("/api/mcp/catalog");
+    expect(catalog.status).toBe(200);
+    const { catalog: entries } = (await catalog.json()) as { catalog: { name: string; server: unknown }[] };
+    expect(entries.map((e) => e.name)).toContain("figma");
+  });
+
+  test("PUT /api/mcp/server/:name rejects an invalid config", async () => {
+    const res = await app.request("/api/mcp/server/bad", {
+      method: "PUT",
+      body: JSON.stringify({ config: { timeout: -5 } }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(400);
+  });
+
   test("session list filters by workbench and cwd", async () => {
     stack.core.createSession({ workbench: "chat" });
     stack.core.createSession({ workbench: "code", cwd: "/ws/one" });

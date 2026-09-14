@@ -10,6 +10,8 @@ import {
   EventLog,
   Bus,
   JobQueue,
+  McpManager,
+  McpRegistry,
   OAuthLoginManager,
   ProviderRegistry,
   Service,
@@ -90,6 +92,9 @@ export async function boot(args: CliArgs): Promise<Booted> {
   const log = new EventLog(store.events);
   // Late-bound core: config/OAuth callbacks fire only after boot completes.
   let coreRef: Service | undefined;
+  // Late-bound MCP manager: the config/registry change closures below can fire
+  // during construction, before the manager exists.
+  let mcpManagerRef: McpManager | undefined;
 
   // Credentials live outside config (auth.json, 0600) so keys never ride
   // config sync; the catalog merges models.dev with config-defined providers.
@@ -106,6 +111,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
       // constructor window).
       bus.publish({ seq: 0, type: "config.updated", ts: new Date().toISOString(), payload: {} });
       coreRef?.emitLive("config.updated", {});
+      // config.json's `mcp` layer may have changed — reconcile servers.
+      void mcpManagerRef?.reconcile();
     },
   });
   const catalog = new CatalogService({
@@ -170,6 +177,33 @@ export async function boot(args: CliArgs): Promise<Booted> {
     },
   });
 
+  // External MCP servers. File-first: `~/.config/bai/mcp/<name>.{json,yaml}`
+  // is the user layer (hot-reloaded); config.json's `mcp` map is the
+  // programmatic layer, and files win on name collisions. The manager connects
+  // servers and merges their tools as `mcp/<server>/<tool>`.
+  const mcpRegistry = new McpRegistry({
+    dir: path.join(configDir(), "mcp"),
+    config: () => configStore.get(),
+    onChange: () => {
+      bus.publish({ seq: 0, type: "mcp.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("mcp.updated", {});
+      void mcpManagerRef?.reconcile();
+    },
+  });
+  const mcpManager = new McpManager({
+    registry: mcpRegistry,
+    tools,
+    version: VERSION,
+    tokensDir: path.join(dataDir(), "mcp-tokens"),
+    onChange: () => {
+      bus.publish({ seq: 0, type: "mcp.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("mcp.updated", {});
+      bus.publish({ seq: 0, type: "tools.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("tools.updated", {});
+    },
+  });
+  mcpManagerRef = mcpManager;
+
   // File-defined agents (~/.config/bai/agents/*.md), hot-reloaded; changes
   // broadcast live so every surface refetches without a restart.
   const agents = new AgentRegistry({
@@ -233,6 +267,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     automations,
     skills,
     toolLoader,
+    mcp: mcpManager,
     config: () => configStore.get(),
     // Config mutation path for agent tools (workspace.create): the same
     // ConfigStore.update the PUT /api/config route uses — global layer file,
@@ -245,6 +280,14 @@ export async function boot(args: CliArgs): Promise<Booted> {
     snapshot: new Snapshot(snapshotDir(dataDir())),
   });
   coreRef = core;
+
+  // Connect configured MCP servers and merge their tools (non-blocking: a slow
+  // or broken server must not delay startup).
+  if (args.mode !== "oneshot") {
+    void mcpManager.start().catch((err) => {
+      console.warn(`[bai] MCP startup failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
 
   // Automations ticker: fires due scheduled prompts. One-shot runs are
   // ephemeral proxies with an in-memory store, so they never own a ticker.
@@ -318,6 +361,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
       agents.stop();
       skills.stop();
       toolLoader.stop();
+      mcpRegistry.stop();
+      void mcpManager.stop();
       store.close();
     },
   };

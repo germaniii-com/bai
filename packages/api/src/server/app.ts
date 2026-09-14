@@ -10,6 +10,7 @@ import {
   customThemeSchema,
   enqueueJobSchema,
   learnSkillSchema,
+  mcpServerSchema,
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
@@ -265,6 +266,72 @@ function buildApi(deps: ApiDeps) {
 
     // --- web search (read-only provider/key status for the settings UI) ---
     .get("/web-search/status", (c) => c.json(webSearchStatus(deps.configStore.get())))
+
+    // --- MCP servers (external integrations) ---
+    .get("/mcp/servers", (c) => c.json({ servers: deps.core.mcpServers() }))
+    .get("/mcp/catalog", (c) => c.json({ catalog: deps.core.mcpCatalog() }))
+    .put("/mcp/server/:name", zValidator("json", z.object({ config: mcpServerSchema })), async (c) => {
+      try {
+        await deps.core.mcpPut(c.req.param("name"), c.req.valid("json").config);
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/mcp/server/:name", async (c) => {
+      try {
+        const removed = await deps.core.mcpRemove(c.req.param("name"));
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true, removed });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/mcp/server/:name/enabled", zValidator("json", z.object({ enabled: z.boolean() })), async (c) => {
+      try {
+        await deps.core.mcpSetEnabled(c.req.param("name"), c.req.valid("json").enabled);
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/mcp/server/:name/reconnect", async (c) => {
+      try {
+        await deps.core.mcpReconnect();
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/mcp/server/:name/auth", async (c) => {
+      try {
+        const url = await deps.core.mcpStartAuth(c.req.param("name"));
+        return c.json({ url });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/mcp/server/:name/auth/finish", zValidator("json", z.object({ code: z.string().min(1) })), async (c) => {
+      try {
+        await deps.core.mcpFinishAuth(c.req.param("name"), c.req.valid("json").code);
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .post("/mcp/catalog/:name/install", async (c) => {
+      try {
+        const url = await deps.core.mcpInstall(c.req.param("name"));
+        deps.core.emitLive("mcp.updated", {});
+        return c.json({ ok: true, ...(url !== undefined ? { url } : {}) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
 
     // --- workspaces (webui Active | Archived) ---
     // Remove = unregister + archive the workspace's sessions (the webui's

@@ -23,6 +23,9 @@ import type {
   PutAgentBody,
   PutSkillBody,
   LearnSkillBody,
+  MCPServerConfig,
+  McpCatalogEntry,
+  McpServerInfo,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -297,6 +300,58 @@ export class BaiClient {
     const res = await this.rpc()["web-search"].status.$get();
     if (!res.ok) throw new Error(`get web search status failed: ${res.status}`);
     return await res.json();
+  }
+
+  // --- MCP servers (Integrations) ---
+
+  async getMcpServers(): Promise<McpServerInfo[]> {
+    const res = await this.rpc().mcp.servers.$get();
+    if (!res.ok) throw new Error(`get mcp servers failed: ${res.status}`);
+    return (await res.json()).servers;
+  }
+
+  async getMcpCatalog(): Promise<McpCatalogEntry[]> {
+    const res = await this.rpc().mcp.catalog.$get();
+    if (!res.ok) throw new Error(`get mcp catalog failed: ${res.status}`);
+    return (await res.json()).catalog;
+  }
+
+  async putMcpServer(name: string, config: MCPServerConfig): Promise<void> {
+    const res = await this.rpc().mcp.server[":name"].$put({ param: { name }, json: { config } });
+    if (!res.ok) throw new Error(await errorMessage(res, `put mcp server failed: ${res.status}`));
+  }
+
+  async deleteMcpServer(name: string): Promise<void> {
+    const res = await this.rpc().mcp.server[":name"].$delete({ param: { name } });
+    if (!res.ok) throw new Error(await errorMessage(res, `delete mcp server failed: ${res.status}`));
+  }
+
+  async setMcpServerEnabled(name: string, enabled: boolean): Promise<void> {
+    const res = await this.rpc().mcp.server[":name"].enabled.$post({ param: { name }, json: { enabled } });
+    if (!res.ok) throw new Error(await errorMessage(res, `update mcp server failed: ${res.status}`));
+  }
+
+  async reconnectMcpServer(name: string): Promise<void> {
+    const res = await this.rpc().mcp.server[":name"].reconnect.$post({ param: { name } });
+    if (!res.ok) throw new Error(await errorMessage(res, `reconnect mcp server failed: ${res.status}`));
+  }
+
+  async startMcpAuth(name: string): Promise<string> {
+    const res = await this.rpc().mcp.server[":name"].auth.$post({ param: { name } });
+    if (!res.ok) throw new Error(await errorMessage(res, `start mcp auth failed: ${res.status}`));
+    return (await res.json()).url;
+  }
+
+  async finishMcpAuth(name: string, code: string): Promise<void> {
+    const res = await this.rpc().mcp.server[":name"].auth.finish.$post({ param: { name }, json: { code } });
+    if (!res.ok) throw new Error(await errorMessage(res, `finish mcp auth failed: ${res.status}`));
+  }
+
+  /** Install a curated catalog entry; returns an OAuth URL when one is required. */
+  async installMcpCatalogEntry(name: string): Promise<string | undefined> {
+    const res = await this.rpc().mcp.catalog[":name"].install.$post({ param: { name } });
+    if (!res.ok) throw new Error(await errorMessage(res, `install mcp entry failed: ${res.status}`));
+    return (await res.json()).url;
   }
 
   /**

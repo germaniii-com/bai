@@ -148,7 +148,7 @@ core/src/
 ├── tools/        tool registry, built-in fs tools, custom-tool loader
 ├── context/      token discipline (pruning/stubbing) + compaction
 ├── permissions/  rule engine + interactive gate
-├── mcp/          MCP client manager (planned, Phase 4)
+├── mcp/          MCP client manager: file-first registry, transports, OAuth
 └── workbench/    modality registry
     ├── chat/
     ├── code/
@@ -527,16 +527,24 @@ with `PUT/DELETE /api/provider/:provider/custom`.
 
 ## 11. Extensibility (MCP-first)
 
-**bai as MCP client** (`core/src/mcp` manager): config declares external
-servers; stdio (spawned subprocess) or streamable HTTP. Their tools merge into
-the registry namespaced as `mcp/<server>/<tool>`. Official SDK:
-`@modelcontextprotocol/client` **v2** (protocol rev **2026-07-28**).
+**bai as MCP client** (`core/src/mcp`): **implemented**. External servers are
+declared file-first — `~/.config/bai/mcp/<name>.{json,yaml}` (hot-reloaded,
+name = filename stem, a `{ "mcpServers": { ... } }` wrapper accepted) — with
+`config.json`'s `mcp` map as the programmatic layer; file-defined servers win
+on name collisions. Transports: stdio (spawned subprocess, allowlisted env) and
+streamable HTTP with SSE fallback; OAuth 2.1 tokens live under
+`~/.local/share/bai/mcp-tokens/` (0600), never in config. Their tools merge into
+the registry namespaced as `mcp/<server>/<tool>`, alongside the
+`mcp/list_resources`, `mcp/read_resource`, `mcp/list_prompts`, `mcp/get_prompt`
+helpers. Official SDK: `@modelcontextprotocol/client` **v2** (protocol rev
+**2026-07-28**).
 
-**bai as MCP server**: exposes built-in tools and basic session operations at
-`/mcp` (streamable HTTP, stateless mode — the v2 default), mounted through the
-SDK's official **Hono adapter** (`createMcpHandler`) and guarded by the same
-bearer token — so external agents can drive bai. Tool schemas use Standard
-Schema (Zod v4), matching the rest of the validation stack.
+**bai as MCP server** (planned): exposes built-in tools and basic session
+operations at `/mcp` (streamable HTTP, stateless mode — the v2 default),
+mounted through the SDK's official **Hono adapter** (`createMcpHonoApp` +
+`createMcpHandler`) and guarded by the same bearer token — so external agents
+can drive bai. Tool schemas use Standard Schema (Zod v4), matching the rest of
+the validation stack.
 
 **Later hooks** (config-declared commands/webhooks at lifecycle points:
 `run.started`, `tool.execute.before/after`, `permission.asked`) — deliberately

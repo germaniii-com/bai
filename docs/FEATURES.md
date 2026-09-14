@@ -384,7 +384,57 @@ built-in file tools plus user-written TypeScript tools.
 
 **Coming next**
 
-- MCP tools (`mcp/<server>/<tool>`) merged into the same registry
+- Per-server tool include/exclude in the Integrations UI
+
+---
+
+## 🔌 Integrations (MCP) — shipped
+
+External MCP (Model Context Protocol) servers, added **file-first** — the same
+drop-in model as agents, skills, and tools.
+
+**What you can do today**
+
+- Add a server by dropping a file in `~/.config/bai/mcp/`: `<name>.json` (or
+  `.yaml`), one server per file (the filename stem is its name), or a
+  `{ "mcpServers": { ... } }` wrapper carrying several. It is **hot-reloaded**
+  within ~150 ms — no restart. `${VAR}` references resolve from the shell env,
+  so secrets never sit in a definition file.
+- Or declare servers in `config.json`'s `mcp` map; **file-defined servers win**
+  on a name collision.
+- Transports: **stdio** (spawned subprocess with an allowlisted environment —
+  never the full `process.env`) and remote **streamable HTTP** with an SSE
+  fallback. Remote servers support **OAuth 2.1**; tokens live in
+  `~/.local/share/bai/mcp-tokens/<server>.json` (mode 0600), never in config.
+- A server's tools appear to the model as **`mcp/<server>/<tool>`**; resources
+  and prompts ride the `mcp/list_resources`, `mcp/read_resource`,
+  `mcp/list_prompts`, and `mcp/get_prompt` helpers.
+- **Settings → Integrations** (web): installed servers with live status
+  (connected / failed / needs authorization / disabled), enable/disable, retry,
+  authorize, and remove — plus a curated catalog (Figma, Atlassian/Jira, Notion,
+  Linear, GitLab, Sentry) that installs with one click and starts OAuth. A
+  server stuck on authorization shows an **Authorize** button and a paste-the-
+  code step.
+- Failures are isolated per server: one broken server never blocks the others,
+  and the rest of bai starts immediately.
+
+**Under the hood**
+
+- `core/src/mcp/registry.ts` scans + watches `~/.config/bai/mcp/` (the
+  `AgentRegistry` pattern: debounced `fs.watch` + poll safety net + signature
+  diff), `manager.ts` reconciles live connections and merges tools,
+  `transport.ts` builds stdio/HTTP/SSE transports, and `auth.ts` persists OAuth
+  credentials. `mcp.updated` + `tools.updated` events keep surfaces live.
+  REST: `GET /api/mcp/servers`, `GET /api/mcp/catalog`,
+  `PUT/DELETE /api/mcp/server/:name`, `POST /api/mcp/server/:name/{enabled,
+  reconnect,auth,auth/finish}`, `POST /api/mcp/catalog/:name/install`.
+- SDK: `@modelcontextprotocol/client` v2 (protocol rev `2026-07-28`).
+
+**Coming next**
+
+- The MCP **server** role: expose bai's own tools at `/mcp` (streamable HTTP,
+  bearer-guarded) so external agents can drive bai
+- Per-server tool include/exclude in the Integrations UI
 
 ---
 

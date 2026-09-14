@@ -79,6 +79,8 @@ export interface EventPayloads {
   "tools.updated": Record<string, never>;
   /** Skill set changed (SKILL.md created/edited/deleted) — live-only, surfaces refetch. */
   "skills.updated": Record<string, never>;
+  /** MCP server set/state changed (file or connection) — live-only, surfaces refetch. */
+  "mcp.updated": Record<string, never>;
   /** Automation set/state changed (created/edited/fired/paused) — live-only, surfaces refetch. */
   "automations.updated": Record<string, never>;
   "server.hello": { version: string };
@@ -116,6 +118,7 @@ export const EVENT_TYPES = Object.keys({
   "agents.updated": 1,
   "tools.updated": 1,
   "skills.updated": 1,
+  "mcp.updated": 1,
   "automations.updated": 1,
   "server.hello": 1,
 } satisfies Record<EventType, 1>) as EventType[];
