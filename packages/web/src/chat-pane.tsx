@@ -171,6 +171,8 @@ export function ChatPane({
    onOpenFile,
    mentionPaths,
    setMentionPaths,
+   pendingMention,
+   onPendingMentionConsumed,
    attachments = [],
    onAddAttachments,
    onRemoveAttachment,
@@ -203,6 +205,9 @@ export function ChatPane({
   /** Composer `#file` alias map (leaf token → full workspace-relative path). */
   mentionPaths: Record<string, string>;
   setMentionPaths: Dispatch<SetStateAction<Record<string, string>>>;
+  /** A context-menu "Add to Chat" request — inserted at the caret, then consumed. */
+  pendingMention?: { path: string; type: "file" | "dir"; nonce: number } | null;
+  onPendingMentionConsumed?: () => void;
   onSubmit: (text: string) => void;
   runActive: boolean;
   waiting: boolean;
@@ -465,6 +470,39 @@ export function ChatPane({
     setMention(EMPTY_MENTION);
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.cursor, next.cursor));
   };
+
+  /** Insert a `#file`/`#folder` mention at the caret (context-menu "Add to
+   *  Chat") — no typed `#` trigger required. */
+  const insertMentionAtCursor = (mentionPath: string, type: "file" | "dir"): void => {
+    // Prefer the input's live caret; fall back to the tracked cursor.
+    const caret = inputRef.current?.selectionStart ?? cursor;
+    const at = Math.max(0, Math.min(caret, draft.length));
+    const lead = at > 0 && !/\s/.test(draft[at - 1] ?? "") ? " " : "";
+    let insertion: string;
+    if (type === "dir") {
+      insertion = `${lead}#${mentionPath}/ `;
+    } else {
+      const token = mentionDisplayToken(mentionPath, Object.keys(mentionPaths));
+      setMentionPaths((paths) => ({ ...paths, [token]: mentionPath }));
+      insertion = `${lead}#${token} `;
+    }
+    const next = draft.slice(0, at) + insertion + draft.slice(at);
+    const nextCursor = at + insertion.length;
+    setDraft(next);
+    setCursor(nextCursor);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  // Consume a pending "Add to Chat" request once per nonce.
+  useEffect(() => {
+    if (pendingMention === undefined || pendingMention === null) return;
+    insertMentionAtCursor(pendingMention.path, pendingMention.type);
+    onPendingMentionConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMention?.nonce]);
 
   const onMentionKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
     if (!mention.open) return;

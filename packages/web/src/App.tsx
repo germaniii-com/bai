@@ -1,8 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, ChartColumn, Clock, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, resolveAliasPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
@@ -32,7 +32,7 @@ import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
-import { Chip, ListItem, NavItem } from "./components";
+import { Chip, ContextMenu, ListItem, NavItem, type ContextMenuItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -78,6 +78,9 @@ export function App() {
   const [workspaceFolders, setWorkspaceFolders] = useState<Record<string, string[]>>({});
   // The multi-select "Add folders to workspace" modal.
   const [addFoldersOpen, setAddFoldersOpen] = useState(false);
+  // File-tree right-click menu + the pending "Add to Chat" mention insert.
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; abs: string; kind: "file" | "dir" | "root" } | null>(null);
+  const [pendingMention, setPendingMention] = useState<{ path: string; type: "file" | "dir"; nonce: number } | null>(null);
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     bootRoute.section === "workspace" ? bootRoute.wsPath : null,
@@ -893,6 +896,62 @@ export function App() {
     setWorkspaceView("files");
   };
 
+  /** Append a mention at the end of the draft (Files view / no caret). */
+  const appendMentionToDraft = (mentionPath: string, type: "file" | "dir"): void => {
+    const lead = draft.length > 0 && !/\s$/.test(draft) ? " " : "";
+    if (type === "dir") {
+      setDraft(`${draft}${lead}#${mentionPath}/ `);
+      return;
+    }
+    const token = mentionDisplayToken(mentionPath, Object.keys(draftMentions));
+    setDraftMentions((paths) => ({ ...paths, [token]: mentionPath }));
+    setDraft(`${draft}${lead}#${token} `);
+  };
+
+  /**
+   * File-tree "Add to Chat": mention a file/folder in the composer. With the
+   * Chat view active the mention lands at the caret (ChatPane consumes a
+   * pending request); otherwise append and switch to Chat.
+   */
+  const addMentionToChat = (abs: string, kind: "file" | "dir" | "root"): void => {
+    if (effectiveWorkspacePath === null) return;
+    const mentionPath = toMentionPath(effectiveWorkspacePath, workspaceExtras, abs);
+    if (mentionPath === null) return;
+    const type: "file" | "dir" = kind === "file" ? "file" : "dir";
+    if (section === "workspace" && workspaceView === "chat") {
+      setPendingMention({ path: mentionPath, type, nonce: Date.now() });
+    } else {
+      appendMentionToDraft(mentionPath, type);
+      setWorkspaceView("chat");
+    }
+  };
+
+  const treeMenuItems: ContextMenuItem[] =
+    treeMenu === null
+      ? []
+      : [
+          ...(treeMenu.kind === "file"
+            ? [
+                {
+                  label: "Open",
+                  icon: <FileText size={14} />,
+                  onSelect: () => {
+                    openFile(treeMenu.abs);
+                    setTreeMenu(null);
+                  },
+                },
+              ]
+            : []),
+          {
+            label: "Add to Chat",
+            icon: <MessageCircle size={14} />,
+            onSelect: () => {
+              addMentionToChat(treeMenu.abs, treeMenu.kind);
+              setTreeMenu(null);
+            },
+          },
+        ];
+
   /**
    * Transcript `#file` chip click: make the owning workspace active (the
    * chip can be clicked from anywhere the session is rendered), then open
@@ -1373,6 +1432,8 @@ export function App() {
       setDraft={setDraft}
       mentionPaths={draftMentions}
       setMentionPaths={setDraftMentions}
+      pendingMention={pendingMention}
+      onPendingMentionConsumed={() => setPendingMention(null)}
       onSubmit={(text) => {
         // ChatPane already expanded leaf `#file` tokens to full paths.
         setDraft("");
@@ -1859,6 +1920,7 @@ export function App() {
                 folders={workspaceFolderNodes}
                 onAddFolder={() => setAddFoldersOpen(true)}
                 onRemoveFolder={(path) => void removeWorkspaceFolder(path)}
+                onItemContextMenu={(abs, kind, e) => setTreeMenu({ x: e.clientX, y: e.clientY, abs, kind })}
               />
               <TodosPanel todos={todos} />
             </div>
@@ -1889,6 +1951,17 @@ export function App() {
           multi
           onAddMany={addWorkspaceFolders}
           onClose={() => setAddFoldersOpen(false)}
+        />
+      )}
+
+      {/* File-tree right-click menu (Open / Add to Chat). */}
+      {treeMenu !== null && (
+        <ContextMenu
+          x={treeMenu.x}
+          y={treeMenu.y}
+          items={treeMenuItems}
+          ariaLabel="File actions"
+          onClose={() => setTreeMenu(null)}
         />
       )}
 

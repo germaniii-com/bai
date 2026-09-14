@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, FolderPlus, Upload, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { ListItem } from "./components";
@@ -33,6 +33,7 @@ export function FileTree({
   folders = [],
   onAddFolder,
   onRemoveFolder,
+  onItemContextMenu,
 }: {
   client: BaiClient;
   root: string;
@@ -50,6 +51,8 @@ export function FileTree({
   onAddFolder?: () => void;
   /** Remove an external folder from the workspace (config only). */
   onRemoveFolder?: (path: string) => void;
+  /** Right-click on a row: report the absolute path + kind at the pointer. */
+  onItemContextMenu?: (abs: string, kind: "file" | "dir" | "root", e: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const [dirs, setDirs] = useState<Map<string, DirState>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -245,6 +248,14 @@ export function FileTree({
                     onDragOver={(e) => dragOver(folder.path, e)}
                     onDragLeave={(e) => dragLeave(folder.path, e)}
                     onDrop={(e) => dropOn(folder.path, e)}
+                    onContextMenu={
+                      onItemContextMenu !== undefined
+                        ? (e) => {
+                            e.preventDefault();
+                            onItemContextMenu(folder.path, "root", e);
+                          }
+                        : undefined
+                    }
                     style={{ paddingLeft: "8px" }}
                     aria-expanded={isOpen}
                     trailing={
@@ -281,6 +292,7 @@ export function FileTree({
                       dragOver={dragOver}
                       dragLeave={dragLeave}
                       dropOn={dropOn}
+                      onItemContextMenu={onItemContextMenu}
                     />
                   )}
                 </li>
@@ -308,6 +320,7 @@ export function FileTree({
             dragOver={dragOver}
             dragLeave={dragLeave}
             dropOn={dropOn}
+            onItemContextMenu={onItemContextMenu}
           />
         )}
         {rootState?.truncated === true && <p className="dim">listing truncated</p>}
@@ -329,6 +342,7 @@ function DirEntries({
   dragOver,
   dragLeave,
   dropOn,
+  onItemContextMenu,
 }: {
   dir: string;
   depth: number;
@@ -342,6 +356,7 @@ function DirEntries({
   dragOver: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
   dragLeave: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
   dropOn: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
+  onItemContextMenu?: (abs: string, kind: "file" | "dir" | "root", e: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const state = dirs.get(dir);
   if (state === undefined) return null;
@@ -381,6 +396,14 @@ function DirEntries({
                 onDragOver={(e) => dragOver(path, e)}
                 onDragLeave={(e) => dragLeave(path, e)}
                 onDrop={(e) => dropOn(path, e)}
+                onContextMenu={
+                  onItemContextMenu !== undefined
+                    ? (e) => {
+                        e.preventDefault();
+                        onItemContextMenu(path, "dir", e);
+                      }
+                    : undefined
+                }
                 style={{ paddingLeft: `${8 + depth * 14}px` }}
                 aria-expanded={isOpen}
                 aria-controls={`tree-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
@@ -400,6 +423,7 @@ function DirEntries({
                   dragOver={dragOver}
                   dragLeave={dragLeave}
                   dropOn={dropOn}
+                  onItemContextMenu={onItemContextMenu}
                   />
                   </div>
               )}
@@ -409,6 +433,13 @@ function DirEntries({
         // File rows open the viewer when onOpenFile is wired (the workspace
         // section); plain spans keep the tree usable without it.
         const active = activePath === path;
+        const fileContextMenu =
+          onItemContextMenu !== undefined
+            ? (e: ReactMouseEvent<HTMLElement>): void => {
+                e.preventDefault();
+                onItemContextMenu(path, "file", e);
+              }
+            : undefined;
         return (
           <li key={path}>
             {onOpenFile !== undefined ? (
@@ -420,10 +451,15 @@ function DirEntries({
                 onClick={() => onOpenFile(path)}
                 aria-current={active ? "true" : undefined}
                 hint={`Open ${path}`}
+                onContextMenu={fileContextMenu}
                 style={{ paddingLeft: `${8 + depth * 14}px` }}
               />
             ) : (
-              <span className="tree-row file" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+              <span
+                className="tree-row file"
+                style={{ paddingLeft: `${8 + depth * 14}px` }}
+                onContextMenu={fileContextMenu}
+              >
                 <FileIcon />
                 <span className="tree-name">{entry.name}</span>
               </span>

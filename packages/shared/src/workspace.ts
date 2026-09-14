@@ -117,6 +117,30 @@ export function mergeExternalResults(
 }
 
 /**
+ * Inverse of `resolveAliasPath`: the mention token for an absolute path.
+ * Returns the workspace-relative path for the main root, `alias/rel` for an
+ * extra folder, `alias` for an extra root itself, and `null` for the workspace
+ * root or a path outside every browsable root.
+ */
+export function toMentionPath(
+  workspaceRoot: string,
+  extras: readonly string[],
+  absPath: string,
+): string | null {
+  const norm = (p: string): string => p.replace(/\/+$/, "");
+  const root = norm(workspaceRoot);
+  const abs = norm(absPath);
+  if (root.length === 0 || abs.length === 0 || abs === root) return null;
+  if (abs.startsWith(`${root}/`)) return abs.slice(root.length + 1);
+  for (const { alias, path } of deriveFolderAliases(workspaceRoot, extras)) {
+    const r = norm(path);
+    if (abs === r) return alias;
+    if (abs.startsWith(`${r}/`)) return `${alias}/${abs.slice(r.length + 1)}`;
+  }
+  return null;
+}
+
+/**
  * Every absolute root the server may touch: the registered workspaces plus
  * every workspace's extra folders (de-duplicated, order preserved).
  */

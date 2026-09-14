@@ -14,3 +14,4 @@ export { PageHeader, SectionHeader } from "./headers";
 export { Card } from "./card";
 export { Chip } from "./chip";
 export { ToggleRow } from "./toggle";
+export { ContextMenu, type ContextMenuItem } from "./ContextMenu";

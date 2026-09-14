@@ -7,6 +7,7 @@ import {
   resolveAliasPath,
   resolveMentionAlias,
   sanitizeAlias,
+  toMentionPath,
 } from "../src/workspace";
 
 describe("sanitizeAlias", () => {
@@ -83,6 +84,25 @@ describe("mergeExternalResults", () => {
   test("no extras → the main list is unchanged", () => {
     const main = [{ path: "a.ts", type: "file" as const }];
     expect(mergeExternalResults(main, [])).toEqual(main);
+  });
+});
+
+describe("toMentionPath", () => {
+  const extra = "/other/repo";
+  test("main-root paths become workspace-relative; the root itself is null", () => {
+    expect(toMentionPath("/work/app", [extra], "/work/app/src/x.ts")).toBe("src/x.ts");
+    expect(toMentionPath("/work/app", [extra], "/work/app")).toBeNull();
+  });
+
+  test("extra paths become alias tokens; the extra root is the alias", () => {
+    expect(toMentionPath("/work/app", [extra], "/other/repo/src/y.ts")).toBe("repo/src/y.ts");
+    expect(toMentionPath("/work/app", [extra], "/other/repo")).toBe("repo");
+  });
+
+  test("unrelated paths and empty inputs are null", () => {
+    expect(toMentionPath("/work/app", [extra], "/etc/hosts")).toBeNull();
+    expect(toMentionPath("/work/app", [], "/work/app/a")).toBe("a");
+    expect(toMentionPath("", [extra], "/x")).toBeNull();
   });
 });
 
