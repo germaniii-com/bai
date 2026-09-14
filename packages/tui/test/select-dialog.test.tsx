@@ -213,6 +213,50 @@ describe("SelectDialog paging + server-side filter", () => {
   });
 });
 
+describe("bracketed paste reaches the dialogs (ctrl+v)", () => {
+  // Ink routes pasted text to `usePaste` listeners only — it is never
+  // forwarded to `useInput`. These guard the API-key/label path (prompt) and
+  // the filter path (select) against that separate channel being missed.
+
+  test("a pasted API key lands in the PromptDialog and submits verbatim", async () => {
+    const submitted: string[] = [];
+    const { stdin, lastFrame, unmount } = render(
+      <PromptDialog
+        title="key"
+        placeholder="API key"
+        onSubmit={(v) => submitted.push(v)}
+        onClose={() => {}}
+      />,
+    );
+    await tick();
+
+    stdin.write("\x1b[200~sk-secret-123\x1b[201~");
+    await tick();
+    expect(lastFrame() ?? "").toContain("sk-secret-123");
+
+    stdin.write("\r");
+    await tick();
+    unmount();
+    expect(submitted).toEqual(["sk-secret-123"]);
+  });
+
+  test("pasted text filters the SelectDialog list", async () => {
+    const { stdin, lastFrame, unmount } = render(
+      <SelectDialog title="pick" options={options} onPick={() => {}} onClose={() => {}} />,
+    );
+    await tick();
+
+    stdin.write("\x1b[200~Option 07\x1b[201~");
+    await tick();
+    const frame = lastFrame() ?? "";
+    unmount();
+
+    expect(frame).toContain("filter: option 07");
+    expect(frame).toContain("Option 07");
+    expect(cursorLabel(frame)).toBe("Option 07");
+  });
+});
+
 describe("mouse input is blocked (never types into the dialog)", () => {
   test("isMouseInput matches the SGR shapes (click + wheel, ESC prefix optional)", () => {
     expect(isMouseInput("[<0;10;5M")).toBe(true); // left click (ESC stripped by ink)

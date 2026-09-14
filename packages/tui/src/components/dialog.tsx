@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, usePaste } from "ink";
 import { useEffect, useRef, useState } from "react";
 import type { PickerOption } from "../state/providers";
 import { deleteWord } from "../state/composer";
@@ -213,6 +213,21 @@ export function SelectDialog({
     { isActive: !deferInput },
   );
 
+  // Bracketed paste arrives on its own channel and is NEVER forwarded to
+  // `useInput`, so the filter needs its own handler or a pasted query can
+  // never reach the list (ink routes paste to `usePaste` listeners only).
+  // Control chars/newlines are stripped; the debounce effect above pushes
+  // the query out for server-filtered callers.
+  usePaste(
+    (pasted) => {
+      const clean = pasted.replace(/[\x00-\x1f\x7f]/g, "").trim();
+      if (clean.length === 0) return;
+      setFilter((f) => (f + clean).toLowerCase());
+      setIndex(0);
+    },
+    { isActive: !deferInput },
+  );
+
   // Sliding window around the highlight.
   const { start, end } = listWindow(clamped, visible.length, windowSize);
   const windowed = visible.slice(start, end);
@@ -325,6 +340,19 @@ export function PromptDialog({
       if (tail.length > 0) setText((t) => t + tail);
     }
   },
+  { isActive: !deferInput },
+);
+
+  // Bracketed paste (ctrl+v) arrives on its own channel and never reaches
+  // `useInput` — without this handler the API key / label fields (the whole
+  // point of this dialog) can't be pasted. Control chars and newlines are
+  // stripped; submit trims whatever remains.
+  usePaste(
+    (pasted) => {
+      const clean = pasted.replace(/[\x00-\x1f\x7f]/g, "");
+      if (clean.length === 0) return;
+      setText((prev) => prev + clean);
+    },
     { isActive: !deferInput },
   );
 

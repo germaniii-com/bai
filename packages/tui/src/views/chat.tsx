@@ -985,11 +985,21 @@ export function ChatView({
   // useInput, which is what makes a lone "\n" there a reliable ctrl+j.
   // Paste implies typing intent: NORMAL mode switches to INPUT first
   // (idempotent when already there), so pasted content is always editable.
-  usePaste((pasted) => {
-    if (askPending || deferInput) return; // the prompt owns typing while it's up; overlays own everything
-    onEnterInput();
-    setEditor((e) => insert(e, sanitize(pasted)));
-  });
+  // Steps aside for a hub-slot modal or an App overlay: each owns its own
+  // paste handler, and ink routes paste to `usePaste` listeners ONLY (never
+  // `useInput`) — an always-on listener here would swallow theirs (the
+  // API-key dialog bug). An inline ask still swallows paste (return below):
+  // the composer is not the target while the ask owns the slot.
+  usePaste(
+    (pasted) => {
+      if (askPending) return;
+      onEnterInput();
+      setEditor((e) => insert(e, sanitize(pasted)));
+    },
+    {
+      isActive: !deferInput && msgActions === null && queuedActions === null,
+    },
+  );
 
   useInput(
     (ch, key) => {
