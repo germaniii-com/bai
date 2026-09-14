@@ -1379,6 +1379,10 @@ export function ChatView({
   // Non-user content (assistant replies, the empty-state line, the thinking
   // spinner) shares one inset so the whole non-user column aligns.
   const assistantInset = { paddingLeft: 2, paddingRight: 3 };
+  // Tool-call nodes drop the right inset: their headers/args are the longest
+  // single-line content in the transcript, so they use the full terminal
+  // width (and wrap) instead of being clipped at the edge.
+  const toolInset = { paddingLeft: 2 };
 
   // Composer hub status row: pure column math over the inner width (the
   // composer box spans the padded body; border + paddingX eat 4 columns).
@@ -1649,8 +1653,8 @@ export function ChatView({
                   marginTop={gap}
                   flexShrink={0}
                 >
-                  <Box {...assistantInset} flexShrink={0}>
-                    <Text wrap="truncate">
+                  <Box {...toolInset} flexShrink={0}>
+                    <Text wrap="wrap" italic>
                       {marker}
                       <Text color={focused ? t.accent : statusColor}>
                         {status === "done" ? "" : `${glyph} `}
@@ -1719,13 +1723,13 @@ export function ChatView({
                 marginTop={gap}
                 flexShrink={0}
               >
-                <Box {...assistantInset} flexDirection="column" flexShrink={0}>
-                  <Text wrap="truncate">
+                <Box {...toolInset} flexDirection="column" flexShrink={0}>
+                  <Text wrap="wrap" italic>
                     {marker}
                     <Text color={focused ? t.accent : color}>{glyph} </Text>
-                    <Text color={focused ? t.accent : t.text}>{c.name}</Text>
+                    <Text color={focused ? t.accent : t.dim}>{c.name}</Text>
                     {c.argsPreview.length > 0 && (
-                      <Text color={t.text}> {c.argsPreview}</Text>
+                      <Text color={t.dim}> {c.argsPreview}</Text>
                     )}
                     {permVerdict !== undefined && (
                       <Text color={t.dim}> · {permVerdict}</Text>

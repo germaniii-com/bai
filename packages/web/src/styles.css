@@ -1409,16 +1409,29 @@ select:focus-visible,
 .tool-toggle {
   border: 0;
   background: transparent;
-  color: var(--text);
+  /* Dimmed tool line (matches the TUI) — the name stays bold via .tool-name. */
+  color: var(--dim);
   font: inherit;
   font-size: 13px;
   padding: 2px 0;
   cursor: pointer;
   text-align: left;
+  /* Span the transcript pane (was inline-block shrink-wrap at ~440px, so long
+     args were cut mid-path). Wrapping lets the full path/command use the
+     available width instead of being clipped. */
+  display: block;
+  width: 100%;
+  overflow-wrap: anywhere;
 }
 
+/* Hover brightens the dimmed line (interactive affordance). */
 .tool-toggle:hover {
-  color: var(--dim);
+  color: var(--text);
+}
+
+/* Tool name: dim (inherited) but emphasized. */
+.tool-name {
+  font-weight: 600;
 }
 
 /* Status glyph slot (lucide icon) — inline-flex centers the svg in the

@@ -514,6 +514,14 @@ export function collapseToolOutput(output: string, maxLines: number, maxChars: n
 
 const argsDigestCache = new Map<string, string>();
 
+/**
+ * Collapsed tool-line args budget. Generous enough for real workspace paths
+ * (the old 60-char cap cut them mid-path — "clipped in the middle"); the
+ * transcript header wraps, so a longer digest uses the full width instead of
+ * being truncated at the terminal edge.
+ */
+const ARGS_PREVIEW_CHARS = 200;
+
 /** One-line args digest: first string-ish field (path/pattern/input). Cached
  *  by name+args — stable older calls skip JSON.parse per render; streaming
  *  partial args naturally miss until they settle. Bounded (cleared past 1k). */
@@ -535,16 +543,19 @@ function argsDigestUncached(name: string, args: string): string {
       const description = typeof parsed.description === "string" ? parsed.description : "";
       const agent = typeof parsed.subagent_type === "string" ? parsed.subagent_type : "?";
       const digest = `${description} (@${agent})`.trim();
-      return digest.length > 60 ? `${digest.slice(0, 60)}…` : digest;
+      return digest.length > ARGS_PREVIEW_CHARS ? `${digest.slice(0, ARGS_PREVIEW_CHARS)}…` : digest;
     }
     const interesting = parsed.path ?? parsed.pattern ?? parsed.input ?? parsed.command;
     if (typeof interesting === "string" && interesting.length > 0) {
-      return interesting.length > 60 ? `${interesting.slice(0, 60)}…` : interesting;
+      const oneLine = interesting.replaceAll(/\s+/g, " ").trim();
+      return oneLine.length > ARGS_PREVIEW_CHARS
+        ? `${oneLine.slice(0, ARGS_PREVIEW_CHARS)}…`
+        : oneLine;
     }
     return Object.keys(parsed).slice(0, 3).join(", ");
   } catch {
     // Args may still be streaming (partial JSON) — show what we have.
     const flat = args.replaceAll(/\s+/g, " ").trim();
-    return flat.length > 60 ? `${flat.slice(0, 60)}…` : flat;
+    return flat.length > ARGS_PREVIEW_CHARS ? `${flat.slice(0, ARGS_PREVIEW_CHARS)}…` : flat;
   }
 }

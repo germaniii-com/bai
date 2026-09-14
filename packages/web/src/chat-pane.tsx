@@ -1003,7 +1003,7 @@ function ToolNodes({
               {/* Skill loads get their own glyph — scannable among the
                   other tool calls (the digest carries the skill name). */}
               {c.name.startsWith("skills.") && <Zap size={12} aria-hidden="true" className="tool-glyph skill" />}{" "}
-              {c.name}
+              <span className="tool-name">{c.name}</span>
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
               {isTask && agent !== undefined && <span className="subagent-agent">@{agent}</span>}
               {asking && <span className="subagent-asking"> · needs approval</span>}

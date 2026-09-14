@@ -352,6 +352,10 @@ export function toolCalls(message: Message): ToolCallView[] {
 
 /** One-line args digest: first string-ish field (path/pattern/input). */
 export function argsDigest(name: string, args: string): string {
+  // Generous budget: the tool call row spans the pane and wraps, so a long
+  // workspace path shows in full instead of being cut mid-path (the old
+  // 60-char cap made every deep path read "…/pack…").
+  const max = 200;
   try {
     const parsed = JSON.parse(args) as Record<string, unknown>;
     // Skills tools: the skill name IS the identity (plus the linked file
@@ -362,15 +366,16 @@ export function argsDigest(name: string, args: string): string {
         typeof parsed.path === "string" && parsed.path.length > 0
           ? `${parsed.name}/${parsed.path}`
           : parsed.name;
-      return skill.length > 60 ? `${skill.slice(0, 60)}…` : skill;
+      return skill.length > max ? `${skill.slice(0, max)}…` : skill;
     }
     const interesting = parsed.path ?? parsed.pattern ?? parsed.input ?? parsed.command;
     if (typeof interesting === "string" && interesting.length > 0) {
-      return interesting.length > 60 ? `${interesting.slice(0, 60)}…` : interesting;
+      const oneLine = interesting.replaceAll(/\s+/g, " ").trim();
+      return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
     }
     return Object.keys(parsed).slice(0, 3).join(", ");
   } catch {
     const flat = args.replaceAll(/\s+/g, " ").trim();
-    return flat.length > 60 ? `${flat.slice(0, 60)}…` : flat;
+    return flat.length > max ? `${flat.slice(0, max)}…` : flat;
   }
 }

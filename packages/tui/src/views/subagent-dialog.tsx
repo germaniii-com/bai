@@ -452,13 +452,13 @@ export function SubagentDialog({
               const color = c.status === "running" ? t.warning : c.status === "error" ? t.danger : t.success;
               return (
                 <Box key={`${item.messageId}:${c.callId}`} marginTop={gap} marginBottom={expanded ? 1 : 0} flexShrink={0} flexDirection="column">
-                  <Text wrap="truncate">
+                  <Text wrap="wrap" italic>
                     {marker}
                     <Text color={focused ? t.accent : color}>{glyph} </Text>
-                    <Text color={focused ? t.accent : t.text}>
+                    <Text color={focused ? t.accent : t.dim}>
                       {c.name}
                     </Text>
-                    {c.argsPreview.length > 0 && <Text color={t.text}> {c.argsPreview}</Text>}
+                    {c.argsPreview.length > 0 && <Text color={t.dim}> {c.argsPreview}</Text>}
                     {c.result !== undefined && c.result.isError && <Text color={t.danger}> · failed</Text>}
                     {c.result !== undefined && focused && (
                       <Text color={t.dim}>

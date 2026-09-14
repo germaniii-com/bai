@@ -278,7 +278,7 @@ function ToolNodes({ calls }: { calls: ReturnType<typeof toolCalls> }) {
         return (
           <div key={c.callId} className={`tool-node tool-${c.status}`}>
             <button type="button" className="tool-toggle" onClick={() => toggle(c.callId)} aria-expanded={open}>
-              <ToolStatusIcon status={c.status} /> {c.name}
+              <ToolStatusIcon status={c.status} /> <span className="tool-name">{c.name}</span>
               {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
             </button>
             {open && c.result !== undefined && (

@@ -40,6 +40,15 @@ describe("argsDigest (tool-node one-liner)", () => {
     // A skills tool without a name falls through to the generic digest.
     expect(argsDigest("skills.view", JSON.stringify({}))).toBe("");
   });
+
+  test("long workspace paths are shown in full (not clipped mid-path)", () => {
+    // The collapsed line used to cap at 60 chars, so every deep path read
+    // ".../pack…" — the tool row now spans the pane and wraps, so the digest
+    // keeps the whole path (up to a generous sanity bound).
+    const path = "/Users/u/Work/Projects/bai-ts/packages/core/src/provider/adapters/openai.ts";
+    expect(path.length).toBeGreaterThan(60);
+    expect(argsDigest("fs.read", JSON.stringify({ path }))).toBe(path);
+  });
 });
 
 describe("toolCalls (tool-node views)", () => {
