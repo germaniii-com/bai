@@ -24,6 +24,7 @@ describe("buildCommandSpecs", () => {
       "provider.connect",
       "agent.switch",
       "skill.manage",
+      "todo.show",
       "theme.switch",
       "view.gallery",
       "view.settings",
@@ -61,6 +62,7 @@ describe("paletteSections", () => {
       "Provider",
       "Agent",
       "Skills",
+      "Todos",
       "Theme",
       "View",
       "System",
@@ -110,7 +112,7 @@ describe("flattenSections", () => {
     const flat = flattenSections(sections);
     // Suggested first, then every registry command in order.
     expect(flat[0]!.id).toBe("provider.connect");
-    expect(flat.length).toBe(12);
+    expect(flat.length).toBe(13);
     expect(flat.slice(1).map((c) => c.id)).toEqual(buildCommandSpecs({ ...ctx, needsSetup: true }).map((c) => c.id));
   });
 });

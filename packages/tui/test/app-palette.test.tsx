@@ -77,8 +77,8 @@ describe("App supermenu (ctrl+p)", () => {
       // esc closes the dialog; the removed ctrl family opens NOTHING.
       stdin.write("\x1b");
       await tick();
-      for (const chord of ["\x0c", "\x01", "\x13", "\x14", "\x07", "\x0f"]) {
-        stdin.write(chord); // ctrl+l a s t g o — all dead now
+      for (const chord of ["\x0c", "\x01", "\x13", "\x07", "\x0f"]) {
+        stdin.write(chord); // ctrl+l a s g o — still dead (ctrl+t is now todos)
         await tick();
       }
       const after = lastFrame() ?? "";
@@ -145,6 +145,42 @@ describe("App supermenu (ctrl+p)", () => {
       );
       expect(inputMode).toContain("›");
       expect(inputMode).not.toContain("type to filter");
+    } finally {
+      unmount();
+    }
+  }, 30000);
+
+  test("ctrl+t opens the todos panel; the palette's Show todos does too", async () => {
+    const { stdin, stdout, unmount } = render(<App client={client} version="test" />);
+    const frames = stdout.frames;
+    try {
+      await tick(200);
+
+      // ctrl+t: the todos overlay renders (bare harness → no active session,
+      // so the empty-state line).
+      const markT = frames.length;
+      stdin.write("\x14"); // ctrl+t
+      const panel = await waitForAnyFrame(() => frames.slice(markT), (f) => f.includes("no todos yet"));
+      expect(panel).toContain("todos");
+
+      // esc closes it.
+      stdin.write("\x1b");
+      await waitForAnyFrame(() => frames.slice(markT), (f) => !f.includes("no todos yet"));
+
+      // The supermenu reaches the same panel: "Show todos" is in the Todos
+      // category; filtering + enter dispatches it.
+      const markP = frames.length;
+      stdin.write("\x10"); // ctrl+p
+      await waitForAnyFrame(() => frames.slice(markP), (f) => f.includes("commands") && f.includes("Suggested"));
+      stdin.write("todo");
+      const filtered = await waitForAnyFrame(
+        () => frames.slice(markP),
+        (f) => f.includes("filter: todo") && f.includes("Show todos"),
+      );
+      expect(filtered).toContain("❯ Show todos");
+      stdin.write("\r");
+      const viaPalette = await waitForAnyFrame(() => frames.slice(markP), (f) => f.includes("no todos yet"));
+      expect(viaPalette).toContain("todos");
     } finally {
       unmount();
     }

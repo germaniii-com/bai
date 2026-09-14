@@ -783,6 +783,111 @@ select:focus-visible,
   color: var(--warning);
 }
 
+/* --- workspace right rail: file tree on top, session todos beneath --- */
+
+/* The rail owns the width/border the tree used to; the tree flexes inside it
+   and the todo panel takes the bottom slice. */
+.workspace-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace-sidebar .file-tree {
+  width: auto;
+  flex: 1 1 auto;
+  border-left: 0;
+  min-height: 0;
+}
+
+.todos-panel {
+  flex: 0 1 auto;
+  max-height: 45%;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.todos-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.todos-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.todos-empty {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: var(--text-sm);
+}
+
+.todos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+  color: var(--text);
+}
+
+.todo-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--dim);
+}
+
+.todo-content {
+  min-width: 0;
+}
+
+.todo-item.prio-high .todo-content {
+  font-weight: 600;
+}
+
+.todo-item.status-completed,
+.todo-item.status-cancelled {
+  color: var(--dim);
+}
+
+.todo-item.status-completed .todo-content,
+.todo-item.status-cancelled .todo-content {
+  text-decoration: line-through;
+}
+
+.todo-item.status-completed .todo-icon {
+  color: var(--success);
+}
+
+.todo-item.status-in_progress .todo-icon {
+  color: var(--accent);
+}
+
 /* --- workspace center: [Chat | Files] switch + tabbed file viewer --- */
 
 /* The center column of the workspace section: switch header on top, then
@@ -3230,6 +3335,11 @@ select:focus-visible,
   }
 
   .file-tree {
+    display: none;
+  }
+
+  /* The whole right rail (tree + todos) is hidden on phones. */
+  .workspace-sidebar {
     display: none;
   }
 

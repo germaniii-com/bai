@@ -152,7 +152,7 @@ describe("CommandPalette", () => {
     await tick();
     const filtered = frame3() ?? "";
     expect(filtered).toContain("filter: mod");
-    expect(filtered).toContain("1/11");
+    expect(filtered).toContain("1/12");
     expect(filtered).not.toContain("Suggested");
     expect(cursorLabel(filtered)).toBe("Switch model");
     unmount3();
