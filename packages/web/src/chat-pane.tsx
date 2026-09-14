@@ -88,18 +88,27 @@ function MessageText({
         const range = seg.from !== undefined ? { from: seg.from, ...(seg.to !== undefined ? { to: seg.to } : {}) } : undefined;
         const path = seg.path ?? "";
         const clickable = root !== undefined && root.length > 0 && onOpenFile !== undefined;
-        return (
+        const tooltip = `${path}${formatMentionRange(range)}`;
+        const label = `${mentionLeaf(path)}${path.endsWith("/") ? "/" : ""}${formatMentionRange(range)}`;
+        // Non-clickable chips render as a span: a disabled <button> suppresses
+        // hover, so the global tooltip (data-tooltip) would never appear.
+        return clickable ? (
           <button
             key={i}
             type="button"
-            className={clickable ? "mention-chip clickable" : "mention-chip"}
-            title={`${path}${formatMentionRange(range)}`}
-            disabled={!clickable}
-            onClick={clickable ? () => onOpenFile?.(root, path) : undefined}
+            className="mention-chip clickable"
+            data-tooltip={tooltip}
+            aria-label={tooltip}
+            onClick={() => onOpenFile?.(root, path)}
           >
             <FileText size={12} aria-hidden="true" />
-            {`${mentionLeaf(path)}${path.endsWith("/") ? "/" : ""}${formatMentionRange(range)}`}
+            {label}
           </button>
+        ) : (
+          <span key={i} className="mention-chip" data-tooltip={tooltip}>
+            <FileText size={12} aria-hidden="true" />
+            {label}
+          </span>
         );
       })}
     </p>
