@@ -125,10 +125,15 @@ export function parseMentions(text: string): Mention[] {
 
 // --- leaf display (opencode's file chips show the basename) ----------------
 
-/** The basename of a workspace-relative path ("src/foo.ts" → "foo.ts"). */
+/**
+ * The basename of a workspace-relative path ("src/foo.ts" → "foo.ts").
+ * Trailing slashes (a directory mention like `#bai-ts/`) are stripped first,
+ * so a directory renders its folder name instead of an empty chip.
+ */
 export function mentionLeaf(path: string): string {
-  const slash = path.lastIndexOf("/");
-  return slash >= 0 ? path.slice(slash + 1) : path;
+  const trimmed = path.replace(/\/+$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
 /**

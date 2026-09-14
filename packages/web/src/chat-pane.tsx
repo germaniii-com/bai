@@ -98,7 +98,7 @@ function MessageText({
             onClick={clickable ? () => onOpenFile?.(root, path) : undefined}
           >
             <FileText size={12} aria-hidden="true" />
-            {`${mentionLeaf(path)}${formatMentionRange(range)}`}
+            {`${mentionLeaf(path)}${path.endsWith("/") ? "/" : ""}${formatMentionRange(range)}`}
           </button>
         );
       })}

@@ -147,6 +147,13 @@ describe("leaf display + submit expansion", () => {
     expect(mentionLeaf("README.md")).toBe("README.md");
   });
 
+  test("mentionLeaf handles directory paths (trailing slash) instead of blank", () => {
+    expect(mentionLeaf("bai-ts/")).toBe("bai-ts");
+    expect(mentionLeaf("src/components/")).toBe("components");
+    expect(mentionLeaf("a/b/")).toBe("b");
+    expect(mentionLeaf("bai-ts//")).toBe("bai-ts");
+  });
+
   test("mentionDisplayToken uses the shortest unique suffix", () => {
     expect(mentionDisplayToken("src/components/button.tsx", [])).toBe("button.tsx");
     expect(mentionDisplayToken("src/components/button.tsx", ["button.tsx"])).toBe("components/button.tsx");
@@ -208,5 +215,15 @@ describe("splitMentions", () => {
   test("returns one text segment when there are no mentions", () => {
     expect(splitMentions("just words")).toEqual([{ type: "text", text: "just words" }]);
     expect(splitMentions("")).toEqual([]);
+  });
+
+  test("directory mentions keep their trailing slash in the path", () => {
+    expect(splitMentions("review #bai-ts/ now")).toEqual([
+      { type: "text", text: "review " },
+      { type: "mention", text: "#bai-ts/", path: "bai-ts/" },
+      { type: "text", text: " now" },
+    ]);
+    // And renders a non-empty leaf.
+    expect(mentionLeaf("bai-ts/")).toBe("bai-ts");
   });
 });

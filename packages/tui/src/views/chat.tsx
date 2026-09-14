@@ -1577,7 +1577,7 @@ export function ChatView({
                             : undefined;
                         return (
                           <Text key={si} color={t.secondary}>
-                            {`${mentionLeaf(seg.path ?? "")}${formatMentionRange(range)}`}
+                            {`${mentionLeaf(seg.path ?? "")}${(seg.path ?? "").endsWith("/") ? "/" : ""}${formatMentionRange(range)}`}
                           </Text>
                         );
                       });
