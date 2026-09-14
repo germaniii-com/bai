@@ -1,17 +1,20 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
   MediaGenConfig,
+  OAuthProviderInfo,
   ProviderInfo,
   ProviderListResponse,
 } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
-import { sortProviders } from "./provider-utils";
+import { partitionProviders, sortProviders } from "./provider-utils";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
+import { OAuthModal } from "./oauth-modal";
+import { CustomProviderModal } from "./custom-provider-form";
 import { Button, Card, Combobox, Field, PageHeader, SectionHeader, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -160,6 +163,8 @@ export function SettingsPane({
           list={list}
           fetching={fetching}
           mutate={mutate}
+          refresh={refresh}
+          onNotice={onNotice}
           preferZdr={preferZdr}
           imageGen={imageGen}
           videoGen={videoGen}
@@ -435,6 +440,8 @@ function ProvidersPane({
   list,
   fetching,
   mutate,
+  refresh,
+  onNotice,
   preferZdr,
   imageGen,
   videoGen,
@@ -443,6 +450,8 @@ function ProvidersPane({
   list: ProviderListResponse;
   fetching: boolean;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  refresh: () => Promise<void>;
+  onNotice: (message: string, kind?: "success" | "error") => void;
   preferZdr?: boolean;
   imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
@@ -450,39 +459,114 @@ function ProvidersPane({
   // Single-expanded accordion: one provider's accounts + add form at a time
   // keeps the 200+ catalog page light (forms mount lazily on expand).
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [oauth, setOauth] = useState<OAuthProviderInfo[]>([]);
+  // OAuth target + intent: `connect` names/writes the default account, `add`
+  // creates a new one, `reconnect` refreshes one specific account id.
+  const [oauthTarget, setOauthTarget] = useState<
+    { provider: ProviderInfo; intent: "connect" | "add" | "reconnect"; accountId?: string } | null
+  >(null);
+  const [customOpen, setCustomOpen] = useState(false);
   const sorted = sortProviders(list.providers);
+  const oauthById = new Map(oauth.map((o) => [o.id, o]));
+  const { custom, oauth: oauthProviders, catalog } = partitionProviders(sorted, oauthById.keys());
+
+  const loadOauth = (): void => {
+    void client.oauthProviders().then(setOauth).catch(() => undefined);
+  };
+  useEffect(loadOauth, [client]);
+
+  const removeCustom = (p: ProviderInfo): void => {
+    void mutate(() => client.deleteCustomProvider(p.id), `Removed ${p.name}`);
+  };
 
   return (
     <>
       <PageHeader title="Model Providers" />
       <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
-      <h3 className="settings-subheading">LLMs</h3>
+
+      {/* --- Custom providers (config-defined endpoints) ------------------- */}
+      <h3 className="settings-subheading">Custom Providers</h3>
       <p className="section-lede">
-        Every provider the catalog knows — connect one by adding an account. Connected first.
+        Your own endpoints — any OpenAI-compatible, Anthropic, or Responses gateway.
+      </p>
+      <div className="provider-actions">
+        <Button variant="outline" onClick={() => setCustomOpen(true)}>
+          + Add a new custom provider
+        </Button>
+      </div>
+      {custom.length === 0 ? (
+        <p className="dim provider-empty">No custom providers yet.</p>
+      ) : (
+        <div className="provider-accordion">
+          {custom.map((p) => (
+            <AccordionProvider
+              key={p.id}
+              provider={p}
+              variant="custom"
+              expanded={expanded === p.id}
+              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+              client={client}
+              mutate={mutate}
+              {...(oauthById.get(p.id) !== undefined ? { oauth: oauthById.get(p.id) as OAuthProviderInfo } : {})}
+              onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
+              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
+              onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
+              onDeleteCustom={() => removeCustom(p)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* --- OAuth providers (subscription / local logins) ----------------- */}
+      <h3 className="settings-subheading">OAuth Providers</h3>
+      <p className="section-lede">
+        Sign in with a subscription or local credential — tokens are stored server-side.
         {fetching ? " updating…" : ""}
       </p>
-      <div className="provider-accordion">
-        {sorted.map((p) => (
-          <div key={p.id} className="provider-accordion-item">
-            <button
-              type="button"
-              className={expanded === p.id ? "provider-item active" : "provider-item"}
-              onClick={() => setExpanded(expanded === p.id ? null : p.id)}
-              aria-expanded={expanded === p.id}
-              aria-controls={`provider-detail-${p.id}`}
-            >
-              <span className="title">{p.name}</span>
-              <span className="dim">{p.adapter}</span>
-              {p.connected && (
-                <span className="check" title="connected">
-                  <Check size={12} aria-hidden="true" />
-                </span>
-              )}
-            </button>
-            {expanded === p.id && <div id={`provider-detail-${p.id}`}><ProviderDetail provider={p} client={client} mutate={mutate} /></div>}
-          </div>
+      {oauthProviders.length === 0 ? (
+        <p className="dim provider-empty">No OAuth providers available.</p>
+      ) : (
+        <div className="provider-accordion">
+          {oauthProviders.map((p) => (
+            <AccordionProvider
+              key={p.id}
+              provider={p}
+              variant="oauth"
+              expanded={expanded === p.id}
+              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+              client={client}
+              mutate={mutate}
+              oauth={oauthById.get(p.id) as OAuthProviderInfo}
+              onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
+              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
+              onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* --- Catalog list (models.dev ⊕ curated overlay), height-capped ---- */}
+      <h3 className="settings-subheading">Catalog List</h3>
+      <p className="section-lede">
+        Every other provider the catalog knows — connect one by adding an account. Connected first.
+      </p>
+      <div className="provider-accordion catalog-scroll">
+        {catalog.map((p) => (
+          <AccordionProvider
+            key={p.id}
+            provider={p}
+            variant="catalog"
+            expanded={expanded === p.id}
+            onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+            client={client}
+            mutate={mutate}
+            {...(oauthById.get(p.id) !== undefined ? { oauth: oauthById.get(p.id) as OAuthProviderInfo } : {})}
+            onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
+              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
+          />
         ))}
       </div>
+
       <MediaGenForm
         kind="imageGen"
         title="Image Gen"
@@ -499,7 +583,104 @@ function ProvidersPane({
         config={videoGen}
         mutate={mutate}
       />
+      {oauthTarget !== null && (
+        <OAuthModal
+          client={client}
+          provider={oauthTarget.provider.id}
+          providerName={oauthTarget.provider.name}
+          defaultAccount={oauthById.get(oauthTarget.provider.id)?.defaultAccount}
+          intent={oauthTarget.intent}
+          {...(oauthTarget.accountId !== undefined ? { accountId: oauthTarget.accountId } : {})}
+          existingAccounts={oauthTarget.provider.accounts
+            .filter((a) => a.source === "oauth")
+            .map((a) => a.id)}
+          onClose={() => setOauthTarget(null)}
+          onConnected={() => {
+            void refresh();
+            loadOauth();
+          }}
+          onNotice={onNotice}
+        />
+      )}
+      {customOpen && (
+        <CustomProviderModal
+          client={client}
+          onClose={() => setCustomOpen(false)}
+          onSaved={() => {
+            void refresh();
+          }}
+          onNotice={onNotice}
+        />
+      )}
     </>
+  );
+}
+
+/** One accordion row: provider header + lazily-mounted detail. */
+function AccordionProvider({
+  provider,
+  variant,
+  expanded,
+  onToggle,
+  client,
+  mutate,
+  oauth,
+  onConnect,
+  onAddAccount,
+  onReconnectAccount,
+  onDeleteCustom,
+}: {
+  provider: ProviderInfo;
+  variant: "custom" | "oauth" | "catalog";
+  expanded: boolean;
+  onToggle: () => void;
+  client: BaiClient;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  oauth?: OAuthProviderInfo;
+  onConnect?: () => void;
+  onAddAccount?: () => void;
+  onReconnectAccount?: (accountId: string) => void;
+  onDeleteCustom?: () => void;
+}) {
+  const hint =
+    variant === "oauth" && oauth !== undefined
+      ? `${oauth.connected ? "connected" : "not connected"} · ${oauth.hint ?? oauth.method}`
+      : provider.baseUrl !== undefined
+        ? `${provider.adapter} · ${provider.baseUrl}`
+        : provider.adapter;
+  return (
+    <div className="provider-accordion-item">
+      <button
+        type="button"
+        className={expanded ? "provider-item active" : "provider-item"}
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={`provider-detail-${provider.id}`}
+      >
+        <span className="title">{provider.name}</span>
+        <span className="dim">{hint}</span>
+        {provider.connected && (
+          <span className="check" title="connected">
+            <Check size={12} aria-hidden="true" />
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div id={`provider-detail-${provider.id}`}>
+          <ProviderDetail
+            provider={provider}
+            variant={variant}
+            client={client}
+            mutate={mutate}
+            {...(oauth !== undefined ? { oauth } : {})}
+            {...(onConnect !== undefined ? { onConnect } : {})}
+            {...(onAddAccount !== undefined ? { onAddAccount } : {})}
+            {...(onReconnectAccount !== undefined ? { onReconnectAccount } : {})}
+            {...(onDeleteCustom !== undefined ? { onDeleteCustom } : {})}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -533,61 +714,182 @@ function ZdrToggle({
   );
 }
 
-/** One provider's expanded card: meta line + accounts + remove + add form. */
+/** One provider's expanded card, varied by section (custom / oauth / catalog). */
 function ProviderDetail({
+  provider,
+  variant,
+  client,
+  mutate,
+  oauth,
+  onConnect,
+  onAddAccount,
+  onReconnectAccount,
+  onDeleteCustom,
+}: {
+  provider: ProviderInfo;
+  variant: "custom" | "oauth" | "catalog";
+  client: BaiClient;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  oauth?: OAuthProviderInfo;
+  onConnect?: () => void;
+  onAddAccount?: () => void;
+  onReconnectAccount?: (accountId: string) => void;
+  onDeleteCustom?: () => void;
+}) {
+  return (
+    <div className="provider-detail">
+      {variant === "custom" && (
+        <Card>
+          <div className="provider-head">
+            <strong>Definition</strong>
+            {onDeleteCustom !== undefined && (
+              <Button variant="danger" size="sm" onClick={onDeleteCustom}>
+                Remove provider
+              </Button>
+            )}
+          </div>
+          <dl className="provider-meta">
+            <div>
+              <dt>id</dt>
+              <dd className="mono">{provider.id}</dd>
+            </div>
+            <div>
+              <dt>adapter</dt>
+              <dd>{provider.adapter}</dd>
+            </div>
+            <div>
+              <dt>endpoint</dt>
+              <dd className="mono">{provider.baseUrl ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>models</dt>
+              <dd>{provider.models.length}</dd>
+            </div>
+            {provider.headerCount !== undefined && (
+              <div>
+                <dt>extra headers</dt>
+                <dd>{provider.headerCount}</dd>
+              </div>
+            )}
+            {provider.contextLength !== undefined && (
+              <div>
+                <dt>context</dt>
+                <dd>{provider.contextLength.toLocaleString()} tokens</dd>
+              </div>
+            )}
+          </dl>
+        </Card>
+      )}
+
+      {oauth !== undefined && (
+        <div className="provider-oauth">
+          {!oauth.connected && onConnect !== undefined && (
+            <Button variant="primary" size="sm" onClick={onConnect}>
+              Connect
+            </Button>
+          )}
+          {oauth.connected && onAddAccount !== undefined && (
+            <Button variant="primary" size="sm" onClick={onAddAccount}>
+              + Add another account
+            </Button>
+          )}
+          <span className="dim">{oauth.hint ?? oauth.method}</span>
+        </div>
+      )}
+
+      <ProviderAccounts
+        provider={provider}
+        client={client}
+        mutate={mutate}
+        oauth={oauth !== undefined}
+        {...(onReconnectAccount !== undefined ? { onReconnectAccount } : {})}
+      />
+      {/* OAuth providers authenticate via the browser flow above — no API-key
+          form (a provider that also accepts keys is reached through OAuth). */}
+      {oauth === undefined && <AddAccount provider={provider} client={client} mutate={mutate} />}
+    </div>
+  );
+}
+
+/** The accounts card shared by every section (API keys, env, OAuth). */
+function ProviderAccounts({
   provider,
   client,
   mutate,
+  oauth = false,
+  onReconnectAccount,
 }: {
   provider: ProviderInfo;
   client: BaiClient;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  /** True when the provider is OAuth-capable (changes the empty-state hint). */
+  oauth?: boolean;
+  /** Reconnect one specific OAuth account (per-account, in place). */
+  onReconnectAccount?: (accountId: string) => void;
 }) {
   return (
-    <div className="provider-detail">
-      <p className="section-lede">
-        {provider.id} · {provider.adapter}
-        {provider.baseUrl !== undefined ? ` · ${provider.baseUrl}` : ""}
-      </p>
-      <Card className={provider.connected ? "connected" : undefined}>
-        <div className="provider-head">
-          <strong>Accounts</strong>
-          {provider.connected && (
-            <span className="check">
-              <Check size={12} aria-hidden="true" /> connected
-            </span>
-          )}
-        </div>
-        {provider.accounts.length === 0 && (
-          <p className="section-lede">No accounts yet — add one below.</p>
+    <Card className={provider.connected ? "connected" : undefined}>
+      <div className="provider-head">
+        <strong>Accounts</strong>
+        {provider.connected && (
+          <span className="check">
+            <Check size={12} aria-hidden="true" /> connected
+          </span>
         )}
-        {provider.accounts.length > 0 && (
-          <ul className="accounts">
-            {provider.accounts.map((a) => (
-              <li key={a.id}>
-                <span>
-                  {a.label} <span className="dim">({a.id})</span>
-                  {a.baseUrl !== undefined && <span className="dim"> · {a.baseUrl}</span>}
-                </span>
-                <span className="dim">{a.source === "env" ? "from environment" : "api key"}</span>
-                {a.source === "api" && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => {
-                      void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-      <AddAccount provider={provider} client={client} mutate={mutate} />
-    </div>
+      </div>
+      {provider.accounts.length === 0 && (
+        <p className="section-lede">
+          {oauth ? "No accounts yet — use Connect above." : "No accounts yet — add one below."}
+        </p>
+      )}
+      {provider.accounts.length > 0 && (
+        <ul className="accounts">
+          {provider.accounts.map((a) => (
+            <li key={a.id}>
+              <span>
+                {a.label} <span className="dim">({a.id})</span>
+                {a.baseUrl !== undefined && <span className="dim"> · {a.baseUrl}</span>}
+              </span>
+              <span className="dim">
+                {a.source === "env" ? "from environment" : a.source === "oauth" ? "oauth" : "api key"}
+              </span>
+              {a.source !== "env" && a.source === "oauth" && onReconnectAccount !== undefined && (
+                <Button variant="outline" size="sm" onClick={() => onReconnectAccount(a.id)}>
+                  Reconnect
+                </Button>
+              )}
+              {a.source !== "env" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    void mutate(
+                      async () => {
+                        await client.putConfig({ models: { defaultAccount: { [provider.id]: a.id } } });
+                      },
+                      `Default account for ${provider.name}: ${a.label}`,
+                    );
+                  }}
+                >
+                  Use by default
+                </Button>
+              )}
+              {a.source !== "env" && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

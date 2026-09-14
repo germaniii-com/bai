@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  accountActionOptions,
+  accountListOptions,
   accountOptions,
   allModelOptions,
   currentModelLabel,
@@ -8,7 +10,7 @@ import {
   providerOptions,
   applyTarget,
 } from "../src/state/providers";
-import type { ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { AccountInfo, OAuthProviderInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 
 function provider(partial: Partial<ProviderInfo> & { id: string }): ProviderInfo {
   return {
@@ -41,6 +43,15 @@ describe("provider picker logic", () => {
     expect(opts[0]?.hint).toContain("1 account");
   });
 
+  test("providerOptions tags OAuth-capable providers", () => {
+    const opts = providerOptions(
+      [provider({ id: "openai-codex" }), provider({ id: "openai" })],
+      new Set(["openai-codex"]),
+    );
+    expect(opts.find((o) => o.value === "openai-codex")?.hint).toContain("oauth");
+    expect(opts.find((o) => o.value === "openai")?.hint ?? "").not.toContain("oauth");
+  });
+
   test("accountOptions project label + source hints", () => {
     const p = provider({
       id: "openai",
@@ -53,6 +64,45 @@ describe("provider picker logic", () => {
     const opts = accountOptions(p);
     expect(opts.map((o) => o.value)).toEqual(["personal", "env"]);
     expect(opts[1]?.hint).toBe("from environment");
+  });
+
+  test("accountListOptions: accounts lead once connected, connect row leads before", () => {
+    const p = provider({
+      id: "openai-codex",
+      connected: true,
+      accounts: [{ provider: "openai-codex", id: "chatgpt", label: "ChatGPT", source: "oauth", hasKey: false, oauth: true }],
+    });
+    const oauth: OAuthProviderInfo = {
+      id: "openai-codex",
+      name: "ChatGPT (Codex)",
+      method: "device_code",
+      connected: true,
+      defaultAccount: "chatgpt",
+    };
+    // Connected → accounts lead; the only OAuth row is "Add another" (reconnect
+    // is a per-account action inside the account step).
+    expect(accountListOptions(p, oauth).map((o) => o.value)).toEqual(["chatgpt", "__oauth_add__"]);
+    // Not connected yet → the connect row leads, no accounts.
+    expect(accountListOptions(provider({ id: "openai-codex" }), { ...oauth, connected: false }).map((o) => o.value)).toEqual([
+      "__oauth__",
+    ]);
+    // No OAuth spec → plain account list.
+    expect(accountListOptions(p, undefined).map((o) => o.value)).toEqual(["chatgpt"]);
+  });
+
+  test("accountActionOptions: browse models always; reconnect only for OAuth", () => {
+    const oauthAccount: AccountInfo = {
+      provider: "p",
+      id: "a",
+      label: "A",
+      source: "oauth",
+      hasKey: false,
+      oauth: true,
+    };
+    expect(accountActionOptions(oauthAccount, true).map((o) => o.value)).toEqual(["__models__", "__oauth__"]);
+    expect(accountActionOptions(oauthAccount, false).map((o) => o.value)).toEqual(["__models__"]);
+    const apiAccount: AccountInfo = { provider: "p", id: "b", label: "B", source: "api", hasKey: true };
+    expect(accountActionOptions(apiAccount, true).map((o) => o.value)).toEqual(["__models__"]);
   });
 
   test("modelOptions sort by label and append the custom-id escape hatch", () => {

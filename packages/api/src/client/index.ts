@@ -34,6 +34,7 @@ import type {
   UpdateAutomationBody,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
+import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
 import { EventMux, eventMux } from "./mux";
@@ -722,6 +723,78 @@ export class BaiClient {
       param: { provider: encodeURIComponent(provider), account: encodeURIComponent(account) },
     });
     if (!res.ok) throw new Error(`delete account failed: ${res.status}`);
+  }
+
+  // --- OAuth logins -------------------------------------------------------
+
+  /** Providers that support an OAuth/import login, with connection state. */
+  async oauthProviders(): Promise<OAuthProviderInfo[]> {
+    const res = await this.rpc().provider.oauth.$get();
+    if (!res.ok) throw new Error(`oauth providers failed: ${res.status}`);
+    return (await res.json()).providers;
+  }
+
+  /**
+   * Begin a login; resolves once the flow is actionable (a browser URL and/or
+   * a device/paste code). `mode` picks the redirect (loopback) vs device
+   * fallback; default "auto" prefers redirect when the provider supports it.
+   */
+  async startOAuth(provider: string, opts: { account?: string; mode?: OAuthStartMode } = {}): Promise<OAuthLoginSession> {
+    const res = await this.rpc().provider[":provider"].oauth.start.$post({
+      param: { provider: encodeURIComponent(provider) },
+      json: {
+        ...(opts.account !== undefined ? { account: opts.account } : {}),
+        ...(opts.mode !== undefined ? { mode: opts.mode } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "start oauth failed"));
+    return (await res.json()).session;
+  }
+
+  getOAuthSession(provider: string, session: string): Promise<OAuthLoginSession> {
+    return this.pollOAuth(provider, session);
+  }
+
+  async pollOAuth(provider: string, session: string): Promise<OAuthLoginSession> {
+    const res = await this.rpc().provider[":provider"].oauth.sessions[":session"].$get({
+      param: { provider: encodeURIComponent(provider), session: encodeURIComponent(session) },
+    });
+    if (!res.ok) throw new Error(`poll oauth failed: ${res.status}`);
+    return (await res.json()).session;
+  }
+
+  async submitOAuth(provider: string, session: string, code: string): Promise<OAuthLoginSession> {
+    const res = await this.rpc().provider[":provider"].oauth.sessions[":session"].submit.$post({
+      param: { provider: encodeURIComponent(provider), session: encodeURIComponent(session) },
+      json: { code },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "submit oauth failed"));
+    return (await res.json()).session;
+  }
+
+  async cancelOAuth(provider: string, session: string): Promise<boolean> {
+    const res = await this.rpc().provider[":provider"].oauth.sessions[":session"].$delete({
+      param: { provider: encodeURIComponent(provider), session: encodeURIComponent(session) },
+    });
+    if (!res.ok) return false;
+    return (await res.json()).ok;
+  }
+
+  // --- custom providers ---------------------------------------------------
+
+  async putCustomProvider(provider: string, body: CustomProviderBody): Promise<void> {
+    const res = await this.rpc().provider[":provider"].custom.$put({
+      param: { provider: encodeURIComponent(provider) },
+      json: body,
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "save custom provider failed"));
+  }
+
+  async deleteCustomProvider(provider: string): Promise<void> {
+    const res = await this.rpc().provider[":provider"].custom.$delete({
+      param: { provider: encodeURIComponent(provider) },
+    });
+    if (!res.ok) throw new Error(`delete custom provider failed: ${res.status}`);
   }
 
   /** Set the per-session model (and optionally account) — applies next prompt. */

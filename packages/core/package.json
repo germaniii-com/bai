@@ -12,6 +12,7 @@
     "@opencode-ai/models": "^0.0.56",
     "diff": "^8.0.2",
     "duck-duck-scrape": "^2.2.7",
+    "google-auth-library": "^10.4.0",
     "htmlparser2": "^10.0.0",
     "openai": "^7.8.0",
     "turndown": "^7.2.1",

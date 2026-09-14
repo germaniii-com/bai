@@ -2703,6 +2703,75 @@ select:focus-visible,
   padding: 4px 8px 10px;
 }
 
+/* --- Model Providers sections (custom / OAuth / catalog) ----------------- */
+
+.provider-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.provider-empty {
+  margin: 0 0 var(--space-4);
+}
+
+/* The catalog is 200+ providers — cap its height and scroll internally so the
+   page never becomes one endless list. */
+.provider-accordion.catalog-scroll {
+  max-height: min(420px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.provider-oauth {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.provider-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.provider-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.provider-meta dt {
+  font-size: var(--text-xs);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.provider-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-meta dd.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* OAuth login modal bits. */
+.oauth-code {
+  font-family: var(--font-mono);
+  font-size: 1.25em;
+  letter-spacing: 0.12em;
+}
+
+.success {
+  color: var(--success);
+}
+
 /* --- analytics (usage KPIs + charts) ------------------------------------- */
 
 /* Full-width dashboard container — analytics is a data surface, not a form:

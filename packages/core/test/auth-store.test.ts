@@ -86,4 +86,51 @@ describe("AuthStore (multi-account credentials)", () => {
     expect(store.list()).toHaveLength(1);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  test("OAuth accounts: projections hide tokens; resolve exposes them; update rotates", () => {
+    const { store, file, dir } = makeStore();
+    const info = store.setOAuth("openai-codex", "chatgpt", {
+      access: "acc-secret-1",
+      refresh: "ref-secret-1",
+      expiresAt: 1234,
+      accountId: "acct-1",
+    });
+    expect(info.source).toBe("oauth");
+    expect(info.oauth).toBe(true);
+    expect(info.hasKey).toBe(false);
+    expect(info.expiresAt).toBe(1234);
+    expect(info.accountId).toBe("acct-1");
+    expect(JSON.stringify(info)).not.toContain("secret");
+    expect(store.hasOAuth("openai-codex")).toBe(true);
+
+    const resolved = store.resolve("openai-codex");
+    expect(resolved?.oauth).toBe(true);
+    expect(resolved?.apiKey).toBe("acc-secret-1");
+    expect(resolved?.refreshToken).toBe("ref-secret-1");
+
+    store.updateOAuthTokens("openai-codex", "chatgpt", {
+      access: "acc-secret-2",
+      refresh: "ref-secret-2",
+      expiresAt: 5678,
+    });
+    const after = store.resolve("openai-codex", "chatgpt");
+    expect(after?.apiKey).toBe("acc-secret-2");
+    expect(after?.refreshToken).toBe("ref-secret-2");
+    expect(after?.expiresAt).toBe(5678);
+    // Label/identity preserved by the token-only update.
+    expect(store.get("openai-codex", "chatgpt")?.label).toBe("chatgpt");
+
+    // Reload from disk: the OAuth record survives and stays masked in list().
+    const reloaded = new AuthStore({ file });
+    expect(reloaded.resolve("openai-codex")?.apiKey).toBe("acc-secret-2");
+    expect(JSON.stringify(reloaded.list("openai-codex"))).not.toContain("secret");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("updateOAuthTokens refuses non-OAuth accounts", () => {
+    const { store, dir } = makeStore();
+    store.set("openai", "api", { key: "k" });
+    expect(() => store.updateOAuthTokens("openai", "api", { access: "x" })).toThrow(/not an OAuth account/);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

@@ -1,18 +1,19 @@
 import { Box, Text } from "ink";
+import { spawn } from "node:child_process";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import type { ModelPageEntry, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { ModelPageEntry, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import { suggestAccountId } from "@bai/shared";
 import { PromptDialog, SelectDialog } from "./dialog";
 import { useTheme } from "../theme";
-import { accountOptions, modelPageOptions, providerOptions } from "../state/providers";
+import { accountActionOptions, accountListOptions, modelPageOptions, providerOptions } from "../state/providers";
 
 /**
- * Provider wizard (the opencode /connect pattern, extended for multi-account):
- * provider list → account management (add/remove/select) → model picker →
- * apply to the active session (or the global default when none is open).
- * Each step replaces the last; esc backs out one level. The wizard is the
- * one path that selects provider AND account AND model (no accounts-only
- * shortcut).
+ * Provider wizard (the opencode /connect pattern, extended for multi-account,
+ * OAuth logins, and custom endpoints): provider list → account management
+ * (add/remove/select/connect-OAuth) → model picker → apply to the active
+ * session (or the global default when none is open). Each step replaces the
+ * last; esc backs out one level.
  *
  * The Switch model command (supermenu / hub model chip) skips the provider
  * step, opening at the flat `all-models` step via `initialStep`.
@@ -20,13 +21,19 @@ import { accountOptions, modelPageOptions, providerOptions } from "../state/prov
 type Step =
   | { kind: "providers" }
   | { kind: "accounts"; providerId: string }
+  | { kind: "account"; providerId: string; accountId: string }
   | { kind: "add-id"; providerId: string }
   | { kind: "add-label"; providerId: string; accountId: string }
   | { kind: "add-key"; providerId: string; accountId: string; label: string }
   | { kind: "add-url"; providerId: string; accountId: string; label: string; key: string }
   | { kind: "models"; providerId: string; accountId?: string }
   | { kind: "all-models" }
-  | { kind: "custom-model"; providerId?: string; accountId?: string };
+  | { kind: "custom-model"; providerId?: string; accountId?: string }
+  | { kind: "oauth-account"; providerId: string; intent: "reconnect" | "add" }
+  | { kind: "oauth"; providerId: string; accountId?: string }
+  | { kind: "custom-id" }
+  | { kind: "custom-url"; providerId: string }
+  | { kind: "custom-models"; providerId: string; baseUrl: string };
 
 export function ProviderFlow({
   client,
@@ -54,8 +61,23 @@ export function ProviderFlow({
   const [step, setStep] = useState<Step>(initialStep ?? { kind: "providers" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [oauth, setOauth] = useState<OAuthProviderInfo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .oauthProviders()
+      .then((providers) => {
+        if (!cancelled) setOauth(providers);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
   const findProvider = (id: string): ProviderInfo | undefined => list.providers.find((p) => p.id === id);
+  const oauthFor = (id: string): OAuthProviderInfo | undefined => oauth.find((o) => o.id === id);
 
   const guard = (fn: () => Promise<void>): void => {
     if (busy) return;
@@ -109,20 +131,38 @@ export function ProviderFlow({
     });
   };
 
+  const createCustom = (providerId: string, baseUrl: string, models: string[]): void => {
+    void guard(async () => {
+      await client.putCustomProvider(providerId, {
+        baseUrl,
+        adapter: "openai-compatible",
+        ...(models.length > 0 ? { models } : {}),
+      });
+      onRefresh();
+      setStep({ kind: "accounts", providerId });
+    });
+  };
+
   let dialog: React.ReactNode;
   if (step.kind === "providers") {
+    const oauthIds = new Set(oauth.map((o) => o.id));
     dialog = (
       <SelectDialog
         key="providers"
         title="Providers"
-        options={providerOptions(list.providers)}
+        options={providerOptions(list.providers, oauthIds)}
         windowSize={windowSize}
+        actions={[{ key: "n", label: "custom provider", onAction: () => setStep({ kind: "custom-id" }) }]}
         onPick={(value) => setStep({ kind: "accounts", providerId: value })}
         onClose={onDone}
       />
     );
   } else if (step.kind === "accounts") {
     const provider = findProvider(step.providerId);
+    const oauthInfo = oauthFor(step.providerId);
+    // Accounts first once connected (the user picks one → account actions);
+    // before that, the OAuth connect / add rows lead so the browser login is
+    // reachable with plain Enter (not only the ctrl+o chord).
     dialog =
       provider === undefined ? (
         <StepError message="Provider vanished" onClose={onDone} />
@@ -130,10 +170,27 @@ export function ProviderFlow({
         <SelectDialog
           key={`accounts:${provider.id}`}
           title={`Accounts · ${provider.name}`}
-          options={accountOptions(provider)}
+          options={accountListOptions(provider, oauthInfo)}
           windowSize={windowSize}
+          emptyHint={oauthInfo !== undefined ? "ctrl+o to connect" : "none yet — ctrl+a to add"}
           actions={[
-            { key: "a", label: "add", onAction: () => setStep({ kind: "add-id", providerId: provider.id }) },
+            { key: "a", label: "add key", onAction: () => setStep({ kind: "add-id", providerId: provider.id }) },
+            ...(oauthInfo !== undefined
+              ? [
+                  {
+                    key: "o",
+                    // Reconnecting is per-account (inside the account's action
+                    // step); here the chord connects or adds another account.
+                    label: oauthInfo.connected ? "add oauth account" : "connect oauth",
+                    onAction: () =>
+                      setStep({
+                        kind: "oauth-account",
+                        providerId: provider.id,
+                        intent: oauthInfo.connected ? "add" : "reconnect",
+                      }),
+                  },
+                ]
+              : []),
             {
               key: "d",
               label: "delete",
@@ -147,10 +204,106 @@ export function ProviderFlow({
               },
             },
           ]}
-          onPick={(accountId) => setStep({ kind: "models", providerId: provider.id, accountId })}
+          onPick={(value) => {
+            if (value === "__oauth__") {
+              setStep({ kind: "oauth-account", providerId: provider.id, intent: "reconnect" });
+            } else if (value === "__oauth_add__") {
+              setStep({ kind: "oauth-account", providerId: provider.id, intent: "add" });
+            } else {
+              // An account is a step: choose the account, then an action.
+              setStep({ kind: "account", providerId: provider.id, accountId: value });
+            }
+          }}
           onClose={() => setStep({ kind: "providers" })}
         />
       );
+  } else if (step.kind === "account") {
+    const provider = findProvider(step.providerId);
+    const oauthInfo = oauthFor(step.providerId);
+    const account = provider?.accounts.find((a) => a.id === step.accountId);
+    dialog =
+      provider === undefined || account === undefined ? (
+        <StepError
+          message="Account vanished"
+          onClose={() => setStep({ kind: "accounts", providerId: step.providerId })}
+        />
+      ) : (
+        <SelectDialog
+          key={`account:${provider.id}:${account.id}`}
+          title={`${account.label} · ${provider.name}`}
+          options={accountActionOptions(account, oauthInfo !== undefined)}
+          windowSize={windowSize}
+          actions={
+            account.source !== "env"
+              ? [
+                  {
+                    key: "d",
+                    label: "remove account",
+                    onAction: () => {
+                      void guard(async () => {
+                        await client.deleteAccount(provider.id, account.id);
+                        onRefresh();
+                        setStep({ kind: "accounts", providerId: provider.id });
+                      });
+                    },
+                  },
+                ]
+              : []
+          }
+          onPick={(value) => {
+            if (value === "__oauth__") {
+              // Reconnect this exact account in place.
+              setStep({ kind: "oauth", providerId: provider.id, accountId: account.id });
+            } else {
+              setStep({ kind: "models", providerId: provider.id, accountId: account.id });
+            }
+          }}
+          onClose={() => setStep({ kind: "accounts", providerId: provider.id })}
+        />
+      );
+  } else if (step.kind === "oauth-account") {
+    const oauthInfo = oauthFor(step.providerId);
+    const provider = findProvider(step.providerId);
+    const existing = provider?.accounts.filter((a) => a.source === "oauth").map((a) => a.id) ?? [];
+    const suggestion = suggestAccountId(existing, oauthInfo?.defaultAccount ?? "account");
+    dialog = (
+      <PromptDialog
+        key={`oauth-account:${step.providerId}:${step.intent}`}
+        title={`${step.intent === "add" ? "Add account" : "Account name"} · ${provider?.name ?? step.providerId}`}
+        placeholder={step.intent === "add" ? suggestion : (oauthInfo?.defaultAccount ?? "account name")}
+        description={
+          step.intent === "add"
+            ? "Name the new account (e.g. work, personal) — it must differ from the existing ones."
+            : "Optional. Name it to keep several accounts; an existing name is replaced."
+        }
+        optional={step.intent !== "add"}
+        onSubmit={(accountId) => {
+          const typed = accountId.trim();
+          const name = typed.length > 0 ? typed : step.intent === "add" ? suggestion : undefined;
+          setStep({
+            kind: "oauth",
+            providerId: step.providerId,
+            ...(name !== undefined ? { accountId: name } : {}),
+          });
+        }}
+        onClose={() => setStep({ kind: "accounts", providerId: step.providerId })}
+      />
+    );
+  } else if (step.kind === "oauth") {
+    dialog = (
+      <OAuthStep
+        key={`oauth:${step.providerId}:${step.accountId ?? ""}`}
+        client={client}
+        providerId={step.providerId}
+        accountId={step.accountId}
+        providerName={findProvider(step.providerId)?.name ?? step.providerId}
+        onDone={() => {
+          onRefresh();
+          setStep({ kind: "accounts", providerId: step.providerId });
+        }}
+        onClose={() => setStep({ kind: "accounts", providerId: step.providerId })}
+      />
+    );
   } else if (step.kind === "add-id") {
     dialog = (
       <PromptDialog
@@ -181,9 +334,6 @@ export function ProviderFlow({
         placeholder="API key"
         description="Stored in ~/.local/share/bai/auth.json (0600) — never synced."
         onSubmit={(key) => {
-          // Catalog providers have known endpoints; builtins (stub) need none;
-          // config/account-only providers without a baseUrl must be told where
-          // to send requests.
           const needsUrl =
             provider !== undefined &&
             provider.baseUrl === undefined &&
@@ -242,10 +392,6 @@ export function ProviderFlow({
         />
       );
   } else if (step.kind === "all-models") {
-    // Flat entry: every connected provider's models in one type-to-filter
-    // list, paged server-side (the catalog is thousands strong). Account is
-    // omitted on apply — the server resolves the provider's default
-    // (config override → first stored → env).
     dialog = (
       <PagedModelPicker
         key="all-models"
@@ -263,7 +409,7 @@ export function ProviderFlow({
         onClose={onDone}
       />
     );
-  } else {
+  } else if (step.kind === "custom-model") {
     dialog = (
       <PromptDialog
         key="custom-model"
@@ -282,6 +428,48 @@ export function ProviderFlow({
         }
       />
     );
+  } else if (step.kind === "custom-id") {
+    dialog = (
+      <PromptDialog
+        key="custom-id"
+        title="Custom provider"
+        placeholder="provider id (e.g. my-gateway)"
+        description="Lowercase slug; creates a config-defined provider."
+        onSubmit={(providerId) => setStep({ kind: "custom-url", providerId: providerId.trim().toLowerCase() })}
+        onClose={() => setStep({ kind: "providers" })}
+      />
+    );
+  } else if (step.kind === "custom-url") {
+    dialog = (
+      <PromptDialog
+        key="custom-url"
+        title={`Base URL · ${step.providerId}`}
+        placeholder="https://gateway.example.com/v1"
+        onSubmit={(baseUrl) => setStep({ kind: "custom-models", providerId: step.providerId, baseUrl })}
+        onClose={() => setStep({ kind: "custom-id" })}
+      />
+    );
+  } else {
+    dialog = (
+      <PromptDialog
+        key="custom-models"
+        title={`Models · ${step.providerId}`}
+        placeholder="model-a, model-b (optional)"
+        description="Comma-separated model ids. Press enter to finish."
+        optional
+        onSubmit={(models) =>
+          createCustom(
+            step.providerId,
+            step.baseUrl,
+            models
+              .split(",")
+              .map((m) => m.trim())
+              .filter((m) => m.length > 0),
+          )
+        }
+        onClose={() => setStep({ kind: "custom-url", providerId: step.providerId })}
+      />
+    );
   }
 
   return (
@@ -291,6 +479,143 @@ export function ProviderFlow({
       {dialog}
     </Box>
   );
+}
+
+/**
+ * Drives one server-side OAuth login. Redirect flows open the provider's login
+ * page in the system browser and finish when the provider calls back to bai's
+ * loopback server; device-code flows show the one-time code + verification URL
+ * (also opened); paste-code flows ask for the code; import/adc run immediately.
+ */
+function OAuthStep({
+  client,
+  providerId,
+  accountId,
+  providerName,
+  onDone,
+  onClose,
+}: {
+  client: BaiClient;
+  providerId: string;
+  /** Account id to write on approval (omitted → provider default). */
+  accountId?: string;
+  providerName: string;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [session, setSession] = useState<OAuthLoginSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<OAuthStartMode>("auto");
+  const doneRef = useRef(false);
+  const openedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void client
+      .startOAuth(providerId, { mode, ...(accountId !== undefined ? { account: accountId } : {}) })
+      .then(setSession)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  }, [client, providerId, accountId, mode]);
+
+  useEffect(() => {
+    if (session === null) return;
+    if (session.status !== "pending" && session.status !== "awaiting_code") return;
+    const timer = setInterval(() => {
+      void client
+        .pollOAuth(providerId, session.id)
+        .then((next) => {
+          setSession(next);
+          if (next.status === "error" || next.status === "expired") setError(next.error ?? next.status);
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [client, providerId, session]);
+
+  // Open the browser automatically the first time a URL appears (redirect
+  // authorize URL, or the device verification page).
+  const openUrl = session?.authorizeUrl ?? session?.verificationUriComplete ?? session?.verificationUri;
+  useEffect(() => {
+    if (openUrl === undefined || openedRef.current === openUrl) return;
+    openedRef.current = openUrl;
+    openInBrowser(openUrl);
+  }, [openUrl]);
+
+  useEffect(() => {
+    if (session?.status === "approved" && !doneRef.current) {
+      doneRef.current = true;
+      onDone();
+    }
+  }, [session, onDone]);
+
+  /** Abandon a stuck redirect and restart on the device/paste path. */
+  const retryWithCode = (): void => {
+    if (session !== null) void client.cancelOAuth(providerId, session.id).catch(() => undefined);
+    openedRef.current = null;
+    setError(null);
+    setMode("device");
+  };
+
+  if (error !== null) return <StepError message={error} onClose={onClose} />;
+  if (session === null) return <BusyLine label={`starting ${providerName} login…`} />;
+
+  if (session.method === "paste_code" && session.status === "awaiting_code") {
+    return (
+      <PromptDialog
+        key="oauth-code"
+        title={`Connect ${providerName}`}
+        placeholder="Authorization code (code#state)"
+        description={`Open ${session.authorizeUrl ?? "the authorization page"} then paste the code shown.`}
+        onSubmit={(value) => {
+          void client
+            .submitOAuth(providerId, session.id, value.trim())
+            .then(setSession)
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+        }}
+        onClose={onClose}
+      />
+    );
+  }
+
+  const lines: string[] = [];
+  if (session.userCode !== undefined) lines.push(`code: ${session.userCode}`);
+  if (session.verificationUriComplete !== undefined) lines.push(`open: ${session.verificationUriComplete}`);
+  else if (session.verificationUri !== undefined) lines.push(`open: ${session.verificationUri}`);
+  if (session.authorizeUrl !== undefined) lines.push(`open: ${session.authorizeUrl}`);
+  if (session.instructions !== undefined) lines.push(session.instructions);
+  lines.push(session.status === "approved" ? "connected" : "waiting…");
+
+  return (
+    <SelectDialog
+      key="oauth-status"
+      title={`Connect ${providerName}`}
+      options={[{ value: "wait", label: lines.join("  ·  "), hint: session.status }]}
+      actions={
+        session.method === "redirect" && session.status !== "approved"
+          ? [{ key: "r", label: "use code instead", onAction: retryWithCode }]
+          : []
+      }
+      onPick={onClose}
+      onClose={onClose}
+    />
+  );
+}
+
+/** Open a URL in the OS default browser (best effort, detached). */
+function openInBrowser(url: string): void {
+  try {
+    let cmd = "xdg-open";
+    let args: string[] = [url];
+    if (process.platform === "darwin") {
+      cmd = "open";
+    } else if (process.platform === "win32") {
+      cmd = "cmd";
+      args = ["/c", "start", "", url];
+    }
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch {
+    // Headless / no browser: the URL is still shown in the dialog.
+  }
 }
 
 /** Models per page (the flat catalog can be thousands strong). */
@@ -425,9 +750,9 @@ function PagedModelPicker({
   );
 }
 
-function BusyLine() {
+function BusyLine({ label = "working…" }: { label?: string }) {
   const t = useTheme();
-  return <Text color={t.dim}>working…</Text>;
+  return <Text color={t.dim}>{label}</Text>;
 }
 
 function ErrorLine({ error }: { error: string }) {

@@ -24,6 +24,13 @@ GET    /api/event                       global live SSE firehose
 POST   /api/permission/:id/reply        first reply wins
 GET|PUT /api/config                     effective config / mutate (writes back)
 GET    /api/provider                    providers + accounts (?models=0 drops model arrays + adds modelCount)
+PUT|DELETE /api/provider/:p/account/:a   upsert/remove an API-key account
+PUT|DELETE /api/provider/:p/custom       upsert/remove a config-defined custom provider
+GET    /api/provider/oauth               OAuth-capable providers + connection state
+POST   /api/provider/:p/oauth/start      begin a server-side login (device/paste/import/adc)
+GET    /api/provider/:p/oauth/sessions/:s          poll a login session
+POST   /api/provider/:p/oauth/sessions/:s/submit   deliver a paste-code
+DELETE /api/provider/:p/oauth/sessions/:s          cancel a login session
 GET    /api/model                       flat model catalog (paged UI picker: ?limit&offset&q&provider&id&zdr)
 POST   /api/job                         enqueue job (media generation)
 GET    /api/job/:id

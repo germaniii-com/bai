@@ -13,6 +13,9 @@ import {
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
+  oauthStartSchema,
+  oauthSubmitSchema,
+  customProviderSchema,
   putAgentSchema,
   putSkillFileSchema,
   putSkillSchema,
@@ -611,6 +614,58 @@ function buildApi(deps: ApiDeps) {
       const provider = c.req.param("provider");
       const account = c.req.param("account");
       if (!deps.core.removeAccount(provider, account)) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true });
+    })
+
+    // --- OAuth logins (server-side sessions; device-code & paste-code) ---
+    .get("/provider/oauth", (c) => c.json({ providers: deps.core.oauthProviders() }))
+    .post("/provider/:provider/oauth/start", zValidator("json", oauthStartSchema), async (c) => {
+      const provider = c.req.param("provider");
+      const body = c.req.valid("json");
+      try {
+        const session = await deps.core.startOAuthLogin(provider, {
+          ...(body.account !== undefined ? { account: body.account } : {}),
+          ...(body.mode !== undefined ? { mode: body.mode } : {}),
+        });
+        return c.json({ session }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .get("/provider/:provider/oauth/sessions/:session", (c) => {
+      const session = deps.core.pollOAuthLogin(c.req.param("session"));
+      if (session === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ session });
+    })
+    .post(
+      "/provider/:provider/oauth/sessions/:session/submit",
+      zValidator("json", oauthSubmitSchema),
+      (c) => {
+        try {
+          const session = deps.core.submitOAuthLogin(c.req.param("session"), c.req.valid("json").code);
+          return c.json({ session });
+        } catch (err) {
+          return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+        }
+      },
+    )
+    .delete("/provider/:provider/oauth/sessions/:session", (c) => {
+      const ok = deps.core.cancelOAuthLogin(c.req.param("session"));
+      return c.json({ ok });
+    })
+
+    // --- custom providers (config-defined entities) ---
+    .put("/provider/:provider/custom", zValidator("json", customProviderSchema), (c) => {
+      const provider = c.req.param("provider");
+      try {
+        deps.core.setCustomProvider(provider, c.req.valid("json"));
+        return c.json({ ok: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/provider/:provider/custom", (c) => {
+      if (!deps.core.removeCustomProvider(c.req.param("provider"))) return c.json({ error: "not_found" }, 404);
       return c.json({ ok: true });
     })
 

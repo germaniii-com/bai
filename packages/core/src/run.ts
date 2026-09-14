@@ -663,10 +663,12 @@ export class RunCoordinator {
       typeof meta.model === "string" && meta.model.length > 0
         ? meta.model
         : (agent.model ?? this.deps.defaultModel());
-    const { provider, providerId, model, reasoning, contextWindow } = await this.deps.providers.resolveModel(modelId);
+    const { provider, providerId, model, reasoning, contextWindow: catalogContextWindow } = await this.deps.providers.resolveModel(modelId);
     const requestedAccount = typeof meta.account === "string" && meta.account.length > 0 ? meta.account : undefined;
     const account = requestedAccount ?? (await this.deps.providers.defaultAccount(providerId));
     const credentials = await this.deps.providers.resolveCredentials(providerId, account);
+    // A custom provider/account may pin a context window; it wins over the catalog.
+    const contextWindow = credentials.contextLength ?? catalogContextWindow;
     // Pricing snapshot for the turn-cost figure (ZERO rates when omitted).
     const rates = this.deps.usageRates !== undefined ? await this.deps.usageRates(providerId, model) : undefined;
 
@@ -684,6 +686,9 @@ export class RunCoordinator {
       auth: {
         ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
         ...(credentials.baseUrl !== undefined ? { baseUrl: credentials.baseUrl } : {}),
+        ...(credentials.oauth === true ? { oauth: true } : {}),
+        ...(credentials.oauthAccountId !== undefined ? { oauthAccountId: credentials.oauthAccountId } : {}),
+        ...(credentials.headers !== undefined ? { headers: credentials.headers } : {}),
       },
     };
   }

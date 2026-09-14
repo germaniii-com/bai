@@ -2,7 +2,21 @@ export * from "./types";
 export { EchoProvider, chunkForStream } from "./stub";
 export { ProviderRegistry } from "./registry";
 export { AuthStore } from "./auth-store";
-export type { SetAccountInput, ResolvedAccount } from "./auth-store";
+export type {
+  SetAccountInput,
+  SetOAuthInput,
+  OAuthTokenUpdate,
+  ResolvedAccount,
+} from "./auth-store";
 export { CatalogService, WELL_KNOWN_BASE_URLS } from "./catalog";
 export { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sleepInterruptible } from "./retry";
 export type { CatalogProvider, CatalogModel } from "./catalog";
+export { CURATED_PROVIDERS, curatedProvider, type CuratedProvider } from "./overlay";
+export { OAuthLoginManager } from "./oauth/manager";
+export { OAUTH_SPECS, oauthSpec, oauthProviders } from "./oauth/specs";
+export type {
+  OAuthFlowSpec,
+  OAuthLoginSessionInternal,
+  OAuthTokens,
+  OAuthFlowContext,
+} from "./oauth/types";

@@ -91,11 +91,14 @@ describe("CatalogService", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("offline mode with no cache yields an empty base (config still merges)", async () => {
+  test("offline mode: config providers merge over the curated overlay base", async () => {
     const config: Config = { ...DEFAULT_CONFIG, providers: { custom: { models: ["m1"] } } };
     const { catalog, dir } = makeCatalog({ config, offline: true });
     const providers = await catalog.providers();
-    expect(providers.map((p) => p.id)).toEqual(["custom"]);
+    const ids = providers.map((p) => p.id);
+    expect(ids).toContain("custom"); // config-defined
+    expect(ids).toContain("openai-codex"); // curated overlay (models.dev absent offline)
+    expect(providers.find((p) => p.id === "custom")?.source).toBe("config");
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -207,6 +207,24 @@ export class ConfigStore {
   }
 
   /**
+   * Remove a provider entry from the global layer. Deep-merge patches cannot
+   * delete keys, so custom-provider deletion rewrites the layer's `providers`
+   * map without the entry. Returns the reloaded effective config.
+   */
+  removeProvider(providerId: string): Config {
+    const existing = readJsoncFile(this.opts.globalPath) ?? {};
+    const parsed = configPatchSchema.parse(existing) as Record<string, unknown>;
+    const providers = { ...((parsed.providers as Record<string, unknown> | undefined) ?? {}) };
+    delete providers[providerId];
+    const merged = deepMerge({} as Record<string, unknown>, { ...parsed, providers });
+    atomicWriteJson(this.opts.globalPath, merged);
+    this.current = loadConfig({ cwd: this.opts.cwd, globalPath: this.opts.globalPath }).config;
+    this.signature = JSON.stringify(this.current);
+    this.opts.onChange?.(this.current);
+    return this.current;
+  }
+
+  /**
    * Reload the global file; fires onChange when the effective config
    * actually changed (signature-diffed — external edits only). A file that
    * exists but fails to parse (hand-edit typo, half-write) keeps the

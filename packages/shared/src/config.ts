@@ -14,6 +14,18 @@ export interface ProviderConfig {
   name?: string;
   /** Model ids for config-defined providers absent from the catalog. */
   models?: string[];
+  /** Extra request headers (custom gateways: CF Access, routing, etc.). */
+  headers?: Record<string, string>;
+  /** Context window for config-only models (compaction trigger). */
+  contextLength?: number;
+  /** TLS overrides for custom/self-hosted endpoints. */
+  tls?: { caCert?: string; verify?: boolean };
+  /**
+   * Authentication shape. `api_key` (default) uses apiKey/apiKeyEnv; the OAuth
+   * methods are driven by the server-side login manager. OAuth providers
+   * normally inherit this from bai's curated overlay.
+   */
+  authType?: "api_key" | "redirect" | "device_code" | "paste_code" | "import" | "adc";
 }
 
 export interface ModelsConfig {
@@ -147,9 +159,18 @@ const providerSchema = z.object({
   baseUrl: z.string().url().optional(),
   apiKeyEnv: z.string().optional(),
   apiKey: z.string().optional(),
-  adapter: z.enum(["openai", "anthropic", "openai-compatible"]).optional(),
+  adapter: z.enum(["openai", "anthropic", "openai-compatible", "responses"]).optional(),
   name: z.string().min(1).max(100).optional(),
   models: z.array(z.string().min(1).max(200)).max(1000).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  contextLength: z.number().int().positive().max(10_000_000).optional(),
+  tls: z
+    .object({
+      caCert: z.string().max(4096).optional(),
+      verify: z.boolean().optional(),
+    })
+    .optional(),
+  authType: z.enum(["api_key", "redirect", "device_code", "paste_code", "import", "adc"]).optional(),
 });
 
 const mcpServerSchema = z.object({

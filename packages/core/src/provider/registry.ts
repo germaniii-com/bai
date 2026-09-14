@@ -8,6 +8,8 @@ import type { UsageRates } from "../store/usage";
 import { ZERO_RATES } from "../store/usage";
 import { EchoProvider } from "./stub";
 import { pickSmallModel } from "../title";
+import { needsRefresh, renewOAuthTokens } from "./oauth/refresh";
+import { oauthSpec } from "./oauth/specs";
 
 export interface RegistryDeps {
   catalog: CatalogService;
@@ -15,6 +17,8 @@ export interface RegistryDeps {
   accounts: AuthStore;
   /** Env override for tests (defaults to process.env). */
   env?: Record<string, string | undefined>;
+  /** Fetch override for OAuth refresh (tests). */
+  fetch?: typeof globalThis.fetch;
 }
 
 export interface ResolvedModel {
@@ -37,6 +41,16 @@ export interface ResolvedCredentials {
   baseUrl?: string;
   /** Where the key came from — surfaced in errors/logs, never the key itself. */
   source: "account" | "env" | "config" | "keyless";
+  /** True when the credential is an OAuth access token. */
+  oauth?: boolean;
+  /** OAuth token expiry (epoch ms). */
+  expiresAt?: number;
+  /** Upstream OAuth identity (Codex account id, …). */
+  oauthAccountId?: string;
+  /** Extra request headers (custom gateways / provider quirks). */
+  headers?: Record<string, string>;
+  /** Context window override from a custom provider/account. */
+  contextLength?: number;
 }
 
 /**
@@ -91,9 +105,11 @@ export class ProviderRegistry {
     if (adapter === undefined) return undefined; // unsupported wire shape
 
     const provider =
-      adapter === "anthropic"
-        ? new (await import("./adapters/anthropic")).AnthropicProvider(providerId)
-        : new (await import("./adapters/openai")).OpenAiCompatProvider(providerId);
+      adapter === "responses"
+        ? new (await import("./adapters/responses")).ResponsesProvider(providerId)
+        : adapter === "anthropic"
+          ? new (await import("./adapters/anthropic")).AnthropicProvider(providerId)
+          : new (await import("./adapters/openai")).OpenAiCompatProvider(providerId);
     this.materialized.set(providerId, provider);
     return provider;
   }
@@ -134,46 +150,116 @@ export class ProviderRegistry {
   /**
    * Credentials for a stream call. Precedence: named account → provider's
    * first stored account → env var → config apiKey/apiKeyEnv → keyless.
-   * Per-account baseUrl overrides the provider default.
+   * Per-account baseUrl overrides the provider default. OAuth accounts renew
+   * their access token here (single-flight, expiry skew per provider).
    */
   async resolveCredentials(providerId: string, accountId?: string): Promise<ResolvedCredentials> {
+    const entry = await this.deps.catalog.get(providerId);
+    const pc = this.deps.config().providers[providerId];
+    const contextLength = pc?.contextLength;
     // Named account first; a missing name (deleted account) falls back to the
     // provider default rather than failing the run.
     const stored =
       (accountId !== undefined ? this.deps.accounts.resolve(providerId, accountId) : undefined) ??
       this.deps.accounts.resolve(providerId);
     if (stored !== undefined) {
+      const headers = mergeHeaders(entry?.headers, pc?.headers, stored.headers);
+      if (stored.oauth === true) {
+        let access = stored.apiKey ?? "";
+        let refresh = stored.refreshToken;
+        let expiresAt = stored.expiresAt;
+        let oauthAccountId = stored.oauthAccountId;
+        if (needsRefresh(providerId, expiresAt)) {
+          try {
+            const renewed = await renewOAuthTokens(
+              providerId,
+              stored.accountId,
+              { access, ...(refresh !== undefined ? { refresh } : {}) },
+              { accounts: this.deps.accounts, ...(this.deps.fetch !== undefined ? { fetch: this.deps.fetch } : {}) },
+            );
+            access = renewed.access;
+            refresh = renewed.refresh ?? refresh;
+            expiresAt = renewed.expiresAt ?? expiresAt;
+            oauthAccountId = renewed.accountId ?? oauthAccountId;
+          } catch (err) {
+            // Keep the current token; the adapter's 401 path / next resolve
+            // will retry. Never crash a run on a transient refresh failure.
+            console.warn(
+              `[bai] OAuth refresh for ${providerId}/${stored.accountId} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+        return {
+          accountId: stored.accountId,
+          apiKey: access,
+          baseUrl: stored.baseUrl ?? (await this.defaultBaseUrl(providerId)),
+          source: "account",
+          oauth: true,
+          ...(expiresAt !== undefined ? { expiresAt } : {}),
+          ...(oauthAccountId !== undefined ? { oauthAccountId } : {}),
+          ...(headers !== undefined ? { headers } : {}),
+          ...((stored.contextLength ?? contextLength) !== undefined
+            ? { contextLength: stored.contextLength ?? contextLength }
+            : {}),
+        };
+      }
       return {
         ...(stored.accountId !== undefined ? { accountId: stored.accountId } : {}),
         apiKey: stored.apiKey,
         baseUrl: stored.baseUrl ?? (await this.defaultBaseUrl(providerId)),
         source: "account",
+        ...(headers !== undefined ? { headers } : {}),
+        ...((stored.contextLength ?? contextLength) !== undefined
+          ? { contextLength: stored.contextLength ?? contextLength }
+          : {}),
       };
     }
 
     const envName = await this.envVarFor(providerId);
     const envKey = envName !== undefined ? this.env()[envName] : undefined;
     if (envKey !== undefined && envKey.length > 0) {
+      const headers = mergeHeaders(entry?.headers, pc?.headers);
       return {
         accountId: "env",
         apiKey: envKey,
         ...(await withDefaultBaseUrl(this.deps, providerId)),
         source: "env",
+        ...(headers !== undefined ? { headers } : {}),
+        ...(contextLength !== undefined ? { contextLength } : {}),
       };
     }
 
-    const pc = this.deps.config().providers[providerId];
     if (pc?.apiKey !== undefined && pc.apiKey.length > 0) {
-      return { apiKey: pc.apiKey, ...(await withDefaultBaseUrl(this.deps, providerId)), source: "config" };
+      const headers = mergeHeaders(entry?.headers, pc.headers);
+      return {
+        apiKey: pc.apiKey,
+        ...(await withDefaultBaseUrl(this.deps, providerId)),
+        source: "config",
+        ...(headers !== undefined ? { headers } : {}),
+        ...(contextLength !== undefined ? { contextLength } : {}),
+      };
     }
     if (pc?.apiKeyEnv !== undefined) {
       const key = this.env()[pc.apiKeyEnv];
       if (key !== undefined && key.length > 0) {
-        return { apiKey: key, ...(await withDefaultBaseUrl(this.deps, providerId)), source: "config" };
+        const headers = mergeHeaders(entry?.headers, pc.headers);
+        return {
+          apiKey: key,
+          ...(await withDefaultBaseUrl(this.deps, providerId)),
+          source: "config",
+          ...(headers !== undefined ? { headers } : {}),
+          ...(contextLength !== undefined ? { contextLength } : {}),
+        };
       }
     }
 
-    return { ...(await withDefaultBaseUrl(this.deps, providerId)), source: "keyless" };
+    const headers = mergeHeaders(entry?.headers, pc?.headers);
+    return {
+      ...(await withDefaultBaseUrl(this.deps, providerId)),
+      source: "keyless",
+      ...(headers !== undefined ? { headers } : {}),
+      ...(contextLength !== undefined ? { contextLength } : {}),
+    };
   }
 
   /** Default account for a provider: config override → first stored → env. */
@@ -202,6 +288,7 @@ export class ProviderRegistry {
       if (entry === undefined) continue;
       const adapter = adapterNameFor(entry);
       if (adapter === undefined) continue; // google/bedrock/… — not usable yet
+      const pc = this.deps.config().providers[id];
       out.push({
         id,
         name: entry.name,
@@ -211,6 +298,10 @@ export class ProviderRegistry {
         models: catalogModels(id, entry),
         accounts: await this.accounts(id),
         connected: await this.isConnected(id),
+        ...(entry.authType !== undefined ? { authType: entry.authType } : { authType: "api_key" }),
+        ...(entry.source === "config" ? { custom: true } : {}),
+        ...(pc?.headers !== undefined ? { headerCount: Object.keys(pc.headers).length } : {}),
+        ...(pc?.contextLength !== undefined ? { contextLength: pc.contextLength } : {}),
       });
     }
 
@@ -230,10 +321,14 @@ export class ProviderRegistry {
         name: pc?.name ?? id,
         adapter: pc?.adapter ?? "openai-compatible",
         source: "config",
+        custom: true,
         ...(pc?.baseUrl !== undefined ? { baseUrl: pc.baseUrl } : {}),
         models: (pc?.models ?? []).map((m) => ({ id: `${id}/${m}`, provider: id, label: m, supportsTools: false })),
         accounts: await this.accounts(id),
         connected: await this.isConnected(id),
+        authType: pc?.authType ?? oauthSpec(id)?.method ?? "api_key",
+        ...(pc?.headers !== undefined ? { headerCount: Object.keys(pc.headers).length } : {}),
+        ...(pc?.contextLength !== undefined ? { contextLength: pc.contextLength } : {}),
       });
     }
 
@@ -369,10 +464,12 @@ function baseUrlFor(entry: CatalogProvider | undefined, providerId: string, conf
   return config.providers[providerId]?.baseUrl ?? entry?.api ?? WELL_KNOWN_BASE_URLS[providerId];
 }
 
-/** Wire-shape detection: anthropic/openai natives, else openai-compatible. */
+/** Wire-shape detection: explicit override, then anthropic/openai natives, else openai-compatible. */
 function adapterNameFor(entry: CatalogProvider): AdapterName | undefined {
+  if (entry.adapter !== undefined) return entry.adapter;
   if (entry.npm === "@ai-sdk/anthropic") return "anthropic";
   if (entry.npm === "@ai-sdk/openai") return "openai";
+  if (entry.npm === "@ai-sdk/openai-responses") return "responses";
   if (entry.npm === "@ai-sdk/openai-compatible") return "openai-compatible";
   // Vendor-wrapped but openai-wire-compatible (openrouter, groq, xai, …):
   // identifiable by a known endpoint.
@@ -395,6 +492,18 @@ function catalogModels(providerId: string, entry: CatalogProvider): ModelInfo[] 
     ...(m.attachment !== undefined ? { supportsAttachments: m.attachment } : {}),
     ...(m.inputModalities !== undefined ? { inputModalities: m.inputModalities } : {}),
   }));
+}
+
+/** Merge provider-default headers (curated ⊕ config) with per-account headers (account wins). */
+function mergeHeaders(
+  ...sources: (Record<string, string> | undefined)[]
+): Record<string, string> | undefined {
+  let out: Record<string, string> | undefined;
+  for (const source of sources) {
+    if (source === undefined) continue;
+    out = { ...(out ?? {}), ...source };
+  }
+  return out;
 }
 
 export type { LlmRequest, Provider, ProviderStream };

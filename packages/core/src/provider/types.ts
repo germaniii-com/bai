@@ -39,7 +39,21 @@ export interface LlmRequest {
    * store (multi-account support). Adapters stay stateless — no per-key
    * client caching, key rotation applies to the very next call.
    */
-  auth?: { apiKey?: string; baseUrl?: string };
+  auth?: {
+    /** API key or OAuth access token — the secret sent to the provider. */
+    apiKey?: string;
+    baseUrl?: string;
+    /** True when the credential is an OAuth access token (Anthropic branches on this). */
+    oauth?: boolean;
+    /** OAuth refresh token (registry-only; adapters never see it on the wire). */
+    refreshToken?: string;
+    /** OAuth token expiry, epoch ms. */
+    expiresAt?: number;
+    /** Upstream OAuth identity (Codex account id, …). */
+    oauthAccountId?: string;
+    /** Extra request headers (custom gateways / provider quirks). */
+    headers?: Record<string, string>;
+  };
   /**
    * Stable id of the conversation this request belongs to (the bai session
    * id). Sent as `x-opencode-session` by adapters so gateways/proxies can

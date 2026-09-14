@@ -26,6 +26,37 @@ export interface AnthropicTool {
 }
 
 /**
+ * Anthropic OAuth (Claude Pro/Max subscription) request shape. Subscription
+ * requests must present as Claude Code: Bearer auth (no x-api-key), the
+ * `oauth-2025-04-20` + `claude-code-20250219` betas, a `claude-code/<ver>`
+ * UA, and tool names prefixed `mcp__` (a single-underscore `mcp_` reads as a
+ * third-party app and reroutes to the metered lane).
+ */
+const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
+const CLAUDE_CODE_VERSION_FALLBACK = "2.1.74";
+const OAUTH_BETAS = [
+  "interleaved-thinking-2025-05-14",
+  "fine-grained-tool-streaming-2025-05-14",
+  "claude-code-20250219",
+  "oauth-2025-04-20",
+];
+
+function claudeCodeHeaders(): Record<string, string> {
+  return {
+    "anthropic-beta": OAUTH_BETAS.join(","),
+    "user-agent": `claude-code/${CLAUDE_CODE_VERSION_FALLBACK} (external, cli)`,
+    "x-app": "cli",
+  };
+}
+
+/** OAuth wire tool name: `mcp__`-prefixed, never double-prefixed. */
+function oauthWireName(name: string): string {
+  if (name.startsWith("mcp__")) return name;
+  if (name.startsWith("mcp_")) return `mcp__${name.slice(4)}`;
+  return `mcp__${name}`;
+}
+
+/**
  * Outbound blocks → Anthropic content blocks (pure; unit-tested). Tool
  * results legally ride user-role messages, so user + tool_result mix is
  * valid. Thinking blocks are dropped: replaying them requires the provider's
@@ -33,11 +64,16 @@ export interface AnthropicTool {
  *
  * `opts.toolNames` maps a replayed `tool_use` name (a real registry name like
  * "fs.read") to the provider-safe alias the model originally saw; absent, the
- * name is sanitized standalone.
+ * name is sanitized standalone. `opts.oauth` applies the subscription wire
+ * naming (`mcp__` prefix).
  */
-export function toAnthropicMessages(messages: OutboundMessage[], opts: { toolNames?: ToolNameMap } = {}): AnthropicMessage[] {
+export function toAnthropicMessages(
+  messages: OutboundMessage[],
+  opts: { toolNames?: ToolNameMap; oauth?: boolean } = {},
+): AnthropicMessage[] {
   const out: AnthropicMessage[] = [];
-  const toolName = (name: string): string => opts.toolNames?.toProvider.get(name) ?? sanitizeToolName(name);
+  const baseName = (name: string): string => opts.toolNames?.toProvider.get(name) ?? sanitizeToolName(name);
+  const toolName = opts.oauth === true ? (name: string): string => oauthWireName(baseName(name)) : baseName;
   for (const msg of messages) {
     const role = msg.role === "assistant" ? "assistant" : "user";
     const blocks: AnthropicBlock[] = [];
@@ -84,12 +120,16 @@ export function toAnthropicMessages(messages: OutboundMessage[], opts: { toolNam
 export function toAnthropicTools(
   tools: ToolDef[],
   names: ToolNameMap = buildToolNameMap(tools),
+  opts: { oauth?: boolean } = {},
 ): AnthropicTool[] {
-  return tools.map((t) => ({
-    name: names.toProvider.get(t.name) ?? sanitizeToolName(t.name),
-    ...(t.description !== undefined ? { description: t.description } : {}),
-    input_schema: t.schema,
-  }));
+  return tools.map((t) => {
+    const base = names.toProvider.get(t.name) ?? sanitizeToolName(t.name);
+    return {
+      name: opts.oauth === true ? oauthWireName(base) : base,
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      input_schema: t.schema,
+    };
+  });
 }
 
 /**
@@ -170,15 +210,25 @@ export class AnthropicProvider implements Provider {
 
   async stream(req: LlmRequest): Promise<ProviderStream> {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({
-      apiKey: req.auth?.apiKey ?? "",
-      ...(req.auth?.baseUrl !== undefined ? { baseURL: req.auth.baseUrl } : {}),
-    });
+    const oauth = req.auth?.oauth === true;
+    const client = oauth
+      ? new Anthropic({
+          // Subscription: Bearer only (no x-api-key), presented as Claude Code.
+          authToken: req.auth?.apiKey ?? "",
+          apiKey: null,
+          defaultHeaders: claudeCodeHeaders(),
+          ...(req.auth?.baseUrl !== undefined ? { baseURL: req.auth.baseUrl } : {}),
+        })
+      : new Anthropic({
+          apiKey: req.auth?.apiKey ?? "",
+          ...(req.auth?.baseUrl !== undefined ? { baseURL: req.auth.baseUrl } : {}),
+        });
 
     // Provider-safe aliases (dotted/slashed registry names are rejected);
     // the same map translates the model's echoed aliases back below.
     const names = req.tools !== undefined && req.tools.length > 0 ? buildToolNameMap(req.tools) : undefined;
-    const tools = req.tools !== undefined && names !== undefined ? toAnthropicTools(req.tools, names) : undefined;
+    const tools =
+      req.tools !== undefined && names !== undefined ? toAnthropicTools(req.tools, names, { oauth }) : undefined;
     const systemText = req.messages
       .filter((m) => m.role === "system")
       .map((m) => (typeof m.content === "string" ? m.content : m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n")))
@@ -186,7 +236,7 @@ export class AnthropicProvider implements Provider {
 
     const bodyMessages = toAnthropicMessages(
       req.messages.filter((m) => m.role !== "system"),
-      names !== undefined ? { toolNames: names } : {},
+      { ...(names !== undefined ? { toolNames: names } : {}), oauth },
     );
 
     // Extended thinking is a chat-mode feature: agentic turns (tools present)
@@ -206,6 +256,11 @@ export class AnthropicProvider implements Provider {
     // conversation from cache instead of re-billing it. Applied only on
     // agentic turns, where the prefix is genuinely stable.
     const cached = withAnthropicCacheBreakpoints({ systemText, tools, messages: bodyMessages });
+    // Subscription requests carry the Claude Code identity block first.
+    const system =
+      oauth === true
+        ? [{ type: "text" as const, text: CLAUDE_CODE_SYSTEM_PREFIX }, ...(cached.system ?? [])]
+        : cached.system;
 
     const stream = client.messages.stream(
       {
@@ -214,7 +269,7 @@ export class AnthropicProvider implements Provider {
         // Media blocks carry `media_type: string` locally; the SDK expects its
         // literal union — the registry only ever passes canonical MIME types.
         messages: cached.messages as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]>["messages"],
-        ...(cached.system !== undefined ? { system: cached.system } : {}),
+        ...(system !== undefined ? { system } : {}),
         ...(thinking !== undefined ? { thinking } : {}),
         ...(cached.tools !== undefined && cached.tools.length > 0
           ? { tools: cached.tools as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]["tools"]> }
@@ -228,13 +283,24 @@ export class AnthropicProvider implements Provider {
     let currentTool: { id: string; name: string } | undefined;
 
     async function* generate(): AsyncGenerator<StreamEvent> {
+      // Wire tool name → real registry name. Handles both the plain provider
+      // alias and the OAuth `mcp__`-prefixed form.
+      const realName = (wire: string): string => {
+        const direct = names?.toReal.get(wire);
+        if (direct !== undefined) return direct;
+        if (wire.startsWith("mcp__")) {
+          const stripped = wire.slice(5);
+          return names?.toReal.get(stripped) ?? stripped;
+        }
+        return wire;
+      };
       for await (const evt of stream) {
         if (evt.type === "content_block_start") {
           currentTool = undefined;
           if (evt.content_block.type === "tool_use") {
             // Alias → real registry name (unknown aliases pass through and
             // fail the gate as "unknown tool").
-            const name = names?.toReal.get(evt.content_block.name) ?? evt.content_block.name;
+            const name = realName(evt.content_block.name);
             currentTool = { id: evt.content_block.id, name };
             yield { type: "tool_call_delta", id: evt.content_block.id, name, argsDelta: "" };
           }

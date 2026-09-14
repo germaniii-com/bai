@@ -15,9 +15,10 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
   sync, agents (`build`/`plan`/`chat` built-ins + hot-reloaded files), file
   tools + bash/grep, interactive permissions (diff-rendered asks, reject
   feedback, TUI+web dialogs), question/todo/web tools, subagent spawning
-  (`task` tool), token discipline + compaction, and per-message
-  revert/fork/copy with shadow-repo file rollback ship today. MCP (§11),
-  media adapters, and desktop are next.
+  (`task` tool), token discipline + compaction, per-message
+  revert/fork/copy with shadow-repo file rollback, and **provider
+  OAuth/subscription logins + custom providers** (§10.1) ship today. MCP
+  (§11), media adapters, and desktop are next.
 - **Packages:** npm scope `@bai/*` under `packages/`.
 - **Companion docs:** [README.md](README.md),
   [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
@@ -194,7 +195,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **`#file` mentions** | `core/src/fs/find.ts` (search) + `core/src/run/mentions.ts` (resolve/read); grammar `shared/src/mention.ts`; pickers `tui/src/components/mention-picker.tsx` + `web/src/mention-picker.tsx` | `GET /api/fs/find` fuzzy-searches a registered workspace (hidden/ignored dirs skipped); the composer inserts the shortest unique leaf token (`#button.tsx` — opencode's chip display) and expands it to the full `#path[:from-to]` at submit. At promotion, each mention is resolved (root-scoped) and read into a `file` part (numbered lines / dir listing, capped like `fs.read`); `renderOutbound` attaches `<file>` blocks to the user turn. Optional `:from`/`:from-to`/`:from-`; gated to sessions with a workspace root. In the web transcript each mention renders as a leaf chip (hover = full path, click opens the workspace viewer via `openMentionedFile`); the TUI renders the leaf inline. |
 | **Attachments (chat only)** | `core/src/attachments.ts` (classify/store/resolve), `core/src/run.ts` (`appendPromotedInputs` + `resolveAttachment`), `core/src/run/history.ts` (`renderOutbound` media blocks), adapters (`provider/adapters/anthropic.ts` image/document, `openai.ts` image_url/file); UI `web/src/attachments.tsx` + `web/src/chat-pane.tsx`; upload route `POST /api/attachment` (`api/src/server/app.ts`) | Cwd-less chat sessions only: web `+` button + composer drag-and-drop upload images/PDF/text → asset store (`assets/attachment/<id>.<ext>`, `kind:"file"`, `meta.attachment`). Text becomes a `file` part (read context); image/PDF become an `attachment` part. `renderOutbound` lowers them to provider blocks; missing/older-than-newest-3-user-turn attachments become omission notes (`context/discipline.ts`). Model capability (models.dev `attachment`/`modalities`) enforced at submit (`Service.assertAttachmentsSupported` → 400). Preview via `GET /api/asset/:id/content`. |
 | **Workspace file uploads** | `api/src/server/fs.ts` (`writeFile`), route `POST /api/fs/upload` (`api/src/server/app.ts`), client `BaiClient.uploadWorkspaceFile`, UI `web/src/file-tree.tsx` (drop targets) + `web/src/App.tsx` (`uploadToWorkspace`) | Drag files from the OS onto a folder row or the tree root → raw bytes written into the registered workspace (realpath-contained, 64 MB cap, auto-rename on collision). No composer attach button in workspace; uploaded files are ordinary files and are immediately `#file`-able (`clearFindCache(root)`). |
-| **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints (system / last tool / last message). OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Model resolution + credentials: `core/src/provider/registry.ts`. |
+| **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts`, `adapters/responses.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints, OAuth Bearer/beta + Claude Code shape. OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Responses serves ChatGPT/Codex + xAI (`store:false`, `function_call` items, `ChatGPT-Account-ID`). Model resolution + credentials: `core/src/provider/registry.ts`; logins: `core/src/provider/oauth/`. |
 | **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
 | **Subagent spawning** | `core/src/tools/task.ts` | The `task` tool: spawns a real child session (`meta: {parent, agent}`) running any agent to completion via `RunCoordinator.drainNow`, returns the child's final text in a `<task>` XML block. Depth-capped (`agents.subagentDepth`, default 1); children never offered/allowed `task`/`question`/`plan.exit`; batched task calls run concurrently (executeCalls stage 2); the result payload carries `subagent: {sessionId, agent}` for surface links. |
 | **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from the TUI agent manager (supermenu → Switch agent) or web Agents page via `PUT /api/tool/:name`. |
@@ -480,18 +481,47 @@ interface Stream extends AsyncIterable<StreamEvent> {
 }
 ```
 
-Adapters implemented today: **Anthropic** (`@anthropic-ai/sdk`) and one
+Adapters implemented today: **Anthropic** (`@anthropic-ai/sdk`), one
 **OpenAI-compatible catch-all** (`openai` SDK, custom base URL) covering
 api.openai.com, OpenRouter, Groq, Ollama, llama.cpp, LM Studio, DeepSeek,
-etc. Both speak tools: Anthropic uses `tool_use`/`tool_result` content
-blocks with `input_json_delta` streaming; OpenAI uses `tool_calls`
-accumulation and `role:"tool"` messages. A Gemini adapter is planned.
-Vendor types stay isolated inside adapter files so SDK majors never leak
-into `core`.
+etc., and a **Responses** adapter (`adapters/responses.ts`) serving
+ChatGPT/Codex (`chatgpt.com/backend-api/codex`) and xAI. All speak tools:
+Anthropic uses `tool_use`/`tool_result` content blocks with
+`input_json_delta` streaming; OpenAI uses `tool_calls` accumulation and
+`role:"tool"` messages; Responses uses `function_call`/`function_call_output`
+input items. Vendor types stay isolated inside adapter files so SDK majors
+never leak into `core`.
 
 Model catalog = models.dev (via `@opencode-ai/models`: live fetch ⊕ bundled
-offline snapshot ≤24 h behind) ⊕ user config overrides. Auth via env vars and
-config; OAuth flows deferred.
+offline snapshot ≤24 h behind) ⊕ user config overrides ⊕ a **curated
+bai-owned overlay** (`provider/overlay.ts`) that adds providers models.dev
+omits (coding plans, gateways, OAuth-only providers) and attaches
+adapter/auth/header metadata. Auth via env vars, config, API-key accounts,
+and **OAuth/subscription logins**.
+
+### 10.1 OAuth / subscription logins
+
+`core/src/provider/oauth/` is a server-side login engine: a spec per provider
+(`providers/*.ts`), a generic RFC 8628 device-code runner (`device.ts`), PKCE
+helpers (`pkce.ts`), single-flight token refresh (`refresh.ts`), and an
+`OAuthLoginManager` that runs detached login sessions over a start/poll/
+submit/cancel surface. Tokens are written to the widened `auth.json`
+(`type:"oauth"` records: access/refresh/expiry/upstream id); the registry
+resolves + renews them at stream time and injects provider/account headers.
+
+Supported logins: **ChatGPT/Codex** (device-code), **Anthropic Claude
+Pro/Max** (paste-code PKCE), **GitHub Copilot** (device-code + token
+exchange), **xAI Grok** (OIDC discovery + device-code), **Qwen** (imports the
+Qwen CLI credential file), **Nous Portal** (device-code), **MiniMax**
+(user_code + PKCE), and **Vertex** (ADC / service-account via
+`google-auth-library`). Device-code and paste-code flows work identically for
+local and remote (`--host`) surfaces — no client-side loopback.
+
+Login attempts are exposed at `GET /api/provider/oauth` and
+`POST/GET/DELETE /api/provider/:provider/oauth/...`; web Settings and the TUI
+ctrl+p wizard drive them. Custom providers are config-defined entities
+(name, base URL, adapter, key env/secret, models, headers, context length)
+with `PUT/DELETE /api/provider/:provider/custom`.
 
 ## 11. Extensibility (MCP-first)
 
@@ -761,7 +791,7 @@ TypeScript-specific decisions (D13+):
 | D9  | Image/video as structured stubs day one         | Architecture proven before adapters land                                      | Defer entirely / big-bang media              |
 | D10 | Desktop deferred                                | Web covers desktop; tech undecided (Tauri vs Electron)                        | Early Electron/Tauri adoption                |
 | D11 | Hono (not Express/Elysia)                       | Web-standard handlers, typed RPC client, SSE helpers, Bun-native serving      | Express (legacy), Elysia (less portable)     |
-| D12 | Single-user pairing-token auth                  | Matches "just me, many devices"                                               | Accounts/OAuth/multi-user                    |
+| D12 | Single-user pairing-token auth                  | Matches "just me, many devices". Provider/subscription OAuth (D27) is unrelated to device accounts | Accounts/multi-user device auth |
 | D13 | Bun as runtime AND bundler                      | TS execution without build step; workspaces; compile-to-exe; native PTY/sqlite| Node + esbuild/tsup split toolchain          |
 | D14 | Internal packages export TS sources             | Zero inter-package build artifacts; Bun/tsc/Vite all resolve it               | Per-package dist builds + dts                |
 | D15 | Shared types imported directly by surfaces      | Kills the mirror-types problem entirely                                       | OpenAPI codegen, hand-maintained mirrors     |
@@ -776,6 +806,8 @@ TypeScript-specific decisions (D13+):
 | D24 | Subagents as durable child sessions (`task` tool) | Event-sourcing + multi-device inspection for free: the child is a real session with its own history, compaction, and permission gate, watchable from any surface — not a hidden in-memory transcript | pi-style child processes (no shared store/events), hermes-style thread pools (opaque to surfaces), synthetic in-memory subagents (no resume, no audit) |
 | D25 | Shadow-repo git snapshots for revert (message-only fallback) | File rollback without ever touching the project's own `.git`; alternates seeding avoids re-hashing large repos; message-only fallback keeps revert useful outside git worktrees | Snapshotting via the project repo (mutates user state); per-turn full copies (unbounded growth); deferring file revert entirely |
 | D26 | Every LLM call records usage (kind-tagged rows, per-row rate snapshot, cost computed at fetch) | Analytics completeness by construction — spend tracking can't be silently skipped (enforced by a source-scan test); rates frozen per data point keep history correct across catalog price edits; fetch-time Σ(tokens×rate) is auditable and drift-free | Deriving usage from events (lossy — no cache/reasoning fields); per-feature ad-hoc tracking; denormalized cost snapshot (drift risk) |
+| D27 | Server-side OAuth login engine + widened auth.json + curated provider overlay | Subscription/ChatGPT-style logins (device-code, paste-code PKCE, import, ADC) are first-class provider accounts, resolved and refreshed at stream time; device-code/paste-code work for remote surfaces without client loopback; the overlay closes models.dev gaps without forking the catalog | Per-client browser OAuth (breaks `--host`); hardcoding a second 39-provider list (drifts from models.dev); storing tokens in config (leaks via sync) |
+| D28 | Responses API as a first-class wire adapter | ChatGPT/Codex and xAI cannot be expressed over chat.completions; one adapter serves both plus future Responses endpoints, sharing tool-name/usage/StreamEvent handling | Codex-only special path (not reusable); SDK feature flags without a wire adapter |
 
 ## 18. Glossary
 

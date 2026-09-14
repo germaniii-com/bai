@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { Config } from "@bai/shared";
+import type { AdapterName, Config } from "@bai/shared";
+import { CURATED_PROVIDERS } from "./overlay";
 
 /** Freshness window before a background refresh is attempted (opencode: 5 min). */
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
@@ -45,6 +46,16 @@ export interface CatalogProvider {
   models: CatalogModel[];
   /** Where the entry came from: models.dev, config, or the builtin stub. */
   source: "catalog" | "config" | "builtin";
+  /** Explicit wire adapter (curated overlay / config override). */
+  adapter?: AdapterName;
+  /** Primary auth shape (curated overlay; OAuth specs add login methods). */
+  authType?: "api_key" | "redirect" | "device_code" | "paste_code" | "import" | "adc";
+  /** Default request headers for this provider (custom gateways / quirks). */
+  headers?: Record<string, string>;
+  /** True when the provider works with no credential (free tier). */
+  keyless?: boolean;
+  /** Alternate ids that resolve to this provider. */
+  aliases?: string[];
 }
 
 /** Raw models.dev api.json entry (cache file + client response shape). */
@@ -99,11 +110,11 @@ export class CatalogService {
     this.memory = undefined;
   }
 
-  /** All providers: models.dev base ⊕ config, sorted by id. Never throws. */
+  /** All providers: models.dev base ⊕ curated overlay ⊕ config, sorted by id. Never throws. */
   async providers(): Promise<CatalogProvider[]> {
     const base = await this.baseProviders();
     this.maybeRefreshInBackground();
-    return mergeConfigProviders(base, this.opts.config());
+    return mergeConfigProviders(mergeCurated(base), this.opts.config());
   }
 
   get(providerId: string): Promise<CatalogProvider | undefined> {
@@ -249,6 +260,56 @@ function normalizeModelsDev(doc: Record<string, ModelsDevProvider>): CatalogProv
 }
 
 /**
+ * Curated overlay over the raw catalog: adds providers models.dev omits,
+ * corrects endpoints/adapters, and attaches auth/header metadata. An overlay
+ * entry's models are additive — catalog models are never removed.
+ */
+function mergeCurated(catalog: CatalogProvider[]): CatalogProvider[] {
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  for (const entry of Object.values(CURATED_PROVIDERS)) {
+    const existing = byId.get(entry.id);
+    const models: CatalogModel[] = [...(existing?.models ?? [])];
+    for (const id of entry.models ?? []) {
+      if (!models.some((m) => m.id === id)) {
+        models.push({
+          id,
+          name: id,
+          toolCall: true,
+          reasoning: false,
+          ...(entry.contextLength !== undefined ? { contextWindow: entry.contextLength } : {}),
+        });
+      }
+    }
+    byId.set(entry.id, {
+      id: entry.id,
+      name: entry.name,
+      npm: existing?.npm ?? "@ai-sdk/openai-compatible",
+      ...(entry.baseUrl !== undefined
+        ? { api: entry.baseUrl }
+        : existing?.api !== undefined
+          ? { api: existing.api }
+          : {}),
+      env: entry.env ?? existing?.env ?? [],
+      models,
+      // Curated entries are bai-owned catalog providers, never user "custom"
+      // providers — the UI uses source==="config" to mean a config-defined
+      // custom endpoint.
+      source: existing?.source ?? "catalog",
+      ...(entry.adapter !== undefined
+        ? { adapter: entry.adapter }
+        : existing?.adapter !== undefined
+          ? { adapter: existing.adapter }
+          : {}),
+      ...(entry.authType !== undefined ? { authType: entry.authType } : existing?.authType !== undefined ? { authType: existing.authType } : {}),
+      ...(entry.headers !== undefined ? { headers: entry.headers } : existing?.headers !== undefined ? { headers: existing.headers } : {}),
+      ...(entry.keyless === true ? { keyless: true } : existing?.keyless === true ? { keyless: true } : {}),
+      ...(entry.aliases !== undefined ? { aliases: entry.aliases } : existing?.aliases !== undefined ? { aliases: existing.aliases } : {}),
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
  * Config-defined providers merged over the catalog: unknown ids become custom
  * providers (adapter defaults to openai-compatible); known ids get name/api
  * overrides and extra models. `baseUrl` from config maps onto `api`.
@@ -260,17 +321,48 @@ function mergeConfigProviders(catalog: CatalogProvider[], config: Config): Catal
     const models: CatalogModel[] = [...(existing?.models ?? [])];
     for (const modelId of pc.models ?? []) {
       if (!models.some((m) => m.id === modelId)) {
-        models.push({ id: modelId, name: modelId, toolCall: false, reasoning: false });
+        models.push({
+          id: modelId,
+          name: modelId,
+          toolCall: false,
+          reasoning: false,
+          ...(pc.contextLength !== undefined ? { contextWindow: pc.contextLength } : {}),
+        });
       }
     }
     const merged: CatalogProvider = {
       id,
       name: pc.name ?? existing?.name ?? id,
-      npm: existing?.npm ?? (pc.adapter === "anthropic" ? "@ai-sdk/anthropic" : pc.adapter === "openai" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible"),
+      npm:
+        existing?.npm ??
+        (pc.adapter === "anthropic"
+          ? "@ai-sdk/anthropic"
+          : pc.adapter === "openai"
+            ? "@ai-sdk/openai"
+            : pc.adapter === "responses"
+              ? "@ai-sdk/openai-responses"
+              : "@ai-sdk/openai-compatible"),
       ...(pc.baseUrl !== undefined ? { api: pc.baseUrl } : existing?.api !== undefined ? { api: existing.api } : {}),
       env: existing?.env ?? (pc.apiKeyEnv !== undefined ? [pc.apiKeyEnv] : []),
       models,
       source: existing !== undefined ? "catalog" : "config",
+      ...(pc.adapter !== undefined
+        ? { adapter: pc.adapter }
+        : existing?.adapter !== undefined
+          ? { adapter: existing.adapter }
+          : {}),
+      ...(pc.authType !== undefined
+        ? { authType: pc.authType }
+        : existing?.authType !== undefined
+          ? { authType: existing.authType }
+          : {}),
+      ...(pc.headers !== undefined
+        ? { headers: pc.headers }
+        : existing?.headers !== undefined
+          ? { headers: existing.headers }
+          : {}),
+      ...(existing?.keyless === true ? { keyless: true } : {}),
+      ...(existing?.aliases !== undefined ? { aliases: existing.aliases } : {}),
     };
     byId.set(id, merged);
   }

@@ -10,6 +10,8 @@ import {
   EchoProvider,
   EventLog,
   JobQueue,
+  OAuthLoginManager,
+  OAUTH_SPECS,
   ProviderRegistry,
   Service,
   SkillRegistry,
@@ -17,6 +19,7 @@ import {
   ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
+  type OAuthFlowSpec,
 } from "@bai/core";
 import { DEFAULT_CONFIG, deepMerge, type Config, type ConfigPatch } from "@bai/shared";
 import type { ApiDeps } from "../src";
@@ -48,6 +51,17 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   });
   const providers = new ProviderRegistry({ catalog, config: () => config, accounts });
   providers.register(new EchoProvider());
+  // OAuth login sessions with one deterministic fake flow for route tests.
+  const fakeOAuthSpec: OAuthFlowSpec = {
+    id: "fake-oauth",
+    name: "Fake OAuth",
+    method: "device_code",
+    run: async (ctx) => {
+      ctx.progress({ status: "pending", userCode: "TEST-CODE", verificationUri: "https://example.com/verify" });
+      return { access: "fake-access", refresh: "fake-refresh" };
+    },
+  };
+  const oauth = new OAuthLoginManager({ accounts, specs: { ...OAUTH_SPECS, "fake-oauth": fakeOAuthSpec } });
   const workbenches = createDefaultWorkbenches({ dataDir: dir });
   const jobs = new JobQueue({
     store,
@@ -82,6 +96,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     bus,
     log,
     providers,
+    oauth,
     tools,
     workbenches,
     jobs,
@@ -93,6 +108,12 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     // Mirror boot.ts: the config mutation path the workspace remove/restore
     // routes use — reassign so the mutation is visible to every reader.
     updateConfig: (patch) => (config = deepMerge(config, patch)),
+    removeProvider: (id) => {
+      const rest = { ...config.providers };
+      delete rest[id];
+      config = { ...config, providers: rest };
+      return config;
+    },
     version: "test",
     plansDir: join(dir, "plans"),
     assetsDir: join(dir, "assets"),

@@ -21,9 +21,13 @@ continue it from your phone, teach it new agents from either side.
 
 `bai` is an all-in-one AI workspace as a single Bun executable:
 
-- 💬 **Chat** — multi-provider conversations (OpenAI-compatible endpoints and
-  Anthropic today; Gemini planned) with streaming, reasoning panels, and
-  session titles
+- 💬 **Chat** — multi-provider conversations (OpenAI-compatible, Anthropic
+  Messages, and the OpenAI Responses API serving ChatGPT/Codex) with
+  streaming, reasoning panels, and session titles
+- 🔐 **Providers** — multi-account API keys plus **OAuth/subscription logins**
+  (ChatGPT/Codex, Anthropic Claude Pro/Max, GitHub Copilot, xAI Grok, Qwen,
+  Nous Portal, MiniMax, Vertex), a curated catalog overlay, and config-defined
+  **custom providers** — from web Settings or the TUI wizard
 - 🧑‍💻 **Workspace / Code** — file-defined **agents** (hot-reloaded, no
   restarts) driving real tool loops: `fs.read/list/glob/write/edit`,
   fail-closed interactive permissions, token discipline, and compaction

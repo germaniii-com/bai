@@ -21,8 +21,14 @@ The conversation modality and bai's default session type.
 **What you can do today**
 
 - Multi-provider conversations: any OpenAI-compatible endpoint (OpenAI,
-  OpenRouter, Groq, Ollama, LM Studio, DeepSeek, …) and Anthropic — selected
-  per session (the TUI supermenu) or globally in config
+  OpenRouter, Groq, Ollama, LM Studio, DeepSeek, …), Anthropic, and the
+  OpenAI Responses API (ChatGPT/Codex, xAI) — selected per session (the TUI
+  supermenu) or globally in config
+- **OAuth / subscription logins** from web Settings or the TUI wizard:
+  ChatGPT/Codex, Anthropic Claude Pro/Max, GitHub Copilot, xAI Grok, Qwen,
+  Nous Portal, MiniMax, Vertex — plus API-key accounts and config-defined
+  custom providers (name, base URL, adapter, key env, models, headers,
+  context length)
 - Streaming responses with reasoning panels (thinking parts render behind a
   click-to-reveal node in both TUI and web)
 - **Stop generating** mid-stream: double-esc in the TUI, the red stop button
@@ -97,13 +103,16 @@ The conversation modality and bai's default session type.
 
 - The provider layer is deliberately thin (`core/src/provider/`): adapters
   isolate vendor SDKs and translate one neutral `LlmRequest`/`StreamEvent`
-  shape; the model catalog comes from models.dev ⊕ user config
+  shape; the model catalog comes from models.dev ⊕ a curated overlay ⊕ user
+  config, and credentials are multi-account API keys or OAuth tokens in
+  `auth.json` (§10.1)
 - Everything streams through the same event system as every other feature —
   chat is just the first consumer of the sync machinery
 
 **Coming next**
 
-- Gemini native adapter · MCP-fetched models · a `/commands` palette in the
+- Gemini native adapter · MCP-fetched models · TLS overrides for custom
+  providers · a `/commands` palette in the
   composer (deferred; the app-command supermenu + markdown command files are
   the planned sources)
 

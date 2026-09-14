@@ -10,6 +10,7 @@ import {
   EventLog,
   Bus,
   JobQueue,
+  OAuthLoginManager,
   ProviderRegistry,
   Service,
   SkillRegistry,
@@ -86,6 +87,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
   const store = new Store(ephemeral ? ":memory:" : dbPath());
   const bus = new Bus();
   const log = new EventLog(store.events);
+  // Late-bound core: config/OAuth callbacks fire only after boot completes.
+  let coreRef: Service | undefined;
 
   // Credentials live outside config (auth.json, 0600) so keys never ride
   // config sync; the catalog merges models.dev with config-defined providers.
@@ -112,6 +115,18 @@ export async function boot(args: CliArgs): Promise<Booted> {
     catalog,
     config: () => configStore.get(),
     accounts,
+  });
+
+  // Server-side OAuth login sessions (ChatGPT/Codex, Anthropic, Copilot,
+  // xAI, Nous, MiniMax, Qwen, Vertex). `coreRef` is assigned once the Service
+  // exists; login completion broadcasts provider.updated so every surface
+  // picks up the new account without a restart.
+  const oauth = new OAuthLoginManager({
+    accounts,
+    onConnected: () => {
+      bus.publish({ seq: 0, type: "provider.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("provider.updated", {});
+    },
   });
 
   const workbenches = createDefaultWorkbenches({
@@ -141,7 +156,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
   // schedules its first rescan as a microtask, and if boot ever grows an
   // await before the Service exists, the closure must not hit the `core`
   // TDZ (it resolves to undefined and the poller picks the file up later).
-  let coreRef: Service | undefined;
+  // (`coreRef` is declared at the top of boot, so the closure is safe.)
   const toolLoader: ToolLoader = new ToolLoader({
     dir: path.join(configDir(), "tools"),
     registry: tools,
@@ -203,6 +218,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     bus,
     log,
     providers,
+    oauth,
     tools,
     workbenches,
     jobs,
@@ -215,6 +231,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     // ConfigStore.update the PUT /api/config route uses — global layer file,
     // atomic write, onChange broadcasts config.updated.
     updateConfig: (patch) => configStore.update(patch),
+    removeProvider: (providerId) => configStore.removeProvider(providerId),
     version: VERSION,
     plansDir: path.join(configDir(), "plans"),
     assetsDir: assetsDir(),

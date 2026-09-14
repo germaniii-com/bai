@@ -37,6 +37,10 @@ import {
   type ToolListEntry,
   type ModelPageEntry,
   type ModelsPage,
+  type OAuthLoginSession,
+  type OAuthProviderInfo,
+  type OAuthStartMode,
+  type CustomProviderBody,
   type SessionsCursor,
   type SessionsPage,
   buildLearnRequest,
@@ -53,6 +57,7 @@ import type { JobQueue } from "./jobs/queue";
 import { PermissionGate } from "./permissions/ask";
 import { QuestionService } from "./question/service";
 import type { ProviderRegistry } from "./provider/registry";
+import type { OAuthLoginManager } from "./provider/oauth/manager";
 import { RunCoordinator } from "./run";
 import { forkedTitle, isPatchPayload, readRevert } from "./revert";
 import type { Snapshot, SnapshotPatch } from "./snapshot";
@@ -87,6 +92,8 @@ export interface ServiceDeps {
   log: EventLog;
   clock?: Clock;
   providers: ProviderRegistry;
+  /** Server-side OAuth login sessions (optional — surfaces hide OAuth when absent). */
+  oauth?: OAuthLoginManager;
   tools: ToolRegistry;
   workbenches: Workbench[];
   jobs: JobQueue;
@@ -108,6 +115,11 @@ export interface ServiceDeps {
    * fails with a clear error (bare test constructors don't wire it).
    */
   updateConfig?(patch: ConfigPatch): Config;
+  /**
+   * Remove a provider entry from the global config layer. Merge-based updates
+   * cannot delete keys, so custom-provider deletion goes through this.
+   */
+  removeProvider?(providerId: string): Config;
   /**
    * Home directory for workspace.create's creation guard. Optional —
    * defaults to the OS home; tests inject a throwaway dir.
@@ -1110,6 +1122,52 @@ export class Service {
     const removed = this.deps.providers.removeAccount(providerId, accountId);
     if (removed) this.emitLive("provider.updated", {});
     return removed;
+  }
+
+  // --- OAuth logins (server-side sessions) ---
+
+  /** Providers that support an OAuth/import login, with connection state. */
+  oauthProviders(): OAuthProviderInfo[] {
+    return this.deps.oauth?.providers() ?? [];
+  }
+
+  async startOAuthLogin(
+    providerId: string,
+    opts: { account?: string; mode?: OAuthStartMode } = {},
+  ): Promise<OAuthLoginSession> {
+    if (this.deps.oauth === undefined) throw new Error("OAuth login is not available");
+    return this.deps.oauth.start(providerId, opts);
+  }
+
+  pollOAuthLogin(sessionId: string): OAuthLoginSession | undefined {
+    return this.deps.oauth?.poll(sessionId);
+  }
+
+  submitOAuthLogin(sessionId: string, code: string): OAuthLoginSession {
+    if (this.deps.oauth === undefined) throw new Error("OAuth login is not available");
+    return this.deps.oauth.submit(sessionId, code);
+  }
+
+  cancelOAuthLogin(sessionId: string): boolean {
+    return this.deps.oauth?.cancel(sessionId) ?? false;
+  }
+
+  // --- custom providers (config-defined entities) ---
+
+  /** Upsert a config-defined custom provider (writes the global config layer). */
+  setCustomProvider(providerId: string, body: CustomProviderBody): void {
+    if (this.deps.updateConfig === undefined) throw new Error("config editing is not available");
+    this.deps.updateConfig({ providers: { [providerId]: body } });
+    this.emitLive("provider.updated", {});
+  }
+
+  /** Delete a config-defined custom provider; false when it does not exist. */
+  removeCustomProvider(providerId: string): boolean {
+    if (this.deps.removeProvider === undefined) return false;
+    if (this.deps.config().providers[providerId] === undefined) return false;
+    this.deps.removeProvider(providerId);
+    this.emitLive("provider.updated", {});
+    return true;
   }
 
   /**

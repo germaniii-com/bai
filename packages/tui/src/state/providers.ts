@@ -1,4 +1,4 @@
-import type { AccountInfo, ModelInfo, ModelPageEntry, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { AccountInfo, ModelInfo, ModelPageEntry, OAuthProviderInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, modelCapabilities, sortModelsZdrFirst } from "@bai/shared";
 
 /**
@@ -24,8 +24,12 @@ function capabilityTags(model: ModelInfo): string | undefined {
   return caps.length > 0 ? caps.map((c) => `(${c.label})`).join(" ") : undefined;
 }
 
-/** Provider list: connected first (both stable), stub last. */
-export function providerOptions(providers: ProviderInfo[]): PickerOption[] {
+/**
+ * Provider list: connected first (both stable), stub last. Providers with an
+ * OAuth login carry an "oauth" hint tag so the wizard's connect path is
+ * discoverable from the first screen.
+ */
+export function providerOptions(providers: ProviderInfo[], oauthIds: ReadonlySet<string> = new Set()): PickerOption[] {
   const sorted = [...providers].sort((a, b) => {
     const ac = a.connected ? 0 : 1;
     const bc = b.connected ? 0 : 1;
@@ -34,14 +38,18 @@ export function providerOptions(providers: ProviderInfo[]): PickerOption[] {
     if (b.id === "stub") return -1;
     return a.id.localeCompare(b.id);
   });
-  return sorted.map((p) => ({
-    value: p.id,
-    label: p.name,
-    hint: p.connected
-      ? `${p.accounts.length} account${p.accounts.length === 1 ? "" : "s"} · ${p.adapter}`
-      : p.adapter,
-    ...(p.connected ? { gutter: "✓" } : {}),
-  }));
+  return sorted.map((p) => {
+    const parts: string[] = [];
+    if (p.connected) parts.push(`${p.accounts.length} account${p.accounts.length === 1 ? "" : "s"}`);
+    parts.push(p.adapter);
+    if (oauthIds.has(p.id)) parts.push("oauth");
+    return {
+      value: p.id,
+      label: p.name,
+      hint: parts.join(" · "),
+      ...(p.connected ? { gutter: "✓" } : {}),
+    };
+  });
 }
 
 /** Accounts of one provider (already includes the env pseudo-account). */
@@ -52,6 +60,36 @@ export function accountOptions(provider: ProviderInfo): PickerOption[] {
     hint: a.source === "env" ? "from environment" : a.baseUrl ?? "api key",
     gutter: "·",
   }));
+}
+
+/**
+ * Accounts step: the provider's accounts plus an OAuth row. Not connected →
+ * a "Connect with OAuth…" row leads. Connected → accounts lead and the only
+ * OAuth row is "Add another OAuth account…" (reconnecting is a per-account
+ * action, not a provider-level one).
+ */
+export function accountListOptions(provider: ProviderInfo, oauth: OAuthProviderInfo | undefined): PickerOption[] {
+  const accounts = accountOptions(provider);
+  if (oauth === undefined) return accounts;
+  const oauthRows: PickerOption[] = oauth.connected
+    ? [{ value: "__oauth_add__", label: "Add another OAuth account…", hint: "separate account" }]
+    : [{ value: "__oauth__", label: "Connect with OAuth…", hint: "opens browser" }];
+  return oauth.connected ? [...accounts, ...oauthRows] : [...oauthRows, ...accounts];
+}
+
+/** One account's actions: always browse models; OAuth accounts can reconnect. */
+export function accountActionOptions(account: AccountInfo, oauthAvailable: boolean): PickerOption[] {
+  const rows: PickerOption[] = [
+    {
+      value: "__models__",
+      label: "Browse models…",
+      hint: account.source === "env" ? "from environment" : account.source === "oauth" ? "oauth account" : "api key",
+    },
+  ];
+  if (account.source === "oauth" && oauthAvailable) {
+    rows.push({ value: "__oauth__", label: "Reconnect with OAuth…", hint: "opens browser" });
+  }
+  return rows;
 }
 
 /**
