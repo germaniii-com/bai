@@ -314,7 +314,7 @@ describe("tool-call loop", () => {
     // Fallback: the build persona led the request, with the build tool set.
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("EPHEMERAL PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "task"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "plan.read", "task", "todo"]);
   });
 
   test("config default agent (agents.default) applies when the session selects none", async () => {
@@ -351,7 +351,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("READER PERSONA");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "task"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "plan.read", "task", "todo"]);
   });
 
   test("unknown config default agent falls back to the built-in build agent", async () => {
@@ -367,7 +367,7 @@ describe("tool-call loop", () => {
 
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).not.toContain("GHOST");
-    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "task"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "plan.read", "task", "todo"]);
   });
 
   test("custom file-defined agent restricts offered tools", async () => {

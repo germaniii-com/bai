@@ -83,6 +83,7 @@ import { webSearchTool } from "./tools/web-search";
 import { bashTool } from "./tools/bash";
 import { fsGrepTool } from "./tools/fs-grep";
 import { planWriteTool } from "./tools/plan-write";
+import { planReadTool } from "./tools/plan-read";
 import { planExitTool } from "./tools/plan-exit";
 import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import { skillsViewTool } from "./tools/skills";
@@ -226,6 +227,10 @@ export class Service {
       bashTool(),
       fsGrepTool(),
       planWriteTool({ writePlan: (id, name, content) => this.writePlan(id, name, content) }),
+      planReadTool({
+        listPlans: (id) => this.listPlans(id),
+        readPlan: (id, name) => this.readPlan(id, name),
+      }),
       planExitTool(this.questions),
       // Progressive disclosure: the index rides the system prompt of agents
       // whose tool set includes this tool; every call lands in skill_events.

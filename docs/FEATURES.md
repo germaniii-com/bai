@@ -161,6 +161,13 @@ agents that can actually touch the files.
   referenced with `#file`. The same `#` picker attaches a mentioned image or
   PDF to the prompt, and reads a mentioned text file as context — see
   [Chat](#-chat--shipped)
+- **Session artifacts in the right rail**: below the file tree, three
+  collapsible panels keep session-scoped work in view — **Checklist**
+  (the `todo` tool's list, now user-editable: add/toggle/rename/remove),
+  **Plans** (the `plan.write` plans; click one to open an autosaving markdown
+  editor in the Files view, or hit the **hammer** to hand it to the build
+  agent to implement), and **Notes** (the user's `notes.md` scratchpad, inline
+  autosave). The rail is resizable and scrolls.
 - **Token discipline** keeps long agentic sessions affordable: identical
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the
@@ -251,11 +258,13 @@ workspace.
   - `build` — the default worker: fs tools + bash + grep, permission-gated;
     can delegate work via the `task` tool
   - `plan` — planning mode: read-only exploration (`fs.read/list/glob/grep`),
-    clarifying questions, todo tracking, and `plan.write` (the plan is stored
-    on the session — `~/.local/share/bai/sessions/<sessionId>/plans/<name>.md`
-    — and appears in the workspace **Plans** panel; the only write surface it
-    has). Finishes with `plan.exit`: asks the user; on approval the session
-    switches to `build` **mid-run** and keeps going
+    clarifying questions, todo tracking, `notes.read` for user context, and
+    `plan.write`/`plan.read` (plans are stored on the session —
+    `~/.local/share/bai/sessions/<sessionId>/plans/<name>.md` — and appear in
+    the workspace **Plans** panel; `plan.write` is the only write surface it
+    has, `plan.read` reads them back). Finishes with `plan.exit`: asks the
+    user; on approval the session switches to `build` **mid-run** and keeps
+    going
   - `chat` — general-purpose conversationalist with live web access
     (`web.search` + `web.fetch`)
 - **Subagent spawning**: any agent can be launched as a subagent via the

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Hammer, Plus, Trash2 } from "lucide-react";
 import { isValidAgentName, type PlanFile } from "@bai/shared";
 
 /**
@@ -16,6 +16,7 @@ export function PlansPanel({
   onOpen,
   onCreate,
   onDelete,
+  onBuild,
 }: {
   plans: PlanFile[];
   activePlan: string | null;
@@ -24,6 +25,8 @@ export function PlansPanel({
   /** Persist a new plan (App validates + writes); resolves after the write. */
   onCreate: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
+  /** Hand the plan to the build agent to implement (App switches + prompts). */
+  onBuild: (name: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -145,6 +148,16 @@ export function PlansPanel({
                     <FileText size={13} aria-hidden="true" />
                     <span className="plan-name">{plan.name}</span>
                     <span className="plan-date">{shortDate(plan.updatedAt)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="plan-build"
+                    aria-label={`Build ${plan.name}`}
+                    title={`Build "${plan.name}" with the build agent`}
+                    disabled={disabled || busy}
+                    onClick={() => onBuild(plan.name)}
+                  >
+                    <Hammer size={12} aria-hidden="true" />
                   </button>
                   <button
                     type="button"

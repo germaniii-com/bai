@@ -1144,6 +1144,28 @@ export function App() {
     closePlanTab(name);
   };
 
+  /**
+   * Build a plan: switch the session to the build agent and hand it the plan
+   * to implement. The agent reads the plan with plan.read and works the
+   * checklist; flip to the Chat view so the run is visible.
+   */
+  const buildPlan = async (name: string): Promise<void> => {
+    if (active === null) return;
+    try {
+      await client.setSessionAgent(active.id, { agent: "build" });
+      await client.submitPrompt(active.id, {
+        text:
+          `Implement the plan "${name}". Read it first with plan.read (call plan.read with name "${name}"), ` +
+          "then execute its phases in order: keep the checklist (todo) updated as you complete each step and " +
+          "verify your work before moving on.",
+      });
+      setWorkspaceView("chat");
+      pushNotice(`building "${name}" with the build agent`, "info");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   /** Checklist edit: optimistic local update, then persist (event confirms). */
   const changeTodos = (list: TodoItem[]): void => {
     setTodos(list);
@@ -2138,6 +2160,7 @@ export function App() {
                   onOpen={openPlan}
                   onCreate={createPlan}
                   onDelete={deletePlan}
+                  onBuild={(name) => void buildPlan(name)}
                 />
                 <NotesPanel
                   key={active?.id ?? "none"}

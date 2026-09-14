@@ -1310,6 +1310,33 @@ select:focus-visible,
   color: var(--accent);
 }
 
+/* "Build this plan" — hands the plan to the build agent. Always visible
+   (the primary row action); the destructive delete stays hover-revealed. */
+.plan-build {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.plan-build:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.plan-build:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Notes panel */
 .notes-panel {
   max-height: none;

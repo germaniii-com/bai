@@ -58,6 +58,8 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   // plan.write is root-restricted to the plans dir inside the tool itself;
   // plan.exit's gate is the user answering its embedded question.
   "plan.write": "allow",
+  // plan.read only reads the session's own plan files (no path argument).
+  "plan.read": "allow",
   "plan.exit": "allow",
   // Agent authoring (the orchestrator's create/edit-agent capability):
   // root-restricted to ~/.config/bai/agents by construction (AgentRegistry.put

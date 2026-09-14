@@ -11,6 +11,7 @@ import {
   writeNotes,
   writePlan,
 } from "../src/session-files";
+import { planReadTool } from "../src/tools/plan-read";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 
 describe("session files (plans & notes)", () => {
@@ -59,6 +60,36 @@ describe("session files (plans & notes)", () => {
     writeNotes(dir, sessionId, "");
     expect(readNotes(dir, sessionId)).toBe("");
     expect(existsSync(join(dir, sessionId, "notes.md"))).toBe(true);
+  });
+});
+
+describe("plan.read tool", () => {
+  test("lists plans, reads one, and errors with the available names", async () => {
+    const files = [
+      { name: "alpha", bytes: 3, updatedAt: "t1" },
+      { name: "beta", bytes: 4, updatedAt: "t2" },
+    ];
+    const tool = planReadTool({
+      listPlans: () => files,
+      readPlan: (_id, name) => (name === "alpha" ? "# Alpha" : undefined),
+    });
+    const ctx = { sessionId: "ses_TEST" } as never;
+
+    const list = await tool.execute({}, ctx);
+    expect(list.content).toContain("alpha");
+    expect(list.content).toContain("beta");
+
+    const read = await tool.execute({ name: "alpha" }, ctx);
+    expect(read.content).toBe("# Alpha");
+
+    await expect(tool.execute({ name: "missing" }, ctx)).rejects.toThrow(/Unknown plan: missing/);
+    await expect(tool.execute({ name: "../x" }, ctx)).rejects.toThrow(/plan name/);
+  });
+
+  test("an empty plan list is reported plainly", async () => {
+    const tool = planReadTool({ listPlans: () => [], readPlan: () => undefined });
+    const ctx = { sessionId: "ses_TEST" } as never;
+    expect((await tool.execute({}, ctx)).content).toContain("no plans");
   });
 });
 

@@ -106,7 +106,7 @@ describe("plan agent flow (end-to-end)", () => {
     // Turn 1: the built-in plan agent's persona and its restricted tool set.
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
     expect((first.messages[0] as { content: string }).content).toContain("You are bai's plan agent");
-    expect(first.tools?.map((d) => d.name)).toEqual(["fs.glob", "fs.grep", "fs.list", "fs.read", "plan.exit", "plan.write", "question", "todo"]);
+    expect(first.tools?.map((d) => d.name)).toEqual(["fs.glob", "fs.grep", "fs.list", "fs.read", "notes.read", "plan.exit", "plan.read", "plan.write", "question", "todo"]);
 
     // The session's agent flipped to build (mid-run).
     const meta = t.core.getSession(session.id)?.meta as { agent?: string };
@@ -116,7 +116,7 @@ describe("plan agent flow (end-to-end)", () => {
     const third = provider.requests[2] as LlmRequest & { tools?: ToolDef[] };
     expect(third).toBeDefined();
     expect((third.messages[0] as { content: string }).content).toContain("bai's build agent");
-    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "task"]);
+    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "plan.read", "task", "todo"]);
 
     // The plan.exit tool result told the model the switch happened.
     const results = t.core.history(session.id).flatMap((m) => m.parts).filter((p) => p.kind === "tool_result");
@@ -159,7 +159,7 @@ describe("plan agent flow (end-to-end)", () => {
     const list = t.core.listAgents().map((a) => ({ name: a.name, tools: a.tools }));
     const plan = list.find((a) => a.name === "plan");
     const chat = list.find((a) => a.name === "chat");
-    expect(plan?.tools).toEqual(["fs.read", "fs.list", "fs.glob", "fs.grep", "plan.write", "question", "todo", "plan.exit"]);
+    expect(plan?.tools).toEqual(["fs.read", "fs.list", "fs.glob", "fs.grep", "notes.read", "plan.write", "plan.read", "question", "todo", "plan.exit"]);
     // The chat agent is the all-in-one orchestrator: every registered tool
     // (fs/bash/web/task/skills/…), subagent hygiene handled at spawn time.
     expect(chat?.tools).toEqual(["*"]);
