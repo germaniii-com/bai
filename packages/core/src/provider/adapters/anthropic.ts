@@ -5,14 +5,25 @@ import { buildToolNameMap, sanitizeToolName, type ToolNameMap } from "../tool-na
 /** Anthropic's default when the request sets no cap (Go design §10). */
 const DEFAULT_MAX_TOKENS = 4096;
 
-type AnthropicBlock =
-  | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: [{ type: "text"; text: string }]; is_error?: boolean }
-  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
-  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
+/** Anthropic prompt-cache marker: cache the prefix up to this block (5m TTL). */
+export type AnthropicCacheControl = { type: "ephemeral" };
 
-type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
+type AnthropicBlock =
+  | { type: "text"; text: string; cache_control?: AnthropicCacheControl }
+  | { type: "tool_use"; id: string; name: string; input: unknown; cache_control?: AnthropicCacheControl }
+  | { type: "tool_result"; tool_use_id: string; content: [{ type: "text"; text: string }]; is_error?: boolean; cache_control?: AnthropicCacheControl }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string }; cache_control?: AnthropicCacheControl }
+  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string }; cache_control?: AnthropicCacheControl };
+
+export type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
+
+/** A mapped tool descriptor (toAnthropicTools output) plus its optional cache marker. */
+export interface AnthropicTool {
+  name: string;
+  description?: string;
+  input_schema: unknown;
+  cache_control?: AnthropicCacheControl;
+}
 
 /**
  * Outbound blocks → Anthropic content blocks (pure; unit-tested). Tool
@@ -73,12 +84,71 @@ export function toAnthropicMessages(messages: OutboundMessage[], opts: { toolNam
 export function toAnthropicTools(
   tools: ToolDef[],
   names: ToolNameMap = buildToolNameMap(tools),
-): { name: string; description?: string; input_schema: unknown }[] {
+): AnthropicTool[] {
   return tools.map((t) => ({
     name: names.toProvider.get(t.name) ?? sanitizeToolName(t.name),
     ...(t.description !== undefined ? { description: t.description } : {}),
     input_schema: t.schema,
   }));
+}
+
+/**
+ * Apply Anthropic prompt-cache breakpoints on agentic turns (tools present):
+ * the stable system block, the last tool descriptor, and — the important one —
+ * the LAST cacheable block of the conversation, whatever its type. That tail
+ * mark must NOT be limited to text: agentic requests end with a `tool_result`
+ * user message, and without marking it the conversation tail is re-billed at
+ * full input price on every step instead of being read from cache. Non-agentic
+ * (chat) turns get no breakpoints — their prefix is short and less stable.
+ *
+ * Anthropic allows 4 breakpoints; this uses 3 (system, last tool, tail). Pure:
+ * returns shallow copies and never mutates the inputs.
+ */
+export function withAnthropicCacheBreakpoints(input: {
+  systemText?: string | undefined;
+  tools?: AnthropicTool[] | undefined;
+  messages: AnthropicMessage[];
+}): {
+  system: { type: "text"; text: string; cache_control?: AnthropicCacheControl }[] | undefined;
+  tools: AnthropicTool[] | undefined;
+  messages: AnthropicMessage[];
+} {
+  const tools = input.tools;
+  const agentic = tools !== undefined && tools.length > 0;
+  if (!agentic) {
+    return {
+      system: input.systemText !== undefined ? [{ type: "text" as const, text: input.systemText }] : undefined,
+      tools,
+      messages: input.messages,
+    };
+  }
+
+  const cache: AnthropicCacheControl = { type: "ephemeral" };
+  const system =
+    input.systemText !== undefined
+      ? [{ type: "text" as const, text: input.systemText, cache_control: cache }]
+      : undefined;
+  const markedTools = tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: cache } : { ...t }));
+
+  return { system, tools: markedTools, messages: markTailCacheBreakpoint(input.messages, cache) };
+}
+
+/** Mark the last block of the last message (any type); already-marked or empty
+ *  conversations pass through unchanged (no double marker). */
+function markTailCacheBreakpoint(messages: AnthropicMessage[], cache: AnthropicCacheControl): AnthropicMessage[] {
+  const lastIndex = messages.length - 1;
+  if (lastIndex < 0) return messages;
+  const last = messages[lastIndex] as AnthropicMessage;
+  const blockIndex = last.content.length - 1;
+  if (blockIndex < 0) return messages;
+  const block = last.content[blockIndex] as AnthropicBlock;
+  if (block.cache_control !== undefined) return messages;
+
+  const content = last.content.slice();
+  content[blockIndex] = { ...block, cache_control: cache };
+  const out = messages.slice();
+  out[lastIndex] = { ...last, content };
+  return out;
 }
 
 /**
@@ -130,24 +200,12 @@ export class AnthropicProvider implements Provider {
           ? Math.max(8192, thinking.budget_tokens + 6144)
           : DEFAULT_MAX_TOKENS;
 
-    // Prompt-cache breakpoints (pi/anthropic-messages pattern): stable
-    // system + tools cached once, conversation tail re-cached per turn.
-    // Applied only on agentic turns, where the prefix is genuinely stable.
-    const system =
-      systemText !== undefined
-        ? [tools !== undefined ? { type: "text" as const, text: systemText, cache_control: { type: "ephemeral" as const } } : { type: "text" as const, text: systemText }]
-        : undefined;
-    const apiTools =
-      tools !== undefined
-        ? (tools.map((t, i) => ({ ...t, ...(i === tools.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}) })) as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]["tools"]>)
-        : undefined;
-    if (bodyMessages.length > 0 && tools !== undefined) {
-      const last = bodyMessages[bodyMessages.length - 1] as AnthropicMessage;
-      const lastBlock = last.content[last.content.length - 1] as AnthropicBlock | undefined;
-      if (lastBlock !== undefined && lastBlock.type === "text") {
-        last.content[last.content.length - 1] = { ...lastBlock, cache_control: { type: "ephemeral" as const } };
-      }
-    }
+    // Prompt-cache breakpoints (pi/anthropic-messages pattern): stable system
+    // + tools cached once, and the conversation tail re-cached per turn — the
+    // tail mark covers tool_result blocks too, so agentic steps read the prior
+    // conversation from cache instead of re-billing it. Applied only on
+    // agentic turns, where the prefix is genuinely stable.
+    const cached = withAnthropicCacheBreakpoints({ systemText, tools, messages: bodyMessages });
 
     const stream = client.messages.stream(
       {
@@ -155,10 +213,12 @@ export class AnthropicProvider implements Provider {
         max_tokens: maxTokens,
         // Media blocks carry `media_type: string` locally; the SDK expects its
         // literal union — the registry only ever passes canonical MIME types.
-        messages: bodyMessages as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]>["messages"],
-        ...(system !== undefined ? { system } : {}),
+        messages: cached.messages as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]>["messages"],
+        ...(cached.system !== undefined ? { system: cached.system } : {}),
         ...(thinking !== undefined ? { thinking } : {}),
-        ...(apiTools !== undefined && apiTools.length > 0 ? { tools: apiTools } : {}),
+        ...(cached.tools !== undefined && cached.tools.length > 0
+          ? { tools: cached.tools as unknown as NonNullable<Parameters<typeof client.messages.stream>[0]["tools"]> }
+          : {}),
       },
       // Interrupts cancel the in-flight request itself.
       { ...(req.signal !== undefined ? { signal: req.signal } : {}) },

@@ -110,6 +110,38 @@ export function toOpenAiTools(
   }));
 }
 
+/**
+ * True when the request targets the real OpenAI API — the SDK default base URL
+ * (undefined/empty) or an explicit `api.openai.com` host. `prompt_cache_key`
+ * is an OpenAI-specific routing hint; OpenAI-compatible gateways (OpenRouter,
+ * Groq, Ollama, …) may reject unknown fields, so it must never ride their
+ * requests. Azure (`*.openai.azure.com`) is deliberately excluded too.
+ */
+export function isOpenAiEndpoint(baseUrl: string | undefined): boolean {
+  if (baseUrl === undefined || baseUrl.length === 0) return true;
+  try {
+    return new URL(baseUrl).hostname === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Optional OpenAI prompt-cache params: the session id as the cache key, for
+ * `api.openai.com` requests only. OpenAI caches automatically, so this is a
+ * routing/affinity hint that raises the hit rate — never a requirement. Empty
+ * for every OpenAI-compatible gateway and for requests with no session id.
+ */
+export function openAiPromptCacheParams(req: {
+  auth?: { baseUrl?: string };
+  sessionId?: string;
+}): { prompt_cache_key?: string } {
+  const sessionId = req.sessionId;
+  if (sessionId === undefined || sessionId.length === 0) return {};
+  if (!isOpenAiEndpoint(req.auth?.baseUrl)) return {};
+  return { prompt_cache_key: sessionId };
+}
+
 /** One streaming tool-call fragment as the SDK delivers it. */
 export interface OpenAiToolCallDelta {
   index?: number;
@@ -220,6 +252,8 @@ export class OpenAiCompatProvider implements Provider {
         messages,
         stream: true,
         stream_options: { include_usage: true },
+        // api.openai.com only (compat gateways may reject the field).
+        ...openAiPromptCacheParams(req),
         ...(apiTools !== undefined && apiTools.length > 0 ? { tools: apiTools } : {}),
       },
       // Interrupts cancel the in-flight request itself.
