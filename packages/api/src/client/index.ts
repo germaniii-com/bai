@@ -35,6 +35,7 @@ import type {
   TodoItem,
   ToolListEntry,
   UpdateAutomationBody,
+  WebSearchStatus,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
 import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode } from "@bai/shared";
@@ -289,6 +290,13 @@ export class BaiClient {
     const res = await this.rpc().config.$get();
     if (!res.ok) throw new Error(`get config failed: ${res.status}`);
     return (await res.json()).config;
+  }
+
+  /** Read-only web-search provider/key status (the settings pane's data). */
+  async getWebSearchStatus(): Promise<WebSearchStatus> {
+    const res = await this.rpc()["web-search"].status.$get();
+    if (!res.ok) throw new Error(`get web search status failed: ${res.status}`);
+    return await res.json();
   }
 
   /**

@@ -41,7 +41,7 @@ import {
   type SessionId,
   type SessionsCursor,
 } from "@bai/shared";
-import { decodeCursor, decodeHistoryCursor, encodeCursor, type HistoryCursor } from "@bai/core";
+import { decodeCursor, decodeHistoryCursor, encodeCursor, webSearchStatus, type HistoryCursor } from "@bai/core";
 import { bearerAuth } from "./auth";
 import type { ApiDeps } from "./deps";
 import { completePath, createFolder, ensureRegisteredRoot, FsError, findFiles, FS_UPLOAD_MAX_BYTES, listDir, readFile, statPath, writeFile } from "./fs";
@@ -262,6 +262,9 @@ function buildApi(deps: ApiDeps) {
       // writes, and external file edits alike.
       return c.json({ config });
     })
+
+    // --- web search (read-only provider/key status for the settings UI) ---
+    .get("/web-search/status", (c) => c.json(webSearchStatus(deps.configStore.get())))
 
     // --- workspaces (webui Active | Archived) ---
     // Remove = unregister + archive the workspace's sessions (the webui's

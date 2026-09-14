@@ -1,10 +1,10 @@
 /**
  * Pluggable web-search providers (hermes's WebSearchProvider ABC, TS-shaped).
  *
- * Contract (hermes parity): search() NEVER throws — failures come back as
- * `{success: false, error}` so the tool can surface them as model-facing
- * error results and the selection ladder can fall back. `isAvailable()`
- * must not perform network I/O (it runs at registration time).
+ * Contract (hermes parity): search()/extract() NEVER throw — failures come back
+ * as `{success: false, error}` so the tool can surface them as model-facing
+ * error results and the selection ladder can fall back. `isAvailable()` must
+ * not perform network I/O (it runs at registration time).
  */
 
 export interface SearchResult {
@@ -15,12 +15,32 @@ export interface SearchResult {
 
 export type SearchOutcome = { success: true; results: SearchResult[] } | { success: false; error: string };
 
+export interface ExtractResult {
+  url: string;
+  title: string;
+  content: string;
+}
+
+export type ExtractOutcome = { success: true; results: ExtractResult[] } | { success: false; error: string };
+
+/** Per-call options threaded from the tool (abort signal). */
+export interface ProviderCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface WebSearchProvider {
-  /** Stable id ("ddgs", "exa") — the config `tools.webSearch.provider` key. */
+  /** Stable id ("ddgs", "exa", "parallel") — the config `tools.webSearch.provider` key. */
   name: string;
   /** Availability probe (module/env presence — NO network I/O). */
   isAvailable(): boolean;
+  /** True when a real credential/keyed endpoint is in use. */
+  isKeyed(): boolean;
+  /** True when the provider can serve anonymously (public free tier). */
+  isKeylessAvailable(): boolean;
   /** Human-facing note for error messages (e.g. setup hints). */
   note(): string;
-  search(query: string, limit: number): Promise<SearchOutcome>;
+  /** True when `extract()` is implemented. */
+  supportsExtract(): boolean;
+  search(query: string, limit: number, opts?: ProviderCallOptions): Promise<SearchOutcome>;
+  extract(urls: string[], opts?: ProviderCallOptions): Promise<ExtractOutcome>;
 }

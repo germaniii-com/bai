@@ -252,6 +252,27 @@ describe("api contract", () => {
     expect(bad.status).toBe(400);
   });
 
+  test("GET /api/web-search/status reflects tools.webSearch config", async () => {
+    const base = stack.deps.configStore.get();
+    stack.deps.configStore = {
+      get: () => ({ ...base, tools: { webSearch: { provider: "parallel", keylessFallback: false } } }),
+      update: stack.deps.configStore.update,
+    } as typeof stack.deps.configStore;
+    const res = await app.request("/api/web-search/status");
+    expect(res.status).toBe(200);
+    const status = (await res.json()) as {
+      provider: string;
+      keylessFallback: boolean;
+      keys: { exa: boolean; parallel: boolean };
+      available: string[];
+    };
+    expect(status.provider).toBe("parallel");
+    expect(status.keylessFallback).toBe(false);
+    expect(typeof status.keys.exa).toBe("boolean");
+    expect(typeof status.keys.parallel).toBe("boolean");
+    expect(Array.isArray(status.available)).toBe(true);
+  });
+
   test("session list filters by workbench and cwd", async () => {
     stack.core.createSession({ workbench: "chat" });
     stack.core.createSession({ workbench: "code", cwd: "/ws/one" });

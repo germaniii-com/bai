@@ -21,6 +21,7 @@ export { AgentRegistry, parseAgentMarkdown, serializeAgentMarkdown, agentTemplat
 export { SkillRegistry, parseSkillMarkdown, serializeSkillMarkdown, skillTemplate } from "./skills/registry";
 export { bundledSkillsDir, dirHash, syncBundledSkills, type BundledSyncResult } from "./skills/bundled";
 export { ToolLoader, toolTemplate } from "./tools/loader";
+export { webSearchStatus, clearSearchCache, resolveSearchProviders, extractWithFallback } from "./tools/web-search";
 export { createFolder, statPath, expandHomeInput, FsError, ioError, toReal, type PathStat } from "./fs/paths";
 export { findFiles, clearFindCache, fuzzyScore, rank, type FoundEntry, type FindResult } from "./fs/find";
 export * from "./workbench";

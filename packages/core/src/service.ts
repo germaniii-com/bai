@@ -79,7 +79,7 @@ import { questionTool } from "./tools/question";
 import { todoTool } from "./tools/todo";
 import { notesTools } from "./tools/notes";
 import { webFetchTool } from "./tools/web-fetch";
-import { webSearchTool } from "./tools/web-search";
+import { extractWithFallback, webSearchTool } from "./tools/web-search";
 import { bashTool } from "./tools/bash";
 import { fsGrepTool } from "./tools/fs-grep";
 import { planWriteTool } from "./tools/plan-write";
@@ -222,7 +222,7 @@ export class Service {
         readNotes: (id) => this.readNotes(id),
         writeNotes: (id, content) => this.writeNotes(id, content),
       }),
-      webFetchTool(),
+      webFetchTool({ extractFallback: (urls, signal) => extractWithFallback(deps.config(), urls, signal) }),
       webSearchTool({ config: deps.config }),
       bashTool(),
       fsGrepTool(),

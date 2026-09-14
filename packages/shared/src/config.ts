@@ -102,12 +102,30 @@ export interface ServerConfig {
   token?: string;
 }
 
+export type WebSearchProviderId = "auto" | "exa" | "parallel" | "ddgs";
+
 export interface ToolsConfig {
-  /** Web search provider selection (default: ddgs — keyless DuckDuckGo). */
+  /**
+   * Web search provider selection. `auto` (default) walks Exa → Parallel →
+   * ddgs; Exa/Parallel work keyless (public free tier) or keyed via
+   * `EXA_API_KEY` / `PARALLEL_API_KEY`. Pinning a provider puts it first.
+   */
   webSearch?: {
-    /** "ddgs" (keyless, default) or "exa" (needs EXA_API_KEY). */
-    provider?: "ddgs" | "exa";
+    provider?: WebSearchProviderId;
+    /**
+     * Allow keyless public free tiers (default true). When false, only keyed
+     * providers are used (unless one is explicitly pinned).
+     */
+    keylessFallback?: boolean;
   };
+}
+
+/** Read-only web-search provider state for the settings UI. */
+export interface WebSearchStatus {
+  provider: WebSearchProviderId;
+  keylessFallback: boolean;
+  keys: { exa: boolean; parallel: boolean };
+  available: string[];
 }
 
 export interface Config {
@@ -215,7 +233,8 @@ const modelsSchema = z.object({
 const toolsSchema = z.object({
   webSearch: z
     .object({
-      provider: z.enum(["ddgs", "exa"]).optional(),
+      provider: z.enum(["auto", "exa", "parallel", "ddgs"]).optional(),
+      keylessFallback: z.boolean().optional(),
     })
     .optional(),
 });

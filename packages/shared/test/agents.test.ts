@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   BUILD_AGENT_PROMPT,
+  BUILTIN_CHAT_AGENT,
+  BUILTIN_PLAN_AGENT,
   CHAT_AGENT_PROMPT,
   LEARN_AGENT_PROMPT,
   PLAN_AGENT_PROMPT,
@@ -47,6 +49,7 @@ describe("built-in agent prompts teach phased codebase scanning", () => {
     expect(PLAN_AGENT_PROMPT).toContain("offset/limit");
     expect(PLAN_AGENT_PROMPT).toContain("Batch independent searches and reads");
     expect(PLAN_AGENT_PROMPT).toContain("never repeat a search");
+    expect(PLAN_AGENT_PROMPT).toContain("web.search");
   });
 
   test("learn agent leads with its identity and gathers sources in phases", () => {
@@ -55,5 +58,14 @@ describe("built-in agent prompts teach phased codebase scanning", () => {
     expect(LEARN_AGENT_PROMPT).toContain("fs.grep");
     expect(LEARN_AGENT_PROMPT).toContain("offset/limit");
     expect(LEARN_AGENT_PROMPT).toContain("never walk a directory file by file");
+  });
+});
+
+describe("built-in agent tool grants", () => {
+  test("plan and chat have web-search access by default", () => {
+    expect(BUILTIN_PLAN_AGENT.tools).toContain("web.search");
+    expect(BUILTIN_PLAN_AGENT.tools).toContain("web.fetch");
+    // chat is the all-tools orchestrator — ["*"] already includes web tools.
+    expect(BUILTIN_CHAT_AGENT.tools).toEqual(["*"]);
   });
 });

@@ -50,6 +50,14 @@ describe("config schema", () => {
     expect(() => configSchema.parse({ theme: 7 })).toThrow();
   });
 
+  test("parses tools.webSearch (provider + keylessFallback)", () => {
+    const parsed = configSchema.parse({ tools: { webSearch: { provider: "parallel", keylessFallback: false } } });
+    expect(parsed.tools.webSearch).toEqual({ provider: "parallel", keylessFallback: false });
+    expect(configSchema.parse({}).tools).toEqual({});
+    expect(configSchema.parse({ tools: { webSearch: { provider: "auto" } } }).tools.webSearch?.provider).toBe("auto");
+    expect(() => configSchema.parse({ tools: { webSearch: { provider: "nope" } } })).toThrow();
+  });
+
   test("rejects invalid values", () => {
     expect(() => configSchema.parse({ server: { port: -1 } })).toThrow();
     expect(() => configSchema.parse({ permissions: { x: "maybe" } })).toThrow();

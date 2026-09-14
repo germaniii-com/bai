@@ -7,6 +7,8 @@ import type {
   OAuthProviderInfo,
   ProviderInfo,
   ProviderListResponse,
+  WebSearchProviderId,
+  WebSearchStatus,
 } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { partitionProviders, sortProviders } from "./provider-utils";
@@ -15,7 +17,7 @@ import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
 import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
-import { Button, Card, Combobox, Field, PageHeader, SectionHeader, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
+import { Button, Card, Combobox, Field, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -40,7 +42,7 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
  */
 
 /** The settings sections (the nested sidebar's entries). */
-export type SettingsSection = "user" | "general" | "providers";
+export type SettingsSection = "user" | "general" | "providers" | "webSearch";
 
 /** Nested-sidebar list: the settings sections. */
 export function SettingsNav({
@@ -54,6 +56,7 @@ export function SettingsNav({
     { id: "user", title: "User", dim: "who bai works for" },
     { id: "general", title: "General", dim: "default agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
+    { id: "webSearch", title: "Web Search", dim: "provider · fallback" },
   ];
   return (
     <SubNav>
@@ -130,6 +133,14 @@ export function SettingsPane({
     return (
       <div className="settings">
         <UserPane client={client} userName={userName} mutate={mutate} />
+      </div>
+    );
+  }
+
+  if (section === "webSearch") {
+    return (
+      <div className="settings">
+        <WebSearchPane client={client} onNotice={onNotice} />
       </div>
     );
   }
@@ -1054,5 +1065,92 @@ function MediaGenForm({
         </Button>
       </div>
     </Card>
+  );
+}
+
+const WEB_SEARCH_PROVIDER_OPTIONS = [
+  { value: "auto", label: "Automatic (Exa → Parallel → DuckDuckGo)" },
+  { value: "exa", label: "Exa" },
+  { value: "parallel", label: "Parallel" },
+  { value: "ddgs", label: "DuckDuckGo (last resort)" },
+];
+
+const WEB_SEARCH_PROVIDER_LABELS: Record<string, string> = {
+  exa: "Exa",
+  parallel: "Parallel",
+  ddgs: "DuckDuckGo",
+};
+
+/**
+ * Web Search section: provider selection, keyless-fallback toggle, and a
+ * read-only status line (which keys the server has detected, which providers
+ * are usable now). Self-loads its status and refetches after each save.
+ */
+function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNotice }) {
+  const [status, setStatus] = useState<WebSearchStatus | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = async (): Promise<void> => {
+    try {
+      setStatus(await client.getWebSearchStatus());
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (patch: { provider?: WebSearchProviderId; keylessFallback?: boolean }): Promise<void> => {
+    setSaving(true);
+    try {
+      await client.putConfig({ tools: { webSearch: patch } });
+      await load();
+      onNotice("Web search settings saved");
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (status === null) {
+    return <p className="dim">Loading…</p>;
+  }
+
+  const available = status.available.map((name) => WEB_SEARCH_PROVIDER_LABELS[name] ?? name).join(", ");
+  const keyLine = (label: string, detected: boolean): string => `${label}: ${detected ? "key detected" : "no key"}`;
+
+  return (
+    <>
+      <PageHeader title="Web Search" />
+      <Card>
+        <SectionHeader
+          title="Provider"
+          lede="Which backend web.search uses. Exa and Parallel work without a key (public free tiers, rate-limited) or with EXA_API_KEY / PARALLEL_API_KEY for higher limits. DuckDuckGo is a keyless last resort."
+        />
+        <Field label="Provider">
+          <Select
+            options={WEB_SEARCH_PROVIDER_OPTIONS}
+            value={status.provider}
+            disabled={saving}
+            onChange={(value) => void save({ provider: value as WebSearchProviderId })}
+            ariaLabel="Web search provider"
+          />
+        </Field>
+        <ToggleRow
+          checked={status.keylessFallback}
+          onChange={(checked) => void save({ keylessFallback: checked })}
+          title="Keyless fallback"
+          description="Use the public Exa/Parallel free tiers (and DuckDuckGo) when no API key is configured."
+        />
+        <p className="dim">
+          {keyLine("Exa", status.keys.exa)} · {keyLine("Parallel", status.keys.parallel)}
+        </p>
+        <p className="dim">Available now: {available.length > 0 ? available : "none"}</p>
+      </Card>
+    </>
   );
 }

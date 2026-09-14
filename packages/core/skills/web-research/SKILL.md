@@ -22,7 +22,8 @@ Do NOT use it for stable knowledge you already hold (language semantics, well-kn
 ## Prerequisites
 
 - `web.search` and `web.fetch` available in your tool set.
-- No API keys needed for the default provider.
+- No API keys needed — the default providers (Exa/Parallel) work keyless;
+  `EXA_API_KEY` / `PARALLEL_API_KEY` raise their rate limits.
 
 ## How to Run
 

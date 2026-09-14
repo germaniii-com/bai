@@ -1,6 +1,7 @@
 import TurndownService from "turndown";
 import { Parser } from "htmlparser2";
 import type { Tool, ToolContext, ToolResult } from "./registry";
+import type { ExtractOutcome } from "./web-search/provider";
 
 /**
  * web.fetch — fetch a URL and return its content as markdown/text/html
@@ -12,6 +13,10 @@ import type { Tool, ToolContext, ToolResult } from "./registry";
  * retry with the honest UA (TLS-fingerprint mismatch workaround); response
  * capped at 5MB (content-length pre-check + actual byte count); HTML →
  * markdown via turndown, HTML → text via htmlparser2 with skip tags.
+ *
+ * Fallback (hermes parity): when a direct fetch fails for markdown/text, the
+ * configured MCP extract provider (Exa `web_fetch_exa` / Parallel `web_fetch`)
+ * is tried so blocked/JS-only pages can still be read. `html` stays direct-only.
  */
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
@@ -74,7 +79,16 @@ function cleanText(raw: string): string {
     .trim();
 }
 
-export function webFetchTool(opts: { fetchImpl?: typeof fetch } = {}): Tool {
+export interface WebFetchOptions {
+  fetchImpl?: typeof fetch;
+  /**
+   * MCP extract fallback (Exa/Parallel) invoked when a direct fetch fails for
+   * markdown/text. Omitted → direct fetch only.
+   */
+  extractFallback?: (urls: string[], signal?: AbortSignal) => Promise<ExtractOutcome>;
+}
+
+export function webFetchTool(opts: WebFetchOptions = {}): Tool {
   const doFetch = opts.fetchImpl ?? fetch;
   return {
     name: "web.fetch",
@@ -100,42 +114,57 @@ export function webFetchTool(opts: { fetchImpl?: typeof fetch } = {}): Tool {
       const fmt = ["text", "markdown", "html"].includes(format ?? "") ? (format as string) : "markdown";
       const timeoutMs = Math.min((timeout ?? DEFAULT_TIMEOUT_S) * 1000, MAX_TIMEOUT_S * 1000);
 
-      const headers = {
-        "User-Agent": CHROME_UA,
-        Accept: acceptHeaderFor(fmt),
-        "Accept-Language": "en-US,en;q=0.9",
-      };
-      let response = await doFetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
-      // Cloudflare bot detection (TLS fingerprint mismatch): one honest-UA retry.
-      if (response.status === 403 && response.headers.get("cf-mitigated") === "challenge") {
-        response = await doFetch(url, { headers: { ...headers, "User-Agent": HONEST_UA }, signal: AbortSignal.timeout(timeoutMs) });
-      }
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
+      try {
+        const headers = {
+          "User-Agent": CHROME_UA,
+          Accept: acceptHeaderFor(fmt),
+          "Accept-Language": "en-US,en;q=0.9",
+        };
+        let response = await doFetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+        // Cloudflare bot detection (TLS fingerprint mismatch): one honest-UA retry.
+        if (response.status === 403 && response.headers.get("cf-mitigated") === "challenge") {
+          response = await doFetch(url, {
+            headers: { ...headers, "User-Agent": HONEST_UA },
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        }
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
 
-      const contentLength = response.headers.get("content-length");
-      if (contentLength !== null && Number.parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-        throw new Error("Response too large (exceeds 5MB limit)");
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength > MAX_RESPONSE_SIZE) {
-        throw new Error("Response too large (exceeds 5MB limit)");
-      }
+        const contentLength = response.headers.get("content-length");
+        if (contentLength !== null && Number.parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+          throw new Error("Response too large (exceeds 5MB limit)");
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength > MAX_RESPONSE_SIZE) {
+          throw new Error("Response too large (exceeds 5MB limit)");
+        }
 
-      const contentType = response.headers.get("content-type") ?? "";
-      const title = `${url} (${contentType})`;
-      const content = new TextDecoder().decode(arrayBuffer);
+        const contentType = response.headers.get("content-type") ?? "";
+        const title = `${url} (${contentType})`;
+        const content = new TextDecoder().decode(arrayBuffer);
 
-      if (fmt === "markdown") {
-        const output = contentType.includes("text/html") ? turndown.turndown(content) : content;
-        return { content: `${title}\n\n${output}`, meta: { url, format: fmt } };
+        if (fmt === "markdown") {
+          const output = contentType.includes("text/html") ? turndown.turndown(content) : content;
+          return { content: `${title}\n\n${output}`, meta: { url, format: fmt } };
+        }
+        if (fmt === "text") {
+          const output = contentType.includes("text/html") ? cleanText(extractTextFromHTML(content)) : content;
+          return { content: `${title}\n\n${output}`, meta: { url, format: fmt } };
+        }
+        return { content: `${title}\n\n${content}`, meta: { url, format: fmt } };
+      } catch (err) {
+        if (fmt === "html" || opts.extractFallback === undefined) throw err;
+        const fallback = await opts.extractFallback([url], ctx.signal);
+        if (!fallback.success) throw err;
+        const first = fallback.results[0];
+        if (first === undefined || first.content.length === 0) throw err;
+        return {
+          content: `${first.title.length > 0 ? first.title : url}\n\n${first.content}`,
+          meta: { url, format: fmt, provider: "mcp" },
+        };
       }
-      if (fmt === "text") {
-        const output = contentType.includes("text/html") ? cleanText(extractTextFromHTML(content)) : content;
-        return { content: `${title}\n\n${output}`, meta: { url, format: fmt } };
-      }
-      return { content: `${title}\n\n${content}`, meta: { url, format: fmt } };
     },
   };
 }

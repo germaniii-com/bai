@@ -257,8 +257,10 @@ workspace.
 - **Three built-ins** (never shadowable by files):
   - `build` — the default worker: fs tools + bash + grep, permission-gated;
     can delegate work via the `task` tool
-  - `plan` — planning mode: read-only exploration (`fs.read/list/glob/grep`),
-    clarifying questions, todo tracking, `notes.read` for user context, and
+  - `plan` — planning mode: read-only exploration (`fs.read/list/glob/grep`)
+    **plus live web research** (`web.search` + `web.fetch` for external docs,
+    APIs, and versions the plan depends on), clarifying questions, todo
+    tracking, `notes.read` for user context, and
     `plan.write`/`plan.read` (plans are stored on the session —
     `~/.local/share/bai/sessions/<sessionId>/plans/<name>.md` — and appear in
     the workspace **Plans** panel; `plan.write` is the only write surface it
@@ -344,10 +346,17 @@ built-in file tools plus user-written TypeScript tools.
     (shown in the workspace **Notes** panel); read for context, write to
     update it
   - `web.fetch` — URL → markdown/text/html (opencode's fetch: UA/Accept
-    negotiation, Cloudflare-challenge retry, 5 MB cap)
-  - `web.search` — pluggable providers; **DDGS keyless default**
-    (DuckDuckGo, no API key) with automatic Exa fallback when
-    `EXA_API_KEY` is set; pin via `tools.webSearch.provider` in config
+    negotiation, Cloudflare-challenge retry, 5 MB cap); when a direct fetch
+    fails, markdown/text fall back to the MCP extract provider (Exa
+    `web_fetch_exa` / Parallel `web_fetch`)
+  - `web.search` — MCP-first pluggable providers: **Exa → Parallel → DDGS**
+    (Exa/Parallel work keyless on their public free tiers, or keyed via
+    `EXA_API_KEY` / `PARALLEL_API_KEY` for higher limits; DuckDuckGo is a
+    hardened last resort with a hard timeout). 5-minute success cache; pin
+    via `tools.webSearch.provider` (`auto`/`exa`/`parallel`/`ddgs`) or
+    disable keyless tiers with `tools.webSearch.keylessFallback: false`.
+    Configure it in **Settings → Web Search** (provider, keyless fallback,
+    key-detection status)
   - `task` — **subagent spawning**: launches another agent in its own
     durable child session and returns its final message (see Agents below);
     batched `task` calls in one turn run concurrently

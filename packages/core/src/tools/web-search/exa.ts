@@ -1,91 +1,129 @@
-import type { SearchOutcome, WebSearchProvider } from "./provider";
+import type { ExtractOutcome, SearchOutcome, SearchResult, WebSearchProvider } from "./provider";
+import { callMcp, mcpErrorMessage } from "./mcp-http";
 
 /**
- * exa — keyed search over Exa's MCP endpoint (opencode's websearch port:
- * JSON-RPC `tools/call web_search_exa` against https://mcp.exa.ai/mcp,
- * 25s timeout). Available when EXA_API_KEY is present. Used as the
- * automatic fallback when the ddgs default fails with a key on hand.
+ * exa — search/extract over Exa's public MCP endpoint (opencode's websearch
+ * port: JSON-RPC `tools/call` against https://mcp.exa.ai/mcp). Keyed via the
+ * documented `x-api-key` header when EXA_API_KEY is present; otherwise the
+ * public keyless free tier (rate-limited). The `web_search_exa` tool accepts
+ * only `{ query, numResults }` and returns `---`-delimited text blocks —
+ * opencode's extra `type`/`livecrawl` args are stale and deliberately omitted.
  */
 
 const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
-const EXA_TIMEOUT_MS = 25_000;
 
-interface ExaResult {
+export interface ExaOptions {
+  fetchImpl?: typeof fetch;
+  apiKey?: string;
+  /** Keyless public free tier enabled (default true). */
+  keyless?: boolean;
+}
+
+interface ExaJsonResult {
   title?: string;
   url?: string;
   text?: string;
-  publishedDate?: string;
 }
 
-export function exaProvider(opts: { fetchImpl?: typeof fetch; apiKey?: string } = {}): WebSearchProvider {
+function fromJson(value: unknown): SearchResult[] | undefined {
+  const rows = Array.isArray(value)
+    ? value
+    : typeof value === "object" && value !== null && Array.isArray((value as { results?: unknown }).results)
+      ? ((value as { results: unknown[] }).results)
+      : undefined;
+  if (rows === undefined) return undefined;
+  return rows
+    .filter((r): r is ExaJsonResult => typeof r === "object" && r !== null)
+    .map((r) => ({ title: r.title ?? "(untitled)", url: r.url ?? "", description: r.text ?? "" }))
+    .filter((r) => r.url.length > 0);
+}
+
+/** Parse Exa's `---`-delimited formatted text (hermes `_parse_exa_search_text`). */
+function fromBlocks(text: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (const block of text.split("\n---\n")) {
+    let title = "";
+    let url = "";
+    const highlights: string[] = [];
+    let inHighlights = false;
+    for (const line of block.split("\n")) {
+      const stripped = line.trim();
+      if (stripped.startsWith("Title:")) {
+        title = stripped.slice("Title:".length).trim();
+        inHighlights = false;
+      } else if (stripped.startsWith("URL:")) {
+        url = stripped.slice("URL:".length).trim();
+        inHighlights = false;
+      } else if (stripped.startsWith("Highlights:")) {
+        inHighlights = true;
+      } else if (stripped.startsWith("Published:") || stripped.startsWith("Author:")) {
+        inHighlights = false;
+      } else if (inHighlights && stripped.length > 0) {
+        highlights.push(stripped);
+      }
+    }
+    if (url.length > 0) results.push({ title: title.length > 0 ? title : url, url, description: highlights.join(" ") });
+  }
+  return results;
+}
+
+export function parseExaResults(text: string, limit: number): SearchResult[] {
+  let parsed: SearchResult[] | undefined;
+  try {
+    parsed = fromJson(JSON.parse(text));
+  } catch {
+    parsed = undefined;
+  }
+  const results = parsed ?? fromBlocks(text);
+  return results.slice(0, limit);
+}
+
+function firstHeading(text: string): string {
+  for (const line of text.split("\n")) {
+    const stripped = line.trim();
+    if (stripped.startsWith("# ")) return stripped.slice(2).trim();
+    if (stripped.startsWith("Title:")) return stripped.slice("Title:".length).trim();
+  }
+  return "";
+}
+
+export function exaProvider(opts: ExaOptions = {}): WebSearchProvider {
   const doFetch = opts.fetchImpl ?? fetch;
   const apiKey = opts.apiKey ?? process.env.EXA_API_KEY ?? "";
+  const keyless = opts.keyless ?? true;
+  const headers: Record<string, string> = apiKey.length > 0 ? { "x-api-key": apiKey } : {};
+  const call = (tool: string, args: Record<string, unknown>, signal?: AbortSignal) =>
+    callMcp({ url: EXA_MCP_URL, tool, args, headers, fetchImpl: doFetch, signal });
   return {
     name: "exa",
-    isAvailable: () => apiKey.length > 0,
-    note: () => "set EXA_API_KEY to enable Exa search",
-    async search(query, limit): Promise<SearchOutcome> {
-      if (apiKey.length === 0) {
-        return { success: false, error: "Exa search requires EXA_API_KEY (env var or config account)." };
-      }
+    isAvailable: () => apiKey.length > 0 || keyless,
+    isKeyed: () => apiKey.length > 0,
+    isKeylessAvailable: () => keyless,
+    supportsExtract: () => true,
+    note: () =>
+      apiKey.length > 0
+        ? "Exa (keyed via EXA_API_KEY)"
+        : "set EXA_API_KEY for higher Exa limits (the keyless free tier is rate-limited)",
+    async search(query, limit, o): Promise<SearchOutcome> {
+      if (apiKey.length === 0 && !keyless) return { success: false, error: "Exa search requires EXA_API_KEY." };
       try {
-        const res = await doFetch(EXA_MCP_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-            "x-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: Date.now(),
-            method: "tools/call",
-            params: { name: "web_search_exa", arguments: { query, numResults: limit } },
-          }),
-          signal: AbortSignal.timeout(EXA_TIMEOUT_MS),
-        });
-        if (!res.ok) {
-          return { success: false, error: `Exa search failed with status ${res.status}` };
-        }
-        const text = await res.text();
-        // MCP HTTP may answer as JSON or SSE (data: lines) — handle both.
-        let payload: unknown;
-        if (text.startsWith("event:") || text.includes("\ndata:") || text.startsWith("data:")) {
-          const dataLine = text
-            .split("\n")
-            .filter((l) => l.startsWith("data:"))
-            .map((l) => l.slice(5).trim())
-            .filter((l) => l.length > 0 && l !== "[DONE]")
-            .at(-1);
-          payload = dataLine !== undefined ? JSON.parse(dataLine) : undefined;
-        } else {
-          payload = JSON.parse(text);
-        }
-        const result = (payload as { result?: { content?: Array<{ text?: string }> } })?.result;
-        const raw = result?.content?.[0]?.text;
-        if (typeof raw !== "string" || raw.length === 0) {
-          return { success: true, results: [] };
-        }
-        // The MCP tool returns either a JSON array of results or prose; try JSON first.
-        let results: Array<{ title: string; url: string; description: string }> = [];
-        try {
-          const parsed = JSON.parse(raw) as unknown;
-          if (Array.isArray(parsed)) {
-            results = (parsed as ExaResult[]).slice(0, limit).map((r, i) => ({
-              title: r.title ?? "(untitled)",
-              url: r.url ?? "",
-              description: r.text ?? "",
-              position: i + 1,
-            }));
-          }
-        } catch {
-          return { success: true, results: [{ title: query, url: "", description: raw.slice(0, 4000) }] };
-        }
-        return { success: true, results };
+        const text = (await call("web_search_exa", { query, numResults: limit }, o?.signal)) ?? "";
+        return { success: true, results: parseExaResults(text, limit) };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { success: false, error: `Exa search failed: ${message}` };
+        return { success: false, error: `Exa search failed: ${mcpErrorMessage(err)}` };
       }
+    },
+    async extract(urls, o): Promise<ExtractOutcome> {
+      const results = [];
+      for (const url of urls) {
+        try {
+          const text = (await call("web_fetch_exa", { urls: [url] }, o?.signal)) ?? "";
+          results.push({ url, title: firstHeading(text) || url, content: text });
+        } catch (err) {
+          return { success: false, error: `Exa extract failed: ${mcpErrorMessage(err)}` };
+        }
+      }
+      return { success: true, results };
     },
   };
 }
