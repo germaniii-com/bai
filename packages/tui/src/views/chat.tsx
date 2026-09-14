@@ -15,6 +15,8 @@ import {
   contextTracker,
   applyMention,
   collapseMentions,
+  deriveFolderAliases,
+  mergeExternalResults,
   expandMentionPaths,
   formatMentionRange,
   mentionDisplayToken,
@@ -114,6 +116,7 @@ export function ChatView({
   footerRows,
   usage = null,
   workspaceRoot,
+  workspaceFolders,
   deferInput = false,
   onEnterInput,
   onExitInput,
@@ -165,6 +168,9 @@ export function ChatView({
    * the webui. Undefined → cwd-less chat sessions (tests, embeds).
    */
   workspaceRoot?: string;
+  /** Extra folders attached per workspace path (config.workspaceFolders) —
+   *  the mention picker searches the mention root's extras too. */
+  workspaceFolders?: Record<string, string[]>;
   /** True while an App-level overlay dialog is open: this view stays mounted
    *  (the transcript keeps streaming behind the dialog) but must go silent —
    *  Ink delivers input to every mounted handler, so keys/mouse/paste would
@@ -334,6 +340,13 @@ export function ChatView({
   const [mention, setMention] = useState<MentionUiState>(emptyMentionUi);
   const mentionReq = useRef(0);
   const mentionRoot = session?.cwd ?? workspaceRoot;
+  // External folders attached to the mention root's workspace — searched
+  // alongside it; their results get an `alias/rel` token.
+  const mentionExtras = useMemo(
+    () => (mentionRoot !== undefined ? (workspaceFolders?.[mentionRoot] ?? []) : []),
+    [mentionRoot, workspaceFolders],
+  );
+  const mentionFoldersKey = mentionExtras.join("|");
   // Leaf display token → full workspace-relative path, expanded at submit so
   // the composer can show `#button.tsx` while the server still resolves the
   // real file (opencode's file chips show the basename).
@@ -473,17 +486,23 @@ export function ChatView({
     );
     const token = ++mentionReq.current;
     const handle = setTimeout(() => {
-      void client
-        .findFiles(mentionRoot, pathQuery, 20)
-        .then((found) => {
-          if (token !== mentionReq.current) return;
-          setMention((current) =>
-            current.open && current.raw === trigger.raw
-              ? withMentionResults(current, found.results)
-              : current,
+      void (async () => {
+        try {
+          // Search the mention root AND its external folders; extra results
+          // become `alias/rel` tokens the server resolves against the folder.
+          const aliases = deriveFolderAliases(mentionRoot, mentionExtras);
+          const found = await Promise.all(
+            [mentionRoot, ...mentionExtras].map((r) => client.findFiles(r, pathQuery, 20)),
           );
-        })
-        .catch((err: unknown) => {
+          if (token !== mentionReq.current) return;
+          const merged = mergeExternalResults(
+            found[0]?.results ?? [],
+            found.slice(1).map((res, i) => ({ alias: aliases[i]?.alias ?? "", results: res.results })),
+          );
+          setMention((current) =>
+            current.open && current.raw === trigger.raw ? withMentionResults(current, merged) : current,
+          );
+        } catch (err: unknown) {
           if (token !== mentionReq.current) return;
           setMention((current) =>
             current.open && current.raw === trigger.raw
@@ -495,7 +514,8 @@ export function ChatView({
                 }
               : current,
           );
-        });
+        }
+      })();
     }, 120);
     return () => clearTimeout(handle);
   }, [
@@ -507,6 +527,7 @@ export function ChatView({
     queuedActions,
     deferInput,
     mentionRoot,
+    mentionFoldersKey,
     client,
   ]);
 

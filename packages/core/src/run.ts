@@ -1,4 +1,5 @@
 import type { AgentInfo, AskOutcome, Clock, ContextBreakdown, EventType, Input, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
+import { deriveFolderAliases, folderAliasMap } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import type { AttachmentStore } from "./attachments";
 import { applyDiscipline, estimateTextTokens, estimateTokens, estimateToolDefsTokens } from "./context/discipline";
@@ -97,6 +98,8 @@ export interface RunCoordinatorDeps {
   userName(): string | undefined;
   /** Registered workspace roots — fs-tool agents get them in <env> when the session has no cwd. */
   workspaceRoots(): string[];
+  /** Extra folders attached per workspace path (config.workspaceFolders), read live. */
+  workspaceFolders(): Record<string, string[]>;
   /**
    * Effective usage rates (USD/1M) for a provider model — the usage row's
    * rate snapshot (D26). Optional so minimal test setups can omit it; rows
@@ -309,6 +312,9 @@ export class RunCoordinator {
           agent: run.agent.name,
           tools: run.toolDefs.map((d) => d.name),
           workspaces: this.deps.workspaceRoots(),
+          ...(session?.cwd !== undefined
+            ? { folders: deriveFolderAliases(session.cwd, this.deps.workspaceFolders()[session.cwd] ?? []) }
+            : {}),
           ...(this.deps.userName() !== undefined ? { userName: this.deps.userName() } : {}),
           now: this.deps.clock.iso(),
         });
@@ -530,6 +536,10 @@ export class RunCoordinator {
     const session = this.deps.store.sessions.get(sessionId);
     const cwd = session?.cwd;
     const roots = this.deps.workspaceRoots();
+    // External folders attached to this workspace: their files are addressed
+    // by a derived folder alias (`#alias/rel/path`) in mentions.
+    const extras = cwd !== undefined && cwd.length > 0 ? (this.deps.workspaceFolders()[cwd] ?? []) : [];
+    const aliases = cwd !== undefined && cwd.length > 0 ? folderAliasMap(cwd, extras) : {};
     for (const input of inputs) {
       const message = this.deps.store.messages.append(sessionId, "user", now);
       const part = this.deps.store.parts.append(message.id, 0, "text", { text: input.payload.text });
@@ -548,7 +558,7 @@ export class RunCoordinator {
       // asset store. Expansion never throws.
       let ord = 1;
       if (input.payload.text.includes("#")) {
-        const { blocks } = expandMentions(input.payload.text, cwd, roots);
+        const { blocks } = expandMentions(input.payload.text, cwd, roots, aliases);
         for (const block of blocks) {
           if (block.media !== undefined && block.data !== undefined) {
             const ref = this.deps.attachments.save(block.data, block.path, block.media.mime);
@@ -563,6 +573,7 @@ export class RunCoordinator {
           }
           const payload = {
             path: block.path,
+            ...(block.abs !== undefined ? { absPath: block.abs } : {}),
             ...(block.from !== undefined ? { from: block.from } : {}),
             ...(block.to !== undefined ? { to: block.to } : {}),
             content: block.content,

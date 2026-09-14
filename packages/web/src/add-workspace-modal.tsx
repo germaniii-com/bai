@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Plus } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import { Button, Modal, TextInput } from "./components";
+import { Button, Field, Modal, TextInput } from "./components";
 
 interface Completion {
   base: string;
@@ -32,12 +32,26 @@ interface Completion {
 export function AddWorkspaceModal({
   client,
   onAdd,
+  onAddMany,
   onClose,
+  title = "Add a Workspace",
+  submitLabel = "Add Workspace",
+  ariaLabel = "Add a workspace",
+  multi = false,
 }: {
   client: BaiClient;
-  /** Persist a validated workspace path (throws on failure). */
-  onAdd: (path: string) => Promise<void>;
+  /** Persist a validated path (single mode). Throws on failure. */
+  onAdd?: (path: string) => Promise<void>;
+  /** Persist a batch of validated paths (multi mode). Throws on failure. */
+  onAddMany?: (paths: string[]) => Promise<void>;
   onClose: () => void;
+  /** Modal title — overridden for the external-folder flow. */
+  title?: string;
+  /** Primary button label — overridden for the external-folder flow. */
+  submitLabel?: string;
+  ariaLabel?: string;
+  /** Multi-select: checkbox per folder; the primary action adds the batch. */
+  multi?: boolean;
 }) {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,6 +63,11 @@ export function AddWorkspaceModal({
   // Navigation clicks move the explorer themselves — the next completion
   // (from the input change they caused) must not re-sync it.
   const skipSyncRef = useRef(false);
+  // Multi-select: absolute folder paths chosen across both panes.
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggleSelected = (dir: string): void => {
+    setSelected((prev) => (prev.includes(dir) ? prev.filter((p) => p !== dir) : [...prev, dir]));
+  };
 
   // Debounced completion for the typed path (no focus gate — the explorer
   // must keep updating when focus moves to the columns).
@@ -203,11 +222,55 @@ export function AddWorkspaceModal({
     setError(null);
     try {
       const stat = await client.statPath(candidate);
-      await onAdd(stat.path);
+      await onAdd?.(stat.path);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // A missing folder is what the create buttons are for — no raw error.
+      if (message !== "path not found") setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Multi mode: validate every selected folder (plus a typed path) and add. */
+  const submitMany = async (): Promise<void> => {
+    if (busy) return;
+    const typed = path.trim();
+    const candidates = [...selected];
+    if (typed.length > 0 && !candidates.includes(typed)) candidates.push(typed);
+    if (candidates.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const resolved: string[] = [];
+      for (const candidate of candidates) {
+        const stat = await client.statPath(candidate);
+        if (!resolved.includes(stat.path)) resolved.push(stat.path);
+      }
+      await onAddMany?.(resolved);
+      onClose();
+    } catch (err) {
+      // A selected folder can vanish between checking and adding — always
+      // surface the reason in batch mode (no create affordance to hide it).
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Multi mode: Enter validates the typed path and toggles it into the set. */
+  const addTypedToSelection = async (): Promise<void> => {
+    const candidate = path.trim();
+    if (candidate.length === 0 || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const stat = await client.statPath(candidate);
+      setSelected((prev) => (prev.includes(stat.path) ? prev : [...prev, stat.path]));
+      setPath("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       if (message !== "path not found") setError(message);
     } finally {
       setBusy(false);
@@ -221,8 +284,14 @@ export function AddWorkspaceModal({
     setError(null);
     try {
       const stat = await client.createFolder(candidate);
-      await onAdd(stat.path);
-      onClose();
+      if (multi) {
+        // Multi mode: a new folder joins the selection instead of closing.
+        setSelected((prev) => (prev.includes(stat.path) ? prev : [...prev, stat.path]));
+        setPath("");
+      } else {
+        await onAdd?.(stat.path);
+        onClose();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -274,12 +343,44 @@ export function AddWorkspaceModal({
       </button>
     );
 
+  /** One folder row: multi mode adds a selection checkbox beside the name. */
+  const folderRow = (dir: string, apply: () => void, active: boolean): ReactNode =>
+    multi ? (
+      // Whole row is a label so the standard checkbox toggles on any click;
+      // the folder name is a button that navigates instead (stopPropagation).
+      <label key={dir} className={`ws-row ws-row-selectable${active ? " active" : ""}`} title={dir}>
+        <input
+          type="checkbox"
+          className="ws-check"
+          checked={selected.includes(dir)}
+          onChange={() => toggleSelected(dir)}
+          aria-label={`${selected.includes(dir) ? "deselect" : "select"} ${basename(dir)}`}
+        />
+        <button
+          type="button"
+          className="ws-row-name"
+          title={dir}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            apply();
+          }}
+        >
+          {basename(dir)}/
+        </button>
+      </label>
+    ) : (
+      <button key={dir} type="button" className={active ? "ws-row active" : "ws-row"} title={dir} onClick={apply}>
+        {basename(dir)}/
+      </button>
+    );
+
   return (
     <Modal
       open
       onClose={onClose}
-      title="Add a Workspace"
-      ariaLabel="Add a workspace"
+      title={title}
+      ariaLabel={ariaLabel}
       footer={
         <>
           {canCreate && (
@@ -290,34 +391,58 @@ export function AddWorkspaceModal({
               <span className="dim">inside your home directory</span>
             </>
           )}
+          {multi && selected.length > 0 && (
+            <Button variant="ghost" disabled={busy} onClick={() => setSelected([])}>
+              Clear
+            </Button>
+          )}
           <span className="modal-foot-spacer" />
-          <Button
-            variant="primary"
-            disabled={path.trim().length === 0}
-            loading={busy}
-            onClick={() => void submit()}
-          >
-            <Plus size={14} aria-hidden="true" />
-            Add Workspace
-          </Button>
+          {multi ? (
+            <Button
+              variant="primary"
+              disabled={selected.length === 0 && path.trim().length === 0}
+              loading={busy}
+              onClick={() => void submitMany()}
+            >
+              <Plus size={14} aria-hidden="true" />
+              {submitLabel}
+              {selected.length > 0 ? ` (${selected.length})` : ""}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={path.trim().length === 0}
+              loading={busy}
+              onClick={() => void submit()}
+            >
+              <Plus size={14} aria-hidden="true" />
+              {submitLabel}
+            </Button>
+          )}
         </>
       }
     >
-      <TextInput
-        mono
-        value={path}
-        placeholder="/absolute/path — or type to search ~"
-        onChange={(e) => setPath(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void submit();
-          }
-        }}
-        aria-label="workspace folder path"
-        autoComplete="off"
-        autoFocus
-      />
+      <Field
+        label={multi ? "Folder path" : "Workspace path"}
+        hint={multi ? "(absolute; ~ searches home — Enter adds it)" : "(absolute; ~ searches home)"}
+      >
+        <TextInput
+          mono
+          value={path}
+          placeholder="/absolute/path — or type to search ~"
+          onChange={(e) => setPath(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (multi) void addTypedToSelection();
+              else void submit();
+            }
+          }}
+          aria-label="workspace folder path"
+          autoComplete="off"
+          autoFocus
+        />
+      </Field>
       <div className="ws-explorer-bar">
         <label className="ws-dotfiles-toggle">
           <input
@@ -348,17 +473,7 @@ export function AddWorkspaceModal({
                 </button>
                 {filteredLeft.map((name) => {
                   const dir = joinPath(currentDir, name);
-                  return (
-                    <button
-                      key={name}
-                      type="button"
-                      className={selectedDir === dir ? "ws-row active" : "ws-row"}
-                      title={dir}
-                      onClick={() => selectLeft(dir)}
-                    >
-                      {name}/
-                    </button>
-                  );
+                  return folderRow(dir, () => selectLeft(dir), selectedDir === dir);
                 })}
                 {newFolderRow("left")}
               </>
@@ -380,22 +495,17 @@ export function AddWorkspaceModal({
             {selectedDir !== null &&
               rightEntries.map((name) => {
                 const dir = joinPath(selectedDir, name);
-                return (
-                  <button
-                    key={name}
-                    type="button"
-                    className="ws-row"
-                    title={dir}
-                    onClick={() => drillIn(dir)}
-                  >
-                    {name}/
-                  </button>
-                );
+                return folderRow(dir, () => drillIn(dir), false);
               })}
             {selectedDir !== null && newFolderRow("right")}
           </div>
         </div>
       </div>
+      {multi && (
+        <p className="dim col-hint">
+          Check folders to add several at once; click a name to browse into it.
+        </p>
+      )}
       {error !== null && <div className="error" role="alert">{error}</div>}
     </Modal>
   );

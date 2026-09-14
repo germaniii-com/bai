@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Message } from "@bai/shared";
+import { deriveFolderAliases } from "@bai/shared";
 import { expandMentions } from "../src/run/mentions";
 import { renderOutbound } from "../src/run/history";
 import { makeCore } from "./harness";
@@ -80,6 +81,46 @@ describe("expandMentions", () => {
     expect(blocks[0]?.error).toBeUndefined();
   });
 
+  test("resolves a folder-alias mention to the extra folder's absolute root", () => {
+    const extra = mkdtempSync(join(tmpdir(), "bai-extra-"));
+    try {
+      writeFileSync(join(extra, "note.txt"), "hello extra");
+      const aliases = { "extra-repo": extra };
+      const { blocks } = expandMentions("see #extra-repo/note.txt", dir, [extra], aliases);
+      expect(blocks[0]?.error).toBeUndefined();
+      expect(blocks[0]?.path).toBe("extra-repo/note.txt");
+      expect(blocks[0]?.abs).toBe(join(extra, "note.txt"));
+      expect(blocks[0]?.content).toContain("1: hello extra");
+    } finally {
+      rmSync(extra, { recursive: true, force: true });
+    }
+  });
+
+  test("an alias alone lists the folder; an unknown first segment falls through", () => {
+    const extra = mkdtempSync(join(tmpdir(), "bai-extra-"));
+    try {
+      writeFileSync(join(extra, "a.txt"), "x");
+      const aliases = { "extra-repo": extra };
+      expect(expandMentions("#extra-repo", dir, [extra], aliases).blocks[0]?.content).toContain("a.txt");
+      // Unknown alias → normal cwd-relative resolution (fails closed).
+      expect(expandMentions("#nope/x.txt", dir, [extra], aliases).blocks[0]?.error).toBe(true);
+    } finally {
+      rmSync(extra, { recursive: true, force: true });
+    }
+  });
+
+  test("an alias mention cannot escape the extra folder", () => {
+    const extra = mkdtempSync(join(tmpdir(), "bai-extra-"));
+    try {
+      writeFileSync(join(extra, "note.txt"), "x");
+      const { blocks } = expandMentions("#extra-repo/../../etc/hosts", dir, [extra], { "extra-repo": extra });
+      expect(blocks[0]?.error).toBe(true);
+      expect(blocks[0]?.content).toContain("outside this session's workspace");
+    } finally {
+      rmSync(extra, { recursive: true, force: true });
+    }
+  });
+
   test("returns no blocks without mentions", () => {
     expect(expandMentions("plain text", dir, []).blocks).toEqual([]);
   });
@@ -126,6 +167,25 @@ describe("renderOutbound file parts", () => {
     expect(content).toContain('<file path="missing" error="true">');
     expect(content).toContain("File not found");
   });
+
+  test("an alias mention renders the resolved absolute path to the model", () => {
+    const message: Message = {
+      ...userMessage("see #extra-repo/note.txt"),
+      parts: [
+        { id: "p1" as never, messageId: "msg_1" as never, ord: 0, kind: "text", payload: { text: "see #extra-repo/note.txt" } },
+        {
+          id: "p2" as never,
+          messageId: "msg_1" as never,
+          ord: 1,
+          kind: "file",
+          payload: { path: "extra-repo/note.txt", absPath: "/extra/repo/note.txt", content: "1: hi" },
+        },
+      ],
+    };
+    const content = renderOutbound([message]).at(-1)?.content as string;
+    expect(content).toContain('<file path="/extra/repo/note.txt">');
+    expect(content).not.toContain('path="extra-repo/note.txt"');
+  });
 });
 
 describe("promotion expands mentions", () => {
@@ -151,6 +211,31 @@ describe("promotion expands mentions", () => {
       t.store.close();
       rmSync(t.dir, { recursive: true, force: true });
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("persists an alias mention with its resolved absolute path", async () => {
+    const t = makeCore();
+    const dir = mkdtempSync(join(tmpdir(), "bai-mention-ws-"));
+    const extra = mkdtempSync(join(tmpdir(), "bai-mention-extra-"));
+    try {
+      writeFileSync(join(extra, "note.txt"), "external file\n");
+      const alias = deriveFolderAliases(dir, [extra])[0]!.alias;
+      t.config.workspaceFolders = { [dir]: [extra] };
+      const session = t.core.createSession({ workbench: "code", cwd: dir });
+      t.core.submitPrompt(session.id, { text: `see #${alias}/note.txt` });
+      await t.core.drainNow(session.id);
+      const user = t.core.history(session.id).find((m) => m.role === "user");
+      const filePart = user?.parts.find((p) => p.kind === "file");
+      const payload = filePart?.payload as { path?: string; absPath?: string; content?: string };
+      expect(payload.path).toBe(`${alias}/note.txt`);
+      expect(payload.absPath).toBe(join(extra, "note.txt"));
+      expect(payload.content).toContain("external file");
+    } finally {
+      t.store.close();
+      rmSync(t.dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(extra, { recursive: true, force: true });
     }
   });
 

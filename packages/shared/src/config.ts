@@ -132,6 +132,14 @@ export interface Config {
    * groups cwd-rooted sessions by these. Edited via PUT /api/config. */
   workspaces: string[];
   /**
+   * Extra folders attached to a workspace, keyed by the workspace's absolute
+   * path (the main working directory). They behave like the workspace root for
+   * fs tools, the file tree, uploads, and `#file` mentions — the UI groups them
+   * under an "External folders" section and mentions resolve a derived folder
+   * alias (`#alias/rel/path`). Edited via PUT /api/config.
+   */
+  workspaceFolders?: Record<string, string[]>;
+  /**
    * Archived workspace folder paths (absolute) — removed from the webui's
    * Active list but restorable from its Archived tab. Their sessions carry
    * meta.archived (hidden from every surface's lists) until restored.
@@ -150,6 +158,7 @@ export const DEFAULT_CONFIG: Config = {
   mcp: {},
   workbenches: {},
   workspaces: [],
+  workspaceFolders: {},
   archivedWorkspaces: [],
   server: {},
   tools: {},
@@ -225,6 +234,9 @@ export const configSchema = z.object({
   mcp: z.record(z.string(), mcpServerSchema).default({}),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   workspaces: z.array(z.string().min(1).max(1024)).max(100).default([]),
+  workspaceFolders: z
+    .record(z.string().min(1).max(1024), z.array(z.string().min(1).max(1024)).max(100))
+    .default({}),
   archivedWorkspaces: z.array(z.string().min(1).max(1024)).max(100).default([]),
   server: z
     .object({
@@ -248,6 +260,9 @@ export const configPatchSchema = z.object({
   mcp: z.record(z.string(), mcpServerSchema).optional(),
   workbenches: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   workspaces: z.array(z.string().min(1).max(1024)).max(100).optional(),
+  workspaceFolders: z
+    .record(z.string().min(1).max(1024), z.array(z.string().min(1).max(1024)).max(100))
+    .optional(),
   archivedWorkspaces: z.array(z.string().min(1).max(1024)).max(100).optional(),
   server: z
     .object({

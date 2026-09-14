@@ -22,6 +22,7 @@ import {
   putToolSchema,
   questionRejectSchema,
   questionReplySchema,
+  registeredRoots,
   renameSessionSchema,
   revertSessionSchema,
   forkSessionSchema,
@@ -446,7 +447,7 @@ function buildApi(deps: ApiDeps) {
       const root = c.req.query("root") ?? "";
       const sub = c.req.query("path");
       try {
-        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        ensureRegisteredRoot(root, registeredRoots(deps.configStore.get().workspaces ?? [], deps.configStore.get().workspaceFolders));
         return c.json({ listing: listDir(root, sub) });
       } catch (err) {
         if (err instanceof FsError) return c.json({ error: err.message }, 400);
@@ -463,7 +464,7 @@ function buildApi(deps: ApiDeps) {
       const root = c.req.query("root") ?? "";
       const sub = c.req.query("path");
       try {
-        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        ensureRegisteredRoot(root, registeredRoots(deps.configStore.get().workspaces ?? [], deps.configStore.get().workspaceFolders));
         const file = readFile(root, sub);
         return new Response(Bun.file(file.path), {
           headers: {
@@ -514,7 +515,7 @@ function buildApi(deps: ApiDeps) {
         name = rawName;
       }
       try {
-        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        ensureRegisteredRoot(root, registeredRoots(deps.configStore.get().workspaces ?? [], deps.configStore.get().workspaceFolders));
         const declared = Number(c.req.header("content-length") ?? "0");
         if (Number.isFinite(declared) && declared > FS_UPLOAD_MAX_BYTES) return c.json({ error: "file too large" }, 400);
         const bytes = new Uint8Array(await c.req.arrayBuffer());
@@ -548,7 +549,7 @@ function buildApi(deps: ApiDeps) {
       const query = c.req.query("q") ?? "";
       const limit = Number(c.req.query("limit") ?? "20");
       try {
-        ensureRegisteredRoot(root, deps.configStore.get().workspaces ?? []);
+        ensureRegisteredRoot(root, registeredRoots(deps.configStore.get().workspaces ?? [], deps.configStore.get().workspaceFolders));
         return c.json({ found: findFiles(root, query, { limit }) });
       } catch (err) {
         if (err instanceof FsError) return c.json({ error: err.message }, 400);

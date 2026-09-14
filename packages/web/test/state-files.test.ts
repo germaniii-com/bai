@@ -12,7 +12,7 @@ const ROOT = "/ws/demo";
 const SESSION = "ses_ws" as SessionId;
 
 const ctx = {
-  root: ROOT,
+  roots: [ROOT],
   sessionCwd: (id: string) => (id === SESSION ? ROOT : undefined),
 };
 
@@ -96,7 +96,7 @@ describe("file-change detection (workspace viewer)", () => {
   test("relative paths resolve against the OWNING session's cwd (subagent inheritance)", () => {
     const child = "ses_child" as SessionId;
     const childCtx = {
-      root: ROOT,
+      roots: [ROOT],
       sessionCwd: (id: string) => (id === child ? ROOT : undefined),
     };
     const changed = applyFileWatch(
@@ -112,7 +112,7 @@ describe("file-change detection (workspace viewer)", () => {
     const changed = applyFileWatch(
       emptyFileWatch,
       evt("message.part.updated", other, { messageId: "m1", partId: "p1", kind: "patch", payload: { hash: "h", files: ["x.txt"] } }),
-      { root: ROOT, sessionCwd: (id) => (id === other ? "/ws/other" : undefined) },
+      { roots: [ROOT], sessionCwd: (id) => (id === other ? "/ws/other" : undefined) },
     );
     expect(changed).toEqual([]);
   });
@@ -121,16 +121,26 @@ describe("file-change detection (workspace viewer)", () => {
     const changed = applyFileWatch(
       emptyFileWatch,
       evt("message.part.updated", "ses_unknown" as SessionId, { messageId: "m1", partId: "p1", kind: "patch", payload: { hash: "h", files: ["f.txt"] } }),
-      { root: ROOT, sessionCwd: () => undefined },
+      { roots: [ROOT], sessionCwd: () => undefined },
     );
     expect(changed).toEqual([`${ROOT}/f.txt`]);
   });
 
-  test("null root (no workspace selected) reports nothing", () => {
+  test("changes inside an external folder root are reported", () => {
+    const extra = "/ws/extra";
+    const changed = applyFileWatch(
+      emptyFileWatch,
+      evt("message.part.updated", SESSION, { messageId: "m1", partId: "p1", kind: "patch", payload: { hash: "h", files: ["x.txt"] } }),
+      { roots: [ROOT, extra], sessionCwd: (id) => (id === SESSION ? extra : undefined) },
+    );
+    expect(changed).toEqual([`${extra}/x.txt`]);
+  });
+
+  test("empty roots (no workspace selected) reports nothing", () => {
     const changed = applyFileWatch(
       emptyFileWatch,
       evt("message.part.updated", SESSION, { messageId: "m1", partId: "p1", kind: "patch", payload: { hash: "h", files: ["f.txt"] } }),
-      { root: null, sessionCwd: () => ROOT },
+      { roots: [], sessionCwd: () => ROOT },
     );
     expect(changed).toEqual([]);
   });

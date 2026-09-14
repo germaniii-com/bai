@@ -115,6 +115,20 @@ describe("env block (session metadata in the system prompt)", () => {
     expect(noFs).not.toContain("fs tool paths cannot be resolved");
   });
 
+  test("additional folders render alias → absolute path", () => {
+    const block = buildEnvBlock({
+      cwd: "/tmp/proj",
+      workbench: "code",
+      title: "",
+      agent: "build",
+      tools: ["fs.read"],
+      folders: [{ alias: "extra-repo", path: "/extra/repo" }],
+      now: "2026-09-03T12:00:00.000Z",
+    });
+    expect(block).toContain("Additional folders");
+    expect(block).toContain("#extra-repo/ → /extra/repo");
+  });
+
   test("the drain rides the env block in the system message (cwd + tools for the agent)", async () => {
     let t: TestCore | undefined;
     const dir = mkdtempSync(join(tmpdir(), "bai-env-"));

@@ -17,6 +17,8 @@ export interface EnvBlockInput {
   tools?: string[];
   /** Registered workspace roots — fs tools accept absolute paths under them when the session has no cwd. */
   workspaces?: string[];
+  /** Extra folders attached to this workspace (alias → absolute path). */
+  folders?: Array<{ alias: string; path: string }>;
   /** The user's display name (config user.name) — agents address them by it. */
   userName?: string;
   /** RFC3339 now (the drain's clock). */
@@ -53,6 +55,12 @@ export function buildEnvBlock(input: EnvBlockInput): string {
     // bash has no session cwd either: it inherits the server process's cwd —
     // saying so explains the fs-vs-bash discrepancy to the model.
     lines.push(`bash runs in the server process working directory: ${process.cwd()}`);
+  }
+  if (input.folders !== undefined && input.folders.length > 0) {
+    lines.push(
+      "Additional folders (mention as #alias/… or read by absolute path): " +
+        input.folders.map((f) => `#${f.alias}/ → ${f.path}`).join("; "),
+    );
   }
   const title = input.title.length > 0 ? ` — "${input.title}"` : "";
   lines.push(`Workbench: ${input.workbench}${title}`);

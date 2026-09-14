@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, typ
 import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
-import { contextTracker, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
+import { contextTracker, deriveFolderAliases, mergeExternalResults, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -158,6 +158,7 @@ export function ChatPane({
    agentLocked = false,
    onOpenWorkspace,
    workspaceRoot,
+   workspaceFolders,
    onOpenFile,
    mentionPaths,
    setMentionPaths,
@@ -259,6 +260,9 @@ export function ChatPane({
    * completion).
    */
   workspaceRoot?: string;
+  /** Extra folders attached to the workspace — the mention picker searches
+   *  them too, inserting `#alias/rel` tokens. */
+  workspaceFolders?: string[];
   /**
    * Open a `#file` mention chip's file in the web workspace viewer. Receives
    * the owning workspace root (a code session's cwd) and the workspace-
@@ -287,6 +291,8 @@ export function ChatPane({
   const tracker = contextTracker(usage);
   // Mentions resolve against the session's workspace root (a code session).
   const openFileRoot = active?.cwd ?? workspaceRoot;
+  // Reference-stable change signal for the external-folder list.
+  const foldersKey = (workspaceFolders ?? []).join("|");
 
   // ---- scroll-back paging (TUI parity) ---------------------------------
   // `.messages` is the scroll container: near the top it fetches the next
@@ -389,25 +395,33 @@ export function ChatPane({
     );
     const token = ++mentionReq.current;
     const handle = setTimeout(() => {
-      void client
-        .findFiles(workspaceRoot, pathQuery, 20)
-        .then((found) => {
+      void (async () => {
+        try {
+          // Search the workspace root AND its external folders; extra results
+          // become `alias/rel` tokens the server resolves against the folder.
+          const extras = workspaceFolders ?? [];
+          const aliases = deriveFolderAliases(workspaceRoot, extras);
+          const found = await Promise.all([workspaceRoot, ...extras].map((r) => client.findFiles(r, pathQuery, 20)));
           if (token !== mentionReq.current) return;
-          setMention((m) =>
-            m.open && m.raw === trigger.raw ? { ...m, results: found.results, selected: 0, loading: false } : m,
+          const merged = mergeExternalResults(
+            found[0]?.results ?? [],
+            found.slice(1).map((res, i) => ({ alias: aliases[i]?.alias ?? "", results: res.results })),
           );
-        })
-        .catch((err: unknown) => {
+          setMention((m) =>
+            m.open && m.raw === trigger.raw ? { ...m, results: merged, selected: 0, loading: false } : m,
+          );
+        } catch (err: unknown) {
           if (token !== mentionReq.current) return;
           setMention((m) =>
             m.open && m.raw === trigger.raw
               ? { ...m, results: [], loading: false, error: err instanceof Error ? err.message : String(err) }
               : m,
           );
-        });
+        }
+      })();
     }, 150);
     return () => clearTimeout(handle);
-  }, [draft, cursor, workspaceRoot, client]);
+  }, [draft, cursor, workspaceRoot, foldersKey, client]);
 
   const moveMention = (delta: number): void => {
     setMention((m) => {

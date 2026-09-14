@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import { Bot, ChartColumn, Clock, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
-import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, type CustomTheme, type CustomThemeInput } from "@bai/shared";
+import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, resolveAliasPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
@@ -19,6 +19,7 @@ import { ThemeProvider } from "./theme";
 import { ThemeSelectorModal } from "./theme-picker";
 import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
+import { AddWorkspaceModal } from "./add-workspace-modal";
 import { TodosPanel } from "./todos-panel";
 import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
@@ -73,6 +74,10 @@ export function App() {
     bootRoute.section === "settings" ? bootRoute.settingsSection : "general",
   );
   const [workspaces, setWorkspaces] = useState<string[]>([]);
+  // Extra folders attached per workspace (config.workspaceFolders).
+  const [workspaceFolders, setWorkspaceFolders] = useState<Record<string, string[]>>({});
+  // The multi-select "Add folders to workspace" modal.
+  const [addFoldersOpen, setAddFoldersOpen] = useState(false);
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     bootRoute.section === "workspace" ? bootRoute.wsPath : null,
@@ -297,6 +302,7 @@ export function App() {
       setConfigVideoGen(config.videoGen);
       setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
+      setWorkspaceFolders(config.workspaceFolders ?? {});
       setArchivedWorkspaces(config.archivedWorkspaces ?? []);
       setConfigLoaded(true);
       // A non-builtin theme id means a custom theme file — its palette must
@@ -350,7 +356,7 @@ export function App() {
         // from ANY session — the firehose is global. Open tabs get change
         // dots; the viewer and tree refresh via fsRevision.
         const changedFiles = applyFileWatch(fileWatchRef.current, evt, {
-          root: wsRootRef.current,
+          roots: wsRootsRef.current,
           sessionCwd: (id) => sessionCwdRef.current(id),
         });
         if (changedFiles.length > 0) {
@@ -576,6 +582,17 @@ export function App() {
   // needed there (the old provider-id selection is gone with the drill-down).
   const effectiveWorkspacePath =
     workspacePath !== null && workspaces.includes(workspacePath) ? workspacePath : null;
+  // Extra folders attached to the active workspace (stable reference while
+  // config is unchanged — the mention effect keys on it).
+  const workspaceExtras = useMemo(
+    () => (effectiveWorkspacePath !== null ? (workspaceFolders[effectiveWorkspacePath] ?? []) : []),
+    [effectiveWorkspacePath, workspaceFolders],
+  );
+  // External folders as file-tree roots (absolute path + derived `#alias`).
+  const workspaceFolderNodes = useMemo(
+    () => (effectiveWorkspacePath !== null ? deriveFolderAliases(effectiveWorkspacePath, workspaceExtras) : []),
+    [effectiveWorkspacePath, workspaceExtras],
+  );
   const effectiveAgentId = agents.some((a) => a.name === selectedAgent) ? selectedAgent : null;
   const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
   const effectiveSkillId = skills.some((s) => s.name === selectedSkill) ? selectedSkill : null;
@@ -592,8 +609,10 @@ export function App() {
   // File-watch closure inputs: the viewed root and the session-cwd lookup
   // (patch paths are relative to the OWNING session's cwd — subagents
   // inherit the parent's; unknown sessions fall back to the viewed root).
-  const wsRootRef = useRef<string | null>(null);
-  wsRootRef.current = effectiveWorkspacePath;
+  // All viewed roots: the workspace root plus its external folders.
+  const wsRootsRef = useRef<string[]>([]);
+  wsRootsRef.current =
+    effectiveWorkspacePath !== null ? [effectiveWorkspacePath, ...workspaceExtras] : [];
   const sessionCwdRef = useRef<(id: string) => string | undefined>(() => undefined);
   sessionCwdRef.current = (id: string) =>
     knownSessionsRef.current.find((s) => s.id === id)?.cwd ?? activeRef.current?.cwd ?? undefined;
@@ -883,7 +902,16 @@ export function App() {
    */
   const openMentionedFile = (root: string, path: string): void => {
     if (effectiveWorkspacePath !== root) selectWorkspace(root);
-    const abs = path.startsWith("/") ? path : `${root.replace(/\/+$/, "")}/${path}`;
+    // An external-folder mention (`#alias/rel`) resolves through the alias map
+    // to its real root; otherwise the path is workspace-relative.
+    const aliased =
+      effectiveWorkspacePath !== null ? resolveAliasPath(effectiveWorkspacePath, workspaceExtras, path) : null;
+    const abs =
+      aliased !== null
+        ? `${aliased.root.replace(/\/+$/, "")}/${aliased.rel}`.replace(/\/+$/, "")
+        : path.startsWith("/")
+          ? path
+          : `${root.replace(/\/+$/, "")}/${path}`;
     openFile(abs);
   };
 
@@ -893,12 +921,12 @@ export function App() {
    * the last one (which flips to the Files view). Errors surface on the
    * banner; successful uploads still land.
    */
-  const uploadToWorkspace = async (dir: string, files: File[]): Promise<void> => {
-    if (effectiveWorkspacePath === null || files.length === 0) return;
+  const uploadToRoot = async (root: string, dir: string, files: File[]): Promise<void> => {
+    if (files.length === 0) return;
     let last: string | undefined;
     for (const file of files) {
       try {
-        const uploaded = await client.uploadWorkspaceFile(effectiveWorkspacePath, dir, { name: file.name, bytes: file });
+        const uploaded = await client.uploadWorkspaceFile(root, dir, { name: file.name, bytes: file });
         last = uploaded.path;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -907,6 +935,14 @@ export function App() {
     if (last === undefined) return;
     setFsRevision((n) => n + 1);
     openFile(last);
+  };
+  /** Drop target resolver: upload into whichever browsable root owns `dir`
+   *  (the workspace root or one of its external folders). */
+  const uploadDropped = (dir: string, files: File[]): void => {
+    const roots = wsRootsRef.current;
+    const root = roots.find((r) => dir === r || dir.startsWith(r.endsWith("/") ? r : `${r}/`)) ?? effectiveWorkspacePath;
+    if (root === null) return;
+    void uploadToRoot(root, dir, files);
   };
 
   /** The file's fresh content was seen (active auto-refresh or tab click). */
@@ -944,6 +980,46 @@ export function App() {
     await refreshConfig();
     // Select the freshly added workspace — the user added it to work in it.
     selectWorkspace(path);
+  };
+
+  /**
+   * Attach an extra folder to the active workspace (config only). Rejections
+   * surface in the add-folder modal (its onAdd is awaited).
+   */
+  const addWorkspaceFolders = async (paths: string[]): Promise<void> => {
+    const ws = effectiveWorkspacePath;
+    if (ws === null) throw new Error("Select a workspace first.");
+    const current = workspaceFolders[ws] ?? [];
+    const additions: string[] = [];
+    for (const path of paths) {
+      // The workspace's own folder is the root itself — rejecting it keeps the
+      // section from showing a redundant self-tree. Another REGISTERED
+      // workspace is allowed: it is already reachable by absolute path, but
+      // attaching it also surfaces it in this workspace's rail.
+      if (path === ws) throw new Error(`${wsBasename(path)} is this workspace's main folder.`);
+      if (current.includes(path) || additions.includes(path)) continue; // already attached — skip
+      additions.push(path);
+    }
+    if (additions.length === 0) throw new Error("Those folders are already attached.");
+    await client.putConfig({ workspaceFolders: { [ws]: [...current, ...additions] } });
+    await refreshConfig();
+    pushNotice(
+      `added ${additions.length} folder${additions.length === 1 ? "" : "s"} to ${wsBasename(ws)}`,
+      "success",
+    );
+  };
+
+  /** Detach an extra folder (config only — the folder on disk is untouched). */
+  const removeWorkspaceFolder = async (path: string): Promise<void> => {
+    const ws = effectiveWorkspacePath;
+    if (ws === null) return;
+    const current = workspaceFolders[ws] ?? [];
+    try {
+      await client.putConfig({ workspaceFolders: { [ws]: current.filter((p) => p !== path) } });
+      await refreshConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   /**
@@ -1341,6 +1417,7 @@ export function App() {
       onEditQueued={editQueued}
       usage={usage}
       workspaceRoot={section === "workspace" ? (effectiveWorkspacePath ?? active?.cwd ?? undefined) : undefined}
+      workspaceFolders={section === "workspace" ? workspaceExtras : undefined}
       onOpenFile={openMentionedFile}
       {...(section === "chat"
         ? {
@@ -1751,6 +1828,7 @@ export function App() {
                 <FileView
                   client={client}
                   root={effectiveWorkspacePath}
+                  roots={[effectiveWorkspacePath, ...workspaceExtras]}
                   openFiles={openFiles}
                   activeFile={activeFile}
                   themeColors={themeColors}
@@ -1777,7 +1855,10 @@ export function App() {
                 onOpenFile={openFile}
                 activePath={workspaceView === "files" ? activeFile : null}
                 refreshToken={fsRevision}
-                onUpload={(dir, files) => void uploadToWorkspace(dir, files)}
+                onUpload={uploadDropped}
+                folders={workspaceFolderNodes}
+                onAddFolder={() => setAddFoldersOpen(true)}
+                onRemoveFolder={(path) => void removeWorkspaceFolder(path)}
               />
               <TodosPanel todos={todos} />
             </div>
@@ -1797,6 +1878,19 @@ export function App() {
         customThemes={customThemes}
         onSaveCustom={saveCustomTheme}
       />
+
+      {/* Multi-select add-folders modal — opened from the file tree toolbar. */}
+      {addFoldersOpen && effectiveWorkspacePath !== null && (
+        <AddWorkspaceModal
+          client={client}
+          title="Add folders to workspace"
+          submitLabel="Add folder"
+          ariaLabel="Add folders to workspace"
+          multi
+          onAddMany={addWorkspaceFolders}
+          onClose={() => setAddFoldersOpen(false)}
+        />
+      )}
 
       {/* Agents/tools mutation feedback — bottom-right toast. */}
       <Toast notice={notice} onDismiss={() => setNotice(null)} />

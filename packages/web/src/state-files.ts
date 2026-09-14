@@ -33,8 +33,9 @@ export interface FileWatchState {
 export const emptyFileWatch: FileWatchState = { calls: new Map(), parts: new Map() };
 
 export interface FileWatchContext {
-  /** The viewed workspace root — only changes inside it are reported. */
-  root: string | null;
+  /** The viewed roots (workspace root + external folders) — only changes
+   * inside one of them are reported. */
+  roots: string[];
   /** Session id → cwd (known session lists; subagents inherit the parent's). */
   sessionCwd: (sessionId: string) => string | undefined;
 }
@@ -48,7 +49,7 @@ const MUTATING_FS_TOOLS = new Set(["fs.write", "fs.edit"]);
  * not React state) and stays deterministic per event.
  */
 export function applyFileWatch(state: FileWatchState, evt: Event, ctx: FileWatchContext): string[] {
-  if (ctx.root === null) return [];
+  if (ctx.roots.length === 0) return [];
   const sessionId = evt.sessionId;
   if (sessionId === undefined) return [];
   const key = (callId: string): string => `${sessionId}:${callId}`;
@@ -115,14 +116,13 @@ function argPath(args: string): string | undefined {
   }
 }
 
-/** Resolve `raw` against the session's cwd (root as fallback); keep only
- * paths inside the viewed root. Returns the normalized absolute path. */
+/** Resolve `raw` against the session's cwd (first root as fallback); keep only
+ * paths inside one of the viewed roots. Returns the normalized absolute path. */
 function filterChanged(ctx: FileWatchContext, sessionId: string, raw: string): string[] {
-  const root = ctx.root;
-  if (root === null) return [];
-  const base = ctx.sessionCwd(sessionId) ?? root;
+  if (ctx.roots.length === 0) return [];
+  const base = ctx.sessionCwd(sessionId) ?? ctx.roots[0]!;
   const abs = resolveFrom(base, raw);
-  return insideRoot(root, abs) ? [abs] : [];
+  return ctx.roots.some((root) => insideRoot(root, abs)) ? [abs] : [];
 }
 
 // --- browser-safe path helpers (no node:path in the web bundle) -------------

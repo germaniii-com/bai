@@ -46,6 +46,7 @@ import {
   buildLearnRequest,
   isValidToolName,
   LEARN_AGENT_NAME,
+  registeredRoots,
   sortModelsZdrFirst,
 } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
@@ -180,7 +181,11 @@ export class Service {
       defaultAgent: () => deps.config().agents?.default,
       titleModel: () => deps.config().models.title,
       userName: () => deps.config().user?.name,
-      workspaceRoots: () => deps.config().workspaces ?? [],
+      workspaceRoots: () => {
+        const config = deps.config();
+        return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
+      },
+      workspaceFolders: () => deps.config().workspaceFolders ?? {},
       // Usage-row rate snapshots (D26): the registry derives effective
       // USD/1M rates from the catalog (vendor cache multipliers applied).
       usageRates: (providerId, model) => deps.providers.usageRates(providerId, model),

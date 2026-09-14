@@ -86,6 +86,28 @@ describe("POST /api/fs/upload", () => {
     }
   });
 
+  test("a workspace's extra folder is a valid fs root (list + upload)", async () => {
+    const stack = makeStack();
+    try {
+      const ws = join(stack.dir, "ws");
+      const extra = join(stack.dir, "extra");
+      mkdirSync(ws, { recursive: true });
+      mkdirSync(extra, { recursive: true });
+      stack.deps.configStore.update({ workspaces: [ws], workspaceFolders: { [ws]: [extra] } });
+      const app = createApp(stack.deps);
+
+      const res = await upload(app, extra, extra, "note.txt", new TextEncoder().encode("hi"));
+      expect(res.status).toBe(201);
+
+      const list = await app.request(`/api/fs?root=${encodeURIComponent(extra)}`);
+      expect(list.status).toBe(200);
+      const body = (await list.json()) as { listing: { entries: Array<{ name: string }> } };
+      expect(body.listing.entries.some((e) => e.name === "note.txt")).toBe(true);
+    } finally {
+      stack.cleanup();
+    }
+  });
+
   test("rejects a traversing file name", async () => {
     const stack = makeStack();
     try {

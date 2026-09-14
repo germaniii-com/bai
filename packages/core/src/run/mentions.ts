@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { parseMentions } from "@bai/shared";
+import { parseMentions, resolveMentionAlias } from "@bai/shared";
 import { capFor, mediaFromName } from "../attachments";
 import { OUTPUT_LIMIT } from "../tools/registry";
 import { looksBinary, resolveInRoots } from "../tools/fs-guard";
@@ -19,8 +19,11 @@ import { WINDOW_HEADROOM, budgetedLines, windowNumberedLines } from "../fs/windo
  */
 
 export interface MentionBlock {
-  /** Path as typed (workspace-relative or absolute). */
+  /** Path as typed (workspace-relative, absolute, or `#alias/…`). */
   path: string;
+  /** Resolved absolute path — set for folder-alias mentions so the model can
+   *  page/read the file with an absolute fs-tool path. */
+  abs?: string;
   /** 1-indexed first line, when a range was given. */
   from?: number;
   /** 1-indexed last line (inclusive), when a range was given. */
@@ -54,7 +57,12 @@ const READ_BUDGET = OUTPUT_LIMIT - WINDOW_HEADROOM;
  * Expand every mention in `text`. Never throws: a mention that cannot be
  * resolved becomes an error block so the model still learns why.
  */
-export function expandMentions(text: string, cwd: string | undefined, roots: string[]): MentionExpansion {
+export function expandMentions(
+  text: string,
+  cwd: string | undefined,
+  roots: string[],
+  aliases: Record<string, string> = {},
+): MentionExpansion {
   const mentions = parseMentions(text);
   if (mentions.length === 0) return { blocks: [] };
   const blocks: MentionBlock[] = [];
@@ -66,8 +74,16 @@ export function expandMentions(text: string, cwd: string | undefined, roots: str
       content: "",
     };
     try {
-      const abs = resolveInRoots(cwd !== undefined ? { cwd } : {}, roots, mention.path);
-      blocks.push(readBlock(abs, mention.path, mention.from, mention.to, base));
+      // A folder alias (`#other-repo/src/x.ts`) maps to the extra folder's
+      // absolute root; everything else resolves cwd-relative / absolute. The
+      // mapped path still goes through resolveInRoots so `#alias/../../etc`
+      // traversal is rejected by the same containment check.
+      const aliased = resolveMentionAlias(mention.path, aliases);
+      const abs = resolveInRoots(cwd !== undefined ? { cwd } : {}, roots, aliased ?? mention.path);
+      const block = readBlock(abs, mention.path, mention.from, mention.to, base);
+      // Only alias mentions carry the absolute path through to the model — a
+      // plain relative mention keeps its workspace-relative `<file path>`.
+      blocks.push(aliased !== null ? { ...block, abs } : block);
     } catch (err) {
       blocks.push({ ...base, error: true, content: err instanceof Error ? err.message : String(err) });
     }

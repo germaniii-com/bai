@@ -604,6 +604,39 @@ select:focus-visible,
   background: var(--border);
 }
 
+/* Multi-select rows (external folders): the standard accent checkbox beside
+   the navigable folder name. */
+.ws-row-selectable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 8px;
+}
+
+.ws-check {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ws-row-name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* "+ New Folder" action row (bottom of each pane). */
 .ws-row.ws-newfolder {
   color: var(--accent);
@@ -615,20 +648,23 @@ select:focus-visible,
 /* Inline name input for per-pane folder creation. */
 .ws-newrow {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: var(--space-2);
   padding: 2px 4px;
 }
 
+/* Inline folder-name input — the shared control skin (height/radius/font). */
 .ws-newname {
   flex: 1;
   min-width: 0;
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 6px;
-  padding: 4px 6px;
+  border-radius: var(--radius-md);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .ws-newname:focus {
@@ -636,17 +672,19 @@ select:focus-visible,
 }
 
 .ws-newok {
+  height: var(--control-h-md);
+  padding: 0 10px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--accent);
-  border-radius: 6px;
-  padding: 0 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .ws-newok:disabled {
@@ -704,7 +742,8 @@ select:focus-visible,
   flex: 1;
 }
 
-.file-tree-upload {
+.file-tree-upload,
+.file-tree-add-folder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -718,7 +757,8 @@ select:focus-visible,
   cursor: pointer;
 }
 
-.file-tree-upload:hover {
+.file-tree-upload:hover,
+.file-tree-add-folder:hover {
   color: var(--text);
   border-color: var(--accent);
 }
@@ -797,11 +837,53 @@ select:focus-visible,
   min-height: 0;
 }
 
-.workspace-sidebar .file-tree {
+.workspace-sidebar > .file-tree {
   width: auto;
   flex: 1 1 auto;
   border-left: 0;
   min-height: 0;
+}
+
+/* External folders render as tree roots above the workspace's own entries;
+   a divider separates them. */
+.tree-external {
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Trailing slot on an external-folder row: the mention alias + remove ✕. */
+.file-tree-extra-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-tree-alias {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.file-tree-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.file-tree-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .todos-panel {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { File, Folder, FolderOpen, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, File, Folder, FolderOpen, FolderPlus, Upload, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { ListItem } from "./components";
 
@@ -30,6 +30,9 @@ export function FileTree({
   activePath = null,
   refreshToken = 0,
   onUpload,
+  folders = [],
+  onAddFolder,
+  onRemoveFolder,
 }: {
   client: BaiClient;
   root: string;
@@ -41,12 +44,21 @@ export function FileTree({
   refreshToken?: number;
   /** Drop files onto a folder row (or the tree root) to upload them there. */
   onUpload?: (dir: string, files: File[]) => void;
+  /** Extra folders attached to this workspace, shown as tree roots. */
+  folders?: Array<{ path: string; alias: string }>;
+  /** Toolbar "+ Add folder" action (beside upload). */
+  onAddFolder?: () => void;
+  /** Remove an external folder from the workspace (config only). */
+  onRemoveFolder?: (path: string) => void;
 }) {
   const [dirs, setDirs] = useState<Map<string, DirState>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(false);
   const [dropDir, setDropDir] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  // Current extra folders readable from the stable `load` callback.
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
 
   // Drag-and-drop: each target is identified by its absolute dir path. The
   // folder's handlers stop propagation so the enclosing aside (root target)
@@ -88,7 +100,11 @@ export function FileTree({
         return next;
       });
       try {
-        const listing = await client.listDir(root, dir);
+        // Resolve the owning browsable root (the workspace or an external
+        // folder) before listing — listDir is root-scoped.
+        const roots = [root, ...foldersRef.current.map((f) => f.path)];
+        const owner = roots.find((r) => dir === r || dir.startsWith(r.endsWith("/") ? r : `${r}/`)) ?? root;
+        const listing = await client.listDir(owner, dir);
         setDirs((prev) => {
           const next = new Map(prev);
           next.set(dir, {
@@ -157,7 +173,7 @@ export function FileTree({
 
   return (
     <aside
-      className={dropDir === root ? "file-tree drop-active" : "file-tree"}
+      className={"file-tree" + (dropDir === root ? " drop-active" : "")}
       aria-label={`files in ${root}`}
       onDragOver={(e) => dragOver(root, e)}
       onDragLeave={(e) => dragLeave(root, e)}
@@ -176,6 +192,17 @@ export function FileTree({
           dotfiles
         </label>
         <span className="file-tree-bar-spacer" />
+        {onAddFolder !== undefined && (
+          <button
+            type="button"
+            className="file-tree-add-folder"
+            aria-label="Add folder to workspace"
+            data-tooltip="Add folder to workspace"
+            onClick={onAddFolder}
+          >
+            <FolderPlus size={14} aria-hidden="true" />
+          </button>
+        )}
         {onUpload !== undefined && (
           <>
             <button
@@ -202,6 +229,65 @@ export function FileTree({
         )}
       </div>
       <div className="file-tree-body">
+        {folders.length > 0 && (
+          <ul className="tree-entries tree-external">
+            {folders.map((folder) => {
+              const isOpen = expanded.has(folder.path);
+              return (
+                <li key={folder.path}>
+                  <ListItem
+                    inline
+                    icon={<FolderIcon open={isOpen} />}
+                    title={basename(folder.path)}
+                    hint={`${folder.path}  ·  #${folder.alias}/`}
+                    onClick={() => toggle(folder.path)}
+                    className={dropDir === folder.path ? "drop-target" : undefined}
+                    onDragOver={(e) => dragOver(folder.path, e)}
+                    onDragLeave={(e) => dragLeave(folder.path, e)}
+                    onDrop={(e) => dropOn(folder.path, e)}
+                    style={{ paddingLeft: "8px" }}
+                    aria-expanded={isOpen}
+                    trailing={
+                      <span className="file-tree-extra-actions">
+                        <span className="file-tree-alias">#{folder.alias}</span>
+                        {onRemoveFolder !== undefined && (
+                          <button
+                            type="button"
+                            className="file-tree-remove"
+                            title={`Remove ${basename(folder.path)} from this workspace`}
+                            aria-label={`Remove ${basename(folder.path)} from this workspace`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveFolder(folder.path);
+                            }}
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        )}
+                      </span>
+                    }
+                  />
+                  {isOpen && (
+                    <DirEntries
+                      dir={folder.path}
+                      depth={1}
+                      dirs={dirs}
+                      expanded={expanded}
+                      onToggle={toggle}
+                      showDotfiles={showDotfiles}
+                      onOpenFile={onOpenFile}
+                      activePath={activePath}
+                      dropDir={dropDir}
+                      dragOver={dragOver}
+                      dragLeave={dragLeave}
+                      dropOn={dropOn}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
         {rootState === undefined || rootState.status === "loading" ? (
           <p className="dim">Loading…</p>
         ) : rootState.status === "error" ? (

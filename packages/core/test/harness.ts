@@ -37,6 +37,7 @@ export interface TestCore {
     videoGen?: MediaGenConfig;
     permissions: Record<string, "allow" | "ask" | "deny">;
     workspaces: string[];
+    workspaceFolders: Record<string, string[]>;
     archivedWorkspaces: string[];
   };
   tools: ToolRegistry;
@@ -61,6 +62,7 @@ export function makeCore(): TestCore {
     user: {},
     permissions: {},
     workspaces: [],
+    workspaceFolders: {},
     archivedWorkspaces: [],
   };
   const testConfig = () => ({
@@ -72,6 +74,7 @@ export function makeCore(): TestCore {
     ...(config.videoGen !== undefined ? { videoGen: { ...config.videoGen } } : {}),
     permissions: { ...config.permissions },
     workspaces: [...config.workspaces],
+    workspaceFolders: { ...config.workspaceFolders },
     archivedWorkspaces: [...config.archivedWorkspaces],
   });
   const accounts = new AuthStore({ file: join(dir, "auth.json") });

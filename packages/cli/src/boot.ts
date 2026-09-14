@@ -26,6 +26,7 @@ import {
   type JobExecutor,
 } from "@bai/core";
 import { createApp } from "@bai/api";
+import { registeredRoots } from "@bai/shared";
 import type { Config, ConfigPatch, JobKind } from "@bai/shared";
 import type { CliArgs } from "./args";
 import { assetsDir, configDir, dataDir, dbPath, globalConfigPath, serverStatePath, tmpDir, webDistDir } from "./paths";
@@ -131,9 +132,12 @@ export async function boot(args: CliArgs): Promise<Booted> {
 
   const workbenches = createDefaultWorkbenches({
     dataDir: dataDir(),
-    // fs tools may also touch registered workspaces (config.workspaces),
-    // not just the session's own cwd.
-    workspaceRoots: () => configStore.get().workspaces ?? [],
+    // fs tools may also touch registered workspaces (config.workspaces) and
+    // their attached external folders, not just the session's own cwd.
+    workspaceRoots: () => {
+      const config = configStore.get();
+      return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
+    },
     // Media-gen defaults (config imageGen/videoGen) — the stub executors'
     // model fallback until the Phase 5 adapters land.
     mediaDefaults: {
@@ -210,7 +214,10 @@ export async function boot(args: CliArgs): Promise<Booted> {
       return { sessionId: session.id, done };
     },
     agentExists: (name) => agents.get(name) !== undefined,
-    workspaceRoots: () => configStore.get().workspaces ?? [],
+    workspaceRoots: () => {
+      const config = configStore.get();
+      return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
+    },
   });
 
   const core = new Service({

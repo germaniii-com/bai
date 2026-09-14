@@ -94,6 +94,7 @@ type FetchedEntry =
 export function FileView({
   client,
   root,
+  roots,
   openFiles,
   activeFile,
   themeColors,
@@ -106,6 +107,9 @@ export function FileView({
   client: BaiClient;
   /** The workspace root — file fetches are workspace-scoped. */
   root: string;
+  /** All browsable roots: the workspace root + its external folders. A file
+   *  is fetched through whichever root contains it (defaults to `root`). */
+  roots?: string[];
   /** Open tabs, in open order (App-owned; survives view switches). */
   openFiles: string[];
   /** The tab whose content shows below. */
@@ -151,6 +155,15 @@ export function FileView({
     }
   }, [fsRevision]);
 
+  /** The browsable root that owns an absolute path (fallback: the workspace). */
+  const owningRoot = (path: string): string => {
+    for (const r of roots ?? []) {
+      if (path === r || path.startsWith(r.endsWith("/") ? r : `${r}/`)) return r;
+    }
+    return root;
+  };
+  const rootsKey = (roots ?? []).join("\u0000");
+
   // One unified content effect for the active file:
   // - no entry → first open: fetch with a loading state;
   // - stale entry (gen older than the current revision generation) →
@@ -174,7 +187,7 @@ export function FileView({
       for (let attempt = 0; ; attempt++) {
         const gen = fsGenRef.current;
         try {
-          const res = await client.readFile(root, path);
+          const res = await client.readFile(owningRoot(path), path);
           const kind = fileKind(path);
           let built: FetchedEntry;
           if (kind === "text" || kind === "markdown") {
@@ -212,13 +225,14 @@ export function FileView({
         return;
       }
     })();
-  }, [activeFile, fsRevision, entries, client, root, onFileSeen]);
+  }, [activeFile, fsRevision, entries, client, root, rootsKey, onFileSeen]);
 
-  // Workspace switch: drop the whole cache (App also resets the tab list).
+  // Workspace (or external-folder set) switch: drop the whole cache (App also
+  // resets the tab list).
   useEffect(() => {
     setEntries(new Map());
     setMdView(new Map());
-  }, [root]);
+  }, [root, rootsKey]);
 
   // Prune cache entries whose tab closed (blob URLs revoke via the
   // reconciliation effect below).

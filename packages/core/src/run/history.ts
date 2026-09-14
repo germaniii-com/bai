@@ -43,6 +43,8 @@ export interface ToolResultPayload {
  */
 export interface FilePartPayload {
   path: string;
+  /** Resolved absolute path for an alias mention — what the model sees. */
+  absPath?: string;
   from?: number;
   to?: number;
   content: string;
@@ -203,7 +205,10 @@ function textOf(part: Part): string {
 function renderFileBlock(part: Part): string {
   const p = part.payload as FilePartPayload | null;
   if (p === null || typeof p !== "object" || typeof p.content !== "string") return "";
-  const attrs = [`path="${p.path.replace(/"/g, "'")}"`];
+  // Alias mentions carry the resolved absolute path so the model can page the
+  // file with an absolute fs-tool path (the visible token keeps the alias).
+  const displayPath = typeof p.absPath === "string" && p.absPath.length > 0 ? p.absPath : p.path;
+  const attrs = [`path="${displayPath.replace(/"/g, "'")}"`];
   if (p.from !== undefined) attrs.push(p.to !== undefined ? `lines="${p.from}-${p.to}"` : `lines="${p.from}-"`);
   if (p.error === true) attrs.push(`error="true"`);
   return `<file ${attrs.join(" ")}>\n${p.content}\n</file>`;

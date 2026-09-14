@@ -106,6 +106,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   // from any surface ride config.updated; the theme picker previews by
   // overriding this with previewTheme until confirmed or dismissed.
   const [configTheme, setConfigTheme] = useState<string | undefined>(undefined);
+  // config workspaceFolders — the mention picker searches a workspace's
+  // external folders too.
+  const [configWorkspaceFolders, setConfigWorkspaceFolders] = useState<Record<string, string[]>>({});
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   // Custom themes (~/.config/bai/themes/*.json) — fetched at boot and when
   // the config names a non-builtin theme; registered into the palette
@@ -323,6 +326,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       setConfigAgentDefault(config.agents?.default);
       setConfigPreferZdr(config.models.preferZdr);
       setConfigTheme(config.theme);
+      setConfigWorkspaceFolders(config.workspaceFolders ?? {});
       // A non-builtin theme id means a custom theme file — its palette must
       // be registered for tuiTheme() to render it (boot-with-custom, or a
       // theme created on another surface).
@@ -877,6 +881,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 // The launch folder (registered as a workspace at boot) —
                 // new sessions root here (TUI = workspace mode).
                 {...(workspaceRoot !== undefined ? { workspaceRoot } : {})}
+                workspaceFolders={configWorkspaceFolders}
                 // Overlay dialogs float OVER the live chat: it stays mounted
                 // (transcript keeps streaming behind) but must go silent —
                 // Ink delivers input to every mounted handler.
