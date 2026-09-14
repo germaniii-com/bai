@@ -251,9 +251,10 @@ workspace.
   - `build` — the default worker: fs tools + bash + grep, permission-gated;
     can delegate work via the `task` tool
   - `plan` — planning mode: read-only exploration (`fs.read/list/glob/grep`),
-    clarifying questions, todo tracking, and `plan.write` (plans land in
-    `~/.config/bai/plans/<name>.md` — the only write surface it has).
-    Finishes with `plan.exit`: asks the user; on approval the session
+    clarifying questions, todo tracking, and `plan.write` (the plan is stored
+    on the session — `~/.local/share/bai/sessions/<sessionId>/plans/<name>.md`
+    — and appears in the workspace **Plans** panel; the only write surface it
+    has). Finishes with `plan.exit`: asks the user; on approval the session
     switches to `build` **mid-run** and keeps going
   - `chat` — general-purpose conversationalist with live web access
     (`web.search` + `web.fetch`)
@@ -328,7 +329,11 @@ built-in file tools plus user-written TypeScript tools.
     dialog or web modal; custom free-text always available); dismissal
     surfaces as an error result
   - `todo` — the session task list, persisted in session meta with
-    `todos.updated` events
+    `todos.updated` events; omit its `todos` argument to read the list
+    (the workspace **Checklist** panel is the same list, user-editable)
+  - `notes.read` / `notes.write` — the session's `notes.md` scratchpad
+    (shown in the workspace **Notes** panel); read for context, write to
+    update it
   - `web.fetch` — URL → markdown/text/html (opencode's fetch: UA/Accept
     negotiation, Cloudflare-challenge retry, 5 MB cap)
   - `web.search` — pluggable providers; **DDGS keyless default**

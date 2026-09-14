@@ -19,6 +19,13 @@ POST   /api/session/:id/interrupt
 POST   /api/session/:id/revert          two-phase revert (hide tail + roll back files)
 POST   /api/session/:id/unrevert        restore a pending revert
 POST   /api/session/:id/fork            new session with the history before a message
+GET    /api/session/:id/notes            session note (null when none exists)
+PUT    /api/session/:id/notes            replace the session note (empty clears it)
+GET    /api/session/:id/plan             session plan files (metadata list)
+GET    /api/session/:id/plan/:name       one plan + its markdown content
+PUT    /api/session/:id/plan/:name       create/replace a session plan
+DELETE /api/session/:id/plan/:name       delete a session plan
+PUT    /api/session/:id/todo             replace the session checklist (session.meta.todos)
 GET    /api/session/:id/event?after=N   durable SSE stream (replay-then-live)
 GET    /api/event                       global live SSE firehose
 POST   /api/permission/:id/reply        first reply wins

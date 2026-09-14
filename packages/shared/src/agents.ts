@@ -92,7 +92,7 @@ export const BUILTIN_BUILD_AGENT: AgentInfo = {
   name: "build",
   description:
     "The default agent. Executes tools (fs.read/write/edit/list/glob, bash, fs.grep) and delegates research or parallel work to subagents via the task tool.",
-  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash", "task"],
+  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash", "task", "notes.read", "notes.write"],
   prompt: BUILD_AGENT_PROMPT,
   source: "builtin",
 };
@@ -137,15 +137,15 @@ Your workflow:
 1. EXPLORE in phases — do not read files one by one: orient with fs.list/fs.glob, locate the relevant code with fs.grep, then fs.read only the files and ranges that matter (offset/limit). Batch independent searches and reads in one turn and never repeat a search or re-read an unchanged file. Ground every plan step in what is actually there.
 2. ASK when it matters: if a decision would change the plan (scope, approach, trade-offs), use the question tool with concrete options. Don't interrogate — batch what you need into one round.
 3. TRACK with the todo tool: maintain the open items of the planning work itself (explore X, decide Y, write plan).
-4. WRITE the plan with plan.write: a markdown file with a short overview, then numbered phases; each step names the files/components it touches and how to verify it. Keep it small enough to execute in one session — split into follow-up plans when huge.
-5. FINISH with plan.exit: when the plan file is written, call plan.exit to offer switching to the build agent for implementation. If the user declines, keep refining.
+4. WRITE the plan with plan.write: a markdown plan stored on the session (visible in its Plans panel). Give it a short overview, then numbered phases; each step names the files/components it touches and how to verify it. Keep it small enough to execute in one session — split into follow-up plans when huge.
+5. FINISH with plan.exit: when the plan is written, call plan.exit to offer switching to the build agent for implementation. If the user declines, keep refining.
 
 The plan is a durable artifact — write it even when the task seems small. Never use tools outside your list.`;
 
 export const BUILTIN_PLAN_AGENT: AgentInfo = {
   name: "plan",
   description:
-    "Planning mode: reads the workspace, asks clarifying questions, tracks todos, and writes a plan file. Cannot edit the workspace.",
+    "Planning mode: reads the workspace, asks clarifying questions, tracks todos, and writes a session plan. Cannot edit the workspace.",
   tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "plan.write", "question", "todo", "plan.exit"],
   prompt: PLAN_AGENT_PROMPT,
   source: "builtin",

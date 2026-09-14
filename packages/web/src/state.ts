@@ -6,6 +6,7 @@ import type {
   Message,
   Part,
   PermissionRequest,
+  PlanFile,
   QuestionRequest,
   QuestionReview,
   Session,
@@ -262,6 +263,24 @@ export function todosFromSession(session: Session | null): TodoItem[] {
  */
 export function applyTodosEvent(list: TodoItem[], evt: Event): TodoItem[] {
   return evt.type === "todos.updated" ? evt.payload.todos : list;
+}
+
+/**
+ * Pure reducer for the session notes over session-stream events:
+ * `notes.updated` carries the FULL note text (the editor always sends the
+ * whole body), so it replaces the previous value. Everything else is a no-op.
+ */
+export function applyNotesEvent(notes: string, evt: Event): string {
+  return evt.type === "notes.updated" ? evt.payload.notes : notes;
+}
+
+/**
+ * Pure reducer for the session's plan list over session-stream events:
+ * `plans.updated` carries the complete metadata list (name/bytes/mtime), so
+ * it replaces the previous list wholesale (content is fetched per open tab).
+ */
+export function applyPlansEvent(plans: PlanFile[], evt: Event): PlanFile[] {
+  return evt.type === "plans.updated" ? evt.payload.plans : plans;
 }
 
 /** Flatten a message's reasoning (thinking) parts — shown behind the reveal panel. */

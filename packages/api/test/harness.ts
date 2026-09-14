@@ -115,7 +115,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
       return config;
     },
     version: "test",
-    plansDir: join(dir, "plans"),
+    sessionFilesDir: join(dir, "sessions"),
     assetsDir: join(dir, "assets"),
   });
   coreRef = core;

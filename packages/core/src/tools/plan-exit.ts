@@ -16,7 +16,7 @@ export function planExitTool(questions: QuestionService): Tool {
     origin: "builtin",
     description:
       "Finish planning: ask the user whether to switch to the build agent and start implementing the plan. " +
-      "Call this after the plan file is written. On approval the session switches to build immediately; " +
+      "Call this after the plan is written. On approval the session switches to build immediately; " +
       "on decline, continue refining the plan.",
     schema: {
       type: "object",

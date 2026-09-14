@@ -233,6 +233,25 @@ export interface TodoItem {
   priority: TodoPriority;
 }
 
+// --- session files (plans & notes; see ARCHITECTURE §5.2) ---
+// Plans and notes are session-scoped markdown files under the data dir
+// (`<dataDir>/sessions/<sessionId>/`) so they are portable between surfaces
+// (web/TUI). Metadata lives here; the bytes stay on disk.
+
+/** One plan file's metadata (the list view; content fetched separately). */
+export interface PlanFile {
+  /** Filename stem (`<name>.md`); validated like an agent name. */
+  name: string;
+  bytes: number;
+  /** RFC3339 mtime (or write time). */
+  updatedAt: string;
+}
+
+/** A plan file with its markdown content (the editor's payload). */
+export interface PlanDocument extends PlanFile {
+  content: string;
+}
+
 export interface Job {
   id: JobId;
   kind: JobKind;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
@@ -43,25 +43,22 @@ const toolCall = (callId: string, name: string, args: string): StreamEvent[] => 
 ];
 
 describe("plan.write tool", () => {
-  test("writes, replaces, and refuses path escapes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "bai-plans-"));
-    try {
-      const t = planWriteTool(dir);
-      const ctx = {} as never;
-      const first = await t.execute({ name: "refactor-db", content: "# Plan\n\nStep 1." }, ctx);
-      expect(first.content).toContain("Wrote plan refactor-db");
-      expect(readFileSync(join(dir, "refactor-db.md"), "utf8")).toContain("# Plan");
+  test("validates name/content and delegates to the session writer", async () => {
+    const written: Array<{ sessionId: string; name: string; content: string }> = [];
+    const t = planWriteTool({
+      writePlan: (sessionId, name, content) => {
+        written.push({ sessionId: sessionId as string, name, content });
+        return { name, bytes: Buffer.byteLength(content), updatedAt: new Date().toISOString() };
+      },
+    });
+    const ctx = { sessionId: "ses_TEST" } as never;
+    const first = await t.execute({ name: "refactor-db", content: "# Plan\n\nStep 1." }, ctx);
+    expect(first.content).toContain('Saved plan "refactor-db"');
+    expect(written).toEqual([{ sessionId: "ses_TEST", name: "refactor-db", content: "# Plan\n\nStep 1." }]);
 
-      const second = await t.execute({ name: "refactor-db", content: "# Plan v2" }, ctx);
-      expect(second.content).toContain("Updated plan");
-      expect(readFileSync(join(dir, "refactor-db.md"), "utf8")).toContain("v2");
-
-      await expect(t.execute({ name: "../escape", content: "x" }, ctx)).rejects.toThrow(/letters, digits/);
-      await expect(t.execute({ name: "ok", content: "   " }, ctx)).rejects.toThrow(/non-empty/);
-      expect(existsSync(join(dir, "escape.md"))).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    await expect(t.execute({ name: "../escape", content: "x" }, ctx)).rejects.toThrow(/letters, digits/);
+    await expect(t.execute({ name: "ok", content: "   " }, ctx)).rejects.toThrow(/non-empty/);
+    expect(written).toHaveLength(1);
   });
 });
 
@@ -102,8 +99,9 @@ describe("plan agent flow (end-to-end)", () => {
     await finished;
     await answerer.catch(() => {});
 
-    // The plan file landed in the plans dir.
-    expect(readFileSync(join(t.dir, "plans", "refactor.md"), "utf8")).toContain("# Refactor plan");
+    // The plan landed on the session (a portable file under the session dir).
+    expect(t.core.listPlans(session.id).map((p) => p.name)).toContain("refactor");
+    expect(t.core.readPlan(session.id, "refactor")).toContain("# Refactor plan");
 
     // Turn 1: the built-in plan agent's persona and its restricted tool set.
     const first = provider.requests[0] as LlmRequest & { tools?: ToolDef[] };
@@ -118,7 +116,7 @@ describe("plan agent flow (end-to-end)", () => {
     const third = provider.requests[2] as LlmRequest & { tools?: ToolDef[] };
     expect(third).toBeDefined();
     expect((third.messages[0] as { content: string }).content).toContain("bai's build agent");
-    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "task"]);
+    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "task"]);
 
     // The plan.exit tool result told the model the switch happened.
     const results = t.core.history(session.id).flatMap((m) => m.parts).filter((p) => p.kind === "tool_result");

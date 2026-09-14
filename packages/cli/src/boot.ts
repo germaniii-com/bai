@@ -240,7 +240,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     updateConfig: (patch) => configStore.update(patch),
     removeProvider: (providerId) => configStore.removeProvider(providerId),
     version: VERSION,
-    plansDir: path.join(configDir(), "plans"),
+    sessionFilesDir: path.join(dataDir(), "sessions"),
     assetsDir: assetsDir(),
     snapshot: new Snapshot(snapshotDir(dataDir())),
   });

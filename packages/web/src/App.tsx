@@ -1,9 +1,9 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
+import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
-import { applyEvent, applyChildAskEvent, applyPermissionEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
+import { applyEvent, applyChildAskEvent, applyNotesEvent, applyPermissionEvent, applyPlansEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
 import { applySubagentEvent, emptySubagentState, trackSubagents, type SubagentState } from "./state-subagents";
 import { useHistoryPager } from "./use-history-pager";
@@ -21,6 +21,8 @@ import { WorkspaceNav, FolderGlyph } from "./workspace";
 import { FileTree } from "./file-tree";
 import { AddWorkspaceModal } from "./add-workspace-modal";
 import { TodosPanel } from "./todos-panel";
+import { PlansPanel } from "./plans-panel";
+import { NotesPanel } from "./notes-panel";
 import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
 import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
@@ -47,6 +49,18 @@ type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automatio
  * remove section names here to change which views hide the sidebar.
  */
 const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics"];
+
+/** Workspace right-rail resize bounds + per-device persistence key. */
+const WORKSPACE_SIDEBAR_MIN = 180;
+const WORKSPACE_SIDEBAR_MAX = 560;
+const WORKSPACE_SIDEBAR_DEFAULT = 240;
+const WORKSPACE_SIDEBAR_KEY = "bai.workspaceSidebarWidth";
+
+/** Clamp a requested rail width to the allowed range (NaN → default). */
+function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return WORKSPACE_SIDEBAR_DEFAULT;
+  return Math.min(WORKSPACE_SIDEBAR_MAX, Math.max(WORKSPACE_SIDEBAR_MIN, Math.round(width)));
+}
 
 /**
  * Two-level navigation, mobile-first: master icon rail (workbenches +
@@ -190,6 +204,28 @@ export function App() {
   // seeded from meta.todos and kept live by durable `todos.updated` events;
   // rendered in the workspace right rail below the file tree.
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  // The active session's notes (notes.md) and plan files, both session-scoped
+  // and file-backed. Seeded on session switch and kept live by durable
+  // notes.updated / plans.updated events.
+  const [notes, setNotes] = useState("");
+  const [plans, setPlans] = useState<PlanFile[]>([]);
+  // Open plan tabs + the active one (mutually exclusive with activeFile — a
+  // plan opens the editable editor in the Files view).
+  const [openPlans, setOpenPlans] = useState<string[]>([]);
+  const [activePlan, setActivePlan] = useState<string | null>(null);
+  // Workspace right-rail width (the drag handle on its left edge) — a
+  // per-device UI preference persisted in localStorage, clamped to sane bounds.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem(WORKSPACE_SIDEBAR_KEY);
+      return raw !== null ? clampSidebarWidth(Number(raw)) : WORKSPACE_SIDEBAR_DEFAULT;
+    } catch {
+      return WORKSPACE_SIDEBAR_DEFAULT;
+    }
+  });
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
   // Live subagent tracking for the chat pane's task nodes (TUI parity):
   // children of the active session, fed from the firehose — live status
   // (asking/running) and the child session ids the inline transcripts open.
@@ -353,6 +389,16 @@ export function App() {
           // firehose drop never replay. Heal the viewer and tree on every
           // (re)connect: one refetch of the active file + expanded dirs.
           setFsRevision((n) => n + 1);
+          // Notes/plans are file-backed and out-of-band: heal them for the
+          // active session too, so a drop can't leave stale panels.
+          const healedSessionId = activeRef.current?.id;
+          if (healedSessionId !== undefined) {
+            void client
+              .getNotes(healedSessionId)
+              .then((n) => setNotes(n ?? ""))
+              .catch(() => {});
+            void client.listPlans(healedSessionId).then(setPlans).catch(() => {});
+          }
         }
         // Live file-change detection (workspace viewer): patch parts (git
         // workspaces, covers bash) + fs.write/fs.edit results (fallback)
@@ -456,6 +502,10 @@ export function App() {
     setQueuedState(emptyQueuedInputs());
     setUsage(null); // draft state: no session, no usage
     setTodos([]); // draft state: the previous session's todos are gone
+    setNotes(""); // draft state: no notes/plans/plan tabs
+    setPlans([]);
+    setOpenPlans([]);
+    setActivePlan(null);
     return;
   }
   const ctrl = new AbortController();
@@ -468,6 +518,10 @@ export function App() {
   setPendingQuestions([]);
   setQueuedState(emptyQueuedInputs());
   setTodos([]); // clear the previous session's list while the snapshot loads
+  setNotes(""); // session-scoped notes/plans/plan tabs reset on switch
+  setPlans([]);
+  setOpenPlans([]);
+  setActivePlan(null);
   void (async () => {
     try {
       // Snapshot first, then follow the durable stream from its frontier.
@@ -489,6 +543,15 @@ export function App() {
       // The todo list seeds from meta.todos (the snapshot doesn't carry it);
       // replayed/durable todos.updated events take over live.
       setTodos(todosFromSession(activeRef.current));
+        // Notes + plans are files, not part of the session row: seed with a
+        // direct fetch; durable notes.updated/plans.updated events take over.
+        const [loadedNotes, loadedPlans] = await Promise.all([
+          client.getNotes(activeId),
+          client.listPlans(activeId),
+        ]);
+        if (ctrl.signal.aborted) return;
+        setNotes(loadedNotes ?? "");
+        setPlans(loadedPlans);
         // Asks/questions raised before this surface connected (snapshot is
         // the authoritative answer; replayed events would double-add).
         setPendingAsks(snap.pendingPermissions ?? []);
@@ -527,6 +590,12 @@ export function App() {
               // The workspace todo panel's live feed (the todo tool replaces
               // the whole list each call).
               setTodos((list) => applyTodosEvent(list, evt));
+            } else if (evt.type === "notes.updated") {
+              // The Notes panel's live feed (the agent or another surface).
+              setNotes((current) => applyNotesEvent(current, evt));
+            } else if (evt.type === "plans.updated") {
+              // The Plans panel's live feed (plan.write / editor).
+              setPlans((list) => applyPlansEvent(list, evt));
             } else if (evt.type === "permission.asked" || evt.type === "permission.replied") {
               setPendingAsks((list) => applyPermissionEvent(list, evt));
             } else if (evt.type === "question.asked" || evt.type === "question.replied" || evt.type === "question.rejected") {
@@ -884,6 +953,8 @@ export function App() {
     // the chat surface.
     setOpenFiles([]);
     setActiveFile(null);
+    setOpenPlans([]);
+    setActivePlan(null);
     // Keep the open session only when it belongs to the chosen workspace.
     const keep = path !== null && activeRef.current?.cwd === path ? activeRef.current : null;
     pushRoute({ section: "workspace", wsPath: path, view: "chat", sessionId: keep?.id ?? null }, keep);
@@ -893,6 +964,7 @@ export function App() {
   const openFile = (path: string): void => {
     setOpenFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActiveFile(path);
+    setActivePlan(null);
     setWorkspaceView("files");
   };
 
@@ -1017,6 +1089,7 @@ export function App() {
   /** Tab click: activate + acknowledge its changes (the dot clears). */
   const selectFileTab = (path: string): void => {
     setActiveFile(path);
+    setActivePlan(null);
     clearChangedFile(path);
   };
 
@@ -1027,6 +1100,120 @@ export function App() {
     setOpenFiles(next);
     clearChangedFile(path);
     if (activeFile === path) setActiveFile(next[idx] ?? next[idx - 1] ?? null);
+  };
+
+  // --- session plans / notes / checklist handlers ---
+
+  /** Plans panel click: open (or focus) the plan's editable editor in Files. */
+  const openPlan = (name: string): void => {
+    setOpenPlans((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    setActivePlan(name);
+    setActiveFile(null);
+    setWorkspaceView("files");
+  };
+
+  /** Plan tab click. */
+  const selectPlanTab = (name: string): void => {
+    setActivePlan(name);
+    setActiveFile(null);
+  };
+
+  /** Plan tab ✕: drop it; a closed ACTIVE plan activates its neighbor (or a file). */
+  const closePlanTab = (name: string): void => {
+    const idx = openPlans.indexOf(name);
+    const next = openPlans.filter((p) => p !== name);
+    setOpenPlans(next);
+    if (activePlan === name) {
+      const neighbor = next[idx] ?? next[idx - 1] ?? null;
+      setActivePlan(neighbor);
+      if (neighbor === null) setActiveFile(openFiles[openFiles.length - 1] ?? null);
+    }
+  };
+
+  /** Create a plan (skeleton) then open it; the list refreshes via the event. */
+  const createPlan = async (name: string): Promise<void> => {
+    if (active === null) return;
+    await client.putPlan(active.id, name, `# ${name}\n\n`);
+    openPlan(name);
+  };
+
+  /** Delete a plan; close its tab. */
+  const deletePlan = async (name: string): Promise<void> => {
+    if (active === null) return;
+    await client.deletePlan(active.id, name);
+    closePlanTab(name);
+  };
+
+  /** Checklist edit: optimistic local update, then persist (event confirms). */
+  const changeTodos = (list: TodoItem[]): void => {
+    setTodos(list);
+    if (active === null) return;
+    void client.setTodos(active.id, list).catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+    });
+  };
+
+  /** Persist the session note (NotesPanel debounces its autosave). */
+  const saveNotes = async (content: string): Promise<void> => {
+    if (active === null) return;
+    await client.putNotes(active.id, content);
+  };
+
+  /**
+   * Right-rail drag handle: pointer capture + pointermove. The rail sits on
+   * the right, so dragging LEFT grows it. The width is clamped and persisted
+   * to localStorage on release.
+   */
+  const startSidebarResize = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidthRef.current;
+    setResizingSidebar(true);
+
+    const onMove = (ev: PointerEvent): void => {
+      const next = clampSidebarWidth(startWidth + (startX - ev.clientX));
+      sidebarWidthRef.current = next;
+      setSidebarWidth(next);
+    };
+    const finish = (): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      setResizingSidebar(false);
+      try {
+        window.localStorage.setItem(WORKSPACE_SIDEBAR_KEY, String(sidebarWidthRef.current));
+      } catch {
+        // Storage may be unavailable (private mode) — the width still applies.
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+
+  /** Double-click resets the rail to its default width. */
+  const resetSidebarWidth = (): void => {
+    sidebarWidthRef.current = WORKSPACE_SIDEBAR_DEFAULT;
+    setSidebarWidth(WORKSPACE_SIDEBAR_DEFAULT);
+    try {
+      window.localStorage.setItem(WORKSPACE_SIDEBAR_KEY, String(WORKSPACE_SIDEBAR_DEFAULT));
+    } catch {
+      // ignore
+    }
+  };
+
+  /** Keyboard resize (a11y): ArrowLeft grows the right rail, ArrowRight shrinks it. */
+  const onSidebarResizeKey = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next = clampSidebarWidth(sidebarWidthRef.current + (e.key === "ArrowLeft" ? 16 : -16));
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+    try {
+      window.localStorage.setItem(WORKSPACE_SIDEBAR_KEY, String(next));
+    } catch {
+      // ignore
+    }
   };
 
   /** Validate-then-persist happened in the nav; here: append + save config. */
@@ -1497,7 +1684,7 @@ export function App() {
   return (
     <ThemeProvider theme={theme} customColors={customTheme?.colors}>
     <a className="skip-link" href="#main-content">Skip to main content</a>
-    <div className="app">
+    <div className={resizingSidebar ? "app resizing" : "app"}>
       {/* Pending asks render INLINE inside the chat pane (no overlay, no
           dim) — the app stays fully navigable while a run is blocked. The
           Chat nav item carries a count badge when the user is elsewhere. */}
@@ -1898,6 +2085,12 @@ export function App() {
                   onFileSeen={clearChangedFile}
                   onSelectTab={selectFileTab}
                   onCloseTab={closeFileTab}
+                  sessionId={active?.id ?? null}
+                  openPlans={openPlans}
+                  activePlan={activePlan}
+                  planRevision={plans.find((p) => p.name === activePlan)?.updatedAt ?? ""}
+                  onSelectPlan={selectPlanTab}
+                  onClosePlan={closePlanTab}
                 />
               ) : (
                 chatPane
@@ -1907,23 +2100,53 @@ export function App() {
             chatPane
           )}
           {section === "workspace" && effectiveWorkspacePath !== null && (
-            // Right rail: the file tree on top, the session todo panel beneath
-            // it. Workspace-only — chat mode never renders the rail.
-            <div className="workspace-sidebar">
-              <FileTree
-                client={client}
-                root={effectiveWorkspacePath}
-                onOpenFile={openFile}
-                activePath={workspaceView === "files" ? activeFile : null}
-                refreshToken={fsRevision}
-                onUpload={uploadDropped}
-                folders={workspaceFolderNodes}
-                onAddFolder={() => setAddFoldersOpen(true)}
-                onRemoveFolder={(path) => void removeWorkspaceFolder(path)}
-                onItemContextMenu={(abs, kind, e) => setTreeMenu({ x: e.clientX, y: e.clientY, abs, kind })}
+            // Right rail: file tree on top, then the session checklist/plans/
+            // notes. The left-edge handle resizes it; the rail scrolls.
+            <>
+              <div
+                className={resizingSidebar ? "workspace-resizer resizing" : "workspace-resizer"}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize sidebar"
+                aria-valuemin={WORKSPACE_SIDEBAR_MIN}
+                aria-valuemax={WORKSPACE_SIDEBAR_MAX}
+                aria-valuenow={sidebarWidth}
+                tabIndex={0}
+                title="Drag to resize · double-click to reset"
+                onPointerDown={startSidebarResize}
+                onKeyDown={onSidebarResizeKey}
+                onDoubleClick={resetSidebarWidth}
               />
-              <TodosPanel todos={todos} />
-            </div>
+              <div className="workspace-sidebar" style={{ width: sidebarWidth }}>
+                <FileTree
+                  client={client}
+                  root={effectiveWorkspacePath}
+                  onOpenFile={openFile}
+                  activePath={workspaceView === "files" ? activeFile : null}
+                  refreshToken={fsRevision}
+                  onUpload={uploadDropped}
+                  folders={workspaceFolderNodes}
+                  onAddFolder={() => setAddFoldersOpen(true)}
+                  onRemoveFolder={(path) => void removeWorkspaceFolder(path)}
+                  onItemContextMenu={(abs, kind, e) => setTreeMenu({ x: e.clientX, y: e.clientY, abs, kind })}
+                />
+                <TodosPanel todos={todos} onChange={changeTodos} disabled={active === null} />
+                <PlansPanel
+                  plans={plans}
+                  activePlan={activePlan}
+                  disabled={active === null}
+                  onOpen={openPlan}
+                  onCreate={createPlan}
+                  onDelete={deletePlan}
+                />
+                <NotesPanel
+                  key={active?.id ?? "none"}
+                  notes={notes}
+                  onSave={saveNotes}
+                  disabled={active === null}
+                />
+              </div>
+            </>
           )}
         </>
       )}

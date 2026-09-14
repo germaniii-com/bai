@@ -16,6 +16,7 @@ import {
   type MessageId,
   type PermissionRequest,
   type PermissionStatus,
+  type PlanFile,
   type PromptPayload,
   type ProviderListResponse,
   type QuestionRequest,
@@ -23,6 +24,7 @@ import {
   type Session,
   type SessionId,
   type SessionUsage,
+  type TodoItem,
   type WorkbenchName,
   type AgentInfo,
   type ConfigPatch,
@@ -60,6 +62,14 @@ import { QuestionService } from "./question/service";
 import type { ProviderRegistry } from "./provider/registry";
 import type { OAuthLoginManager } from "./provider/oauth/manager";
 import { RunCoordinator } from "./run";
+import {
+  deletePlan as deleteSessionPlan,
+  listPlans as listSessionPlans,
+  readNotes as readSessionNotes,
+  readPlan as readSessionPlan,
+  writeNotes as writeSessionNotes,
+  writePlan as writeSessionPlan,
+} from "./session-files";
 import { forkedTitle, isPatchPayload, readRevert } from "./revert";
 import type { Snapshot, SnapshotPatch } from "./snapshot";
 import { defaultTitle } from "./title";
@@ -67,6 +77,7 @@ import type { HistoryCursor, HistoryPage } from "./store/messages";
 import type { Store } from "./store/store";
 import { questionTool } from "./tools/question";
 import { todoTool } from "./tools/todo";
+import { notesTools } from "./tools/notes";
 import { webFetchTool } from "./tools/web-fetch";
 import { webSearchTool } from "./tools/web-search";
 import { bashTool } from "./tools/bash";
@@ -128,10 +139,12 @@ export interface ServiceDeps {
   homeDir?(): string;
   version: string;
   /**
-   * Directory the plan agent writes plan files into
-   * (~/.config/bai/plans in production; a temp dir in tests).
+   * Root directory for per-session artifact files — plans and notes:
+   * `<sessionFilesDir>/<sessionId>/notes.md` and
+   * `<sessionFilesDir>/<sessionId>/plans/<name>.md`
+   * (~/.local/share/bai/sessions in production; a temp dir in tests).
    */
-  plansDir: string;
+  sessionFilesDir: string;
   /**
    * Shadow-repo snapshots (revert's file rollback). Optional: without it
    * revert is message-only (no snapshot/diff on the revert state, no patch
@@ -200,12 +213,19 @@ export class Service {
     // allow-lists and users opt in via the permission dialog.
     deps.tools.registerAll([
       questionTool(this.questions),
-      todoTool({ store: deps.store, bus: deps.bus, log: deps.log, clock: this.clock }),
+      todoTool({
+        readTodos: (id) => this.readTodos(id),
+        setTodos: (id, list) => this.setTodos(id, list),
+      }),
+      ...notesTools({
+        readNotes: (id) => this.readNotes(id),
+        writeNotes: (id, content) => this.writeNotes(id, content),
+      }),
       webFetchTool(),
       webSearchTool({ config: deps.config }),
       bashTool(),
       fsGrepTool(),
-      planWriteTool(deps.plansDir),
+      planWriteTool({ writePlan: (id, name, content) => this.writePlan(id, name, content) }),
       planExitTool(this.questions),
       // Progressive disclosure: the index rides the system prompt of agents
       // whose tool set includes this tool; every call lands in skill_events.
@@ -640,6 +660,83 @@ export class Service {
     const agentName = metaAgent ?? this.deps.config().agents?.default;
     const agent = typeof agentName === "string" && agentName.length > 0 ? this.deps.agents.get(agentName) : undefined;
     return agent?.model ?? this.deps.config().models.default ?? "stub/echo";
+  }
+
+  // --- session files (plans & notes) ---
+  // Markdown documents stored per session on disk
+  // (`<sessionFilesDir>/<sessionId>/{notes.md,plans/<name>.md}`) so they are
+  // portable between surfaces. Every mutation emits a durable session event
+  // so open surfaces (the web panels) update live.
+
+  /** Throw for an unknown session (every session-file method is session-scoped). */
+  private assertSession(sessionId: SessionId): void {
+    if (this.deps.store.sessions.get(sessionId) === undefined) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+  }
+
+  /** The session's plan files, name-sorted. */
+  listPlans(sessionId: SessionId): PlanFile[] {
+    this.assertSession(sessionId);
+    return listSessionPlans(this.deps.sessionFilesDir, sessionId);
+  }
+
+  /** Read one plan's markdown; undefined when absent. */
+  readPlan(sessionId: SessionId, name: string): string | undefined {
+    this.assertSession(sessionId);
+    return readSessionPlan(this.deps.sessionFilesDir, sessionId, name);
+  }
+
+  /** Create or replace a plan; broadcasts `plans.updated` (metadata list). */
+  writePlan(sessionId: SessionId, name: string, content: string): PlanFile {
+    this.assertSession(sessionId);
+    const plan = writeSessionPlan(this.deps.sessionFilesDir, sessionId, name, content);
+    this.emitDurable(sessionId, "plans.updated", { plans: this.listPlans(sessionId) });
+    return plan;
+  }
+
+  /** Delete a plan; broadcasts `plans.updated` when one was removed. */
+  deletePlan(sessionId: SessionId, name: string): boolean {
+    this.assertSession(sessionId);
+    const removed = deleteSessionPlan(this.deps.sessionFilesDir, sessionId, name);
+    if (removed) this.emitDurable(sessionId, "plans.updated", { plans: this.listPlans(sessionId) });
+    return removed;
+  }
+
+  /** Read the session note; null when it does not exist yet. */
+  readNotes(sessionId: SessionId): string | null {
+    this.assertSession(sessionId);
+    return readSessionNotes(this.deps.sessionFilesDir, sessionId);
+  }
+
+  /** Replace the session note; broadcasts `notes.updated`. */
+  writeNotes(sessionId: SessionId, content: string): void {
+    this.assertSession(sessionId);
+    writeSessionNotes(this.deps.sessionFilesDir, sessionId, content);
+    this.emitDurable(sessionId, "notes.updated", { notes: content });
+  }
+
+  // --- editable todos (the session checklist) ---
+  // The `todo` tool is the agent's writer; these methods are the shared
+  // persistence path so the web UI's checklist edits behave identically
+  // (same meta field, same durable event).
+
+  /** The session's current todo/checklist list. */
+  readTodos(sessionId: SessionId): TodoItem[] {
+    const session = this.deps.store.sessions.get(sessionId);
+    if (session === undefined) throw new Error(`Unknown session: ${sessionId}`);
+    const raw = (session.meta as { todos?: unknown }).todos;
+    return Array.isArray(raw) ? (raw as TodoItem[]) : [];
+  }
+
+  /** Replace the session todo list; broadcasts `todos.updated`. */
+  setTodos(sessionId: SessionId, todos: TodoItem[]): TodoItem[] {
+    const session = this.deps.store.sessions.get(sessionId);
+    if (session === undefined) throw new Error(`Unknown session: ${sessionId}`);
+    const meta = { ...(session.meta as Record<string, unknown>), todos };
+    this.deps.store.sessions.update(sessionId, { meta, now: this.clock.iso() });
+    this.emitDurable(sessionId, "todos.updated", { todos });
+    return todos;
   }
 
   // --- prompts & runs ---

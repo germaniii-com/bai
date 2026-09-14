@@ -51,6 +51,10 @@ export const DEFAULT_PERMISSIONS: Record<string, PermissionAction> = {
   // gating it behind a permission ask would deadlock the conversation.
   question: "allow",
   todo: "allow",
+  // Session note read/write: bai-owned session data (the user's scratchpad,
+  // no workspace/system mutation) — same auto-allow stance as todo.
+  "notes.read": "allow",
+  "notes.write": "allow",
   // plan.write is root-restricted to the plans dir inside the tool itself;
   // plan.exit's gate is the user answering its embedded question.
   "plan.write": "allow",

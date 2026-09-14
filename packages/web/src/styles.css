@@ -860,7 +860,8 @@ select:focus-visible,
 /* --- workspace right rail: file tree on top, session todos beneath --- */
 
 /* The rail owns the width/border the tree used to; the tree flexes inside it
-   and the todo panel takes the bottom slice. */
+   and the todo panel takes the bottom slice. The whole rail scrolls when the
+   tree + checklist + plans + notes exceed the viewport height. */
 .workspace-sidebar {
   width: 240px;
   flex-shrink: 0;
@@ -869,11 +870,14 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .workspace-sidebar > .file-tree {
   width: auto;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  max-height: 50vh;
   border-left: 0;
   min-height: 0;
 }
@@ -881,6 +885,52 @@ select:focus-visible,
 /* Collapsed tree shrinks to its header so the panels below move up. */
 .workspace-sidebar > .file-tree.collapsed {
   flex: 0 0 auto;
+}
+
+/* Drag handle: zero-width so it adds NO gap. An invisible 8px hit area
+   (::before) straddles the rail's left edge and only reveals a thin accent
+   line on hover/focus/drag. */
+.workspace-resizer {
+  flex: 0 0 0;
+  width: 0;
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.workspace-resizer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.workspace-resizer:hover::before,
+.workspace-resizer:focus-visible::before,
+.workspace-resizer.resizing::before {
+  left: -1px;
+  width: 2px;
+  background: var(--accent);
+}
+
+.workspace-resizer:focus-visible {
+  outline: none;
+}
+
+/* While dragging: no text selection, and the center pane (Monaco/iframes)
+   must not swallow the pointer. */
+.app.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.app.resizing .workspace-center {
+  pointer-events: none;
 }
 
 /* External folders render as tree roots below the workspace's own entries;
@@ -942,8 +992,7 @@ select:focus-visible,
 }
 
 .todos-panel {
-  flex: 0 1 auto;
-  max-height: 45%;
+  flex: 0 0 auto;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -976,10 +1025,10 @@ select:focus-visible,
 .todos-chevron {
   display: inline-flex;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .todos-count {
-  margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1038,6 +1087,311 @@ select:focus-visible,
 
 .todo-item.status-in_progress .todo-icon {
   color: var(--accent);
+}
+
+/* --- editable checklist / plans / notes rail panels --- */
+
+.todo-check {
+  flex-shrink: 0;
+  margin-top: 1px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--success);
+  cursor: pointer;
+}
+
+.todo-check:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.todo-check.checked {
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+  border-color: var(--success);
+}
+
+.todo-check:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.todo-content {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+
+.todo-content:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.todo-content:disabled {
+  cursor: default;
+}
+
+.todo-edit {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.todo-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.todo-item:hover .todo-remove,
+.todo-item:focus-within .todo-remove,
+.plan-row:hover .todo-remove,
+.plan-row:focus-within .todo-remove,
+.todo-remove:focus-visible {
+  opacity: 1;
+}
+
+.todo-remove:hover:not(:disabled),
+.todo-remove.confirming {
+  color: var(--danger);
+}
+
+.todo-remove.confirming {
+  opacity: 1;
+}
+
+.todo-remove:disabled {
+  cursor: default;
+}
+
+/* Touch devices have no hover — keep the control reachable. */
+@media (pointer: coarse) {
+  .todo-remove {
+    opacity: 1;
+  }
+}
+
+.todos-add-row {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+.todos-add {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.todos-add::placeholder {
+  color: var(--dim);
+}
+
+.todos-add-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.todos-add-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.todos-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Plans panel */
+.plans-panel {
+  max-height: none;
+}
+
+.plan-new-btn {
+  margin: 0 8px 6px;
+  width: calc(100% - 16px);
+}
+
+.plan-new-form {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+
+.plan-error {
+  margin: 0 8px 6px;
+  font-size: var(--text-sm);
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.plan-row.active {
+  background: var(--surface);
+}
+
+.plan-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.plan-open .plan-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-open .plan-date {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.plan-open:hover:not(:disabled) .plan-name {
+  color: var(--accent);
+}
+
+/* Notes panel */
+.notes-panel {
+  max-height: none;
+}
+
+.notes-body {
+  padding: 0 8px 8px;
+}
+
+.notes-textarea {
+  width: 100%;
+  min-height: 90px;
+  max-height: 220px;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.notes-textarea::placeholder {
+  color: var(--dim);
+}
+
+.notes-status {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Plan tab badge in the Files tab strip */
+.file-tab-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 3px;
+  flex-shrink: 0;
+}
+
+/* Plan autosave status on the tab (replaces the "plan" badge while active). */
+.file-tab-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.file-tab-status.dirty {
+  color: var(--warning);
+}
+
+.file-tab-status.saving {
+  color: var(--dim);
+}
+
+.file-tab-status.saved {
+  color: var(--success);
+}
+
+/* Plan editor (rendered inside the Files view) */
+.plan-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.plan-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.plan-editor > * {
+  flex: 1;
+  min-height: 0;
 }
 
 /* --- workspace center: [Chat | Files] switch + tabbed file viewer --- */
@@ -3492,6 +3846,10 @@ select:focus-visible,
 
   /* The whole right rail (tree + todos) is hidden on phones. */
   .workspace-sidebar {
+    display: none;
+  }
+
+  .workspace-resizer {
     display: none;
   }
 

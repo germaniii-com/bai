@@ -38,6 +38,29 @@ export const forkSessionSchema = z.object({
   messageId: z.string().min(1).optional(),
 });
 
+/** PUT /api/session/:id/notes — replace the session note (empty clears it). */
+export const putNotesSchema = z.object({
+  content: z.string().max(200_000),
+});
+
+/** PUT /api/session/:id/plan/:name — create or replace a session plan. */
+export const putPlanSchema = z.object({
+  content: z.string().min(1).max(200_000),
+});
+
+/** PUT /api/session/:id/todo — replace the session checklist (the web editor). */
+export const putTodosSchema = z.object({
+  todos: z
+    .array(
+      z.object({
+        content: z.string().min(1).max(2000),
+        status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
+        priority: z.enum(["high", "medium", "low"]),
+      }),
+    )
+    .max(50),
+});
+
 /**
  * One stored attachment reference (bytes live on disk; POST /api/attachment
  * returns this shape). Caps mirror the core upload allow-list.
@@ -221,3 +244,6 @@ export type EnqueueJobBody = z.infer<typeof enqueueJobSchema>;
 export type RenameSessionBody = z.infer<typeof renameSessionSchema>;
 export type RevertSessionBody = z.infer<typeof revertSessionSchema>;
 export type ForkSessionBody = z.infer<typeof forkSessionSchema>;
+export type PutNotesBody = z.infer<typeof putNotesSchema>;
+export type PutPlanBody = z.infer<typeof putPlanSchema>;
+export type PutTodosBody = z.infer<typeof putTodosSchema>;

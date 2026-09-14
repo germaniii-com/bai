@@ -1,5 +1,5 @@
 import type { AssetId, InputId, JobId, MessageId, PartId, PermissionRequestId, QuestionRequestId, SessionId } from "./ids";
-import type { Asset, AttachmentRef, Job, Message, PermissionRequest, QuestionRequest, Session, TodoItem } from "./domain";
+import type { Asset, AttachmentRef, Job, Message, PermissionRequest, PlanFile, QuestionRequest, Session, TodoItem } from "./domain";
 import type { SessionUsage } from "./usage";
 
 /** Modality names — the workbench registry keys. */
@@ -64,6 +64,10 @@ export interface EventPayloads {
   "question.rejected": { requestId: QuestionRequestId; message?: string };
   /** The session todo list changed (the `todo` tool; list lives in session.meta). */
   "todos.updated": { todos: TodoItem[] };
+  /** The session note (`notes.md`) changed (the `notes.write` tool / web editor). */
+  "notes.updated": { notes: string };
+  /** The session's plan set changed (plan.write / web editor; metadata only). */
+  "plans.updated": { plans: PlanFile[] };
   "job.updated": { job: Job };
   "asset.created": { asset: Asset };
   "config.updated": Record<string, never>;
@@ -103,6 +107,8 @@ export const EVENT_TYPES = Object.keys({
   "question.replied": 1,
   "question.rejected": 1,
   "todos.updated": 1,
+  "notes.updated": 1,
+  "plans.updated": 1,
   "job.updated": 1,
   "asset.created": 1,
   "config.updated": 1,

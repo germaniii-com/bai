@@ -251,4 +251,23 @@ describe("client ↔ server (integration)", () => {
     const authorized = dialListener(server.port ?? 0, "tok-1234567890abcdef");
     expect((await authorized.health()).ok).toBe(true);
   });
+
+  test("session files round-trip over the wire (notes, plans, checklist)", async () => {
+    const session = await client.createSession({ workbench: "code" });
+
+    expect(await client.getNotes(session.id)).toBeNull();
+    expect(await client.putNotes(session.id, "# Note")).toBe("# Note");
+    expect(await client.getNotes(session.id)).toBe("# Note");
+
+    expect(await client.listPlans(session.id)).toEqual([]);
+    const plan = await client.putPlan(session.id, "refactor", "# Refactor");
+    expect(plan.name).toBe("refactor");
+    expect((await client.listPlans(session.id)).map((p) => p.name)).toEqual(["refactor"]);
+    expect((await client.getPlan(session.id, "refactor"))?.content).toBe("# Refactor");
+    await client.deletePlan(session.id, "refactor");
+    expect(await client.getPlan(session.id, "refactor")).toBeUndefined();
+
+    const todos = [{ content: "one", status: "pending" as const, priority: "high" as const }];
+    expect(await client.setTodos(session.id, todos)).toEqual(todos);
+  });
 });

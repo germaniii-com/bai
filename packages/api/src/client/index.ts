@@ -18,6 +18,8 @@ import type {
   ModelPageEntry,
   ModelsPage,
   PermissionRequest,
+  PlanDocument,
+  PlanFile,
   PutAgentBody,
   PutSkillBody,
   LearnSkillBody,
@@ -30,6 +32,7 @@ import type {
   SkillUsageQuery,
   SkillUsageResponse,
   SkillUsageTotals,
+  TodoItem,
   ToolListEntry,
   UpdateAutomationBody,
 } from "@bai/shared";
@@ -826,6 +829,70 @@ export class BaiClient {
     });
     if (!res.ok) throw new Error(`rename session failed: ${res.status}`);
     return (await res.json()).session;
+  }
+
+  // --- session files (plans & notes) + the editable checklist ---
+
+  /** Read the session note; null when none exists yet. */
+  async getNotes(id: string): Promise<string | null> {
+    const res = await this.rpc().session[":id"].notes.$get({ param: { id: encodeURIComponent(id) } });
+    if (!res.ok) throw new Error(await errorMessage(res, `get notes failed: ${res.status}`));
+    return (await res.json()).notes;
+  }
+
+  /** Replace the session note (empty clears it); returns the stored text. */
+  async putNotes(id: string, content: string): Promise<string> {
+    const res = await this.rpc().session[":id"].notes.$put({
+      param: { id: encodeURIComponent(id) },
+      json: { content },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `save notes failed: ${res.status}`));
+    return (await res.json()).notes;
+  }
+
+  /** The session's plan files (metadata only, name-sorted). */
+  async listPlans(id: string): Promise<PlanFile[]> {
+    const res = await this.rpc().session[":id"].plan.$get({ param: { id: encodeURIComponent(id) } });
+    if (!res.ok) throw new Error(await errorMessage(res, `list plans failed: ${res.status}`));
+    return (await res.json()).plans;
+  }
+
+  /** One plan with its markdown; undefined when absent. */
+  async getPlan(id: string, name: string): Promise<PlanDocument | undefined> {
+    const res = await this.rpc().session[":id"].plan[":name"].$get({
+      param: { id: encodeURIComponent(id), name: encodeURIComponent(name) },
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(await errorMessage(res, `get plan failed: ${res.status}`));
+    return (await res.json()).plan;
+  }
+
+  /** Create or replace a session plan; returns its metadata. */
+  async putPlan(id: string, name: string, content: string): Promise<PlanFile> {
+    const res = await this.rpc().session[":id"].plan[":name"].$put({
+      param: { id: encodeURIComponent(id), name: encodeURIComponent(name) },
+      json: { content },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `save plan failed: ${res.status}`));
+    return (await res.json()).plan;
+  }
+
+  /** Delete a session plan. */
+  async deletePlan(id: string, name: string): Promise<void> {
+    const res = await this.rpc().session[":id"].plan[":name"].$delete({
+      param: { id: encodeURIComponent(id), name: encodeURIComponent(name) },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `delete plan failed: ${res.status}`));
+  }
+
+  /** Replace the session checklist (session.meta.todos); returns the stored list. */
+  async setTodos(id: string, todos: TodoItem[]): Promise<TodoItem[]> {
+    const res = await this.rpc().session[":id"].todo.$put({
+      param: { id: encodeURIComponent(id) },
+      json: { todos },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `save checklist failed: ${res.status}`));
+    return (await res.json()).todos;
   }
 
   /**

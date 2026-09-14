@@ -13,6 +13,9 @@ import {
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
+  putNotesSchema,
+  putPlanSchema,
+  putTodosSchema,
   oauthStartSchema,
   oauthSubmitSchema,
   customProviderSchema,
@@ -699,6 +702,90 @@ function buildApi(deps: ApiDeps) {
       const session = deps.core.renameSession(id, body.title);
       if (session === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ session });
+    })
+
+    // --- session files (plans & notes; portable per-session markdown) ---
+    // Plans/notes live on disk under <sessionFilesDir>/<sessionId>/ so they
+    // travel with a session across surfaces. Mutations emit durable
+    // session events (plans.updated / notes.updated) so open panels update.
+    .get("/session/:id/notes", (c) => {
+      const id = c.req.param("id") as SessionId;
+      try {
+        return c.json({ notes: deps.core.readNotes(id) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+      }
+    })
+    .put("/session/:id/notes", zValidator("json", putNotesSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      try {
+        deps.core.writeNotes(id, c.req.valid("json").content);
+        return c.json({ notes: c.req.valid("json").content });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+      }
+    })
+    .get("/session/:id/plan", (c) => {
+      const id = c.req.param("id") as SessionId;
+      try {
+        return c.json({ plans: deps.core.listPlans(id) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+      }
+    })
+    .get("/session/:id/plan/:name", (c) => {
+      const id = c.req.param("id") as SessionId;
+      const name = c.req.param("name");
+      try {
+        const content = deps.core.readPlan(id, name);
+        if (content === undefined) return c.json({ error: "not_found" }, 404);
+        const meta = deps.core.listPlans(id).find((p) => p.name === name);
+        return c.json({
+          plan: {
+            name,
+            content,
+            bytes: meta?.bytes ?? Buffer.byteLength(content),
+            updatedAt: meta?.updatedAt ?? new Date().toISOString(),
+          },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        return c.json({ error: message }, 400);
+      }
+    })
+    .put("/session/:id/plan/:name", zValidator("json", putPlanSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      const name = c.req.param("name");
+      try {
+        return c.json({ plan: deps.core.writePlan(id, name, c.req.valid("json").content) }, 201);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        return c.json({ error: message }, 400);
+      }
+    })
+    .delete("/session/:id/plan/:name", (c) => {
+      const id = c.req.param("id") as SessionId;
+      const name = c.req.param("name");
+      try {
+        if (!deps.core.deletePlan(id, name)) return c.json({ error: "not_found" }, 404);
+        return c.json({ ok: true });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.startsWith("Unknown session")) return c.json({ error: "not_found" }, 404);
+        return c.json({ error: message }, 400);
+      }
+    })
+    // The session checklist is session.meta.todos; this is the web editor's
+    // replace path (same persistence + event as the agent's `todo` tool).
+    .put("/session/:id/todo", zValidator("json", putTodosSchema), (c) => {
+      const id = c.req.param("id") as SessionId;
+      try {
+        return c.json({ todos: deps.core.setTodos(id, c.req.valid("json").todos) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+      }
     })
 
     // --- revert / fork (opencode parity; two-phase revert, see core Service) ---

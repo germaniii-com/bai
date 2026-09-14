@@ -6,6 +6,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
 import { Markdown } from "./markdown";
+import { PlanView, type PlanSaveStatus } from "./plan-view";
 import { Button } from "./components";
 
 /**
@@ -103,6 +104,12 @@ export function FileView({
   onFileSeen,
   onSelectTab,
   onCloseTab,
+  sessionId,
+  openPlans = [],
+  activePlan = null,
+  planRevision = "",
+  onSelectPlan,
+  onClosePlan,
 }: {
   client: BaiClient;
   /** The workspace root — file fetches are workspace-scoped. */
@@ -119,17 +126,30 @@ export function FileView({
   /** Open tabs with unseen agent edits (change dots). */
   changedFiles: Set<string>;
   /** Bumped whenever the agent (or a revert) changes files — drop the cache
-   * so the active preview refetches and the tree re-lists. */
+   *  so the active preview refetches and the tree re-lists. */
   fsRevision: number;
   /** The active file's fresh content landed — App clears its change dot. */
   onFileSeen: (path: string) => void;
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string) => void;
+  /** Active session id — plan tabs write through the session API. */
+  sessionId?: string | null;
+  /** Open plan tabs (names), in open order (App-owned). */
+  openPlans?: string[];
+  /** The plan tab whose editable editor shows (mutually exclusive with activeFile). */
+  activePlan?: string | null;
+  /** The active plan's metadata stamp (updatedAt) — a change refetches a clean editor. */
+  planRevision?: string;
+  onSelectPlan?: (name: string) => void;
+  onClosePlan?: (name: string) => void;
 }) {
   const [entries, setEntries] = useState<Map<string, FileEntry>>(new Map());
   // Per-file markdown view mode (Preview ⇄ Raw) — preserved across tab
   // switches, defaults to Preview, reset with the cache on workspace switch.
   const [mdView, setMdView] = useState<Map<string, "preview" | "raw">>(new Map());
+  // The active plan's autosave status (reported by PlanView) — rendered on
+  // its tab. Only the active plan has a mounted editor, so this is per-tab.
+  const [planStatus, setPlanStatus] = useState<PlanSaveStatus>("idle");
   const urlsRef = useRef<Set<string>>(new Set());
   // The Monaco theme name — defined from the palette data (themes.ts), so a
   // theme switch re-skins the live editor with no CSS-read race. The
@@ -148,6 +168,12 @@ export function FileView({
   // measured size). No debounce: a refetch is one small GET, and timers
   // that reset on every render starve under firehose churn.
   const fsGenRef = useRef(0);
+
+  // The autosave indicator belongs to the active plan only — reset it when
+  // the active plan changes (the new PlanView re-reports on mount).
+  useEffect(() => {
+    setPlanStatus("idle");
+  }, [activePlan]);
 
   useEffect(() => {
     if (fsRevision > 0) {
@@ -339,6 +365,46 @@ export function FileView({
             </div>
           );
         })}
+        {openPlans.map((name) => {
+          const active = name === activePlan;
+          return (
+            <div key={`plan:${name}`} className={active ? "file-tab active" : "file-tab"}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className="file-tab-btn"
+                title={`Plan: ${name}`}
+                onClick={() => onSelectPlan?.(name)}
+              >
+                <FileText className="tree-icon" aria-hidden="true" />
+                <span className="file-tab-name">{name}</span>
+                {active && planStatus !== "idle" ? (
+                  <span
+                    className={`file-tab-status ${planStatus}`}
+                    title={planStatus === "saved" ? "Saved" : planStatus === "saving" ? "Saving…" : "Unsaved changes"}
+                    aria-label={
+                      planStatus === "saved" ? "Saved" : planStatus === "saving" ? "Saving" : "Unsaved changes"
+                    }
+                  >
+                    {planStatus === "saved" ? "✓" : planStatus === "saving" ? "…" : "●"}
+                  </span>
+                ) : (
+                  <span className="file-tab-badge">plan</span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="file-tab-close"
+                aria-label={`Close ${name}`}
+                title={`Close ${name}`}
+                onClick={() => onClosePlan?.(name)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
       </div>
       {isMarkdown && activeFile !== null && (
         <div className="file-view-bar">
@@ -365,7 +431,17 @@ export function FileView({
         </div>
       )}
       <div className="file-preview">
-        {activeFile === null ? (
+        {activePlan !== null && sessionId != null ? (
+          <PlanView
+            key={activePlan}
+            client={client}
+            sessionId={sessionId}
+            name={activePlan}
+            revision={planRevision}
+            themeColors={themeColors}
+            onStatusChange={setPlanStatus}
+          />
+        ) : activeFile === null ? (
           <p className="dim empty">No file open — pick a file from the tree.</p>
         ) : entry === undefined || entry.status === "loading" ? (
           <p className="dim empty">Loading {basename(activeFile)}…</p>
