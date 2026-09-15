@@ -3384,6 +3384,25 @@ select:focus-visible,
   flex-shrink: 0;
 }
 
+/* Icon + text block on the left of a server/catalog row. */
+.mcp-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mcp-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Brand marks (compiled from simple-icons / SVG Logos) and lucide fallbacks. */
+.brand-icon {
+  flex-shrink: 0;
+}
+
 /* Integrations catalog: no container padding, so sticky category headers sit
    flush at the top with no transparent gap while scrolling. */
 .provider-accordion.mcp-catalog-scroll {
@@ -3400,6 +3419,9 @@ select:focus-visible,
   position: sticky;
   top: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   padding: 10px 8px 4px;
   background: var(--panel);

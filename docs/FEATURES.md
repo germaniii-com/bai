@@ -414,7 +414,9 @@ drop-in model as agents, skills, and tools.
   63 vendor-hosted MCP servers grouped by category — Developer tools,
   Productivity, Communications & CRM, Analytics & data, Payments & finance,
   Media & creative, Travel & fitness, Docs & knowledge, Jobs — each row showing
-  an `OAuth` / `No auth` badge and any env-var hints. One click installs
+  a **brand mark** (compiled from simple-icons ∪ SVG Logos, monochrome to match
+  the lucide UI icons, with lucide fallbacks for the few brands neither carries)
+  plus an `OAuth` / `No auth` badge and any env-var hints. One click installs
   (writing a drop-in file and starting OAuth where required; the docs servers
   are keyless). Below it, **Custom MCP Servers** — your own servers with live
   status (connected / failed / needs authorization / disabled), **add/edit**

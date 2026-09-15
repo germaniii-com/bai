@@ -22,6 +22,7 @@ import { ModelCapabilityBadges } from "./model-capabilities";
 import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
 import { McpServerModal } from "./mcp-server-form";
+import { BrandIcon, CategoryIcon } from "./brand-icon";
 import { Button, Card, Combobox, Field, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -1387,16 +1388,24 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         <div className="provider-accordion mcp-catalog-scroll">
           {catalogGroups.map((group) => (
             <div key={group.category}>
-              <p className="mcp-category">{group.category}</p>
+              <p className="mcp-category">
+                <CategoryIcon category={group.category} />
+                {group.category}
+              </p>
               {group.entries.map((entry) => (
                 <div key={entry.name} className="mcp-row">
-                  <div>
-                    <strong>{entry.title}</strong>{" "}
-                    <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>{" "}
-                    <span className="mcp-row-meta">{entry.description}</span>
-                    {entry.envVars !== undefined && entry.envVars.length > 0 && (
-                      <div className="mcp-row-meta">env: {entry.envVars.map((v) => v.name).join(", ")}</div>
-                    )}
+                  <div className="mcp-row-main">
+                    <BrandIcon name={entry.name} />
+                    <div>
+                      <span className="mcp-row-title">
+                        <strong>{entry.title}</strong>{" "}
+                        <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>
+                      </span>
+                      <div className="mcp-row-meta">{entry.description}</div>
+                      {entry.envVars !== undefined && entry.envVars.length > 0 && (
+                        <div className="mcp-row-meta">env: {entry.envVars.map((v) => v.name).join(", ")}</div>
+                      )}
+                    </div>
                   </div>
                   <div className="mcp-row-actions">
                     <Button
@@ -1430,17 +1439,22 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         <p className="dim provider-empty">No MCP servers yet. Install one above, or drop a file into ~/.config/bai/mcp/.</p>
       ) : (
         <div className="provider-accordion">
-          {servers.map((server) => (
-            <div key={server.name} className="mcp-row">
-              <div>
-                <strong>{server.name}</strong>{" "}
-                <span className="mcp-row-meta">
-                  {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
-                  {server.tools === 1 ? "" : "s"} · {server.source === "file" ? "file" : "config.json"}
-                  {server.error !== undefined ? ` · ${server.error}` : ""}
-                </span>
-              </div>
-              <div className="mcp-row-actions">
+            {servers.map((server) => (
+              <div key={server.name} className="mcp-row">
+                <div className="mcp-row-main">
+                  <BrandIcon name={server.name} />
+                  <div>
+                    <span className="mcp-row-title">
+                      <strong>{server.name}</strong>
+                    </span>
+                    <div className="mcp-row-meta">
+                      {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
+                      {server.tools === 1 ? "" : "s"} · {server.source === "file" ? "file" : "config.json"}
+                      {server.error !== undefined ? ` · ${server.error}` : ""}
+                    </div>
+                  </div>
+                </div>
+                <div className="mcp-row-actions">
                 <Button type="button" variant="ghost" disabled={busy !== null} onClick={() => void openEdit(server.name)}>
                   Edit
                 </Button>
