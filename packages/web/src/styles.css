@@ -4592,6 +4592,7 @@ select:focus-visible,
 /* --- Tag input (chips + autocomplete) ----------------------------------- */
 
 .tag-input {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -4610,6 +4611,11 @@ select:focus-visible,
   background: var(--bg);
 }
 
+/* Highlight the WHOLE field (chips + input), not the bare text input. */
+.tag-input-field:focus-within {
+  border-color: var(--accent);
+}
+
 .tag-input-text {
   flex: 1;
   min-width: 80px;
@@ -4620,6 +4626,12 @@ select:focus-visible,
   font: inherit;
   font-size: var(--text-md);
   padding: 2px 4px;
+}
+
+/* The global input:focus-visible ring would otherwise outline just the input. */
+.tag-input-text:focus,
+.tag-input-text:focus-visible {
+  outline: none;
 }
 
 .tag-chip {
@@ -4654,6 +4666,57 @@ select:focus-visible,
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
+}
+
+/* Autocomplete dropdown (focus-gated) below the chip field. */
+.tag-input-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.tag-input-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tag-input-option.active,
+.tag-input-option:hover {
+  background: var(--border);
+}
+
+.tag-input-option .dim {
+  font-size: var(--text-xs);
+}
+
+/* Dropdown rows render the tag as a chip (no remove affordance). */
+.tag-input-option .tag-chip {
+  padding: 1px 8px;
 }
 
 .tag-suggestion {

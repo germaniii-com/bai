@@ -1,11 +1,17 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { fuzzyTagScore, normalizeTag, type MediaTagCount } from "@bai/shared";
 
+/** How many suggestions the autocomplete shows at most. */
+const MAX_SUGGESTIONS = 10;
+
 /**
- * Freeform tag chips with autocomplete. Tags are normalized (lowercase/trim)
- * on commit; suggestions come from previously used tags (server-side). Enter
- * or comma commits, Backspace on an empty field removes the last chip.
+ * Freeform tag chips with a fuzzy autocomplete over the available tags.
+ * Suggestions open on focus and filter as you type — every whitespace token
+ * must match (prefix / substring / subsequence), ranked by tightness then
+ * usage count. Clicking or Enter-selecting one APPENDS it to the chips;
+ * Enter with nothing highlighted commits the typed text; Backspace on an
+ * empty field removes the last chip.
  */
 export function TagInput({
   value,
@@ -23,31 +29,18 @@ export function TagInput({
   id?: string;
 }) {
   const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const generatedId = useId();
   const inputId = id ?? generatedId;
 
-  const commit = (raw: string): void => {
-    const tag = normalizeTag(raw);
-    setDraft("");
-    if (tag.length === 0 || value.includes(tag) || value.length >= maxCount) return;
-    onChange([...value, tag]);
-  };
-
-  const remove = (tag: string): void => onChange(value.filter((t) => t !== tag));
-
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      commit(draft);
-    } else if (e.key === "Backspace" && draft.length === 0 && value.length > 0) {
-      onChange(value.slice(0, -1));
-    }
-  };
-
+  const full = value.length >= maxCount;
   const available = suggestions.filter((s) => !value.includes(s.tag));
-  const matches =
-    draft.trim().length === 0
-      ? available.slice(0, 8)
+  const query = draft.trim();
+  const matches = (
+    query.length === 0
+      ? available
       : available
           .map((s) => ({ s, score: fuzzyTagScore(s.tag, draft) }))
           .filter((row) => row.score > 0)
@@ -57,8 +50,46 @@ export function TagInput({
               b.s.count - a.s.count ||
               a.s.tag.localeCompare(b.s.tag),
           )
-          .slice(0, 8)
-          .map((row) => row.s);
+          .map((row) => row.s)
+  ).slice(0, MAX_SUGGESTIONS);
+
+  const commit = (raw: string): void => {
+    const tag = normalizeTag(raw);
+    setDraft("");
+    setActive(0);
+    if (tag.length === 0 || value.includes(tag) || value.length >= maxCount) return;
+    onChange([...value, tag]);
+  };
+
+  const remove = (tag: string): void => onChange(value.filter((t) => t !== tag));
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => Math.min(i + 1, Math.max(0, matches.length - 1)));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => Math.max(i - 1, 0));
+      return;
+    }
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const picked = open ? matches[active] : undefined;
+      commit(picked !== undefined ? picked.tag : draft);
+      return;
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (e.key === "Backspace" && draft.length === 0 && value.length > 0) {
+      onChange(value.slice(0, -1));
+    }
+  };
 
   return (
     <div className="tag-input">
@@ -77,30 +108,52 @@ export function TagInput({
           </span>
         ))}
         <input
+          ref={inputRef}
           id={inputId}
           className="tag-input-text"
           value={draft}
-          placeholder={value.length >= maxCount ? "" : placeholder}
-          disabled={value.length >= maxCount}
-          onChange={(e) => setDraft(e.target.value)}
+          placeholder={full ? "" : placeholder}
+          disabled={full}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setActive(0);
+            setOpen(true);
+          }}
           onKeyDown={onKeyDown}
-          onBlur={() => draft.length > 0 && commit(draft)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            setOpen(false);
+            if (draft.length > 0) commit(draft);
+          }}
           aria-label="Add a tag"
+          aria-autocomplete="list"
+          aria-expanded={open && matches.length > 0}
+          autoComplete="off"
           spellCheck={false}
         />
       </div>
-      {matches.length > 0 && (
-        <div className="tag-suggestions" role="listbox" aria-label="Tag suggestions">
-          {matches.map((s) => (
+      {open && !full && matches.length > 0 && (
+        <div className="tag-input-pop" role="listbox" aria-label="Tag suggestions">
+          {matches.map((s, i) => (
             <button
               key={s.tag}
               type="button"
-              className="tag-suggestion"
               role="option"
-              aria-selected={false}
-              onClick={() => commit(s.tag)}
+              aria-selected={i === active}
+              className={i === active ? "tag-input-option active" : "tag-input-option"}
+              // Keep the input focused so the click never races the blur.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={(e) => {
+                // Don't let the surrounding Field <label>/form swallow the pick.
+                e.preventDefault();
+                e.stopPropagation();
+                commit(s.tag);
+                inputRef.current?.focus();
+              }}
             >
-              {s.tag} <span className="dim">· {s.count}</span>
+              <span className="tag-chip">{s.tag}</span>
+              <span className="dim">{s.count}</span>
             </button>
           ))}
         </div>

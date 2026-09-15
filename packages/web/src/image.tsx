@@ -153,7 +153,8 @@ export function ImagePane({
 
   const reloadTags = useCallback(async (): Promise<void> => {
     try {
-      setTagOptions(await client.imageTags());
+      // Fetch a wide slice so the fuzzy autocomplete searches the whole tag set.
+      setTagOptions(await client.imageTags(undefined, 200));
     } catch {
       // Advisory — autocomplete just stays as-is.
     }
@@ -347,15 +348,11 @@ export function ImagePane({
     }
   };
 
-  // The most recent in-flight job (Cancel) and, when idle, the most recent
-  // failed one (Retry). Placeholders render for both in the gallery.
+  // The most recent in-flight job drives the Cancel button; failed jobs
+  // surface their Retry from the card's `…` menu and the error modal.
   const activeJob =
     [...jobs].reverse().find((j) => j.status === "queued" || j.status === "running") ??
     null;
-  const failedJob =
-    activeJob === null
-      ? ([...jobs].reverse().find((j) => j.status === "error") ?? null)
-      : null;
   const busy = activeJob !== null;
 
   const cancel = async (): Promise<void> => {
@@ -622,11 +619,6 @@ export function ImagePane({
             {busy && (
               <Button variant="ghost" onClick={() => void cancel()}>
                 Cancel
-              </Button>
-            )}
-            {failedJob !== null && (
-              <Button variant="secondary" onClick={() => void retryJob(failedJob)}>
-                Retry
               </Button>
             )}
           </div>
