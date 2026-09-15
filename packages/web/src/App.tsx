@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { AttachmentRef, AutomationSchedule, Input, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
+import type { AttachmentRef, AutomationSchedule, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyNotesEvent, applyPermissionEvent, applyPlansEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
@@ -274,6 +274,7 @@ export function App() {
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
+  const [configJobs, setConfigJobs] = useState<JobsConfig | undefined>(undefined);
   // First successful config load — gates the URL sync effect (the workspace
   // path's validity, hence the canonical URL, is unknown before it).
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -340,6 +341,7 @@ export function App() {
       setConfigPreferZdr(config.models.preferZdr);
       setConfigImageGen(config.imageGen);
       setConfigVideoGen(config.videoGen);
+      setConfigJobs(config.jobs);
       setConfigTheme(config.theme);
       setWorkspaces(config.workspaces ?? []);
       setWorkspaceFolders(config.workspaceFolders ?? {});
@@ -1939,6 +1941,7 @@ export function App() {
             defaultAgent={configDefaultAgent}
             imageGen={configImageGen}
             videoGen={configVideoGen}
+            jobs={configJobs}
             theme={theme}
             onOpenThemePicker={() => setThemePickerOpen(true)}
             onNotice={pushNotice}

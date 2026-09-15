@@ -724,7 +724,7 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
   | `/chat/{sessionId}` | Chat, session active |
   | `/workspace` | Workspace picker |
   | `/workspace?w={slug}` | Workspace, chat view (`&view=files` → files view, `&s={sessionId}` → session; combinable) |
-  | `/settings/{user\|general\|providers\|webSearch}` | Settings subsection |
+  | `/settings/{user\|general\|providers\|image\|webSearch}` | Settings subsection |
   | `/agents`, `/agents/new`, `/agents/{name}` | Agents list / create form / detail |
   | `/tools`, `/tools/new`, `/tools/{name}` | Tools (same shape) |
   | anything else | Chat draft (fallback) |

@@ -520,6 +520,9 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
   per-page picker (openrouter + a curated model list, creatable) persists the
   choice back to config. Any other/unset provider uses the deterministic
   **stub** adapter — the workbench works offline with no keys.
+- **Settings → Image Generation** owns the image workbench defaults
+  (provider · account · model) and the media job limits: **concurrent
+  generations** (1–10), timeout, retry attempts, and backoff (config `jobs`).
 - **Capability-driven params.** Every adapter declares its parameter
   vocabulary (enum pickers, toggles, ranges with min/max, numbers, text); the
   page renders them generically. OpenRouter exposes aspect ratio, resolution,

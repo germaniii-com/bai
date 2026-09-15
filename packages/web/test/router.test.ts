@@ -84,6 +84,7 @@ describe("parseRoute", () => {
     expect(parseRoute("/settings/user", "")).toEqual({ section: "settings", settingsSection: "user" });
     expect(parseRoute("/settings/general", "")).toEqual({ section: "settings", settingsSection: "general" });
     expect(parseRoute("/settings/providers", "")).toEqual({ section: "settings", settingsSection: "providers" });
+    expect(parseRoute("/settings/image", "")).toEqual({ section: "settings", settingsSection: "image" });
     expect(parseRoute("/settings/webSearch", "")).toEqual({ section: "settings", settingsSection: "webSearch" });
     expect(parseRoute("/settings/integrations", "")).toEqual({ section: "settings", settingsSection: "integrations" });
     expect(parseRoute("/settings/nope", "")).toEqual({ section: "settings", settingsSection: "general" });
@@ -145,6 +146,7 @@ describe("routeToPath", () => {
     roundTrip({ section: "settings", settingsSection: "user" });
     roundTrip({ section: "settings", settingsSection: "general" });
     roundTrip({ section: "settings", settingsSection: "providers" });
+    roundTrip({ section: "settings", settingsSection: "image" });
     roundTrip({ section: "settings", settingsSection: "webSearch" });
     roundTrip({ section: "settings", settingsSection: "integrations" });
     roundTrip({ section: "agents", name: null, creating: false });

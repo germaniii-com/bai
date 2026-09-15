@@ -3,6 +3,7 @@ import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
+  JobsConfig,
   MCPServerConfig,
   McpCatalogEntry,
   McpServerInfo,
@@ -30,16 +31,19 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
  * Settings, divided into sections (the nested sidebar's entries): User,
- * General, and Model Providers. Each section renders one scrollable
- * heading-content page in the main pane:
+ * General, Model Providers, Image Generation, Web Search, Integrations. Each
+ * section renders one scrollable heading-content page in the main pane:
  *
  * - User — display name (injected into every agent's <env> block).
  * - General — theme, default agent + default model (what new sessions
  *   resolve) — both picked through the SAME modals the chat header uses
  *   (AgentModal / ModelModal), so one picker everywhere.
  * - Model Providers — the prefer-ZDR preference, ALL catalog providers as
- *   expandable cards (accounts, remove, add-account), and the Image/Video
- *   Gen defaults (provider · account · model).
+ *   expandable cards (accounts, remove, add-account), and the Video Gen
+ *   defaults (provider · account · model).
+ * - Image Generation — the image workbench defaults (provider · account ·
+ *   model) and the media job limits (concurrent generations, timeout,
+ *   retries, backoff).
  *
  * Same endpoints the TUI's ctrl+p wizard uses — add an account here and the
  * TUI's picker picks it up live via provider.updated; every setting writes
@@ -48,7 +52,7 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
  */
 
 /** The settings sections (the nested sidebar's entries). */
-export type SettingsSection = "user" | "general" | "providers" | "webSearch" | "integrations";
+export type SettingsSection = "user" | "general" | "providers" | "image" | "webSearch" | "integrations";
 
 /** Nested-sidebar list: the settings sections. */
 export function SettingsNav({
@@ -62,6 +66,7 @@ export function SettingsNav({
     { id: "user", title: "User", dim: "who bai works for" },
     { id: "general", title: "General", dim: "default agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
+    { id: "image", title: "Image Generation", dim: "defaults · concurrency" },
     { id: "webSearch", title: "Web Search", dim: "provider · fallback" },
     { id: "integrations", title: "Integrations", dim: "MCP servers" },
   ];
@@ -98,6 +103,7 @@ export function SettingsPane({
   defaultAgent,
   imageGen,
   videoGen,
+  jobs,
   theme,
   onOpenThemePicker,
   onNotice,
@@ -119,6 +125,8 @@ export function SettingsPane({
   defaultAgent?: string;
   imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
+  /** Media job-runtime limits (config jobs) — the Image Generation pane. */
+  jobs?: JobsConfig;
   /** Active theme id (built-in or custom file stem) — the General pane's theme card. */
   theme: string;
   /** Open the theme picker modal (App-owned). */
@@ -183,6 +191,14 @@ export function SettingsPane({
           onOpenThemePicker={onOpenThemePicker}
           mutate={mutate}
         />
+      ) : section === "image" ? (
+        <ImageGenPane
+          client={client}
+          list={list}
+          imageGen={imageGen}
+          jobs={jobs}
+          mutate={mutate}
+        />
       ) : (
         <ProvidersPane
           client={client}
@@ -192,7 +208,6 @@ export function SettingsPane({
           refresh={refresh}
           onNotice={onNotice}
           preferZdr={preferZdr}
-          imageGen={imageGen}
           videoGen={videoGen}
         />
       )}
@@ -460,7 +475,7 @@ function DefaultModelCard({
   );
 }
 
-/** Model Providers section: ZDR preference, all providers, media-gen defaults. */
+/** Model Providers section: ZDR preference, all providers, video-gen defaults. */
 function ProvidersPane({
   client,
   list,
@@ -469,7 +484,6 @@ function ProvidersPane({
   refresh,
   onNotice,
   preferZdr,
-  imageGen,
   videoGen,
 }: {
   client: BaiClient;
@@ -479,7 +493,6 @@ function ProvidersPane({
   refresh: () => Promise<void>;
   onNotice: (message: string, kind?: "success" | "error") => void;
   preferZdr?: boolean;
-  imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
 }) {
   // Single-expanded accordion: one provider's accounts + add form at a time
@@ -593,14 +606,6 @@ function ProvidersPane({
         ))}
       </div>
 
-      <MediaGenForm
-        kind="imageGen"
-        title="Image Gen"
-        client={client}
-        list={list}
-        config={imageGen}
-        mutate={mutate}
-      />
       <MediaGenForm
         kind="videoGen"
         title="Video Gen"
@@ -983,6 +988,139 @@ function AddAccount({
       </div>
     </Card>
   );
+}
+
+/**
+ * Image Generation section: the default provider/model (the MediaGenForm) plus
+ * the media job-runtime limits (how many generations run at once).
+ */
+function ImageGenPane({
+  client,
+  list,
+  imageGen,
+  jobs,
+  mutate,
+}: {
+  client: BaiClient;
+  list: ProviderListResponse;
+  imageGen?: MediaGenConfig;
+  jobs?: JobsConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  return (
+    <>
+      <PageHeader title="Image Generation" />
+      <p className="section-lede">
+        Where bai generates images: the default provider/model, and how many generations run at once.
+      </p>
+      <MediaGenForm
+        kind="imageGen"
+        title="Image gen defaults"
+        client={client}
+        list={list}
+        config={imageGen}
+        mutate={mutate}
+      />
+      <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
+    </>
+  );
+}
+
+/**
+ * Media job-runtime limits (config jobs): how many generations run in
+ * parallel, and the per-job reliability envelope (timeout / attempts /
+ * backoff). Applies to image (and future video) jobs.
+ */
+function JobsLimitsForm({
+  client,
+  jobs,
+  mutate,
+}: {
+  client: BaiClient;
+  jobs?: JobsConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  const [concurrency, setConcurrency] = useState(String(jobs?.concurrency ?? 3));
+  const [timeoutMs, setTimeoutMs] = useState(String(jobs?.timeoutMs ?? 180_000));
+  const [maxAttempts, setMaxAttempts] = useState(String(jobs?.maxAttempts ?? 3));
+  const [backoffMs, setBackoffMs] = useState(String(jobs?.backoffMs ?? 1500));
+
+  const submit = (e: FormEvent): void => {
+    e.preventDefault();
+    const patch: JobsConfig = {
+      concurrency: clampInt(concurrency, 1, 10, 3),
+      timeoutMs: clampInt(timeoutMs, 1000, 3_600_000, 180_000),
+      maxAttempts: clampInt(maxAttempts, 1, 10, 3),
+      backoffMs: clampInt(backoffMs, 0, 600_000, 1500),
+    };
+    void mutate(
+      async () => {
+        await client.putConfig({ jobs: patch });
+      },
+      `Image generation limits saved (${patch.concurrency} concurrent)`,
+    );
+  };
+
+  return (
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title="Concurrent generations"
+        lede="How many image generations run at once, and the per-job reliability envelope (timeout, retries, backoff)."
+      />
+      <div className="form-grid">
+        <Field label="Concurrent generations" hint="(1–10, default 3)">
+          <TextInput
+            type="number"
+            min={1}
+            max={10}
+            value={concurrency}
+            onChange={(e) => setConcurrency(e.target.value)}
+          />
+        </Field>
+        <Field label="Timeout (ms)" hint="(per job)">
+          <TextInput
+            type="number"
+            min={1000}
+            max={3_600_000}
+            step={1000}
+            value={timeoutMs}
+            onChange={(e) => setTimeoutMs(e.target.value)}
+          />
+        </Field>
+        <Field label="Max attempts" hint="(retryable failures)">
+          <TextInput
+            type="number"
+            min={1}
+            max={10}
+            value={maxAttempts}
+            onChange={(e) => setMaxAttempts(e.target.value)}
+          />
+        </Field>
+        <Field label="Backoff (ms)" hint="(between attempts)">
+          <TextInput
+            type="number"
+            min={0}
+            max={600_000}
+            step={100}
+            value={backoffMs}
+            onChange={(e) => setBackoffMs(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div>
+        <Button type="submit" variant="primary">
+          Save limits
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Parse a numeric field, clamping to [min,max] and falling back when invalid. */
+function clampInt(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }
 
 /**
