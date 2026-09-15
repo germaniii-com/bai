@@ -28,6 +28,7 @@ import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
+import { ProviderIcon } from "./provider-icon";
 import { Button, Card, Combobox, ConfirmDialog, Field, ListItem, MediaParamsForm, PageHeader, PickerTrigger, SectionHeader, Select, SubNav, SubNavItem, TagInput, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -698,7 +699,10 @@ function AccordionProvider({
         aria-expanded={expanded}
         aria-controls={`provider-detail-${provider.id}`}
       >
-        <span className="title">{provider.name}</span>
+        <span className="provider-head">
+          <ProviderIcon id={provider.id} name={provider.name} adapter={provider.adapter} size={16} />
+          <span className="title">{provider.name}</span>
+        </span>
         <span className="dim">{hint}</span>
         {provider.connected && (
           <span className="check" title="connected">

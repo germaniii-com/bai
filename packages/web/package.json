@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "generate:icons": "bun run scripts/generate-mcp-icons.mjs",
+    "generate:provider-icons": "bun run scripts/generate-provider-icons.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

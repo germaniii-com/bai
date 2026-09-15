@@ -386,6 +386,33 @@ select:focus-visible,
   background: var(--border);
 }
 
+/* Provider/account row head: brand mark + name, inline. */
+.provider-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.provider-head .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-icon {
+  flex-shrink: 0;
+  color: var(--dim);
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.provider-item.active .provider-icon,
+.provider-item:hover .provider-icon {
+  color: var(--text);
+}
+
 .provider-item .check {
   position: absolute;
   top: 8px;
