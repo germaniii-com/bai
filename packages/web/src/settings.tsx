@@ -20,6 +20,7 @@ import type {
 } from "@bai/shared";
 import { coerceMediaParams, isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { partitionProviders, sortProviders } from "./provider-utils";
+import { modelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
@@ -1242,10 +1243,39 @@ function MediaGenForm({
   const [provider, setProvider] = useState(config?.provider ?? "");
   const [account, setAccount] = useState(config?.account ?? "");
   const [model, setModel] = useState(config?.model ?? "");
+  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; hint?: string }[]>([]);
 
   const providerIds = list.providers.map((p) => p.id).sort((a, b) => a.localeCompare(b));
   const knownProvider = list.providers.find((p) => p.id === provider.trim());
   const accountIds = knownProvider?.accounts.map((a) => a.id) ?? [];
+
+  // Image-gen model autocomplete: the adapter's curated list (same rows as the
+  // Image page). Video has no catalog yet, so it keeps a free-text field.
+  useEffect(() => {
+    if (kind !== "imageGen") {
+      setModelOptions([]);
+      return;
+    }
+    const providerId = provider.trim();
+    if (providerId.length === 0) {
+      setModelOptions([]);
+      return;
+    }
+    let cancelled = false;
+    void client
+      .imageCapabilities(providerId, model.trim() || undefined)
+      .then((res) => {
+        if (cancelled) return;
+        setModelOptions(res.models.map((m) => ({ value: m.id, label: m.id, hint: modelOptionHint(m) })));
+        setModel((current) => (current.trim().length > 0 ? current : res.model));
+      })
+      .catch(() => {
+        if (!cancelled) setModelOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, kind, provider, model]);
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
@@ -1303,7 +1333,19 @@ function MediaGenForm({
           />
         </Field>
         <Field label="Model">
-          <TextInput value={model} placeholder={kind === "imageGen" ? "gpt-image-2…" : "veo-3…"} onChange={(e) => setModel(e.target.value)} />
+          {kind === "imageGen" ? (
+            <Combobox
+              creatable
+              value={model}
+              onChange={setModel}
+              options={modelOptions}
+              placeholder="gpt-image-2…"
+              ariaLabel={`${title} model`}
+              emptyText="Type a model id."
+            />
+          ) : (
+            <TextInput value={model} placeholder="veo-3…" onChange={(e) => setModel(e.target.value)} />
+          )}
         </Field>
       </div>
       <div>

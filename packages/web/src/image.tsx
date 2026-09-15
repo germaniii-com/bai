@@ -46,6 +46,7 @@ import {
   TextInput,
 } from "./components";
 import { ImageLightbox, useAssetUrl } from "./attachments";
+import { modeLabel, modelOptionHint } from "./media-model-hint";
 import { useImageGallery } from "./use-image-gallery";
 
 type OnNotice = (message: string, kind?: "success" | "error" | "info") => void;
@@ -1125,25 +1126,6 @@ function ReferenceImage({ client, id }: { client: BaiClient; id: string }) {
   const url = useAssetUrl(client, id);
   if (url === undefined) return <span className="image-ref-placeholder" />;
   return <img className="image-ref-img" src={url} alt="Reference" />;
-}
-
-/** `t2i` → "T2I", `i2i` → "I2I". */
-function modeLabel(mode: MediaMode): string {
-  return mode === "t2i" ? "T2I" : "I2I";
-}
-
-/** Every field of a {@link MediaModelInfo}, compacted for a dropdown row. */
-function modelOptionHint(model: MediaModelInfo): string {
-  const parts: string[] = [];
-  if (model.label !== undefined && model.label !== model.id)
-    parts.push(model.label);
-  parts.push(model.modes.map(modeLabel).join("/"));
-  parts.push(`refs≤${model.maxReferences}`);
-  parts.push(`n≤${model.maxCount}`);
-  if (model.rates !== undefined && model.rates.length > 0) {
-    parts.push(model.rates.map((r) => `${r.label} ${r.value}`).join(", "));
-  }
-  return parts.join(" · ");
 }
 
 /** The selected model's full capability/pricing summary. */
