@@ -91,7 +91,7 @@ export interface AgentsConfig {
 }
 
 /** How an MCP server is reached. Inferred from `command` vs `url` when absent. */
-export type McpTransport = "stdio" | "http";
+export type McpTransport = "stdio" | "http" | "sse";
 
 /** One external MCP server definition (config.json `mcp.<name>` or a `mcp/<name>.json` file). */
 export interface MCPServerConfig {
@@ -143,9 +143,11 @@ export interface McpCatalogEntry {
   name: string;
   title: string;
   description: string;
+  /** Grouping label for the catalog UI (e.g. "Developer tools"). */
+  category: string;
   /** Server definition to write on install. */
   server: MCPServerConfig;
-  /** Env vars the user must provide (shown as hints; values live in the shell env). */
+  /** Env vars the user may need (shown as hints; values live in the shell env). */
   envVars?: { name: string; prompt: string; url?: string; secret?: boolean }[];
   /** True when install should start the OAuth flow after writing the file. */
   oauth?: boolean;
@@ -286,7 +288,7 @@ const oauthConfigSchema = z.union([
 ]);
 
 export const mcpServerSchema = z.object({
-  transport: z.enum(["stdio", "http"]).optional(),
+  transport: z.enum(["stdio", "http", "sse"]).optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),

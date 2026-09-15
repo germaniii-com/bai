@@ -6,6 +6,7 @@ import { Button, Field, Modal, Select, Textarea, TextInput, ToggleRow } from "./
 const TRANSPORT_OPTIONS: { value: McpTransport; label: string }[] = [
   { value: "stdio", label: "stdio — spawn a local process" },
   { value: "http", label: "HTTP — remote streamable HTTP" },
+  { value: "sse", label: "SSE — remote server-sent events" },
 ];
 
 /** Non-empty, trimmed lines (args). */
@@ -114,7 +115,7 @@ export function McpServerModal({
         return;
       }
       body = {
-        transport: "http",
+        transport,
         url: url.trim(),
         ...(headerMap !== undefined ? { headers: headerMap } : {}),
         ...(oauth ? { oauth: true } : {}),
@@ -192,7 +193,7 @@ export function McpServerModal({
         </Field>
       </form>
       <div style={{ display: "grid", gap: "0.5rem", marginTop: "0.75rem" }}>
-        {transport === "http" && (
+        {transport !== "stdio" && (
           <ToggleRow
             checked={oauth}
             onChange={setOauth}

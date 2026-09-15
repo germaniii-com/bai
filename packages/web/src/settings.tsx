@@ -1194,6 +1194,7 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     | { mode: "edit"; server: { name: string; source: McpServerSource; config: MCPServerConfig } }
     | null
   >(null);
+  const [catalogQuery, setCatalogQuery] = useState("");
 
   const load = async (): Promise<void> => {
     try {
@@ -1306,6 +1307,24 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
 
   const installed = new Set(servers.map((s) => s.name));
 
+  // Search + category grouping for a catalog that is now dozens of entries.
+  const query = catalogQuery.trim().toLowerCase();
+  const filteredCatalog =
+    query.length === 0
+      ? catalog
+      : catalog.filter((entry) =>
+          `${entry.title} ${entry.name} ${entry.description} ${entry.category}`.toLowerCase().includes(query),
+        );
+  const catalogGroups: { category: string; entries: McpCatalogEntry[] }[] = [];
+  for (const entry of filteredCatalog) {
+    let group = catalogGroups.find((g) => g.category === entry.category);
+    if (group === undefined) {
+      group = { category: entry.category, entries: [] };
+      catalogGroups.push(group);
+    }
+    group.entries.push(entry);
+  }
+
   return (
     <>
       <PageHeader title="Integrations" />
@@ -1351,27 +1370,50 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
       {/* --- Catalog (first, height-capped so it never buries the servers) --- */}
       <h3 className="settings-subheading">Catalog</h3>
       <p className="section-lede">
-        Official vendor-hosted MCP servers. Install writes a drop-in file in ~/.config/bai/mcp/, then starts OAuth.
+        Official vendor-hosted MCP servers, grouped by category. Install writes a drop-in file in ~/.config/bai/mcp/,
+        then starts OAuth where required.
       </p>
-      <div className="provider-accordion catalog-scroll">
-        {catalog.map((entry) => (
-          <div key={entry.name} className="mcp-row">
-            <div>
-              <strong>{entry.title}</strong> <span className="mcp-row-meta">{entry.description}</span>
-            </div>
-            <div className="mcp-row-actions">
-              <Button
-                type="button"
-                variant={installed.has(entry.name) ? "ghost" : "primary"}
-                disabled={busy !== null || installed.has(entry.name)}
-                onClick={() => void install(entry.name)}
-              >
-                {installed.has(entry.name) ? "Installed" : "Install"}
-              </Button>
-            </div>
-          </div>
-        ))}
+      <div className="provider-actions">
+        <TextInput
+          value={catalogQuery}
+          placeholder={`Search ${catalog.length} integrations…`}
+          onChange={(e) => setCatalogQuery(e.target.value)}
+          style={{ flex: 1, maxWidth: 420 }}
+        />
       </div>
+      {catalogGroups.length === 0 ? (
+        <p className="dim provider-empty">No integrations match "{catalogQuery.trim()}".</p>
+      ) : (
+        <div className="provider-accordion mcp-catalog-scroll">
+          {catalogGroups.map((group) => (
+            <div key={group.category}>
+              <p className="mcp-category">{group.category}</p>
+              {group.entries.map((entry) => (
+                <div key={entry.name} className="mcp-row">
+                  <div>
+                    <strong>{entry.title}</strong>{" "}
+                    <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>{" "}
+                    <span className="mcp-row-meta">{entry.description}</span>
+                    {entry.envVars !== undefined && entry.envVars.length > 0 && (
+                      <div className="mcp-row-meta">env: {entry.envVars.map((v) => v.name).join(", ")}</div>
+                    )}
+                  </div>
+                  <div className="mcp-row-actions">
+                    <Button
+                      type="button"
+                      variant={installed.has(entry.name) ? "ghost" : "primary"}
+                      disabled={busy !== null || installed.has(entry.name)}
+                      onClick={() => void install(entry.name)}
+                    >
+                      {installed.has(entry.name) ? "Installed" : "Install"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* --- Custom MCP servers (files in ~/.config/bai/mcp/ or config.json) --- */}
       <h3 className="settings-subheading">Custom MCP Servers</h3>

@@ -403,17 +403,22 @@ drop-in model as agents, skills, and tools.
 - Or declare servers in `config.json`'s `mcp` map; **file-defined servers win**
   on a name collision.
 - Transports: **stdio** (spawned subprocess with an allowlisted environment —
-  never the full `process.env`) and remote **streamable HTTP** with an SSE
-  fallback. Remote servers support **OAuth 2.1**; tokens live in
-  `~/.local/share/bai/mcp-tokens/<server>.json` (mode 0600), never in config.
+  never the full `process.env`), remote **streamable HTTP** (with automatic SSE
+  fallback), and explicit **SSE** servers. Remote servers support **OAuth 2.1**;
+  tokens live in `~/.local/share/bai/mcp-tokens/<server>.json` (mode 0600),
+  never in config.
 - A server's tools appear to the model as **`mcp/<server>/<tool>`**; resources
   and prompts ride the `mcp/list_resources`, `mcp/read_resource`,
   `mcp/list_prompts`, and `mcp/get_prompt` helpers.
-- **Settings → Integrations** (web): a scrollable **Catalog** first (Figma,
-  Atlassian/Jira, Notion, Linear, GitLab, Sentry) that installs with one click
-  and starts OAuth, then **Custom MCP Servers** — your own servers with live
+- **Settings → Integrations** (web): a scrollable, **searchable Catalog** of
+  63 vendor-hosted MCP servers grouped by category — Developer tools,
+  Productivity, Communications & CRM, Analytics & data, Payments & finance,
+  Media & creative, Travel & fitness, Docs & knowledge, Jobs — each row showing
+  an `OAuth` / `No auth` badge and any env-var hints. One click installs
+  (writing a drop-in file and starting OAuth where required; the docs servers
+  are keyless). Below it, **Custom MCP Servers** — your own servers with live
   status (connected / failed / needs authorization / disabled), **add/edit**
-  (stdio: command · args · env · cwd, or HTTP: url · headers · OAuth), plus
+  (stdio: command · args · env · cwd, or HTTP/SSE: url · headers · OAuth), plus
   enable/disable, retry, authorize, and remove. Authorization runs an OAuth
   2.1 flow against a local loopback callback (127.0.0.1:1455, ephemeral
   fallback) so it **completes automatically** when the browser lands — with a

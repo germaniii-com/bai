@@ -244,6 +244,11 @@ export class McpManager {
         transport = buildStdioTransport(config);
         activeTransport = transport;
         await withTimeout(client.connect(transport), this.timeoutMs(config));
+      } else if (kind === "sse") {
+        // Explicit SSE server (e.g. Asana/PayPal/Square expose only /sse).
+        transport = buildSseTransport(config, authProvider);
+        activeTransport = transport;
+        await withTimeout(client.connect(transport), this.timeoutMs(config));
       } else {
         transport = buildHttpTransport(config, authProvider);
         activeTransport = transport;

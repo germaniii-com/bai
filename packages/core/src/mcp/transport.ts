@@ -6,11 +6,13 @@ import {
   type Transport,
 } from "@modelcontextprotocol/client";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
-import type { MCPServerConfig } from "@bai/shared";
+import type { MCPServerConfig, McpTransport } from "@bai/shared";
 
 /** Resolve a server's transport kind (explicit, or inferred from its fields). */
-export function transportKind(config: MCPServerConfig): "stdio" | "http" {
-  if (config.transport === "stdio" || config.transport === "http") return config.transport;
+export function transportKind(config: MCPServerConfig): McpTransport {
+  if (config.transport === "stdio" || config.transport === "http" || config.transport === "sse") {
+    return config.transport;
+  }
   return config.url !== undefined ? "http" : "stdio";
 }
 
