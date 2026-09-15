@@ -252,6 +252,17 @@ export const mcpUsageQuerySchema = z.object({
   kind: z.enum(["tool", "resource", "prompt"]).optional(),
 });
 
+/** GET /api/image/usage — window + bucketing + dimension filters (see media-usage.ts). */
+export const mediaUsageQuerySchema = z.object({
+  from: z.string().max(40).optional(), // inclusive RFC3339 lower bound
+  to: z.string().max(40).optional(), // EXCLUSIVE upper bound
+  granularity: z.enum(["day", "month", "year"]).optional(),
+  provider: z.string().max(200).optional(),
+  account: z.string().max(200).optional(),
+  model: z.string().max(200).optional(),
+  mode: z.enum(["t2i", "i2i"]).optional(),
+});
+
 /** GET /api/usage/analytics — dimension filters + time bucketing (see usage.ts). */
 export const usageAnalyticsQuerySchema = z.object({
   from: z.string().max(40).optional(), // inclusive RFC3339 lower bound

@@ -20,6 +20,7 @@ export type AssetId = Brand<string, "ast">;
 export type UsageId = Brand<string, "usg">;
 export type SkillEventId = Brand<string, "skl">;
 export type McpEventId = Brand<string, "mcp">;
+export type MediaEventId = Brand<string, "med">;
 export type AutomationId = Brand<string, "auto">;
 export type AutomationRunId = Brand<string, "arun">;
 
@@ -108,6 +109,9 @@ export const newId = {
   },
   mcpEvent(): McpEventId {
     return `mcp_${ulid()}` as McpEventId;
+  },
+  mediaEvent(): MediaEventId {
+    return `med_${ulid()}` as MediaEventId;
   },
   automation(): AutomationId {
     return `auto_${ulid()}` as AutomationId;

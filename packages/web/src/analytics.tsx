@@ -15,6 +15,7 @@ import type { BaiClient } from "@bai/api/client";
 import type {
   ThemeColors,
   McpUsageResponse,
+  MediaUsageResponse,
   SkillUsageResponse,
   UsageAnalyticsQuery,
   UsageAnalyticsResponse,
@@ -193,6 +194,28 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
     };
   }, [client, granularity, range]);
 
+  // Image-generation activity (the media_events store) — same window +
+  // granularity. Independent of LLM usage: image-only windows still render.
+  const [imageUsage, setImageUsage] = useState<MediaUsageResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const from = RANGE_DAYS[range];
+        const res = await client.imageUsage({
+          granularity,
+          ...(from !== undefined ? { from: daysAgoIso(from) } : {}),
+        });
+        if (!cancelled) setImageUsage(res);
+      } catch {
+        if (!cancelled) setImageUsage(null); // advisory — the card shows its empty stance
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, granularity, range]);
+
   // Model → color assignment, stable across renders (byModel is spend-sorted).
   const modelColor = useMemo(() => {
     const map = new Map<string, string>();
@@ -212,7 +235,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
     );
   }
 
-  if (usage.kpis.requests === 0) {
+  if (usage.kpis.requests === 0 && (imageUsage?.kpis.requests ?? 0) === 0) {
     return (
       <div className="analytics">
         <PageHeader title="Analytics" />
@@ -345,6 +368,9 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
         </Button>
       </div>
 
+      {/* Token (LLM) sections — hidden when the window has only media usage. */}
+      {usage.kpis.requests > 0 ? (
+        <>
       {/* --- KPI cards --- */}
       <div className="kpi-grid">
         {kpis.map((k) => (
@@ -550,6 +576,10 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
           </BarChart>
         </ResponsiveContainer>
       </Card>
+        </>
+      ) : (
+        <p className="dim empty">No LLM usage in this window.</p>
+      )}
 
       {/* --- skill activity: skills.view calls (skill_events store) --- */}
       <Card className="chart-card">
@@ -673,6 +703,86 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
                     <td>{s.errors > 0 ? <span className="usage-errors">{fmtInt(s.errors)}</span> : "—"}</td>
                     <td>{fmtInt(s.sessions)}</td>
                     <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </Card>
+
+      {/* --- image generation: terminal image jobs (media_events store) --- */}
+      <Card className="chart-card">
+        <h3>Image generation</h3>
+        {imageUsage === null ? (
+          <p className="dim">No image activity data.</p>
+        ) : imageUsage.kpis.requests === 0 ? (
+          <p className="dim empty">
+            No image generations recorded yet — cost, volume, and per-model totals appear here once you generate.
+          </p>
+        ) : (
+          <>
+            <p className="dim">
+              {fmtInt(imageUsage.kpis.requests)} request{imageUsage.kpis.requests === 1 ? "" : "s"} ·{" "}
+              {fmtInt(imageUsage.kpis.images)} image{imageUsage.kpis.images === 1 ? "" : "s"} ·{" "}
+              {fmtUsd(imageUsage.kpis.spendUsd)} spent · avg {fmtUsd(imageUsage.kpis.avgCostPerImage)}/image ·{" "}
+              {fmtInt(imageUsage.kpis.errors)} failed · avg {fmtInt(Math.round(imageUsage.kpis.avgDurationMs))}ms
+            </p>
+            {imageUsage.byWorkflow.length > 0 && (
+              <p className="dim">
+                {imageUsage.byWorkflow
+                  .map((w) => `${w.mode.toUpperCase()}: ${fmtInt(w.images)} img · ${fmtUsd(w.spendUsd)}`)
+                  .join("  ·  ")}
+              </p>
+            )}
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={imageUsage.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
+                <Tooltip
+                  content={(props: TooltipProps) => (
+                    <ChartTooltip
+                      {...props}
+                      bg={themeColors.surfaceSecondary}
+                      rows={(props.payload ?? []).map((entry) => ({
+                        name: String(entry.dataKey),
+                        text:
+                          String(entry.dataKey) === "spendUsd"
+                            ? fmtUsd(Number(entry.value ?? 0))
+                            : `${fmtInt(Number(entry.value ?? 0))} ${String(entry.dataKey)}`,
+                      }))}
+                    />
+                  )}
+                />
+                <Legend />
+                <Bar dataKey="images" name="Images" stackId="img" fill={themeColors.primary} />
+                <Bar dataKey="errors" name="Failed" stackId="img" fill={themeColors.danger} />
+              </BarChart>
+            </ResponsiveContainer>
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Requests</th>
+                  <th>Images</th>
+                  <th>Spend</th>
+                  <th>Errors</th>
+                  <th>Avg ms</th>
+                </tr>
+              </thead>
+              <tbody>
+                {imageUsage.byModel.map((m) => (
+                  <tr key={`${m.provider}/${m.model}`}>
+                    <td>
+                      {m.model}
+                      <span className="dim"> ({m.provider})</span>
+                    </td>
+                    <td>{fmtInt(m.requests)}</td>
+                    <td>{fmtInt(m.images)}</td>
+                    <td>{fmtUsd(m.spendUsd)}</td>
+                    <td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</td>
+                    <td>{fmtInt(Math.round(m.avgDurationMs))}</td>
                   </tr>
                 ))}
               </tbody>

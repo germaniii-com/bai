@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Asset, Job } from "@bai/shared";
+import type { Asset, Job, MediaUsageResponse } from "@bai/shared";
 import { createApp } from "../src";
 import { makeStack, type TestStack } from "./harness";
 
@@ -79,6 +79,38 @@ describe("image routes", () => {
       body: JSON.stringify({ tags: ["x"] }),
     });
     expect(missing.status).toBe(404);
+  });
+
+  test("GET /api/image/usage aggregates image generations", async () => {
+    stack.store.mediaUsage.insert({
+      provider: "openrouter",
+      model: "google/gemini-3-pro-image",
+      mode: "t2i",
+      images: 2,
+      costUsd: 0.08,
+      durationMs: 1000,
+      now: "2026-09-15T10:00:00.000Z",
+    });
+    stack.store.mediaUsage.insert({
+      provider: "openrouter",
+      model: "google/gemini-3-pro-image",
+      mode: "i2i",
+      ok: false,
+      error: "boom",
+      now: "2026-09-15T11:00:00.000Z",
+    });
+
+    const res = await app.request("/api/image/usage");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as MediaUsageResponse;
+    expect(body.kpis.requests).toBe(2);
+    expect(body.kpis.images).toBe(2);
+    expect(body.kpis.errors).toBe(1);
+    expect(body.kpis.spendUsd).toBeCloseTo(0.08);
+    expect(body.byModel[0]).toMatchObject({ model: "google/gemini-3-pro-image", images: 2 });
+
+    const filtered = await app.request("/api/image/usage?mode=i2i");
+    expect(((await filtered.json()) as MediaUsageResponse).kpis.requests).toBe(1);
   });
 
   test("capabilities returns a provider/model + param spec (stub fallback)", async () => {

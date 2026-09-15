@@ -565,9 +565,12 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
   shutdown, and atomic asset writes. Limits live in `config.jobs`
   (`timeoutMs` / `maxAttempts` / `backoffMs` / `concurrency`).
 - Routes: `POST /api/image/generate`, `GET /api/image/{capabilities,gallery,
-  tags,recent}`, `DELETE /api/asset/:id`, `POST /api/job/:id/{cancel,retry}`.
+  tags,recent,usage}`, `DELETE /api/asset/:id`, `PUT /api/asset/:id/tags`,
+  `POST /api/job/:id/{cancel,retry}`.
   Assets live under `~/.local/share/bai/assets/image/`; tags in the
-  `asset_tags` index.
+  `asset_tags` index. Every terminal job records one append-only
+  `media_events` row (provider/model/account/mode, images, cost, duration,
+  ok/error) that feeds the Analytics page's **Image generation** card.
 - The web page is `packages/web/src/image.tsx` (single page, no nested
   sidebar); the router exposes `/image`.
 
@@ -761,6 +764,7 @@ and Settings) opens a persistent interactive bash on the server machine.
   per-model usage tables + charts, request volume, token breakdown,
   prompt-caching bars, and an error graph — filterable per agent, workspace,
   provider, and account with day/month/year granularity (D26; enforced by a
-  source-scan test). Companion activity cards cover **skill** (`skills.view`)
-  and **MCP** interactions (server tools + resource/prompt helpers) over the
-  same window.
+  source-scan test). Companion activity cards cover **skill** (`skills.view`),
+  **MCP** interactions (server tools + resource/prompt helpers), and **image
+  generation** (terminal image jobs — requests, images, spend, avg $/image,
+  errors, duration, per-model + per-workflow totals) over the same window.

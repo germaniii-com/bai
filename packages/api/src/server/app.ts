@@ -13,6 +13,7 @@ import {
   mcpServerSchema,
   mcpUsageQuerySchema,
   mediaGenRequestSchema,
+  mediaUsageQuerySchema,
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
@@ -991,6 +992,9 @@ function buildApi(deps: ApiDeps) {
       return c.json({ tags: deps.core.imageTags(q, limit) });
     })
     .get("/image/recent", (c) => c.json(deps.core.imageRecent()))
+    .get("/image/usage", zValidator("query", mediaUsageQuerySchema), (c) => {
+      return c.json(deps.store.mediaUsage.analytics(c.req.valid("query")));
+    })
 
     // --- automations (scheduled jobs) ---
     .get("/automation", (c) => c.json({ automations: deps.automations.list() }))

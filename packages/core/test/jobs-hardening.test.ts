@@ -199,4 +199,54 @@ describe("JobQueue hardening", () => {
     expect(stack.store.jobs.get(job.id)?.status).toBe("cancelled");
     await stack.cleanup();
   });
+
+  test("records a media usage error row for a failed image job", async () => {
+    const stack = makeQueue(
+      {
+        "image.generate": async (_job, ctx) => {
+          ctx.describe?.({ provider: "openrouter", model: "m", account: "acct", mode: "i2i" });
+          throw new MediaGenError("nope", { retryable: false });
+        },
+      },
+      { maxAttempts: 1 },
+    );
+    const job = stack.queue.enqueue("image.generate", undefined, { prompt: "x" });
+    await waitFor(() => stack.store.jobs.get(job.id)?.status === "error");
+    await waitFor(() => stack.store.mediaUsage.list().length > 0);
+    const rows = stack.store.mediaUsage.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      provider: "openrouter",
+      model: "m",
+      account: "acct",
+      mode: "i2i",
+      ok: false,
+      error: "nope",
+      images: 0,
+    });
+    await stack.cleanup();
+  });
+
+  test("records a media usage success row (and skips cancellations)", async () => {
+    const stack = makeQueue(
+      {
+        "image.generate": async (_job, ctx) => {
+          ctx.describe?.({ provider: "openrouter", model: "m", mode: "t2i" });
+          return { output: { costUsd: 0.04 }, files: [] };
+        },
+      },
+      { concurrency: 1 },
+    );
+    const ok = stack.queue.enqueue("image.generate", undefined, { prompt: "x" });
+    await waitFor(() => stack.store.jobs.get(ok.id)?.status === "done");
+    await waitFor(() => stack.store.mediaUsage.list().length > 0);
+    expect(stack.store.mediaUsage.list()[0]).toMatchObject({
+      provider: "openrouter",
+      model: "m",
+      mode: "t2i",
+      ok: true,
+      costUsd: 0.04,
+    });
+    await stack.cleanup();
+  });
 });

@@ -243,4 +243,27 @@ export const MIGRATIONS: string[] = [
 
   CREATE INDEX IF NOT EXISTS idx_asset_tags_tag ON asset_tags(tag);
   `,
+  // 010 — image-generation usage analytics: one append-only row per terminal
+  // image job (success or failure) recorded by the job queue. Plain aggregate
+  // data like usage/skill_events/mcp_events — not event-sourced, read through
+  // the GET /api/image/usage aggregation. Cost is a flat USD per request (the
+  // provider's reported cost), stored directly rather than derived from tokens.
+  `
+  CREATE TABLE IF NOT EXISTS media_events (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    account TEXT,
+    model TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    images INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_media_events_created ON media_events(created_at);
+  CREATE INDEX IF NOT EXISTS idx_media_events_model ON media_events(provider, model, created_at);
+  `,
 ];

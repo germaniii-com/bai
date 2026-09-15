@@ -36,6 +36,8 @@ import type {
   MediaGenRequestBody,
   MediaRecent,
   MediaTagCount,
+  MediaUsageQuery,
+  MediaUsageResponse,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -1092,6 +1094,13 @@ export class BaiClient {
   async imageRecent(): Promise<MediaRecent> {
     const res = await this.rpc().image.recent.$get();
     if (!res.ok) throw new Error(`image recent failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Image-generation usage analytics (the Analytics page's image card). */
+  async imageUsage(query: MediaUsageQuery = {}): Promise<MediaUsageResponse> {
+    const res = await this.rpc().image.usage.$get({ query });
+    if (!res.ok) throw new Error(`image usage failed: ${res.status}`);
     return res.json();
   }
 

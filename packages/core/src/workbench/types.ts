@@ -12,6 +12,20 @@ export interface JobExecutorContext {
   progress(pct: number): void;
   signal: AbortSignal;
   sessionId?: SessionIdForJobs;
+  /**
+   * Report the resolved provider/model/account/workflow so the queue can
+   * record ONE media usage row at the job's terminal outcome (analytics).
+   * Best-effort and side-effect free; callers may invoke it at most once.
+   */
+  describe?(meta: JobDescribeMeta): void;
+}
+
+/** Analytics dimensions a media executor can report for its job. */
+export interface JobDescribeMeta {
+  provider?: string;
+  model?: string;
+  account?: string;
+  mode?: "t2i" | "i2i";
 }
 
 /** Avoid importing shared SessionId here to keep the contract dependency-light. */

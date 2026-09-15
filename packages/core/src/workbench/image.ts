@@ -100,6 +100,13 @@ export class ImageWorkbench implements Workbench {
       const adapter = this.adapterFor(provider);
       const model = request.model ?? configured?.model ?? adapter.defaultModel();
       const resolved: MediaGenRequest = { ...request, model };
+      // Report dimensions for the queue's media-usage analytics row (best-effort).
+      ctx.describe?.({
+        provider,
+        model,
+        ...(configured?.account !== undefined ? { account: configured.account } : {}),
+        mode: request.mode,
+      });
       const params = resolved.params ?? {};
       ctx.progress(0.05);
       const credentials = this.deps.runtime

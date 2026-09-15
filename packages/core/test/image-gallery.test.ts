@@ -3,6 +3,15 @@ import { existsSync, rmSync } from "node:fs";
 import { readMediaGen } from "@bai/shared";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("timeout waiting for condition");
+}
+
 describe("image gallery (recipes + tags + paging + delete)", () => {
   let t: TestCore;
 
@@ -13,6 +22,16 @@ describe("image gallery (recipes + tags + paging + delete)", () => {
   afterEach(() => {
     t.store.close();
     rmSync(t.dir, { recursive: true, force: true });
+  });
+
+  test("a generation records one media usage row", async () => {
+    const created = waitForEvent(t.bus, "asset.created");
+    t.core.enqueueImageGeneration({ mode: "i2i", prompt: "x", params: { count: 2 } });
+    await created;
+    await waitFor(() => t.store.mediaUsage.list().length > 0);
+    const rows = t.store.mediaUsage.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ provider: "stub", model: "stub", mode: "i2i", images: 2, ok: true });
   });
 
   test("a generation stamps its recipe and normalized tags", async () => {

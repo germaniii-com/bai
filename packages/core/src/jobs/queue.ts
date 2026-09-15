@@ -20,6 +20,15 @@ export interface JobLimits {
 const DEFAULT_LIMITS: JobLimits = { timeoutMs: 180_000, maxAttempts: 3, backoffMs: 1500, concurrency: 3 };
 const MAX_BACKOFF_MS = 30_000;
 
+/** Analytics dimensions gathered per job (for the media_events row). */
+interface JobMeta {
+  started: number;
+  provider?: string;
+  model?: string;
+  account?: string;
+  mode?: "t2i" | "i2i";
+}
+
 export interface JobQueueDeps {
   store: Store;
   bus: Bus;
@@ -44,6 +53,8 @@ export class JobQueue {
   private stopping = false;
   private scheduledTimer: ReturnType<typeof setTimeout> | undefined;
   private aborters = new Map<JobId, AbortController>();
+  /** Per-job analytics dimensions reported by the executor via `ctx.describe`. */
+  private jobMeta = new Map<JobId, JobMeta>();
   private readonly clock: Clock;
 
   constructor(private deps: JobQueueDeps) {
@@ -195,6 +206,8 @@ export class JobQueue {
     let timedOut = false;
     const deadline = Date.now() + limits.timeoutMs;
     const started = Date.now();
+    const meta: JobMeta = { started };
+    this.jobMeta.set(job.id, meta);
     const running = this.deps.store.jobs.update(job.id, {
       status: "running",
       attempt: 1,
@@ -223,6 +236,7 @@ export class JobQueue {
             {
               progress: (pct) => this.setProgress(job.id, pct),
               signal: ac.signal,
+              describe: (reported) => Object.assign(meta, reported),
               ...(job.sessionId !== undefined ? { sessionId: job.sessionId } : {}),
             },
           );
@@ -258,6 +272,12 @@ export class JobQueue {
           console.info(
             `[bai] job ${job.id} (${job.kind}) done in ${Date.now() - started}ms (attempt ${attempt})`,
           );
+          const cost = costOf(result.output);
+          this.recordMedia(job, meta, {
+            ok: true,
+            images: result.files.length,
+            ...(cost !== undefined ? { costUsd: cost } : {}),
+          });
           return;
         } catch (err) {
           if (ac.signal.aborted) {
@@ -297,6 +317,7 @@ export class JobQueue {
       this.fail(job, timeoutMessage(limits.timeoutMs), attempt);
     } finally {
       this.aborters.delete(job.id);
+      this.jobMeta.delete(job.id);
     }
   }
 
@@ -353,7 +374,45 @@ export class JobQueue {
     });
     if (failed) this.emit(failed);
     console.warn(`[bai] job ${job.id} (${job.kind}) failed: ${message}`);
+    this.recordMedia(job, this.jobMeta.get(job.id), { ok: false, error: message });
   }
+
+  /**
+   * Record one image-generation usage row (the media_events analytics ledger)
+   * at the job's terminal outcome. Best-effort — analytics must never break a
+   * job. Cancellations are deliberately not recorded (user aborts aren't
+   * failures, the D26 precedent).
+   */
+  private recordMedia(
+    job: Job,
+    meta: JobMeta | undefined,
+    outcome: { ok: boolean; images?: number; costUsd?: number; error?: string },
+  ): void {
+    if (job.kind !== "image.generate") return;
+    try {
+      this.deps.store.mediaUsage.insert({
+        provider: meta?.provider ?? "unknown",
+        ...(meta?.account !== undefined ? { account: meta.account } : {}),
+        model: meta?.model ?? "unknown",
+        mode: meta?.mode ?? "t2i",
+        images: outcome.images ?? 0,
+        costUsd: outcome.costUsd ?? 0,
+        durationMs: meta !== undefined ? Math.max(0, Date.now() - meta.started) : 0,
+        ok: outcome.ok,
+        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+        now: this.clock.iso(),
+      });
+    } catch {
+      // Analytics is advisory — never break a job.
+    }
+  }
+}
+
+/** Pull a finite `costUsd` out of a job result output, when present. */
+function costOf(output: unknown): number | undefined {
+  if (typeof output !== "object" || output === null) return undefined;
+  const cost = (output as { costUsd?: unknown }).costUsd;
+  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
 }
 
 function tagsFromMeta(meta: Record<string, unknown> | undefined): string[] {
