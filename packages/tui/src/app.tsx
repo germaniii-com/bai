@@ -12,6 +12,7 @@ import { SubagentDialog } from "./views/subagent-dialog";
 import { ThemePicker } from "./views/theme-picker";
 import { CommandPalette } from "./views/command-palette";
 import { TodosDialog } from "./views/todos";
+import { ContextUsageDialog } from "./views/context-usage";
 import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
@@ -57,6 +58,7 @@ type DialogOpen =
   | { kind: "sessions" }
   | { kind: "themes" }
   | { kind: "todos" }
+  | { kind: "context" }
   | { kind: "subagents"; index: number };
 
 /**
@@ -65,7 +67,7 @@ type DialogOpen =
  * The rest (agents, skills, subagents) keep the full-screen render-branch
  * swap: they are workspace-like views, not pickers.
  */
-const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes", "todos"]);
+const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes", "todos", "context"]);
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -648,6 +650,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   const openTodosDialog = useCallback(() => {
     setDialog({ kind: "todos" });
   }, []);
+  const openContextDialog = useCallback(() => {
+    setDialog({ kind: "context" });
+  }, []);
 
   // The supermenu's registry (state/commands.ts) — context flags are live so
   // the Suggested section tracks the current surface (no provider connected,
@@ -689,6 +694,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           return openThemesDialog();
         case "todo.show":
           return openTodosDialog();
+        case "context.show":
+          return openContextDialog();
         case "view.gallery":
           setDialog(null);
           setView("gallery");
@@ -705,7 +712,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
           return exit();
       }
     },
-    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openSkillsDialog, openThemesDialog, openTodosDialog, exit],
+    [openSessionsDialog, openModelsDialog, openProvidersDialog, openAgentsDialog, openSkillsDialog, openThemesDialog, openTodosDialog, openContextDialog, exit],
   );
 
   useInput((ch, key) => {
@@ -1024,6 +1031,11 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
             // Todo panel (ctrl+t / supermenu "Show todos"): the active
             // session's agent-maintained task list. Read-only; esc closes.
             <TodosDialog todos={todos} windowSize={overlayListRows} onClose={() => setDialog(null)} />
+          ) : overlayDialog.kind === "context" ? (
+            // Context Usage (supermenu): the active session's context
+            // breakdown — the composer hub's tracker math, per category. The
+            // `mcp` row is the MCP tool-schema share of the prompt.
+            <ContextUsageDialog usage={usage} onClose={() => setDialog(null)} />
           ) : overlayDialog.kind === "providers" || overlayDialog.kind === "all-models" ? (
             providers !== null ? (
               // Provider wizard / flat model list. Re-open with the list

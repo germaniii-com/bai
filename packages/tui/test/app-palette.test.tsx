@@ -185,4 +185,35 @@ describe("App supermenu (ctrl+p)", () => {
       unmount();
     }
   }, 30000);
+
+  test("the palette's Context Usage opens the breakdown dialog", async () => {
+    const { stdin, stdout, unmount } = render(<App client={client} version="test" />);
+    const frames = stdout.frames;
+    try {
+      await tick(200);
+
+      // Bare harness → no session/usage, so the dialog shows its empty stance.
+      const markP = frames.length;
+      stdin.write("\x10"); // ctrl+p
+      await waitForAnyFrame(() => frames.slice(markP), (f) => f.includes("commands") && f.includes("Suggested"));
+      stdin.write("context");
+      const filtered = await waitForAnyFrame(
+        () => frames.slice(markP),
+        (f) => f.includes("filter: context") && f.includes("Context Usage"),
+      );
+      expect(filtered).toContain("❯ Context Usage");
+      stdin.write("\r");
+      const dialog = await waitForAnyFrame(
+        () => frames.slice(markP),
+        (f) => f.includes("context usage appears after the first model response"),
+      );
+      expect(dialog).toContain("esc close");
+
+      // esc closes the overlay.
+      stdin.write("\x1b");
+      await waitForAnyFrame(() => frames.slice(markP), (f) => !f.includes("context usage appears"));
+    } finally {
+      unmount();
+    }
+  }, 30000);
 });

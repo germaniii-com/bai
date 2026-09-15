@@ -11,6 +11,7 @@ import {
   enqueueJobSchema,
   learnSkillSchema,
   mcpServerSchema,
+  mcpUsageQuerySchema,
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
@@ -269,10 +270,20 @@ function buildApi(deps: ApiDeps) {
 
     // --- MCP servers (external integrations) ---
     .get("/mcp/servers", (c) => c.json({ servers: deps.core.mcpServers() }))
+    // Registered before the parameterized server routes so "usage" is never
+    // captured as a server name (the /skill/usage precedent).
+    .get("/mcp/usage", zValidator("query", mcpUsageQuerySchema), (c) => {
+      return c.json(deps.store.mcpUsage.analytics(c.req.valid("query")));
+    })
     .get("/mcp/server/:name", (c) => {
       const server = deps.core.mcpServer(c.req.param("name"));
       if (server === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ server });
+    })
+    .get("/mcp/server/:name/usage", (c) => {
+      // Analytics, not config: a removed server keeps its usage history, so
+      // an unknown name returns zeroed totals rather than a 404.
+      return c.json({ usage: deps.store.mcpUsage.forServer(c.req.param("name")) });
     })
     .get("/mcp/catalog", (c) => c.json({ catalog: deps.core.mcpCatalog() }))
     .put("/mcp/server/:name", zValidator("json", z.object({ config: mcpServerSchema })), async (c) => {

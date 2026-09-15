@@ -11,9 +11,9 @@
 export type UsageKind = "run" | "title" | "compaction";
 
 /**
- * The categories a turn's prompt is composed of (the web context-breakdown
+ * The categories a turn's prompt is composed of (the context-breakdown
  * modal's rows). `subagents` is the `task` tool's footprint; `mcp` is the
- * `mcp/<server>/…`-namespaced tools (none loaded yet).
+ * `mcp/<server>/…`-namespaced tool schemas (namespaced MCP tools + helpers).
  */
 export type ContextCategory = "system" | "tools" | "skills" | "mcp" | "subagents" | "conversation";
 

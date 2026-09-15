@@ -39,6 +39,7 @@ export function buildCommandSpecs(ctx: CommandContext): CommandSpec[] {
   return [
     { id: "session.switch", title: "Switch session", category: "Session", suggested: ctx.sessionCount > 0 },
     { id: "session.new", title: "New session", category: "Session", suggested: ctx.hasActiveSession },
+    { id: "context.show", title: "Context Usage", category: "Session" },
     { id: "model.switch", title: "Switch model", category: "Model" },
     { id: "provider.connect", title: "Connect provider", category: "Provider", suggested: ctx.needsSetup },
     { id: "agent.switch", title: "Switch agent", category: "Agent" },

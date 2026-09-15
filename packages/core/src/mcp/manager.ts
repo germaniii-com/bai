@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { UnauthorizedError, type CallToolResult, type Prompt, type Resource, type Tool as McpTool, type Transport } from "@modelcontextprotocol/client";
-import type { MCPServerConfig, McpServerInfo, McpServerSource, McpServerState } from "@bai/shared";
+import { systemClock, type Clock, type McpInteractionKind, type MCPServerConfig, type McpServerInfo, type McpServerSource, type McpServerState } from "@bai/shared";
+import type { McpUsageRepo } from "../store/mcp-usage";
 import type { ToolContext, ToolRegistry, ToolResult } from "../tools/registry";
 import { callResultToText, normalizeInputSchema, promptResultToText, qualifiedToolName, readResourceToText } from "./catalog";
 import { buildHttpTransport, buildSseTransport, buildStdioTransport, createClient, transportKind } from "./transport";
@@ -21,6 +23,10 @@ export interface McpManagerOptions {
   /** Broadcast hook (the bus + firehose `mcp.updated`). */
   onChange?: () => void;
   connectTimeoutMs?: number;
+  /** MCP usage analytics store (best-effort; absent in tests/one-shots). */
+  usage?: McpUsageRepo;
+  /** Injected clock for usage timestamps (defaults to the system clock). */
+  clock?: Clock;
 }
 
 interface ClientHandle {
@@ -46,6 +52,7 @@ interface ServerState {
  */
 export class McpManager {
   private readonly auth: McpAuthStore;
+  private readonly clock: Clock;
   private readonly handles = new Map<string, ClientHandle>();
   /** Transports left mid-OAuth (needed to finish the code exchange). */
   private readonly pendingAuth = new Map<string, Transport>();
@@ -56,6 +63,7 @@ export class McpManager {
 
   constructor(private opts: McpManagerOptions) {
     this.auth = new McpAuthStore(opts.tokensDir);
+    this.clock = opts.clock ?? systemClock;
   }
 
   async start(): Promise<void> {
@@ -340,15 +348,21 @@ export class McpManager {
         origin: `mcp/${server}`,
         execute: async (args: unknown, ctx: ToolContext): Promise<ToolResult> => {
           const current = this.handles.get(server);
-          if (current === undefined) throw new Error(`MCP server "${server}" is not connected`);
-          void ctx;
-          const result = (await current.client.callTool({
-            name: toolName,
-            arguments: (args ?? {}) as Record<string, unknown>,
-          })) as CallToolResult;
-          const text = callResultToText(result);
-          if (result.isError === true) throw new Error(text.length > 0 ? text : "MCP tool returned an error");
-          return { content: text, meta: { title: `MCP ${server}/${toolName}`, server, tool: toolName } };
+          if (current === undefined) {
+            const error = `MCP server "${server}" is not connected`;
+            // Record the failure too (a disconnected call is real usage signal).
+            this.recordMcp(ctx, server, toolName, "tool", Date.now(), args, false, error);
+            throw new Error(error);
+          }
+          return this.runRecorded(ctx, server, toolName, "tool", args, async () => {
+            const result = (await current.client.callTool({
+              name: toolName,
+              arguments: (args ?? {}) as Record<string, unknown>,
+            })) as CallToolResult;
+            const text = callResultToText(result);
+            if (result.isError === true) throw new Error(text.length > 0 ? text : "MCP tool returned an error");
+            return { content: text, meta: { title: `MCP ${server}/${toolName}`, server, tool: toolName } };
+          });
         },
       });
     }
@@ -373,52 +387,61 @@ export class McpManager {
       const a = (args ?? {}) as { server?: string };
       return a.server;
     };
+    // Analytics attribution: the named server, or "(all)" for a cross-server
+    // scan (and for arg-validation failures, which carry no server).
+    const serverOf = (args: unknown): string => {
+      const s = (args as { server?: unknown } | null)?.server;
+      return typeof s === "string" && s.length > 0 ? s : "(all)";
+    };
     this.opts.tools.replace({
       name: "mcp/list_resources",
       description: "List resources exposed by connected MCP servers (optionally one server).",
       origin: "mcp",
       schema: { type: "object", properties: { server: { type: "string" } } },
-      execute: async (args): Promise<ToolResult> => {
-        const only = listFor(args);
-        const lines: string[] = [];
-        for (const [server, handle] of this.handles) {
-          if (only !== undefined && only !== server) continue;
-          const resources = await this.listResources(handle);
-          for (const r of resources) lines.push(`${server}: ${r.uri}${r.name !== undefined ? ` — ${r.name}` : ""}`);
-        }
-        return { content: lines.length > 0 ? lines.join("\n") : "No MCP resources.", meta: { title: "MCP resources" } };
-      },
+      execute: async (args, ctx): Promise<ToolResult> =>
+        this.runRecorded(ctx, serverOf(args), "list_resources", "resource", args, async () => {
+          const only = listFor(args);
+          const lines: string[] = [];
+          for (const [server, handle] of this.handles) {
+            if (only !== undefined && only !== server) continue;
+            const resources = await this.listResources(handle);
+            for (const r of resources) lines.push(`${server}: ${r.uri}${r.name !== undefined ? ` — ${r.name}` : ""}`);
+          }
+          return { content: lines.length > 0 ? lines.join("\n") : "No MCP resources.", meta: { title: "MCP resources" } };
+        }),
     });
     this.opts.tools.replace({
       name: "mcp/read_resource",
       description: "Read one MCP resource by server and uri.",
       origin: "mcp",
       schema: { type: "object", properties: { server: { type: "string" }, uri: { type: "string" } }, required: ["server", "uri"] },
-      execute: async (args): Promise<ToolResult> => {
-        const { server, uri } = (args ?? {}) as { server?: string; uri?: string };
-        if (server === undefined || uri === undefined) throw new Error("server and uri are required");
-        const handle = this.handles.get(server);
-        if (handle === undefined) throw new Error(`MCP server "${server}" is not connected`);
-        const result = await handle.client.readResource({ uri });
-        return { content: readResourceToText(result), meta: { title: `MCP ${server} resource ${uri}` } };
-      },
+      execute: async (args, ctx): Promise<ToolResult> =>
+        this.runRecorded(ctx, serverOf(args), "read_resource", "resource", args, async () => {
+          const { server, uri } = (args ?? {}) as { server?: string; uri?: string };
+          if (server === undefined || uri === undefined) throw new Error("server and uri are required");
+          const handle = this.handles.get(server);
+          if (handle === undefined) throw new Error(`MCP server "${server}" is not connected`);
+          const result = await handle.client.readResource({ uri });
+          return { content: readResourceToText(result), meta: { title: `MCP ${server} resource ${uri}` } };
+        }),
     });
     this.opts.tools.replace({
       name: "mcp/list_prompts",
       description: "List prompts exposed by connected MCP servers (optionally one server).",
       origin: "mcp",
       schema: { type: "object", properties: { server: { type: "string" } } },
-      execute: async (args): Promise<ToolResult> => {
-        const only = listFor(args);
-        const lines: string[] = [];
-        for (const [server, handle] of this.handles) {
-          if (only !== undefined && only !== server) continue;
-          for (const p of await this.listPrompts(handle)) {
-            lines.push(`${server}: ${p.name}${p.description !== undefined ? ` — ${p.description}` : ""}`);
+      execute: async (args, ctx): Promise<ToolResult> =>
+        this.runRecorded(ctx, serverOf(args), "list_prompts", "prompt", args, async () => {
+          const only = listFor(args);
+          const lines: string[] = [];
+          for (const [server, handle] of this.handles) {
+            if (only !== undefined && only !== server) continue;
+            for (const p of await this.listPrompts(handle)) {
+              lines.push(`${server}: ${p.name}${p.description !== undefined ? ` — ${p.description}` : ""}`);
+            }
           }
-        }
-        return { content: lines.length > 0 ? lines.join("\n") : "No MCP prompts.", meta: { title: "MCP prompts" } };
-      },
+          return { content: lines.length > 0 ? lines.join("\n") : "No MCP prompts.", meta: { title: "MCP prompts" } };
+        }),
     });
     this.opts.tools.replace({
       name: "mcp/get_prompt",
@@ -429,22 +452,79 @@ export class McpManager {
         properties: { server: { type: "string" }, name: { type: "string" }, arguments: { type: "object" } },
         required: ["server", "name"],
       },
-      execute: async (args): Promise<ToolResult> => {
-        const { server, name, arguments: promptArgs } = (args ?? {}) as {
-          server?: string;
-          name?: string;
-          arguments?: Record<string, string>;
-        };
-        if (server === undefined || name === undefined) throw new Error("server and name are required");
-        const handle = this.handles.get(server);
-        if (handle === undefined) throw new Error(`MCP server "${server}" is not connected`);
-        const result = await handle.client.getPrompt({
-          name,
-          ...(promptArgs !== undefined ? { arguments: promptArgs } : {}),
-        });
-        return { content: promptResultToText(result), meta: { title: `MCP ${server} prompt ${name}` } };
-      },
+      execute: async (args, ctx): Promise<ToolResult> =>
+        this.runRecorded(ctx, serverOf(args), "get_prompt", "prompt", args, async () => {
+          const { server, name, arguments: promptArgs } = (args ?? {}) as {
+            server?: string;
+            name?: string;
+            arguments?: Record<string, string>;
+          };
+          if (server === undefined || name === undefined) throw new Error("server and name are required");
+          const handle = this.handles.get(server);
+          if (handle === undefined) throw new Error(`MCP server "${server}" is not connected`);
+          const result = await handle.client.getPrompt({
+            name,
+            ...(promptArgs !== undefined ? { arguments: promptArgs } : {}),
+          });
+          return { content: promptResultToText(result), meta: { title: `MCP ${server} prompt ${name}` } };
+        }),
     });
+  }
+
+  /**
+   * Run one MCP interaction and record a best-effort usage row (success or
+   * failure). Analytics must never break a tool call, so the insert is
+   * swallowed on error. `started` is millisecond epoch for the duration.
+   */
+  private async runRecorded(
+    ctx: ToolContext | undefined,
+    server: string,
+    tool: string,
+    kind: McpInteractionKind,
+    args: unknown,
+    fn: () => Promise<ToolResult>,
+  ): Promise<ToolResult> {
+    const started = Date.now();
+    try {
+      const result = await fn();
+      this.recordMcp(ctx, server, tool, kind, started, args, true, undefined, Buffer.byteLength(result.content));
+      return result;
+    } catch (err) {
+      this.recordMcp(ctx, server, tool, kind, started, args, false, message(err));
+      throw err;
+    }
+  }
+
+  /** Best-effort MCP usage analytics insert (advisory — never throws). */
+  private recordMcp(
+    ctx: ToolContext | undefined,
+    server: string,
+    tool: string,
+    kind: McpInteractionKind,
+    started: number,
+    args: unknown,
+    ok: boolean,
+    error?: string,
+    bytes?: number,
+  ): void {
+    if (this.opts.usage === undefined) return;
+    try {
+      this.opts.usage.insert({
+        ...(ctx !== undefined && ctx.sessionId !== undefined ? { sessionId: ctx.sessionId } : {}),
+        server,
+        tool,
+        kind,
+        ...(ctx?.agent !== undefined ? { agent: ctx.agent } : {}),
+        ok,
+        ...(error !== undefined ? { error } : {}),
+        durationMs: Math.max(0, Date.now() - started),
+        bytes: bytes ?? 0,
+        argsDigest: digestArgs(args),
+        now: this.clock.iso(),
+      });
+    } catch {
+      // Analytics is advisory — never break a tool call.
+    }
   }
 
   private async listResources(handle: ClientHandle): Promise<Resource[]> {
@@ -474,6 +554,21 @@ function signature(config: MCPServerConfig): string {
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * SHA-256 of the JSON args (first 16 hex chars) — the analytics store keeps a
+ * digest for frequency analysis, never the raw (potentially sensitive) args.
+ * Unserializable args hash as the empty string.
+ */
+function digestArgs(args: unknown): string {
+  let json: string;
+  try {
+    json = JSON.stringify(args ?? {}) ?? "";
+  } catch {
+    json = "";
+  }
+  return createHash("sha256").update(json).digest("hex").slice(0, 16);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

@@ -284,6 +284,10 @@ usage(id PK, session_id FK NULL, kind, agent NULL, workspace NULL, provider, acc
       model, input_tokens, output_tokens, reasoning_tokens NULL, cache_read_tokens,
       cache_write_tokens, cache_write_1h_tokens, *_rate_usd_1m ×5, error NULL, created_at)
                                                               -- append-only per-LLM-call analytics (D26)
+skill_events(id PK, session_id FK NULL, skill, agent NULL, file_path NULL, ok, error NULL,
+             bytes, created_at)                               -- append-only skills.view analytics
+mcp_events(id PK, session_id FK NULL, server, tool, kind, agent NULL, ok, error NULL,
+           duration_ms, bytes, args_digest NULL, created_at)  -- append-only MCP interaction analytics
 ```
 
 Media files live under `~/.local/share/bai/assets/<kind>/<id>.<ext>`; the DB
@@ -539,6 +543,16 @@ the registry namespaced as `mcp/<server>/<tool>`, alongside the
 helpers. Official SDK: `@modelcontextprotocol/client` **v2** (protocol rev
 **2026-07-28**).
 
+**MCP usage analytics** (`mcp_events`): every MCP interaction — a namespaced
+server tool call or a helper call — records one append-only row (server, tool,
+kind `tool|resource|prompt`, agent, session, ok/error, `duration_ms`, `bytes`,
+and a SHA-256 args digest — never the raw args). Recording is best-effort in
+`core/src/mcp/manager.ts` (a failed insert never breaks a tool call), mirroring
+the `skill_events` precedent. `GET /api/mcp/usage` aggregates KPIs + per-server
+and per-tool totals + a calls/errors series; `GET /api/mcp/server/:name/usage`
+returns per-server totals (history survives server removal). The web
+**Analytics** page renders an "MCP activity" card from it.
+
 **bai as MCP server** (planned): exposes built-in tools and basic session
 operations at `/mcp` (streamable HTTP, stateless mode — the v2 default),
 mounted through the SDK's official **Hono adapter** (`createMcpHonoApp` +
@@ -617,7 +631,11 @@ Runs under Bun directly — no build step.
   because providers report only the total). Both surfaces also show the
   cumulative estimated session cost (`SessionUsage.costUsd`) — summed from
   the usage rows' frozen per-row rates (`UsageRepo.spendForSession`), so it
-  survives compaction and includes background title/compaction calls.
+  survives compaction and includes background title/compaction calls. The TUI
+  has a parity panel: the supermenu's **Context Usage** opens
+  `views/context-usage.tsx` — a floating overlay with the same fullness bar,
+  per-category rows (the `mcp` row is the MCP tool-schema share of the
+  prompt), and session cost.
 - **Supermenu** (`ctrl+p`, `views/command-palette.tsx` + `state/commands.ts`):
   the single entry point for app commands — a searchable palette with
   category headers and a contextual Suggested section (opencode's command

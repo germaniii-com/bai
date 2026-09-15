@@ -27,6 +27,9 @@ import type {
   McpCatalogEntry,
   McpServerInfo,
   McpServerSource,
+  McpUsageQuery,
+  McpUsageResponse,
+  McpUsageTotals,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -360,6 +363,20 @@ export class BaiClient {
     const res = await this.rpc().mcp.catalog[":name"].install.$post({ param: { name } });
     if (!res.ok) throw new Error(await errorMessage(res, `install mcp entry failed: ${res.status}`));
     return (await res.json()).url;
+  }
+
+  /** MCP usage analytics (the Analytics page's MCP activity card). */
+  async mcpUsage(query: McpUsageQuery = {}): Promise<McpUsageResponse> {
+    const res = await this.rpc().mcp.usage.$get({ query });
+    if (!res.ok) throw new Error(`mcp usage failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Per-server MCP usage totals (zeroed for a server with no recorded calls). */
+  async mcpServerUsage(name: string): Promise<McpUsageTotals> {
+    const res = await this.rpc().mcp.server[":name"].usage.$get({ param: { name } });
+    if (!res.ok) throw new Error(`mcp server usage failed: ${res.status}`);
+    return (await res.json()).usage;
   }
 
   /**

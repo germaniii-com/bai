@@ -63,7 +63,9 @@ The conversation modality and bai's default session type.
   web, clicking the chip opens a **Context Usage** modal — a fullness bar
   over the exact provider tokens plus the estimated (`~`, chars/4)
   per-category composition of that turn's prompt (system prompt · tools ·
-  skills · mcp · subagents · conversation) and a session-cost line
+  skills · mcp · subagents · conversation) and a session-cost line. The TUI
+  has the same panel via the supermenu (`ctrl+p` → **Context Usage**), with
+  the `mcp` row highlighted as the MCP tool-schema share
 - **`#file` mentions** (opencode2's completion): type `#` in the composer to
   fuzzy-search the session's workspace and insert a file reference. The
   composer shows the shortest unique leaf (`#button.tsx`, extending to
@@ -410,6 +412,12 @@ drop-in model as agents, skills, and tools.
 - A server's tools appear to the model as **`mcp/<server>/<tool>`**; resources
   and prompts ride the `mcp/list_resources`, `mcp/read_resource`,
   `mcp/list_prompts`, and `mcp/get_prompt` helpers.
+- **MCP usage analytics**: every MCP call (server tool or helper) records a
+  best-effort row — server, tool, kind, agent, session, success/failure,
+  latency, response size, and an args digest. The web **Analytics** page's
+  **MCP activity** card graphs calls/errors over time and lists per-server
+  totals (calls, errors, sessions, last used), filterable by the same
+  day/month/year window as the token charts.
 - **Settings → Integrations** (web): a scrollable, **searchable Catalog** of
   63 vendor-hosted MCP servers grouped by category — Developer tools,
   Productivity, Communications & CRM, Analytics & data, Payments & finance,
@@ -439,7 +447,9 @@ drop-in model as agents, skills, and tools.
   REST: `GET /api/mcp/servers`, `GET /api/mcp/server/:name`,
   `GET /api/mcp/catalog`, `PUT/DELETE /api/mcp/server/:name`,
   `POST /api/mcp/server/:name/{enabled,reconnect,auth,auth/finish}`,
-  `POST /api/mcp/catalog/:name/install`.
+  `POST /api/mcp/catalog/:name/install`; usage analytics:
+  `GET /api/mcp/usage` + `GET /api/mcp/server/:name/usage` (the
+  `mcp_events` store, `store/mcp-usage.ts`).
 - SDK: `@modelcontextprotocol/client` v2 (protocol rev `2026-07-28`).
 
 **Coming next**
@@ -703,4 +713,6 @@ and Settings) opens a persistent interactive bash on the server machine.
   per-model usage tables + charts, request volume, token breakdown,
   prompt-caching bars, and an error graph — filterable per agent, workspace,
   provider, and account with day/month/year granularity (D26; enforced by a
-  source-scan test)
+  source-scan test). Companion activity cards cover **skill** (`skills.view`)
+  and **MCP** interactions (server tools + resource/prompt helpers) over the
+  same window.

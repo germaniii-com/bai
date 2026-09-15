@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
  */
 
 /** Default panel width (opencode's medium is 60 — bai runs a bit wider). */
-const PANEL_WIDTH = 72;
+export const PANEL_WIDTH = 72;
 
 /**
  * List rows a dialog may show at `rows` terminal height: ~60% of the

@@ -20,6 +20,7 @@ describe("buildCommandSpecs", () => {
     expect(specs.map((s) => s.id)).toEqual([
       "session.switch",
       "session.new",
+      "context.show",
       "model.switch",
       "provider.connect",
       "agent.switch",
@@ -89,7 +90,7 @@ describe("paletteSections", () => {
     const specs = buildCommandSpecs(ctx);
     const byTitle = paletteSections(specs, "session");
     expect(byTitle[0]!.label).toBeNull();
-    expect(byTitle[0]!.commands.map((c) => c.id)).toEqual(["session.switch", "session.new"]);
+    expect(byTitle[0]!.commands.map((c) => c.id)).toEqual(["session.switch", "session.new", "context.show"]);
 
     // Category match: every View command.
     const byCategory = paletteSections(specs, "view");
@@ -112,7 +113,7 @@ describe("flattenSections", () => {
     const flat = flattenSections(sections);
     // Suggested first, then every registry command in order.
     expect(flat[0]!.id).toBe("provider.connect");
-    expect(flat.length).toBe(13);
+    expect(flat.length).toBe(14);
     expect(flat.slice(1).map((c) => c.id)).toEqual(buildCommandSpecs({ ...ctx, needsSetup: true }).map((c) => c.id));
   });
 });

@@ -16,6 +16,7 @@ export * from "./api";
 export * from "./zdr";
 export * from "./themes";
 export * from "./mcp-catalog";
+export * from "./mcp-usage";
 export * from "./usage";
 export * from "./mention";
 export * from "./workspace";

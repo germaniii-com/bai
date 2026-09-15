@@ -44,6 +44,9 @@ GET    /api/job/:id
 GET    /api/asset                       list; GET /api/asset/:id/content  (bytes)
 GET    /api/usage/analytics             usage aggregation (D26): KPIs, per-model totals,
                                         chart series; filters + day/month/year buckets
+GET    /api/mcp/usage                   MCP interaction aggregation (mcp_events): KPIs,
+                                        per-server/per-tool totals, calls/errors series
+GET    /api/mcp/server/:name/usage      per-server MCP usage totals
 /mcp                                    MCP stateless streamable HTTP (Phase 4)
 ```
 

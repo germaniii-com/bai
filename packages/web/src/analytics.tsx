@@ -14,6 +14,7 @@ import {
 import type { BaiClient } from "@bai/api/client";
 import type {
   ThemeColors,
+  McpUsageResponse,
   SkillUsageResponse,
   UsageAnalyticsQuery,
   UsageAnalyticsResponse,
@@ -162,6 +163,29 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
         if (!cancelled) setSkillUsage(res);
       } catch {
         if (!cancelled) setSkillUsage(null); // advisory — the card shows its empty stance
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, granularity, range]);
+
+  // MCP activity (the mcp_events store) — same window + granularity as the
+  // skill card. Every MCP call happens inside a run, so any call implies LLM
+  // usage exists and this card renders below.
+  const [mcpUsage, setMcpUsage] = useState<McpUsageResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const from = RANGE_DAYS[range];
+        const res = await client.mcpUsage({
+          granularity,
+          ...(from !== undefined ? { from: daysAgoIso(from) } : {}),
+        });
+        if (!cancelled) setMcpUsage(res);
+      } catch {
+        if (!cancelled) setMcpUsage(null); // advisory — the card shows its empty stance
       }
     })();
     return () => {
@@ -575,6 +599,78 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
                   <tr key={s.skill}>
                     <td>{s.skill}</td>
                     <td>{fmtInt(s.views)}</td>
+                    <td>{fmtInt(s.sessions)}</td>
+                    <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </Card>
+
+      {/* --- MCP activity: mcp/<server>/<tool> + helper calls (mcp_events store) --- */}
+      <Card className="chart-card">
+        <h3>MCP activity</h3>
+        {mcpUsage === null ? (
+          <p className="dim">No MCP activity data.</p>
+        ) : mcpUsage.kpis.calls === 0 ? (
+          <p className="dim empty">
+            No MCP calls recorded yet — external MCP tools appear here once agents use them.
+          </p>
+        ) : (
+          <>
+            <p className="dim">
+              {fmtInt(mcpUsage.kpis.calls)} call{mcpUsage.kpis.calls === 1 ? "" : "s"} ·{" "}
+              {fmtInt(mcpUsage.kpis.errors)} failed · {fmtInt(mcpUsage.kpis.sessions)} session
+              {mcpUsage.kpis.sessions === 1 ? "" : "s"} · {fmtInt(mcpUsage.kpis.servers)} server
+              {mcpUsage.kpis.servers === 1 ? "" : "s"} · avg {fmtInt(Math.round(mcpUsage.kpis.avgDurationMs))}ms
+            </p>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={mcpUsage.series.map((b) => ({
+                  bucket: b.bucket,
+                  successful: b.calls - b.errors,
+                  errors: b.errors,
+                }))}
+                margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
+                <Tooltip
+                  content={(props: TooltipProps) => (
+                    <ChartTooltip
+                      {...props}
+                      bg={themeColors.surfaceSecondary}
+                      rows={(props.payload ?? []).map((entry) => ({
+                        name: String(entry.dataKey),
+                        text: `${fmtInt(Number(entry.value ?? 0))} calls`,
+                      }))}
+                    />
+                  )}
+                />
+                <Legend />
+                <Bar dataKey="successful" name="Successful" stackId="mcp-calls" fill={themeColors.secondary} />
+                <Bar dataKey="errors" name="Errors" stackId="mcp-calls" fill={themeColors.danger} />
+              </BarChart>
+            </ResponsiveContainer>
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th>Server</th>
+                  <th>Calls</th>
+                  <th>Errors</th>
+                  <th>Sessions</th>
+                  <th>Last used</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mcpUsage.byServer.map((s) => (
+                  <tr key={s.server}>
+                    <td>{s.server}</td>
+                    <td>{fmtInt(s.calls)}</td>
+                    <td>{s.errors > 0 ? <span className="usage-errors">{fmtInt(s.errors)}</span> : "—"}</td>
                     <td>{fmtInt(s.sessions)}</td>
                     <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
                   </tr>

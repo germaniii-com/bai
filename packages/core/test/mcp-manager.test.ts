@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_CONFIG, type Config } from "@bai/shared";
+import { DEFAULT_CONFIG, fixedClock, type Config } from "@bai/shared";
 import { ToolRegistry } from "../src/tools/registry";
 import { McpRegistry } from "../src/mcp/registry";
 import { McpManager } from "../src/mcp/manager";
+import { Store } from "../src/store/store";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "mcp-echo-server.ts");
 
@@ -143,5 +144,68 @@ describe("McpManager", () => {
     stack.registry.put("dead", { transport: "http", url: "http://127.0.0.1:1/mcp", oauth: true, timeout: 1500 });
     await stack.manager.start();
     await expect(stack.manager.startAuth("dead")).rejects.toThrow(/dead/);
+  }, 20_000);
+
+  test("records mcp usage rows for server + helper calls (success and failure)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bai-mcp-usage-"));
+    const tokensDir = mkdtempSync(join(tmpdir(), "bai-mcp-usage-tokens-"));
+    const store = new Store(join(dir, "test.db"));
+    const registry = new McpRegistry({ dir, config: () => makeConfig(), pollMs: 0 });
+    const tools = new ToolRegistry();
+    const manager = new McpManager({
+      registry,
+      tools,
+      version: "test",
+      tokensDir,
+      connectTimeoutMs: 15_000,
+      usage: store.mcpUsage,
+      clock: fixedClock(1_700_000_000_000),
+    });
+    try {
+      registry.put("echo", { command: process.execPath, args: [FIXTURE] });
+      await manager.start();
+      const session = store.sessions.insert({ workbench: "chat", now: "2026-09-08T10:00:00.000Z" });
+      const ctx = { sessionId: session.id, agent: "build" } as never;
+
+      const tool = tools.get("mcp/echo/echo");
+      const result = await tool?.execute({ text: "hi" }, ctx);
+      expect(result?.content).toBe("echo:hi");
+
+      const rows = store.mcpUsage.list();
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.server).toBe("echo");
+      expect(row.tool).toBe("echo");
+      expect(row.kind).toBe("tool");
+      expect(row.agent).toBe("build");
+      expect(row.sessionId).toBe(session.id);
+      expect(row.ok).toBe(true);
+      expect(row.bytes).toBe(Buffer.byteLength("echo:hi"));
+      expect(row.argsDigest).toMatch(/^[0-9a-f]{16}$/);
+      expect(row.createdAt).toBe("2023-11-14T22:13:20.000Z");
+
+      // A helper call records kind=resource; no server arg → "(all)".
+      await tools.get("mcp/list_resources")?.execute({}, ctx);
+      const afterHelper = store.mcpUsage.list();
+      expect(afterHelper).toHaveLength(2);
+      const helperRow = afterHelper.find((r) => r.kind === "resource");
+      expect(helperRow?.tool).toBe("list_resources");
+      expect(helperRow?.server).toBe("(all)");
+
+      // A failing helper call records ok=false + the error message.
+      await expect(tools.get("mcp/read_resource")?.execute({}, ctx)).rejects.toThrow(/server and uri are required/);
+      const afterFailure = store.mcpUsage.list();
+      expect(afterFailure).toHaveLength(3);
+      const failed = afterFailure.find((r) => r.ok === false);
+      expect(failed?.tool).toBe("read_resource");
+      expect(failed?.error).toContain("server and uri are required");
+      expect(failed?.kind).toBe("resource");
+    } finally {
+      await manager.stop();
+      registry.stop();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(tokensDir, { recursive: true, force: true });
+    }
   }, 20_000);
 });

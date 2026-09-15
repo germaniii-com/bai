@@ -222,6 +222,16 @@ export const skillFilePathSchema = z.object({
   path: z.string().min(1).max(1024),
 });
 
+/** GET /api/mcp/usage — window + bucketing + dimension filters (see mcp-usage.ts). */
+export const mcpUsageQuerySchema = z.object({
+  from: z.string().max(40).optional(), // inclusive RFC3339 lower bound
+  to: z.string().max(40).optional(), // EXCLUSIVE upper bound
+  granularity: z.enum(["day", "month", "year"]).optional(),
+  server: z.string().max(200).optional(),
+  agent: z.string().max(200).optional(),
+  kind: z.enum(["tool", "resource", "prompt"]).optional(),
+});
+
 /** GET /api/usage/analytics — dimension filters + time bucketing (see usage.ts). */
 export const usageAnalyticsQuerySchema = z.object({
   from: z.string().max(40).optional(), // inclusive RFC3339 lower bound

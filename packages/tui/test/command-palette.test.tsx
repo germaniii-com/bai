@@ -81,7 +81,7 @@ describe("CommandPalette", () => {
 
     stdin.write("\x1b[106;5u"); // kitty ctrl+j
     await tick();
-    expect(cursorLabel(lastFrame() ?? "")).toBe("Switch model");
+    expect(cursorLabel(lastFrame() ?? "")).toBe("Context Usage");
 
     stdin.write("\x0b"); // legacy ctrl+k byte
     await tick();
@@ -152,7 +152,7 @@ describe("CommandPalette", () => {
     await tick();
     const filtered = frame3() ?? "";
     expect(filtered).toContain("filter: mod");
-    expect(filtered).toContain("1/12");
+    expect(filtered).toContain("1/13");
     expect(filtered).not.toContain("Suggested");
     expect(cursorLabel(filtered)).toBe("Switch model");
     unmount3();

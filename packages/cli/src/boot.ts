@@ -195,6 +195,9 @@ export async function boot(args: CliArgs): Promise<Booted> {
     tools,
     version: VERSION,
     tokensDir: path.join(dataDir(), "mcp-tokens"),
+    // MCP usage analytics (mcp_events): every tool/helper interaction records
+    // a best-effort row for the Analytics page's MCP activity card.
+    usage: store.mcpUsage,
     onChange: () => {
       bus.publish({ seq: 0, type: "mcp.updated", ts: new Date().toISOString(), payload: {} });
       coreRef?.emitLive("mcp.updated", {});

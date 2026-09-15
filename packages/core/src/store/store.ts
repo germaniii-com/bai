@@ -10,6 +10,7 @@ import { KvRepo } from "./kv";
 import { MessagesRepo, PartsRepo } from "./messages";
 import { PermissionsRepo } from "./permissions";
 import { SessionsRepo } from "./sessions";
+import { McpUsageRepo } from "./mcp-usage";
 import { SkillUsageRepo } from "./skill-usage";
 import { UsageRepo } from "./usage";
 
@@ -29,6 +30,7 @@ export class Store {
   readonly kv: KvRepo;
   readonly usage: UsageRepo;
   readonly skillUsage: SkillUsageRepo;
+  readonly mcpUsage: McpUsageRepo;
   readonly automations: AutomationsRepo;
   readonly automationRuns: AutomationRunsRepo;
   private readonly db: SqliteDb;
@@ -46,6 +48,7 @@ export class Store {
     this.kv = new KvRepo(this.db);
     this.usage = new UsageRepo(this.db);
     this.skillUsage = new SkillUsageRepo(this.db);
+    this.mcpUsage = new McpUsageRepo(this.db);
     this.automations = new AutomationsRepo(this.db);
     this.automationRuns = new AutomationRunsRepo(this.db);
   }

@@ -197,4 +197,31 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_automation_runs_automation
     ON automation_runs(automation_id, started_at DESC);
   `,
+  // 008 — MCP usage analytics: one append-only row per MCP interaction (a
+  // namespaced `mcp/<server>/<tool>` call or one of the `mcp/list_resources`
+  // / read_resource / list_prompts / get_prompt helpers). Plain aggregate
+  // data like usage/skill_events: not event-sourced; surfaces read it through
+  // the mcp-usage analytics API. Failed calls record ok = 0 plus the error
+  // message. Raw arguments are never stored — only a SHA-256 digest (first
+  // 16 hex chars) for frequency analysis.
+  `
+  CREATE TABLE IF NOT EXISTS mcp_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    server TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'tool',
+    agent TEXT,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    args_digest TEXT,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_mcp_events_server ON mcp_events(server, created_at);
+  CREATE INDEX IF NOT EXISTS idx_mcp_events_tool ON mcp_events(server, tool, created_at);
+  CREATE INDEX IF NOT EXISTS idx_mcp_events_created ON mcp_events(created_at);
+  `,
 ];
