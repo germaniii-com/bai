@@ -8,7 +8,12 @@ import type { ReactNode } from "react";
  * enforce the structure, the CSS stays the single source of truth.
  */
 
-/** Master-rail item (icon + label, optional badge, disabled "soon" state). */
+/**
+ * Master-rail item (icon-only, optional badge, disabled state).
+ *
+ * The rail shows icons alone; the label is the accessible name and the
+ * hover/focus hint (the global `[data-tooltip]` layer in tooltip.tsx).
+ */
 export function NavItem({
   icon,
   label,
@@ -28,10 +33,15 @@ export function NavItem({
   const className = active && !disabled ? "master-item active" : "master-item";
   if (disabled) {
     return (
-      <button type="button" className={className} disabled title={`${label} — coming in a later phase`}>
+      <button
+        type="button"
+        className={className}
+        disabled
+        aria-label={`${label} — coming in a later phase`}
+        data-tooltip={`${label} — coming in a later phase`}
+        data-tooltip-placement="right"
+      >
         {icon}
-        <span className="nav-label">{label}</span>
-        <span className="soon">soon</span>
       </button>
     );
   }
@@ -39,11 +49,13 @@ export function NavItem({
     <button
       type="button"
       className={className}
+      aria-label={label}
+      data-tooltip={label}
+      data-tooltip-placement="right"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
     >
       {icon}
-      <span className="nav-label">{label}</span>
       {badge > 0 && (
         <span className="nav-badge" aria-label={`${badge} pending ask${badge === 1 ? "" : "s"}`}>
           {badge}

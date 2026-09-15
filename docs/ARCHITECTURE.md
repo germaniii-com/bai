@@ -678,7 +678,10 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 - State: small stores + reducers over events (no heavyweight state library
   unless Phase 1 proves the need).
 - Styling: utility-first CSS; responsive-first layouts (phone is a primary
-  target, not an afterthought).
+  target, not an afterthought). The token system — self-hosted fonts (Inter +
+  JetBrains Mono), the type scale, weights, spacing, radii, control heights —
+  is documented in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) and enforced by
+  `packages/web/test/theme-css.test.ts`.
 - Routing: a dependency-free client router (`router.ts` — pure
   `parseRoute`/`routeToPath` over the History API; no hash routing, which is
   reserved for `#pair=` pairing tokens). React state stays the source of

@@ -86,4 +86,29 @@ describe("theme CSS blocks", () => {
     expect(css).toMatch(/button:focus-visible[\s\S]*outline: 3px solid/);
     expect(css).toContain(".app-tooltip");
   });
+
+  test("font tokens lead with the self-hosted families", () => {
+    // The UI sans is Inter; code/Monaco/shell is JetBrains Mono. Both are
+    // self-hosted (fonts.css) — the system stacks are fallbacks only.
+    expect(css).toMatch(/--font-sans:\s*"Inter Variable"/);
+    expect(css).toMatch(/--font-mono:\s*"JetBrains Mono Variable"/);
+  });
+
+  test("weight tokens exist for every weight the UI uses", () => {
+    expect(css).toContain("--font-weight-normal: 400;");
+    expect(css).toContain("--font-weight-medium: 500;");
+    expect(css).toContain("--font-weight-semibold: 600;");
+    expect(css).toContain("--font-weight-bold: 700;");
+  });
+
+  test("no raw font sizes or weights outside the :root token block", () => {
+    // The scale is the only permitted source of sizes/weights. Strip the
+    // :root block (which legitimately defines the raw token values), then
+    // assert nothing else hardcodes a px size or a numeric weight.
+    const root = css.match(/:root\s*\{[\s\S]*?\n\}/);
+    expect(root).not.toBeNull();
+    const outsideRoot = css.replace(root![0], "");
+    expect(outsideRoot).not.toMatch(/font-size:\s*[0-9.]+px/);
+    expect(outsideRoot).not.toMatch(/font-weight:\s*[0-9]+/);
+  });
 });

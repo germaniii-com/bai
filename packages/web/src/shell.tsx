@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
+import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 
 /**
  * The web shell pane: one xterm.js terminal over a WebSocket to the
@@ -62,8 +63,10 @@ export function ShellPane({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'ui-monospace, "SF Mono", Menlo, Monaco, monospace',
+      fontSize: EDITOR_FONT_SIZE,
+      // Ligatures are off: xterm needs @xterm/addon-ligatures for them, which
+      // is not a dependency. The family still matches Monaco.
+      fontFamily: EDITOR_FONT_FAMILY,
       theme: {
         background: hexOr(themeColors.surface, "#09090b"),
         foreground: themeColors.text,

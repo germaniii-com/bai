@@ -5,6 +5,7 @@ import { FileCode, FileText, FileVideo, Image as ImageIcon, RotateCw, X } from "
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 import { Markdown } from "./markdown";
 import { PlanView, type PlanSaveStatus } from "./plan-view";
 import { Button } from "./components";
@@ -494,7 +495,9 @@ export function FileView({
                   readOnly: true,
                   domReadOnly: true,
                   minimap: { enabled: false },
-                  fontSize: 13,
+                  fontFamily: EDITOR_FONT_FAMILY,
+                  fontSize: EDITOR_FONT_SIZE,
+                  fontLigatures: true,
                   lineNumbers: "on",
                   scrollBeyondLastLine: false,
                   automaticLayout: true,

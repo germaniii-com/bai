@@ -5,6 +5,8 @@ interface ActiveTip {
   text: string;
   /** Trigger rect captured at show time (viewport coordinates). */
   rect: DOMRect;
+  /** Preferred side; "right" is used by the icon-only master rail. */
+  placement: "auto" | "right";
 }
 
 /** Gap between the trigger and the tooltip, and the viewport margin. */
@@ -43,7 +45,8 @@ export function TooltipLayer() {
       if (text.length === 0) return;
       current = el;
       setPos(null);
-      setTip({ text, rect: el.getBoundingClientRect() });
+      const placement = el.getAttribute("data-tooltip-placement") === "right" ? "right" : "auto";
+      setTip({ text, rect: el.getBoundingClientRect(), placement });
     };
 
     // Entering a trigger arms a one-second timer; the hint only appears once
@@ -105,8 +108,10 @@ export function TooltipLayer() {
     };
   }, []);
 
-  // Measure the rendered tooltip, then clamp to the viewport and flip below
-  // the trigger when there is not enough room above.
+  // Measure the rendered tooltip, then clamp to the viewport. Default
+  // placement is above the trigger (flipping below when there is no room);
+  // "right" pins it beside the trigger (flipping left when there is no room),
+  // vertically centered — the icon-only master rail's placement.
   useLayoutEffect(() => {
     if (tip === null) return;
     const el = ref.current;
@@ -114,6 +119,15 @@ export function TooltipLayer() {
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    if (tip.placement === "right") {
+      let left = tip.rect.right + MARGIN;
+      if (left + r.width > vw - MARGIN) left = tip.rect.left - r.width - MARGIN;
+      left = Math.max(MARGIN, Math.min(left, vw - r.width - MARGIN));
+      let top = tip.rect.top + tip.rect.height / 2 - r.height / 2;
+      top = Math.max(MARGIN, Math.min(top, vh - r.height - MARGIN));
+      setPos({ left, top });
+      return;
+    }
     let left = tip.rect.left + tip.rect.width / 2 - r.width / 2;
     left = Math.max(MARGIN, Math.min(left, vw - r.width - MARGIN));
     let top = tip.rect.top - r.height - MARGIN;

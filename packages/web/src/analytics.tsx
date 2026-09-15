@@ -31,6 +31,13 @@ import { Button, Card, Combobox, PageHeader, Select, type ComboboxOption } from 
  * (recharts SVG needs concrete values, not CSS vars).
  */
 
+/**
+ * Chart tick label size (px). Recharts renders SVG text, so it needs a
+ * concrete number rather than the CSS `--text-xs` token — this mirrors that
+ * token's 11px value.
+ */
+const CHART_TICK_FONT_SIZE = 11;
+
 /** Stable per-model palette: the theme's six accent roles, cycled. */
 function palette(colors: ThemeColors): string[] {
   return [colors.primary, colors.secondary, colors.accent, colors.success, colors.warning, colors.danger];
@@ -330,8 +337,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usageData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-            <YAxis tick={{ fill: axisColor, fontSize: 11 }} tickFormatter={fmtTokens} width={48} />
+            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+            <YAxis tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} tickFormatter={fmtTokens} width={48} />
             <Tooltip
               content={(props: TooltipProps) => (
                 <ChartTooltip
@@ -397,8 +404,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={volumeData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 11 }} width={36} />
+            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
             <Tooltip
               content={(props: TooltipProps) => (
                 <ChartTooltip
@@ -437,8 +444,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-            <YAxis tick={{ fill: axisColor, fontSize: 11 }} tickFormatter={fmtTokens} width={48} />
+            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+            <YAxis tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} tickFormatter={fmtTokens} width={48} />
             <Tooltip
               content={(props: TooltipProps) => (
                 <ChartTooltip
@@ -465,8 +472,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usage.cacheSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-            <YAxis tick={{ fill: axisColor, fontSize: 11 }} tickFormatter={fmtTokens} width={48} />
+            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+            <YAxis tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} tickFormatter={fmtTokens} width={48} />
             <Tooltip
               content={(props: TooltipProps) => (
                 <ChartTooltip
@@ -499,8 +506,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 11 }} width={36} />
+            <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+            <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
             <Tooltip
               content={(props: TooltipProps) => (
                 <ChartTooltip
@@ -537,8 +544,8 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={skillUsage.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: 11 }} width={36} />
+                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
                 <Tooltip
                   content={(props: TooltipProps) => (
                     <ChartTooltip

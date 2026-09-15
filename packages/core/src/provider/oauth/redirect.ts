@@ -84,7 +84,7 @@ export async function runRedirectFlow(opts: RedirectFlowOptions): Promise<OAuthT
 function callbackPage(message: string, status = 200): Response {
   return new Response(
     `<!doctype html><meta charset="utf-8"><title>bai</title>` +
-      `<body style="font-family:system-ui,sans-serif;padding:2.5rem;color:#111">${message}</body>`,
+      `<body style="font-family:Inter,system-ui,sans-serif;padding:2.5rem;color:#111">${message}</body>`,
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 }

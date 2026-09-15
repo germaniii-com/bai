@@ -3,6 +3,7 @@ import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
 import { isToolOverride, isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
+import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 import { OverrideWarning } from "./icons";
 import { TriangleAlert } from "lucide-react";
 import { Button, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
@@ -294,7 +295,9 @@ function ToolForm({
             onChange={(value) => setCode(value ?? "")}
             options={{
               minimap: { enabled: false },
-              fontSize: 13,
+              fontFamily: EDITOR_FONT_FAMILY,
+              fontSize: EDITOR_FONT_SIZE,
+              fontLigatures: true,
               lineNumbers: "on",
               scrollBeyondLastLine: false,
               automaticLayout: true,

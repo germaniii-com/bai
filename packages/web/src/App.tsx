@@ -2268,9 +2268,15 @@ function MasterNav({
         <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
       </div>
       <div className="master-spacer" />
-      <button type="button" className="master-item" aria-label="Choose a theme" onClick={onThemePicker}>
+      <button
+        type="button"
+        className="master-item"
+        aria-label="Choose a theme"
+        data-tooltip="Choose a theme"
+        data-tooltip-placement="right"
+        onClick={onThemePicker}
+      >
         <Palette className="nav-icon" aria-hidden="true" />
-        <span className="nav-label">Theme</span>
       </button>
       {/* Shell sits directly above Settings — a pinned utility like Theme. */}
       <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />

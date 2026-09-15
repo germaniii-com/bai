@@ -36,7 +36,11 @@ browsers **and** phones (PWA) from the same bundle.
 - React Compiler enabled from day one — no manual `useMemo`/`useCallback`
   ceremony.
 - Styling: utility-first CSS; responsive-first layouts (phone is a primary
-  target, not an afterthought).
+  target, not an afterthought). All sizes, weights, spacing, radii, and
+  control heights come from the tokens in `src/styles.css` (`:root`) — see
+  [docs/DESIGN-SYSTEM.md](../../docs/DESIGN-SYSTEM.md). Fonts are self-hosted
+  (`src/fonts.css`: Inter for UI, JetBrains Mono for code/Monaco/shell) so the
+  PWA works offline.
 - SSE consumption via `@bai/api`'s client (`fetch()` +
   `eventsource-parser`) — identical semantics to the TUI; bearer-token auth
   rules out native `EventSource`.

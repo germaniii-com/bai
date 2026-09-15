@@ -537,6 +537,40 @@ Identical shape to image, second in line.
 
 ---
 
+## 🔤 Design system — shipped
+
+The web surface's visual language as a small set of tokens: self-hosted
+fonts, one type scale, one weight scale, and shared spacing/radii/control
+heights. Full reference in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md).
+
+**What you can do today**
+
+- **Self-hosted fonts, offline-capable**: **Inter** for the UI and
+  **JetBrains Mono** for code, Monaco, and the web shell — bundled as woff2
+  in the app (no CDN, no Google Fonts), so the PWA renders correctly with no
+  network. Only the latin + latin-ext subsets ship (≈190 KB total)
+- **One type scale** (`--text-xs` 11px → `--text-xl` 20px) and **one weight
+  scale** (400/500/600/700) — every size and weight in the stylesheet is a
+  token; there is no sub-11px tier
+- **Monaco with ligatures**: the editor uses JetBrains Mono at the shared
+  code size with programming ligatures on; the web shell uses the same family
+  (ligatures off — xterm needs an addon)
+- **Consistent controls**: buttons and inputs share one height per size, and
+  every control meets the 44px touch target on coarse pointers
+
+**Under the hood**
+
+- Tokens live in `packages/web/src/styles.css` (`:root`); `@font-face` rules
+  in `fonts.css`; Monaco/xterm font config in `editor-font.ts`
+- `packages/web/test/theme-css.test.ts` enforces the contract: the font
+  tokens exist, they lead with the self-hosted families, and no raw
+  `font-size: <n>px` or `font-weight: <n>` appears outside `:root`
+- The TUI is terminal-native — fonts come from the user's terminal emulator,
+  so only an OS-level install affects it; server-rendered pages (the "web UI
+  not built" hint, OAuth/MCP callbacks) name Inter with a system fallback
+
+---
+
 ## 🎨 Themes — shipped
 
 One theme everywhere: 24 built-ins, a live-preview picker on every surface,

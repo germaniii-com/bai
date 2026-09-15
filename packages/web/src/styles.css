@@ -27,17 +27,27 @@
   --on-accent: #ffffff;
   --on-danger: #ffffff;
   --inset: #27272a;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* Self-hosted families (fonts.css) lead; the system stacks are fallbacks
+     for the boot frame before the woff2 loads and for any environment that
+     blocks them. */
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   /* --- design tokens (the UI standardization scale) ----------------------- */
 
-  /* Typography scale — the only font sizes components may use. */
+  /* Typography scale — the only font sizes components may use. Micro labels
+     (8/9/10px) collapse onto --text-xs; there is no sub-11px tier. */
   --text-xs: 11px;   /* captions, badges, column heads */
   --text-sm: 12px;   /* meta, labels, hints */
   --text-md: 13px;   /* controls, dense body */
   --text-lg: 15px;   /* body, section headings */
   --text-xl: 20px;   /* page titles, KPI values */
+
+  /* Font weights — the only weights components may use. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
   /* Legacy aliases — kept so the incremental migration can move one rule at
      a time; removed once no raw rule references them. */
   --text-caption: var(--text-xs);
@@ -161,7 +171,7 @@ select:focus-visible,
   color: var(--on-accent);
   padding: 8px 12px;
   border-radius: 6px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .skip-link:focus { transform: translateY(0); }
@@ -250,16 +260,18 @@ select:focus-visible,
   flex-shrink: 0;
 }
 
+/* Icon-only rail item. The label is the accessible name + hover/focus hint
+   (the global [data-tooltip] layer), never visible text. */
 .master-item {
+  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: var(--dim);
   border-radius: 8px;
-  padding: 8px 2px;
+  padding: 8px;
   cursor: pointer;
   font: inherit;
 }
@@ -283,29 +295,21 @@ select:focus-visible,
   height: 20px;
 }
 
-.nav-label {
-  font-size: 9px;
-  letter-spacing: 0.02em;
-}
-
 /* Pending-ask count on the Chat nav item (visible when the user is in
-   another section — the inline panel carries the ask inside chat). */
+   another section — the inline panel carries the ask inside chat). Pinned to
+   the icon's top-right corner now that the rail is icon-only. */
 .nav-badge {
-  font-size: 9px;
-  font-weight: 700;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
   line-height: 14px;
   padding: 0 5px;
   border-radius: 7px;
   color: var(--warning);
   border: 1px solid var(--warning);
   background: color-mix(in srgb, var(--warning) 12%, transparent);
-}
-
-.soon {
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dim);
 }
 
 .master-spacer {
@@ -325,8 +329,8 @@ select:focus-visible,
 }
 
 .nested-title {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -369,7 +373,7 @@ select:focus-visible,
   top: 8px;
   right: 8px;
   color: var(--success);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .dim {
@@ -525,7 +529,7 @@ select:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--dim);
   cursor: pointer;
   user-select: none;
@@ -556,8 +560,8 @@ select:focus-visible,
 .ws-col-head {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -584,7 +588,7 @@ select:focus-visible,
   border-radius: 6px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -629,7 +633,7 @@ select:focus-visible,
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -724,8 +728,8 @@ select:focus-visible,
   border-bottom: 1px solid var(--border);
   background: transparent;
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -801,7 +805,7 @@ select:focus-visible,
   flex: 1;
   overflow-y: auto;
   padding: 6px 4px 12px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 .tree-entries {
@@ -853,7 +857,7 @@ select:focus-visible,
 /* Inline reason when a subdirectory can't be read (permission denied, …). */
 .tree-error {
   margin: 2px 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--warning);
 }
 
@@ -950,8 +954,8 @@ select:focus-visible,
 
 .file-tree-alias {
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
   flex-shrink: 0;
 }
 
@@ -1008,8 +1012,8 @@ select:focus-visible,
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -1068,7 +1072,7 @@ select:focus-visible,
 }
 
 .todo-item.prio-high .todo-content {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .todo-item.status-completed,
@@ -1302,7 +1306,7 @@ select:focus-visible,
 .plan-open .plan-date {
   margin-left: auto;
   color: var(--dim);
-  font-size: 10px;
+  font-size: var(--text-xs);
   flex-shrink: 0;
 }
 
@@ -1372,7 +1376,7 @@ select:focus-visible,
 
 /* Plan tab badge in the Files tab strip */
 .file-tab-badge {
-  font-size: 9px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -1385,7 +1389,7 @@ select:focus-visible,
 /* Plan autosave status on the tab (replaces the "plan" badge while active). */
 .file-tab-status {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1;
 }
 
@@ -1456,8 +1460,8 @@ select:focus-visible,
   background: transparent;
   color: var(--dim);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
   padding: 4px 14px;
   cursor: pointer;
 }
@@ -1508,7 +1512,7 @@ select:focus-visible,
   background: transparent;
   color: var(--dim);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 8px 4px 8px 10px;
   cursor: pointer;
   max-width: 180px;
@@ -1825,7 +1829,7 @@ select:focus-visible,
 .md h6 {
   color: var(--accent);
   margin: 14px 0 6px;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   line-height: 1.3;
 }
 
@@ -1849,7 +1853,7 @@ select:focus-visible,
 
 .md strong {
   color: var(--text);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 .md em {
@@ -1891,14 +1895,14 @@ select:focus-visible,
   background: transparent;
   color: var(--text);
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
 .md .md-code-lang {
   display: block;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 0.4px;
   text-transform: uppercase;
   margin-bottom: 4px;
@@ -1953,7 +1957,7 @@ select:focus-visible,
 
 .md th {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .md img {
@@ -1997,7 +2001,7 @@ select:focus-visible,
 
 .typing-label {
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--text-md);
   margin-left: 4px;
 }
 
@@ -2012,7 +2016,7 @@ select:focus-visible,
   background: transparent;
   color: var(--dim);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 2px 0;
   cursor: pointer;
   text-align: left;
@@ -2029,7 +2033,7 @@ select:focus-visible,
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--dim);
-  font-size: 13px;
+  font-size: var(--text-md);
   border-left: 2px solid var(--border);
   padding: 2px 0 2px 10px;
   margin: 4px 0 0;
@@ -2050,7 +2054,7 @@ select:focus-visible,
   /* Dimmed tool line (matches the TUI) — the name stays bold via .tool-name. */
   color: var(--dim);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   padding: 2px 0;
   cursor: pointer;
   text-align: left;
@@ -2069,7 +2073,7 @@ select:focus-visible,
 
 /* Tool name: dim (inherited) but emphasized. */
 .tool-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Status glyph slot (lucide icon) — inline-flex centers the svg in the
@@ -2155,7 +2159,7 @@ select:focus-visible,
   background: transparent;
   color: var(--accent);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 2px 0;
   cursor: pointer;
   display: inline-flex;
@@ -2172,7 +2176,7 @@ select:focus-visible,
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
   border-left: 2px solid var(--border);
   padding: 2px 0 2px 10px;
   margin: 4px 0 0;
@@ -2189,7 +2193,7 @@ select:focus-visible,
 .subagent-agent {
   color: var(--accent);
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .subagent-asking {
@@ -2219,7 +2223,7 @@ select:focus-visible,
   padding: 5px 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--text-sm);
   min-width: 0;
 }
 
@@ -2252,7 +2256,7 @@ select:focus-visible,
 .subagent-stream-body {
   overflow-y: auto;
   padding: 8px 10px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .subagent-stream-body .dim {
@@ -2276,7 +2280,7 @@ select:focus-visible,
 .subagent-stream-error {
   color: var(--danger);
   padding: 8px 10px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 /* Agents & tools management pane: two-tab list + form/code editor. */
@@ -2306,7 +2310,7 @@ select:focus-visible,
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -2440,7 +2444,7 @@ select:focus-visible,
 .error {
   color: var(--danger);
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* The composer hub — the centralized surface (no chat header): column of
@@ -2544,7 +2548,7 @@ select:focus-visible,
   background: transparent;
   color: var(--dim);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-lg);
   line-height: 1;
   padding: 0 2px;
 }
@@ -2600,7 +2604,7 @@ select:focus-visible,
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1;
   padding: 0;
   display: inline-flex;
@@ -2705,7 +2709,7 @@ select:focus-visible,
 }
 
 .mention-base {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .mention-empty {
@@ -2818,7 +2822,7 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--text-md);
   flex-shrink: 0;
 }
 
@@ -2830,7 +2834,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .ask-warn {
@@ -2839,8 +2843,8 @@ select:focus-visible,
 
 .ask-queued {
   color: var(--dim);
-  font-weight: 400;
-  font-size: 12px;
+  font-weight: var(--font-weight-normal);
+  font-size: var(--text-sm);
 }
 
 .perm-context {
@@ -2868,7 +2872,7 @@ select:focus-visible,
 }
 
 .ask-review-verdict {
-  font-size: 12px;
+  font-size: var(--text-sm);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2922,7 +2926,7 @@ select:focus-visible,
   border-radius: 8px;
   overflow: auto;
   max-height: 260px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   white-space: pre;
 }
@@ -2967,7 +2971,7 @@ select:focus-visible,
 }
 
 .question-header {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   padding: 0 6px;
 }
 
@@ -3020,7 +3024,7 @@ select:focus-visible,
 }
 
 .ctx-usage-pct {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: var(--text-lg);
 }
 
@@ -3120,7 +3124,7 @@ select:focus-visible,
 
 .ctx-cost-value {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* The single scrollable model column (one row per model across every
@@ -3238,7 +3242,7 @@ select:focus-visible,
 
 .hint {
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* --- settings --- */
@@ -3267,7 +3271,7 @@ select:focus-visible,
 
 .provider-head .check {
   color: var(--success);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   margin-left: auto;
 }
 
@@ -3313,7 +3317,7 @@ select:focus-visible,
 .settings-subheading {
   margin: var(--space-5) 0 var(--space-1);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -3426,7 +3430,7 @@ select:focus-visible,
   padding: 10px 8px 4px;
   background: var(--panel);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -3535,7 +3539,7 @@ select:focus-visible,
 
 .kpi-label {
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -3543,14 +3547,14 @@ select:focus-visible,
 
 .kpi-value {
   font-size: var(--text-xl);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .chart-card .recharts-legend-item-text {
   color: var(--text) !important;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .chart-tooltip {
@@ -3558,12 +3562,12 @@ select:focus-visible,
   border-radius: 8px;
   padding: 8px 10px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-sm);
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
 }
 
 .chart-tooltip-title {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   margin-bottom: 4px;
 }
 
@@ -3595,7 +3599,7 @@ select:focus-visible,
 .usage-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin-top: 10px;
 }
 
@@ -3609,8 +3613,8 @@ select:focus-visible,
 
 .usage-table th {
   color: var(--dim);
-  font-weight: 600;
-  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -3621,7 +3625,7 @@ select:focus-visible,
 
 .usage-errors {
   color: var(--danger);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* --- theme picker (germaniii.com's preview-card grid) -------------------- */
@@ -3730,8 +3734,8 @@ select:focus-visible,
 }
 
 .theme-card-preview .theme-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3740,7 +3744,7 @@ select:focus-visible,
 /* Pinned to the card's bottom edge (flex column + auto margin) — a clear
    gap between the theme title and the sample, on every card height. */
 .theme-card-preview .theme-sample {
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin-top: auto;
   padding-top: 12px;
 }
@@ -3770,8 +3774,8 @@ select:focus-visible,
   padding: 12px;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
   color: var(--dim);
   background: transparent;
   border: 1px dashed var(--border);
@@ -3876,7 +3880,7 @@ select:focus-visible,
 
   .master-item {
     flex: 1;
-    padding: 4px 2px;
+    padding: 6px;
   }
 
   .master-spacer {

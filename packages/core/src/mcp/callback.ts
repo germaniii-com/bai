@@ -39,7 +39,7 @@ export class McpCallbackServer {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(
           "<!doctype html><meta charset=utf-8><title>Authorized</title>" +
-            "<body style=\"font-family:system-ui;padding:3rem\"><h1>Authorized</h1>" +
+            "<body style=\"font-family:Inter,system-ui;padding:3rem\"><h1>Authorized</h1>" +
             "<p>You can close this tab and return to bai.</p></body>",
         );
         const resolvePending = this.pending;

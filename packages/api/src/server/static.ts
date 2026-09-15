@@ -5,7 +5,7 @@ import type { Context } from "hono";
 const HINT_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><title>bai — web UI not built</title></head>
-  <body style="font-family: ui-sans-serif, system-ui; background:#0b0e14; color:#e6e6e6; display:grid; place-items:center; min-height:100vh;">
+  <body style="font-family: Inter, ui-sans-serif, system-ui; background:#0b0e14; color:#e6e6e6; display:grid; place-items:center; min-height:100vh;">
     <main style="text-align:center;">
       <h1>bai</h1>
       <p>The web UI bundle is not built yet.</p>
