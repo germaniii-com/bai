@@ -16,7 +16,7 @@ import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAt
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
-import { Button, Chip, Field, Modal, Textarea } from "./components";
+import { Button, Chip, Disclosure, Field, Modal, Textarea, TextInput } from "./components";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -93,22 +93,21 @@ function MessageText({
         // Non-clickable chips render as a span: a disabled <button> suppresses
         // hover, so the global tooltip (data-tooltip) would never appear.
         return clickable ? (
-          <button
+          <Chip
             key={i}
-            type="button"
-            className="mention-chip clickable"
-            data-tooltip={tooltip}
-            aria-label={tooltip}
+            interactive
+            className="mention-chip"
+            hint={tooltip}
             onClick={() => onOpenFile?.(root, path)}
           >
             <FileText size={12} aria-hidden="true" />
             {label}
-          </button>
+          </Chip>
         ) : (
-          <span key={i} className="mention-chip" data-tooltip={tooltip}>
+          <Chip key={i} className="mention-chip" hint={tooltip}>
             <FileText size={12} aria-hidden="true" />
             {label}
-          </span>
+          </Chip>
         );
       })}
     </p>
@@ -576,9 +575,9 @@ export function ChatPane({
             {loadingOlder ? (
               <span className="dim">Loading earlier messages…</span>
             ) : (
-              <button type="button" className="load-older-btn" onClick={requestOlder}>
+              <Button variant="ghost" size="sm" onClick={requestOlder}>
                 Load earlier messages
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -719,7 +718,7 @@ export function ChatPane({
           />
         )}
         <div className="composer-input-row">
-          <input
+          <TextInput
             ref={inputRef}
             value={draft}
             placeholder={active === null ? startPlaceholder : "Message…"}
@@ -989,25 +988,19 @@ function UserMessageActions({
   const bodyId = useId();
   const lineCount = text.split("\n").length;
   return (
-    <div className="thinking-node">
-      <button
-        type="button"
-        className="thinking-toggle"
-         onClick={() => setOpen((v) => !v)}
-         aria-expanded={open}
-         aria-controls={bodyId}
-      >
-        <Chevron open={open} />
-        <span>
-          thought ({lineCount} line{lineCount === 1 ? "" : "s"})
-        </span>
-      </button>
-      {open && (
-         <div id={bodyId} className="thinking-body">
-          <Markdown text={text} />
-        </div>
-      )}
-    </div>
+    <Disclosure
+      variant="inline"
+      className="thinking-node"
+      headClassName="thinking-toggle"
+      title={`thought (${lineCount} line${lineCount === 1 ? "" : "s"})`}
+      open={open}
+      onOpenChange={setOpen}
+      id={bodyId}
+    >
+      <div className="thinking-body">
+        <Markdown text={text} />
+      </div>
+    </Disclosure>
   );
 }
 
@@ -1083,6 +1076,9 @@ function ToolNodes({
           c.result.isError !== true;
         return (
           <div key={c.callId} className={`tool-node tool-${status}${canOpenWs ? " tool-node-has-action" : ""}`}>
+            {/* @ui-raw: the tool row is a bespoke multi-part line (status glyph,
+                name, args, live-task badges) with sibling assets/body that a
+                Disclosure wrapper cannot contain; kept as a styled button. */}
             <button
               type="button"
               className="tool-toggle"
@@ -1102,15 +1098,15 @@ function ToolNodes({
               {permVerdict !== undefined && <span className="dim"> · {permVerdict}</span>}
             </button>
             {canOpenWs && (
-              <button
-                type="button"
-                className="tool-open-ws"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => onOpenWorkspace(c.workspace as string)}
                 aria-label={`Open workspace ${c.workspace}`}
               >
                 <FolderOpen size={12} aria-hidden="true" />
                 Open workspace
-              </button>
+              </Button>
             )}
             {c.assets !== undefined && c.assets.length > 0 && (
               <div className="tool-assets">
@@ -1211,6 +1207,7 @@ function ToolAssetThumb({
 }) {
   const url = useAssetUrl(client, asset.id);
   return (
+    // @ui-raw: a fixed 72px image thumbnail — a bespoke visual control, not a primitive.
     <button
       type="button"
       className="tool-asset-thumb"

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Check, ChevronDown, ChevronRight, ListChecks, Plus, X } from "lucide-react";
+import { ListChecks, Plus, X } from "lucide-react";
 import type { TodoItem } from "@bai/shared";
+import { Checkbox, ConfirmDialog, Disclosure, IconButton, TextInput } from "./components";
 
 /**
  * The workspace right-rail checklist: the active session's task list (the
@@ -24,7 +25,9 @@ export function TodosPanel({
   const [adding, setAdding] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  const [pendingRemove, setPendingRemove] = useState<number | null>(null);
   const done = todos.filter((item) => item.status === "completed").length;
+  const pendingItem = pendingRemove !== null ? todos[pendingRemove] : undefined;
 
   const replace = (index: number, next: TodoItem): void => {
     onChange(todos.map((item, i) => (i === index ? next : item)));
@@ -59,117 +62,122 @@ export function TodosPanel({
 
   return (
     <aside className="todos-panel" role="region" aria-label="Session checklist">
-      <button
-        type="button"
-        className="todos-head"
-        aria-expanded={!collapsed}
-        aria-controls="checklist-body"
-        onClick={() => setCollapsed((c) => !c)}
+      <Disclosure
+        variant="panel"
+        icon={<ListChecks size={14} />}
+        title="Checklist"
+        id="checklist-body"
+        open={!collapsed}
+        onOpenChange={(open) => setCollapsed(!open)}
+        count={
+          todos.length > 0 ? (
+            <span aria-label={`${done} of ${todos.length} done`}>
+              {done}/{todos.length}
+            </span>
+          ) : undefined
+        }
       >
-        <ListChecks size={14} aria-hidden="true" />
-        <span>Checklist</span>
-        {todos.length > 0 && (
-          <span className="todos-count" aria-label={`${done} of ${todos.length} done`}>
-            {done}/{todos.length}
-          </span>
-        )}
-        <span className="todos-chevron" aria-hidden="true">
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        </span>
-      </button>
-      {!collapsed && (
-        <div id="checklist-body">
-          {todos.length === 0 ? (
-            <p className="dim todos-empty">No items yet.</p>
-          ) : (
-            <ul className="todos-list">
-              {todos.map((item, index) => {
-                const isDone = item.status === "completed";
-                return (
-                  <li
-                    key={index}
-                    className={`todo-item status-${item.status}${item.priority === "high" ? " prio-high" : ""}`}
+        {todos.length === 0 ? (
+          <p className="dim todos-empty">No items yet.</p>
+        ) : (
+          <ul className="todos-list">
+            {todos.map((item, index) => {
+              const isDone = item.status === "completed";
+              return (
+                <li
+                  key={index}
+                  className={`todo-item status-${item.status}${item.priority === "high" ? " prio-high" : ""}`}
+                >
+                  <Checkbox
+                    checked={isDone}
+                    aria-label={isDone ? `Mark "${item.content}" not done` : `Mark "${item.content}" done`}
+                    disabled={disabled}
+                    onChange={() => toggle(index)}
+                  />
+                  {editing === index ? (
+                    <TextInput
+                      className="todo-edit"
+                      value={draft}
+                      autoFocus
+                      disabled={disabled}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commitEdit(index)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit(index);
+                        if (e.key === "Escape") setEditing(null);
+                      }}
+                      aria-label="Edit item"
+                    />
+                  ) : (
+                    // @ui-raw: click-to-edit inline text control; a Button centers
+                    // and pads the row, which breaks the checklist layout.
+                    <button
+                      type="button"
+                      className="todo-content"
+                      disabled={disabled}
+                      title="Click to edit"
+                      onClick={() => {
+                        setEditing(index);
+                        setDraft(item.content);
+                      }}
+                    >
+                      {item.content}
+                    </button>
+                  )}
+                  <IconButton
+                    label={`Remove "${item.content}"`}
+                    className="todo-remove"
+                    disabled={disabled}
+                    onClick={() => setPendingRemove(index)}
                   >
-                    <button
-                      type="button"
-                      className={isDone ? "todo-check checked" : "todo-check"}
-                      role="checkbox"
-                      aria-checked={isDone}
-                      aria-label={isDone ? `Mark "${item.content}" not done` : `Mark "${item.content}" done`}
-                      disabled={disabled}
-                      onClick={() => toggle(index)}
-                    >
-                      {isDone && <Check size={12} aria-hidden="true" />}
-                    </button>
-                    {editing === index ? (
-                      <input
-                        className="todo-edit"
-                        value={draft}
-                        autoFocus
-                        disabled={disabled}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onBlur={() => commitEdit(index)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEdit(index);
-                          if (e.key === "Escape") setEditing(null);
-                        }}
-                        aria-label="Edit item"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        className="todo-content"
-                        disabled={disabled}
-                        title="Click to edit"
-                        onClick={() => {
-                          setEditing(index);
-                          setDraft(item.content);
-                        }}
-                      >
-                        {item.content}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="todo-remove"
-                      aria-label={`Remove "${item.content}"`}
-                      disabled={disabled}
-                      onClick={() => remove(index)}
-                    >
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <div className="todos-add-row">
-            <input
-              className="todos-add"
-              value={adding}
-              disabled={disabled}
-              placeholder="Add item…"
-              aria-label="Add checklist item"
-              onChange={(e) => setAdding(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="todos-add-btn"
-              aria-label="Add item"
-              disabled={disabled || adding.trim().length === 0}
-              onClick={add}
-            >
-              <Plus size={14} aria-hidden="true" />
-            </button>
-          </div>
+                    <X size={12} aria-hidden="true" />
+                  </IconButton>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="todos-add-row">
+          <TextInput
+            className="todos-add"
+            value={adding}
+            disabled={disabled}
+            placeholder="Add item…"
+            aria-label="Add checklist item"
+            onChange={(e) => setAdding(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <IconButton
+            label="Add item"
+            className="todos-add-btn"
+            disabled={disabled || adding.trim().length === 0}
+            onClick={add}
+          >
+            <Plus size={14} aria-hidden="true" />
+          </IconButton>
         </div>
-      )}
+      </Disclosure>
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove item?"
+        body={
+          pendingItem !== undefined
+            ? <>Remove "{pendingItem.content}" from the checklist?</>
+            : "Remove this item from the checklist?"
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          const index = pendingRemove;
+          setPendingRemove(null);
+          if (index !== null) remove(index);
+        }}
+      />
     </aside>
   );
 }

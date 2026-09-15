@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Cpu } from "lucide-react";
+import { Cpu } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
 import { ModelCapabilityBadges } from "./model-capabilities";
-import { ListItem, Modal } from "./components";
+import { ListItem, Modal, PickerTrigger, TextInput } from "./components";
 
 /**
  * Chat-header model picker: a button showing the current model; clicking it
@@ -59,24 +59,18 @@ export function ModelPicker({
 
   return (
     <>
-      <button
-        type="button"
-        className="model-button"
+      <PickerTrigger
+        icon={<Cpu size={13} aria-hidden="true" />}
+        value={
+          <>
+            {current}
+            {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
+          </>
+        }
+        trailing={currentModel !== undefined ? <ModelCapabilityBadges model={currentModel} /> : undefined}
+        ariaLabel={`model: ${current}${accountSuffix}`}
         onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-label={`model: ${current}${accountSuffix}`}
-        data-tooltip={`Model: ${current}${accountSuffix}`}
-      >
-        <Cpu size={13} aria-hidden="true" />
-        <span className="model-current">
-          {current}
-          {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
-        </span>
-        {currentModel !== undefined && <ModelCapabilityBadges model={currentModel} />}
-        <span className="model-caret" aria-hidden="true">
-          <ChevronDown size={12} />
-        </span>
-      </button>
+      />
       {open && (
         <ModelModal
           client={client}
@@ -231,15 +225,14 @@ export function ModelModal({
         <>
           {/* The one search bar (TUI type-to-filter parity): free-form text
               matching a model's name/id OR its provider's name/id. Focused
-              on open (`data-autofocus` + `autoFocus`). */}
-          <input
+              on open (`autoFocus`). */}
+          <TextInput
             className="model-search"
             type="search"
             placeholder="Filter models or providers…"
             value={modelFilter}
             onChange={(e) => setModelFilter(e.target.value)}
             aria-label="Filter models or providers"
-            data-autofocus
             autoFocus
           />
           <div className="model-list">

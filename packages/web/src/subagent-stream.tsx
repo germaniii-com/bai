@@ -4,7 +4,8 @@ import type { Message } from "@bai/shared";
 import { messageText, thinkingText, toolCalls } from "./state";
 import type { SubagentActivity } from "./state-subagents";
 import { Markdown } from "./markdown";
-import { Chevron, SubagentStatusIcon, ToolStatusIcon } from "./icons";
+import { SubagentStatusIcon, ToolStatusIcon } from "./icons";
+import { Button, Disclosure } from "./components";
 
 /** Live-refresh cadence while the child is still running (TUI parity). */
 const REFRESH_MS = 1500;
@@ -208,9 +209,9 @@ export function SubagentStream({
               {loadingOlder ? (
                 <span className="dim">Loading earlier messages…</span>
               ) : (
-                <button
-                  type="button"
-                  className="load-older-btn"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
                     const el = bodyRef.current;
                     if (el !== null) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop, firstId: messages[0]?.id };
@@ -218,7 +219,7 @@ export function SubagentStream({
                   }}
                 >
                   Load earlier messages
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -243,17 +244,18 @@ export function SubagentStream({
 function ChildThought({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="thinking-node">
-      <button type="button" className="thinking-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <Chevron open={open} />
-        <span>thought</span>
-      </button>
-      {open && (
-        <div className="thinking-body">
-          <Markdown text={text} />
-        </div>
-      )}
-    </div>
+    <Disclosure
+      variant="inline"
+      className="thinking-node"
+      headClassName="thinking-toggle"
+      title="thought"
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <div className="thinking-body">
+        <Markdown text={text} />
+      </div>
+    </Disclosure>
   );
 }
 
@@ -276,15 +278,25 @@ function ToolNodes({ calls }: { calls: ReturnType<typeof toolCalls> }) {
       {calls.map((c) => {
         const open = openIds.has(c.callId);
         return (
-          <div key={c.callId} className={`tool-node tool-${c.status}`}>
-            <button type="button" className="tool-toggle" onClick={() => toggle(c.callId)} aria-expanded={open}>
-              <ToolStatusIcon status={c.status} /> <span className="tool-name">{c.name}</span>
-              {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
-            </button>
-            {open && c.result !== undefined && (
+          <Disclosure
+            key={c.callId}
+            variant="inline"
+            className={`tool-node tool-${c.status}`}
+            headClassName="tool-toggle"
+            icon={<ToolStatusIcon status={c.status} />}
+            title={
+              <>
+                <span className="tool-name">{c.name}</span>
+                {c.argsPreview.length > 0 && <span className="tool-args"> {c.argsPreview}</span>}
+              </>
+            }
+            open={open}
+            onOpenChange={() => toggle(c.callId)}
+          >
+            {c.result !== undefined && (
               <div className={`tool-body ${c.result.isError ? "tool-body-error" : ""}`}>{c.result.content}</div>
             )}
-          </div>
+          </Disclosure>
         );
       })}
     </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Hammer, Plus, Trash2 } from "lucide-react";
+import { FileText, Hammer, Plus, Trash2 } from "lucide-react";
 import { isValidAgentName, type PlanFile } from "@bai/shared";
+import { ConfirmDialog, Disclosure, IconButton, ListItem, SubNavCreate, TextInput } from "./components";
 
 /**
  * The workspace right-rail Plans panel: the active session's plan files
@@ -33,7 +34,7 @@ export function PlansPanel({
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const existing = new Set(plans.map((p) => p.name));
 
@@ -60,15 +61,13 @@ export function PlansPanel({
     }
   };
 
-  const remove = async (plan: string): Promise<void> => {
-    if (confirming !== plan) {
-      setConfirming(plan);
-      return;
-    }
+  const confirmDelete = async (): Promise<void> => {
+    const plan = pendingDelete;
+    setPendingDelete(null);
+    if (plan === null) return;
     setBusy(true);
     try {
       await onDelete(plan);
-      setConfirming(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -78,103 +77,119 @@ export function PlansPanel({
 
   return (
     <aside className="todos-panel plans-panel" role="region" aria-label="Session plans">
-      <button
-        type="button"
-        className="todos-head"
-        aria-expanded={!collapsed}
-        aria-controls="plans-body"
-        onClick={() => setCollapsed((c) => !c)}
+      <Disclosure
+        variant="panel"
+        icon={<FileText size={14} />}
+        title="Plans"
+        id="plans-body"
+        open={!collapsed}
+        onOpenChange={(open) => setCollapsed(!open)}
+        count={plans.length > 0 ? plans.length : undefined}
       >
-        <FileText size={14} aria-hidden="true" />
-        <span>Plans</span>
-        {plans.length > 0 && <span className="todos-count">{plans.length}</span>}
-        <span className="todos-chevron" aria-hidden="true">
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        </span>
-      </button>
-      {!collapsed && (
-        <div id="plans-body">
-          {creating ? (
-            <form
-              className="plan-new-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void create();
+        {creating ? (
+          <form
+            className="plan-new-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
+            }}
+          >
+            <TextInput
+              className="todos-add"
+              value={name}
+              autoFocus
+              disabled={busy}
+              placeholder="plan-name"
+              aria-label="New plan name"
+              maxLength={64}
+              spellCheck={false}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError(null);
               }}
-            >
-              <input
-                className="todos-add"
-                value={name}
-                autoFocus
-                disabled={busy}
-                placeholder="plan-name"
-                aria-label="New plan name"
-                maxLength={64}
-                spellCheck={false}
-                onChange={(e) => {
-                  setName(e.target.value);
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setCreating(false);
                   setError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setCreating(false);
-                    setError(null);
+                }
+              }}
+            />
+            <IconButton type="submit" className="todos-add-btn" disabled={busy} label="Create plan">
+              <Plus size={14} aria-hidden="true" />
+            </IconButton>
+          </form>
+        ) : (
+          <SubNavCreate
+            className="plan-new-btn"
+            label="+ New plan"
+            disabled={disabled}
+            onClick={() => setCreating(true)}
+          />
+        )}
+        {error !== null && <div className="error plan-error">{error}</div>}
+        {plans.length === 0 ? (
+          <p className="dim todos-empty">No plans yet.</p>
+        ) : (
+          <ul className="todos-list">
+            {plans.map((plan) => (
+              <li key={plan.name}>
+                <ListItem
+                  inline
+                  icon={<FileText size={13} aria-hidden="true" />}
+                  title={plan.name}
+                  selected={activePlan === plan.name}
+                  disabled={disabled}
+                  onClick={() => onOpen(plan.name)}
+                  hint={`Open ${plan.name}`}
+                  className="plan-row"
+                  trailing={
+                    <>
+                      <span className="plan-date">{shortDate(plan.updatedAt)}</span>
+                      <IconButton
+                        className="plan-build"
+                        label={`Build ${plan.name}`}
+                        hint={`Build "${plan.name}" with the build agent`}
+                        disabled={disabled || busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBuild(plan.name);
+                        }}
+                      >
+                        <Hammer size={12} aria-hidden="true" />
+                      </IconButton>
+                      <IconButton
+                        className="todo-remove"
+                        label={`Delete ${plan.name}`}
+                        hint={`Delete ${plan.name}`}
+                        disabled={disabled || busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPendingDelete(plan.name);
+                        }}
+                      >
+                        <Trash2 size={12} aria-hidden="true" />
+                      </IconButton>
+                    </>
                   }
-                }}
-              />
-              <button type="submit" className="todos-add-btn" disabled={busy} aria-label="Create plan">
-                <Plus size={14} aria-hidden="true" />
-              </button>
-            </form>
-          ) : (
-            <button type="button" className="new-session plan-new-btn" disabled={disabled} onClick={() => setCreating(true)}>
-              + New plan
-            </button>
-          )}
-          {error !== null && <div className="error plan-error">{error}</div>}
-          {plans.length === 0 ? (
-            <p className="dim todos-empty">No plans yet.</p>
-          ) : (
-            <ul className="todos-list">
-              {plans.map((plan) => (
-                <li key={plan.name} className={activePlan === plan.name ? "plan-row active" : "plan-row"}>
-                  <button
-                    type="button"
-                    className="plan-open"
-                    disabled={disabled}
-                    title={`Open ${plan.name}`}
-                    onClick={() => onOpen(plan.name)}
-                  >
-                    <FileText size={13} aria-hidden="true" />
-                    <span className="plan-name">{plan.name}</span>
-                    <span className="plan-date">{shortDate(plan.updatedAt)}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="plan-build"
-                    aria-label={`Build ${plan.name}`}
-                    title={`Build "${plan.name}" with the build agent`}
-                    disabled={disabled || busy}
-                    onClick={() => onBuild(plan.name)}
-                  >
-                    <Hammer size={12} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className={confirming === plan.name ? "todo-remove confirming" : "todo-remove"}
-                    aria-label={confirming === plan.name ? `Confirm delete ${plan.name}` : `Delete ${plan.name}`}
-                    disabled={disabled || busy}
-                    onClick={() => void remove(plan.name)}
-                    onBlur={() => setConfirming((c) => (c === plan.name ? null : c))}
-                  >
-                    <Trash2 size={12} aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Disclosure>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete plan?"
+        body={
+          pendingDelete !== null
+            ? <>Delete "{pendingDelete}"? This cannot be undone.</>
+            : "Delete this plan?"
+        }
+        confirmLabel="Delete"
+        busy={busy}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </aside>
   );
 }

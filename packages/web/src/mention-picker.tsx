@@ -28,6 +28,7 @@ export function MentionPicker({
   onHover: (index: number) => void;
 }) {
   return (
+    // @ui-raw: external keyboard state owned by chat-pane (selected index + arrow keys live in the composer).
     <div className="mention-pop" role="listbox" aria-label="File suggestions">
       {error !== undefined ? (
         <p className="mention-empty"># {error}</p>
@@ -39,6 +40,7 @@ export function MentionPicker({
           const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
           const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
           return (
+            // @ui-raw: external keyboard state owned by chat-pane (selected index + arrow keys live in the composer).
             <button
               key={entry.path}
               type="button"

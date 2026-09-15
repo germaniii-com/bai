@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { PermissionRequest, QuestionRequest } from "@bai/shared";
-import { Button } from "./components";
+import { Button, Checkbox, Field, RadioGroup, Textarea, TextInput } from "./components";
 
 /**
  * The merged, prioritized pending ask App hands to the chat pane:
@@ -144,17 +144,16 @@ function PermissionAsk({
       )}
       {rejecting ? (
         <div className="perm-reject">
-          <label className="dim" htmlFor="perm-reject-msg">
-            Why reject? (optional — the model sees this message)
-          </label>
-          <textarea
-            id="perm-reject-msg"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="e.g. wrong file, use the other module…"
-            rows={3}
-            autoFocus
-          />
+          <Field label="Why reject?" hint="(optional — the model sees this message)">
+            <Textarea
+              id="perm-reject-msg"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="e.g. wrong file, use the other module…"
+              rows={3}
+              autoFocus
+            />
+          </Field>
           <div className="perm-actions">
             <Button
               variant="danger"
@@ -267,9 +266,8 @@ function PathAsk({
         <label className="question-custom-label" htmlFor={`path-ask-${request.id}`}>
           Folder path (edit freely)
         </label>
-        <input
+        <TextInput
           id={`path-ask-${request.id}`}
-          className="question-custom"
           placeholder="/absolute/path or ~/folder"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -297,6 +295,9 @@ function PathAsk({
     </div>
   );
 }
+
+/** Sentinel radio value for the "Other…" option (a filled custom field wins on submit). */
+const OTHER_VALUE = "__other__";
 
 /** Choice ask — the radio/checkbox block (the question tool's flow). */
 function ChoiceAsk({
@@ -372,50 +373,72 @@ function ChoiceAsk({
         <span>Questions</span>
         {queued > 0 && <span className="ask-queued">{queued} more queued</span>}
       </div>
-      {(request.questions ?? []).map((q, qi) => (
-        <fieldset key={qi} className="question-block">
-          <legend className="question-header">{q.header}</legend>
-          <p className="question-text">
-            {q.question}
-            {q.multiple === true && <span className="dim"> (select all that apply)</span>}
-          </p>
-          {q.options.map((opt) => (
-            <label key={opt.label} className="question-option">
-              <input
-                type={q.multiple === true ? "checkbox" : "radio"}
+      {(request.questions ?? []).map((q, qi) => {
+        const multi = q.multiple === true;
+        const selected = answers[qi] ?? [];
+        const customFilled = (customs[qi] ?? "").trim().length > 0;
+        return (
+          <fieldset key={qi} className="question-block">
+            <legend className="question-header">{q.header}</legend>
+            <p className="question-text">
+              {q.question}
+              {multi && <span className="dim"> (select all that apply)</span>}
+            </p>
+            {multi ? (
+              <>
+                {q.options.map((opt) => (
+                  <Checkbox
+                    key={opt.label}
+                    label={
+                      <>
+                        <strong>{opt.label}</strong>
+                        <span className="dim"> — {opt.description}</span>
+                      </>
+                    }
+                    checked={selected.includes(opt.label)}
+                    onChange={() => toggleMulti(qi, opt.label)}
+                  />
+                ))}
+                <Checkbox
+                  label="Other…"
+                  checked={customFilled}
+                  onChange={() => setCustom(qi, "")}
+                />
+              </>
+            ) : (
+              <RadioGroup
                 name={`q-${request.id}-${qi}`}
-                checked={(answers[qi] ?? []).includes(opt.label)}
-                onChange={() =>
-                  q.multiple === true ? toggleMulti(qi, opt.label) : setSingle(qi, opt.label)
-                }
+                ariaLabel={q.header}
+                value={customFilled ? OTHER_VALUE : (selected[0] ?? null)}
+                onChange={(value) => {
+                  if (value === OTHER_VALUE) {
+                    setCustom(qi, "");
+                    return;
+                  }
+                  setSingle(qi, value);
+                }}
+                options={[
+                  ...q.options.map((opt) => ({
+                    value: opt.label,
+                    label: <strong>{opt.label}</strong>,
+                    description: <> — {opt.description}</>,
+                  })),
+                  { value: OTHER_VALUE, label: "Other…" },
+                ]}
               />
-              <span>
-                <strong>{opt.label}</strong>
-                <span className="dim"> — {opt.description}</span>
-              </span>
+            )}
+            <label className="question-custom-label" htmlFor={`question-custom-${request.id}-${qi}`}>
+              Your answer
             </label>
-          ))}
-          <label className="question-option">
-            <input
-              type={q.multiple === true ? "checkbox" : "radio"}
-              name={`q-${request.id}-${qi}`}
-              checked={(customs[qi] ?? "").trim().length > 0}
-              onChange={() => setCustom(qi, "")}
+            <TextInput
+              id={`question-custom-${request.id}-${qi}`}
+              placeholder="Type your own answer…"
+              value={customs[qi] ?? ""}
+              onChange={(e) => setCustom(qi, e.target.value)}
             />
-            <span>Other…</span>
-          </label>
-          <label className="question-custom-label" htmlFor={`question-custom-${request.id}-${qi}`}>
-            Your answer
-          </label>
-          <input
-            id={`question-custom-${request.id}-${qi}`}
-            className="question-custom"
-            placeholder="Type your own answer…"
-            value={customs[qi] ?? ""}
-            onChange={(e) => setCustom(qi, e.target.value)}
-          />
-        </fieldset>
-      ))}
+          </fieldset>
+        );
+      })}
       {error !== null && <p className="error" role="alert">{error}</p>}
       <div className="perm-actions">
         <Button variant="primary" size="sm" disabled={busy} onClick={() => void submit()}>

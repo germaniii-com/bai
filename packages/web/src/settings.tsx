@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -28,7 +28,7 @@ import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
-import { Button, Card, Combobox, Field, MediaParamsForm, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TagInput, TextInput, ToggleRow } from "./components";
+import { Button, Card, Combobox, ConfirmDialog, Field, ListItem, MediaParamsForm, PageHeader, PickerTrigger, SectionHeader, Select, SubNav, SubNavItem, TagInput, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -353,19 +353,12 @@ function DefaultAgentCard({
         lede={<>Used by sessions that select none. Current: {current ?? "build (built-in default)"}</>}
       />
       <div>
-        <button
-          type="button"
-          className="model-button"
+        <PickerTrigger
+          label="agent"
+          value={effective}
           onClick={() => setPickerOpen(true)}
-          aria-haspopup="dialog"
-          aria-label={`default agent: ${effective}`}
-        >
-          <span className="dim">agent</span>
-          <span className="model-current">{effective}</span>
-          <span className="model-caret" aria-hidden="true">
-            <ChevronDown size={12} />
-          </span>
-        </button>
+          ariaLabel={`default agent: ${effective}`}
+        />
       </div>
       {pickerOpen && (
         <AgentModal
@@ -435,20 +428,13 @@ function DefaultModelCard({
         lede={<>Used by new sessions; per-session picks (chat header) override it. Current: {list.default.model ?? "stub/echo"}</>}
       />
       <div>
-        <button
-          type="button"
-          className="model-button"
+        <PickerTrigger
+          label="model"
+          value={current}
           onClick={() => setPickerOpen(true)}
-          aria-haspopup="dialog"
-          aria-label={`default model: ${current}`}
-        >
-          <span className="dim">model</span>
-          <span className="model-current">{current}</span>
-          {currentModel !== undefined && <ModelCapabilityBadges model={currentModel} />}
-          <span className="model-caret" aria-hidden="true">
-            <ChevronDown size={12} />
-          </span>
-        </button>
+          ariaLabel={`default model: ${current}`}
+          trailing={currentModel !== undefined ? <ModelCapabilityBadges model={currentModel} /> : undefined}
+        />
       </div>
       <div className="form-grid">
         <Field label="Or any model id" hint="(provider/model — for ids outside the catalog)">
@@ -509,6 +495,7 @@ function ProvidersPane({
     { provider: ProviderInfo; intent: "connect" | "add" | "reconnect"; accountId?: string } | null
   >(null);
   const [customOpen, setCustomOpen] = useState(false);
+  const [pendingCustom, setPendingCustom] = useState<ProviderInfo | null>(null);
   const sorted = sortProviders(list.providers);
   const oauthById = new Map(oauth.map((o) => [o.id, o]));
   const { custom, oauth: oauthProviders, catalog } = partitionProviders(sorted, oauthById.keys());
@@ -554,7 +541,7 @@ function ProvidersPane({
               onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
               onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
               onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
-              onDeleteCustom={() => removeCustom(p)}
+              onDeleteCustom={() => setPendingCustom(p)}
             />
           ))}
         </div>
@@ -647,6 +634,23 @@ function ProvidersPane({
           onNotice={onNotice}
         />
       )}
+      <ConfirmDialog
+        open={pendingCustom !== null}
+        title="Remove custom provider?"
+        body={
+          <>
+            Remove <strong>{pendingCustom?.name}</strong> ({pendingCustom?.id}) and its configured accounts? This
+            cannot be undone.
+          </>
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingCustom(null)}
+        onConfirm={() => {
+          const p = pendingCustom;
+          setPendingCustom(null);
+          if (p !== null) removeCustom(p);
+        }}
+      />
     </>
   );
 }
@@ -685,6 +689,8 @@ function AccordionProvider({
         : provider.adapter;
   return (
     <div className="provider-accordion-item">
+      {/* @ui-raw: accordion header needs aria-expanded/aria-controls; SubNavItem
+          does not forward those attributes, so keep the raw button for ARIA. */}
       <button
         type="button"
         className={expanded ? "provider-item active" : "provider-item"}
@@ -862,6 +868,7 @@ function ProviderAccounts({
   /** Reconnect one specific OAuth account (per-account, in place). */
   onReconnectAccount?: (accountId: string) => void;
 }) {
+  const [pending, setPending] = useState<{ id: string; label: string } | null>(null);
   return (
     <Card className={provider.connected ? "connected" : undefined}>
       <div className="provider-head">
@@ -913,9 +920,7 @@ function ProviderAccounts({
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={() => {
-                    void mutate(() => client.deleteAccount(provider.id, a.id), `Removed ${a.label}`);
-                  }}
+                  onClick={() => setPending({ id: a.id, label: a.label })}
                 >
                   Remove
                 </Button>
@@ -924,6 +929,24 @@ function ProviderAccounts({
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={pending !== null}
+        title="Remove account?"
+        body={
+          <>
+            Remove <strong>{pending?.label}</strong> from <strong>{provider.name}</strong>? This cannot be undone.
+          </>
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          const p = pending;
+          setPending(null);
+          if (p !== null) {
+            void mutate(() => client.deleteAccount(provider.id, p.id), `Removed ${p.label}`);
+          }
+        }}
+      />
     </Card>
   );
 }
@@ -1470,6 +1493,7 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     | null
   >(null);
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
 
   const load = async (): Promise<void> => {
     try {
@@ -1667,21 +1691,24 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                 {group.category}
               </p>
               {group.entries.map((entry) => (
-                <div key={entry.name} className="mcp-row">
-                  <div className="mcp-row-main">
-                    <BrandIcon name={entry.name} />
-                    <div>
-                      <span className="mcp-row-title">
-                        <strong>{entry.title}</strong>{" "}
-                        <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>
-                      </span>
-                      <div className="mcp-row-meta">{entry.description}</div>
+                <ListItem
+                  key={entry.name}
+                  icon={<BrandIcon name={entry.name} />}
+                  title={
+                    <>
+                      <strong>{entry.title}</strong>{" "}
+                      <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>
+                    </>
+                  }
+                  subtitle={
+                    <>
+                      <span className="mcp-row-meta">{entry.description}</span>
                       {entry.envVars !== undefined && entry.envVars.length > 0 && (
-                        <div className="mcp-row-meta">env: {entry.envVars.map((v) => v.name).join(", ")}</div>
+                        <span className="mcp-row-meta"> env: {entry.envVars.map((v) => v.name).join(", ")}</span>
                       )}
-                    </div>
-                  </div>
-                  <div className="mcp-row-actions">
+                    </>
+                  }
+                  trailing={
                     <Button
                       type="button"
                       variant={installed.has(entry.name) ? "ghost" : "primary"}
@@ -1690,8 +1717,8 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                     >
                       {installed.has(entry.name) ? "Installed" : "Install"}
                     </Button>
-                  </div>
-                </div>
+                  }
+                />
               ))}
             </div>
           ))}
@@ -1766,7 +1793,7 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                     type="button"
                     variant="danger"
                     disabled={busy !== null}
-                    onClick={() => void run(server.name, () => client.deleteMcpServer(server.name), `Removed ${server.name}`)}
+                    onClick={() => setPendingRemove(server.name)}
                   >
                     Remove
                   </Button>
@@ -1786,6 +1813,22 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
           onNotice={onNotice}
         />
       )}
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove MCP server?"
+        body={
+          <>
+            Remove <strong>{pendingRemove}</strong> and its drop-in file? This cannot be undone.
+          </>
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          const name = pendingRemove;
+          setPendingRemove(null);
+          if (name !== null) void run(name, () => client.deleteMcpServer(name), `Removed ${name}`);
+        }}
+      />
     </>
   );
 }

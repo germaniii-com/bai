@@ -8,7 +8,7 @@ import { defineBaiTheme } from "./monaco-setup";
 import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 import { Markdown } from "./markdown";
 import { PlanView, type PlanSaveStatus } from "./plan-view";
-import { Button } from "./components";
+import { Button, IconButton, Tabs } from "./components";
 
 /**
  * The Files view of the workspace section: a tab bar of opened files over a
@@ -342,6 +342,8 @@ export function FileView({
           const active = path === activeFile;
           return (
             <div key={path} className={active ? "file-tab active" : "file-tab"}>
+              {/* @ui-raw: a file tab carries an icon + name + change dot and a
+                  sibling close control; Tabs cannot host per-tab actions. */}
               <button
                 type="button"
                 role="tab"
@@ -354,15 +356,14 @@ export function FileView({
                 <span className="file-tab-name">{basename(path)}</span>
                 {changedFiles.has(path) && <span className="file-tab-dot" aria-label="changed" />}
               </button>
-              <button
-                type="button"
+              <IconButton
                 className="file-tab-close"
-                aria-label={`Close ${basename(path)}`}
-                title={`Close ${basename(path)}`}
+                label={`Close ${basename(path)}`}
+                hint={`Close ${basename(path)}`}
                 onClick={() => onCloseTab(path)}
               >
                 <X size={12} aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
           );
         })}
@@ -370,6 +371,8 @@ export function FileView({
           const active = name === activePlan;
           return (
             <div key={`plan:${name}`} className={active ? "file-tab active" : "file-tab"}>
+              {/* @ui-raw: a plan tab carries a name + save status/badge and a
+                  sibling close control; Tabs cannot host per-tab actions. */}
               <button
                 type="button"
                 role="tab"
@@ -394,41 +397,30 @@ export function FileView({
                   <span className="file-tab-badge">plan</span>
                 )}
               </button>
-              <button
-                type="button"
+              <IconButton
                 className="file-tab-close"
-                aria-label={`Close ${name}`}
-                title={`Close ${name}`}
+                label={`Close ${name}`}
+                hint={`Close ${name}`}
                 onClick={() => onClosePlan?.(name)}
               >
                 <X size={12} aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
           );
         })}
       </div>
       {isMarkdown && activeFile !== null && (
         <div className="file-view-bar">
-          <div className="pane-switch" role="tablist" aria-label="Markdown view">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mdMode === "preview"}
-              className={mdMode === "preview" ? "active" : undefined}
-              onClick={() => setMdMode(activeFile, "preview")}
-            >
-              Preview
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mdMode === "raw"}
-              className={mdMode === "raw" ? "active" : undefined}
-              onClick={() => setMdMode(activeFile, "raw")}
-            >
-              Raw
-            </button>
-          </div>
+          <Tabs
+            variant="underline"
+            ariaLabel="Markdown view"
+            value={mdMode}
+            onChange={(value) => setMdMode(activeFile, value === "raw" ? "raw" : "preview")}
+            tabs={[
+              { value: "preview", label: "Preview" },
+              { value: "raw", label: "Raw" },
+            ]}
+          />
         </div>
       )}
       <div className="file-preview">

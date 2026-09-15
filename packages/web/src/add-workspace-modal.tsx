@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Plus } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import { Button, Field, Modal, TextInput } from "./components";
+import { Button, Checkbox, Field, IconButton, ListItem, Modal, TextInput } from "./components";
 
 interface Completion {
   base: string;
@@ -302,7 +302,7 @@ export function AddWorkspaceModal({
   const newFolderRow = (pane: "left" | "right"): ReactNode =>
     creating === pane ? (
       <div className="ws-newrow">
-        <input
+        <TextInput
           className="ws-newname"
           value={newName}
           placeholder="folder name"
@@ -320,59 +320,48 @@ export function AddWorkspaceModal({
           }}
           aria-label="new folder name"
         />
-        <button
-          type="button"
+        <IconButton
           className="ws-newok"
+          label="create folder"
           disabled={newName.trim().length === 0 || busy}
-          aria-label="create folder"
           onClick={() => {
             void confirmCreate(pane);
           }}
         >
           <Check size={14} aria-hidden="true" />
-        </button>
+        </IconButton>
       </div>
     ) : (
-      <button
-        type="button"
-        className="ws-row ws-newfolder"
+      <ListItem
+        inline
+        icon={<Plus size={14} aria-hidden="true" />}
+        title="New Folder"
         onClick={() => startCreate(pane)}
-      >
-        <Plus size={14} aria-hidden="true" />
-        New Folder
-      </button>
+      />
     );
 
   /** One folder row: multi mode adds a selection checkbox beside the name. */
   const folderRow = (dir: string, apply: () => void, active: boolean): ReactNode =>
     multi ? (
-      // Whole row is a label so the standard checkbox toggles on any click;
-      // the folder name is a button that navigates instead (stopPropagation).
-      <label key={dir} className={`ws-row ws-row-selectable${active ? " active" : ""}`} title={dir}>
-        <input
-          type="checkbox"
-          className="ws-check"
+      // The row is a plain flex container: the Checkbox toggles selection and
+      // the ListItem's name button navigates into the folder.
+      <div key={dir} className={`ws-row ws-row-selectable${active ? " active" : ""}`} title={dir}>
+        <Checkbox
           checked={selected.includes(dir)}
           onChange={() => toggleSelected(dir)}
           aria-label={`${selected.includes(dir) ? "deselect" : "select"} ${basename(dir)}`}
         />
-        <button
-          type="button"
-          className="ws-row-name"
-          title={dir}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            apply();
-          }}
-        >
-          {basename(dir)}/
-        </button>
-      </label>
+        <ListItem inline title={`${basename(dir)}/`} hint={dir} onClick={apply} />
+      </div>
     ) : (
-      <button key={dir} type="button" className={active ? "ws-row active" : "ws-row"} title={dir} onClick={apply}>
-        {basename(dir)}/
-      </button>
+      <ListItem
+        key={dir}
+        inline
+        title={`${basename(dir)}/`}
+        hint={dir}
+        selected={active}
+        onClick={apply}
+      />
     );
 
   return (
@@ -444,14 +433,12 @@ export function AddWorkspaceModal({
         />
       </Field>
       <div className="ws-explorer-bar">
-        <label className="ws-dotfiles-toggle">
-          <input
-            type="checkbox"
-            checked={showDotfiles}
-            onChange={(e) => setShowDotfiles(e.target.checked)}
-          />
-          show dotfiles
-        </label>
+        <Checkbox
+          className="ws-dotfiles-toggle"
+          label="show dotfiles"
+          checked={showDotfiles}
+          onChange={(e) => setShowDotfiles(e.target.checked)}
+        />
       </div>
       <div className="ws-explorer">
         <div className="ws-col">
@@ -463,14 +450,7 @@ export function AddWorkspaceModal({
             {leftError !== null && <p className="dim col-hint">{leftError}</p>}
             {currentDir !== null && (
               <>
-                <button
-                  type="button"
-                  className="ws-row dotdot"
-                  title={parentPath(currentDir)}
-                  onClick={goUp}
-                >
-                  ..
-                </button>
+                <ListItem inline title=".." hint={parentPath(currentDir)} onClick={goUp} />
                 {filteredLeft.map((name) => {
                   const dir = joinPath(currentDir, name);
                   return folderRow(dir, () => selectLeft(dir), selectedDir === dir);

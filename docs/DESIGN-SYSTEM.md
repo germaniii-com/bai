@@ -123,6 +123,8 @@ A 4px base scale. **These are the only padding/margin/gap values.**
 
 ## 5. Radii
 
+Raw scale:
+
 | Token | Value |
 |---|---|
 | `--radius-sm` | 6px |
@@ -130,6 +132,18 @@ A 4px base scale. **These are the only padding/margin/gap values.**
 | `--radius-lg` | 10px |
 | `--radius-xl` | 12px |
 | `--radius-full` | 999px |
+
+### Component-role radii (the uniformity contract)
+
+Components reference the **role** tokens, never the raw scale, so every
+control/surface/dialog rounds consistently:
+
+| Role token | Maps to | Used by |
+|---|---|---|
+| `--radius-control` | `--radius-md` (8px) | Buttons, inputs, textareas, selects, comboboxes, tag fields, chips, checkboxes, radios, segmented controls |
+| `--radius-card` | `--radius-lg` (10px) | Cards, menus, dropdowns, popovers, toasts, banners |
+| `--radius-modal` | `--radius-xl` (12px) | Modals, lightboxes |
+| `--radius-full` | 999px | Pills, badges, avatars |
 
 ---
 
@@ -156,6 +170,26 @@ bumps to meet the 44px target.
 | `--shadow-sm` | `0 1px 2px rgb(0 0 0 / 0.18)` |
 | `--shadow-md` | `0 4px 12px rgb(0 0 0 / 0.25)` |
 | `--shadow-lg` | `0 6px 24px rgb(0 0 0 / 0.3)` |
+
+Role elevation: floating surfaces (menus, dropdowns, popovers, toasts) use
+`--shadow-popover` (= `--shadow-md`); dialogs use `--shadow-modal`
+(= `--shadow-lg`). Components must not hardcode a `box-shadow`.
+
+### Motion
+
+| Token | Value |
+|---|---|
+| `--duration-fast` | 120ms |
+| `--duration-normal` | 180ms |
+| `--duration-slow` | 240ms |
+| `--ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` |
+| `--ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` |
+| `--ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` |
+
+Motion is subtle and functional: quick fades/slides/scales on enter **and**
+exit. A single global `@media (prefers-reduced-motion: reduce)` block at the
+end of `styles.css` neutralizes all animation and transitions app-wide —
+components must not add their own reduced-motion blocks.
 
 ---
 
@@ -192,14 +226,24 @@ Monaco derives its editor theme from the same palette data at call time
 ## 9. Rules for contributors
 
 1. **Never hardcode** a font size, weight, spacing, radius, control height, or
-   color in a component. Use the token.
+   color in a component. Use the token. For corners and elevation use the
+   **role** tokens (`--radius-control/--radius-card/--radius-modal`,
+   `--shadow-popover/--shadow-modal`), never the raw scale.
 2. New sizes/weights require a new token in `:root` — and a reason. The scale
    is deliberately small.
 3. `components/components.css` is the reference implementation: every rule
    there is token-driven. `styles.css` is being migrated to the same standard.
-4. The contract test fails if a raw `font-size: <n>px` or `font-weight: <n>`
-   appears outside `:root`. Run `bun test` in `packages/web` before committing.
-5. Monaco/xterm font changes go through `editor-font.ts`, not the call sites.
+4. **Screens compose `components/` — they must not render raw
+   `<button>/<input>/<select>/<textarea>`.** Existing files use the
+   primitives; the source-scan contract test
+   (`test/components-contract.test.ts`) fails otherwise.
+5. The contract tests fail if a raw `font-size: <n>px` / `font-weight: <n>`, a
+   raw `border-radius: <n>px`, or a hardcoded `box-shadow` appears outside
+   `:root`. Run `bun test` in `packages/web` before committing.
+6. Monaco/xterm font changes go through `editor-font.ts`, not the call sites.
+7. Motion uses the duration/easing tokens; the single global
+   `prefers-reduced-motion` guard covers every animation. Do not add a
+   per-component reduced-motion block.
 
 ---
 

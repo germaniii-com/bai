@@ -14,7 +14,9 @@ import {
 import {
   Button,
   Combobox,
+  ConfirmDialog,
   Field,
+  ListItem,
   SectionHeader,
   Select,
   SubNav,
@@ -229,6 +231,8 @@ export function ScheduleBuilder({
               {WEEKDAY_LABELS.map((label, i) => {
                 const selected = days.includes(i);
                 return (
+                  // @ui-raw: multi-select weekday toggle group — Tabs/segmented
+                  // controls are single-select, so no primitive fits.
                   <button
                     key={i}
                     type="button"
@@ -458,6 +462,7 @@ function AutomationForm({
   const [workspace, setWorkspace] = useState(automation.workspace ?? "");
   const [enabled, setEnabled] = useState(automation.enabled);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
   // Live wall clock (HH:mm:ss) shown between the next/last run readouts.
   const [clock, setClock] = useState(currentClock);
@@ -650,7 +655,7 @@ function AutomationForm({
         <Button variant="secondary" disabled={busy} onClick={() => void runNow()}>
           Run now
         </Button>
-        <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+        <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
           Delete
         </Button>
       </div>
@@ -663,31 +668,51 @@ function AutomationForm({
           <ul className="run-list">
             {runs.map((run) => (
               <li key={run.id}>
-                <button
-                  type="button"
+                <ListItem
+                  inline
                   className="run-row"
                   disabled={run.sessionId === undefined}
-                  title={run.sessionId === undefined ? undefined : "Open the run's session"}
+                  hint={run.sessionId === undefined ? undefined : "Open the run's session"}
                   onClick={() => run.sessionId !== undefined && onOpenSession(run.sessionId)}
-                >
-                  <span className={`run-status run-${run.status}`}>
-                    {run.status === "running" ? (
-                      <>
-                        <LoaderCircle size={11} className="icon-spin" aria-hidden="true" /> running
-                      </>
-                    ) : (
-                      run.status
-                    )}
-                  </span>
-                  <span className="run-time">{new Date(run.startedAt).toLocaleString()}</span>
-                  {run.error !== undefined && <span className="run-error">{run.error}</span>}
-                  {run.output !== undefined && <span className="run-output">{run.output}</span>}
-                </button>
+                  title={
+                    <>
+                      <span className={`run-status run-${run.status}`}>
+                        {run.status === "running" ? (
+                          <>
+                            <LoaderCircle size={11} className="icon-spin" aria-hidden="true" /> running
+                          </>
+                        ) : (
+                          run.status
+                        )}
+                      </span>
+                      <span className="run-time">{new Date(run.startedAt).toLocaleString()}</span>
+                      {run.error !== undefined && <span className="run-error">{run.error}</span>}
+                      {run.output !== undefined && <span className="run-output">{run.output}</span>}
+                    </>
+                  }
+                />
               </li>
             ))}
           </ul>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete automation?"
+        body={
+          <>
+            Delete <strong>{automation.name}</strong>? It stops firing and its run history is removed. This cannot be
+            undone.
+          </>
+        }
+        confirmLabel="Delete"
+        busy={busy}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          void remove();
+        }}
+      />
     </form>
   );
 }

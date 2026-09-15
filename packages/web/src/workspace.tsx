@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Archive, Folder, RotateCcw, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { AddWorkspaceModal } from "./add-workspace-modal";
-import { ListItem, SubNavCreate } from "./components";
-import { Button, Modal } from "./components";
+import { Button, IconButton, ListItem, Modal, SubNavCreate, Tabs } from "./components";
 
 /**
  * Workspace nested-sidebar list with an Active | Archived selector:
@@ -94,26 +93,19 @@ export function WorkspaceNav({
   return (
     <div className="workspace-nav">
       {/* Active | Archived selector — archived hides the add button. */}
-      <div className="ws-tabs" role="tablist" aria-label="Workspace list filter">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "active"}
-          className={tab === "active" ? "ws-tab active" : "ws-tab"}
-          onClick={() => setTab("active")}
-        >
-          Active
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "archived"}
-          className={tab === "archived" ? "ws-tab active" : "ws-tab"}
-          onClick={() => setTab("archived")}
-        >
-          Archived{archivedWorkspaces.length > 0 ? ` (${archivedWorkspaces.length})` : ""}
-        </button>
-      </div>
+      <Tabs
+        className="ws-tabs"
+        ariaLabel="Workspace list filter"
+        value={tab}
+        onChange={(value) => setTab(value === "archived" ? "archived" : "active")}
+        tabs={[
+          { value: "active", label: "Active" },
+          {
+            value: "archived",
+            label: `Archived${archivedWorkspaces.length > 0 ? ` (${archivedWorkspaces.length})` : ""}`,
+          },
+        ]}
+      />
       {tab === "active" ? (
         <>
           <SubNavCreate className="add-workspace-btn" label="+ Add a Workspace" onClick={() => setModalOpen(true)} />
@@ -130,25 +122,29 @@ export function WorkspaceNav({
               hint={w}
               ariaCurrent={selected === w ? "page" : undefined}
               trailing={
-                <button
-                  type="button"
+                <IconButton
                   className="ws-row-action"
-                  title={`Archive ${basename(w)} (its sessions are hidden)`}
-                  aria-label={`Archive workspace ${basename(w)}`}
+                  label={`Archive workspace ${basename(w)}`}
+                  hint={`Archive ${basename(w)} (its sessions are hidden)`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setRemoving(w);
                   }}
                 >
                   <Trash2 size={13} aria-hidden="true" />
-                </button>
+                </IconButton>
               }
             />
           ))}
           {workspaces.length > activeShown.length && (
-            <button type="button" className="load-more" onClick={() => setActiveLimit((n) => n + 25)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="load-more"
+              onClick={() => setActiveLimit((n) => n + 25)}
+            >
               Show {Math.min(25, workspaces.length - activeShown.length)} more
-            </button>
+            </Button>
           )}
         </>
       ) : (
@@ -163,25 +159,29 @@ export function WorkspaceNav({
               selected={false}
               hint={`${w} — archived; restore to bring it and its sessions back`}
               trailing={
-                <button
-                  type="button"
+                <IconButton
                   className="ws-row-action"
-                  title={`Restore ${basename(w)} (and its sessions)`}
-                  aria-label={`Restore workspace ${basename(w)}`}
+                  label={`Restore workspace ${basename(w)}`}
+                  hint={`Restore ${basename(w)} (and its sessions)`}
                   onClick={(e) => {
                     e.stopPropagation();
                     void onRestore(w);
                   }}
                 >
                   <RotateCcw size={13} aria-hidden="true" />
-                </button>
+                </IconButton>
               }
             />
           ))}
           {archivedWorkspaces.length > archivedShown.length && (
-            <button type="button" className="load-more" onClick={() => setArchivedLimit((n) => n + 25)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="load-more"
+              onClick={() => setArchivedLimit((n) => n + 25)}
+            >
               Show {Math.min(25, archivedWorkspaces.length - archivedShown.length)} more
-            </button>
+            </Button>
           )}
         </>
       )}

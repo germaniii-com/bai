@@ -4,7 +4,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { ProviderListResponse, SkillInfo, SkillUsageTotals } from "@bai/shared";
 import { isValidSkillName } from "@bai/shared";
 import { ModelModal } from "./model-picker";
-import { Button, Chip, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea } from "./components";
+import { Button, Chip, ConfirmDialog, Field, PickerTrigger, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -184,6 +184,8 @@ function SkillForm({
   const [body, setBody] = useState(skill.body);
   const [usage, setUsage] = useState<SkillUsageTotals | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDeleteSkill, setConfirmDeleteSkill] = useState(false);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState(false);
   // Linked-file editing: click a file to load it into the inline editor;
   // "+ add file" writes a new one. Paths are validated client-side and
   // (authoritatively) server-side by the same support-dir rules.
@@ -379,7 +381,7 @@ function SkillForm({
             <Button variant="secondary" disabled={busy} onClick={() => void saveLinkedFile()}>
               Save file
             </Button>
-            <Button variant="danger" disabled={busy} onClick={() => void deleteLinkedFile()}>
+            <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteFile(true)}>
               Delete file
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
@@ -421,10 +423,43 @@ function SkillForm({
         <Button type="submit" variant="primary" loading={busy}>
           Save
         </Button>
-        <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+        <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteSkill(true)}>
           Delete
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmDeleteSkill}
+        title="Delete skill?"
+        body={
+          <>
+            Delete <strong>{skill.name}</strong> and its directory? This is live for the next agent turn and cannot
+            be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        busy={busy}
+        onCancel={() => setConfirmDeleteSkill(false)}
+        onConfirm={() => {
+          setConfirmDeleteSkill(false);
+          void remove();
+        }}
+      />
+      <ConfirmDialog
+        open={confirmDeleteFile}
+        title="Delete linked file?"
+        body={
+          <>
+            Delete <strong>{openFile}</strong> from <strong>{skill.name}</strong>? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete file"
+        busy={busy}
+        onCancel={() => setConfirmDeleteFile(false)}
+        onConfirm={() => {
+          setConfirmDeleteFile(false);
+          void deleteLinkedFile();
+        }}
+      />
     </form>
   );
 }
@@ -520,10 +555,12 @@ export function SkillLearnForm({
         />
       </Field>
       <Field label="Model" hint="(the learn session runs on it — optional)">
-        <button type="button" className="model-button" onClick={() => setPickerOpen(true)} aria-haspopup="dialog">
-          <Sparkles size={12} aria-hidden="true" />
-          <span className="model-current">{model ?? configDefault ?? "server default"}</span>
-        </button>
+        <PickerTrigger
+          icon={<Sparkles size={12} aria-hidden="true" />}
+          value={model ?? configDefault ?? "server default"}
+          onClick={() => setPickerOpen(true)}
+          ariaLabel="Learn session model"
+        />
       </Field>
       {error !== null && <div className="error">{error}</div>}
       <div className="agents-actions">

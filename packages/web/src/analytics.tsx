@@ -22,7 +22,7 @@ import type {
   UsageGranularity,
 } from "@bai/shared";
 import { useUsage } from "./use-usage";
-import { Button, Card, Combobox, PageHeader, Select, type ComboboxOption } from "./components";
+import { Button, Card, Combobox, PageHeader, SectionHeader, Select, Table, Tabs, Td, Th, type ComboboxOption } from "./components";
 
 /**
  * The Analytics page (D26 data): KPI cards + four charts over the usage
@@ -287,20 +287,16 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- filters --- */}
       <div className="analytics-filters">
-        <div className="pane-switch" role="tablist" aria-label="Granularity">
-          {(["day", "month", "year"] as const).map((g) => (
-            <button
-              key={g}
-              type="button"
-              role="tab"
-              aria-selected={granularity === g}
-              className={granularity === g ? "active" : undefined}
-              onClick={() => setGranularity(g)}
-            >
-              {g[0]?.toUpperCase() + g.slice(1)}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="granularity-tabs"
+          ariaLabel="Granularity"
+          value={granularity}
+          onChange={(value) => setGranularity(value as UsageGranularity)}
+          tabs={(["day", "month", "year"] as const).map((g) => ({
+            value: g,
+            label: g[0]?.toUpperCase() + g.slice(1),
+          }))}
+        />
         <Select
           value={range}
           onChange={(v) => setRange(v as Range)}
@@ -383,7 +379,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- usage by model: table + stacked bars (hover: $ and tokens/day) --- */}
       <Card className="chart-card">
-        <h3>Usage by model</h3>
+        <SectionHeader title="Usage by model" />
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usageData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
@@ -413,44 +409,44 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
             ))}
           </BarChart>
         </ResponsiveContainer>
-        <table className="usage-table">
+        <Table className="usage-table">
           <thead>
             <tr>
-              <th>Model</th>
-              <th>Requests</th>
-              <th>Errors</th>
-              <th>Input</th>
-              <th>Output</th>
-              <th>Reasoning</th>
-              <th>Cache R/W</th>
-              <th>Spend</th>
+              <Th>Model</Th>
+              <Th>Requests</Th>
+              <Th>Errors</Th>
+              <Th>Input</Th>
+              <Th>Output</Th>
+              <Th>Reasoning</Th>
+              <Th>Cache R/W</Th>
+              <Th>Spend</Th>
             </tr>
           </thead>
           <tbody>
             {usage.byModel.map((m) => (
               <tr key={`${m.provider}/${m.model}`}>
-                <td>
+                <Td>
                   <span className="chart-tooltip-dot" style={{ background: modelColor.get(m.model) }} /> {m.model}
                   <span className="dim"> ({m.provider})</span>
-                </td>
-                <td>{fmtInt(m.requests)}</td>
-                <td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</td>
-                <td>{fmtTokens(m.inputTokens)}</td>
-                <td>{fmtTokens(m.outputTokens)}</td>
-                <td>{m.reasoningTokens > 0 ? fmtTokens(m.reasoningTokens) : "—"}</td>
-                <td>
+                </Td>
+                <Td>{fmtInt(m.requests)}</Td>
+                <Td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</Td>
+                <Td>{fmtTokens(m.inputTokens)}</Td>
+                <Td>{fmtTokens(m.outputTokens)}</Td>
+                <Td>{m.reasoningTokens > 0 ? fmtTokens(m.reasoningTokens) : "—"}</Td>
+                <Td>
                   {fmtTokens(m.cacheReadTokens)} / {fmtTokens(m.cacheWriteTokens)}
-                </td>
-                <td>{fmtUsd(m.spendUsd)}</td>
+                </Td>
+                <Td>{fmtUsd(m.spendUsd)}</Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </Card>
 
       {/* --- request volume by model: shaded lines --- */}
       <Card className="chart-card">
-        <h3>Request volume by model</h3>
+        <SectionHeader title="Request volume by model" />
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={volumeData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
@@ -487,7 +483,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- token breakdown: prompt / reasoning / completion --- */}
       <Card className="chart-card">
-        <h3>Token breakdown</h3>
+        <SectionHeader title="Token breakdown" />
         <ResponsiveContainer width="100%" height={220}>
           <BarChart
             data={usage.tokenBreakdown}
@@ -518,7 +514,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- prompt token caching: cached vs uncached --- */}
       <Card className="chart-card">
-        <h3>Prompt token caching</h3>
+        <SectionHeader title="Prompt token caching" />
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={usage.cacheSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
@@ -545,7 +541,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- errors: failed vs successful calls per bucket --- */}
       <Card className="chart-card">
-        <h3>Errors</h3>
+        <SectionHeader title="Errors" />
         <ResponsiveContainer width="100%" height={220}>
           <BarChart
             data={usage.errorSeries.map((b) => ({
@@ -583,7 +579,7 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
 
       {/* --- skill activity: skills.view calls (skill_events store) --- */}
       <Card className="chart-card">
-        <h3>Skill activity</h3>
+        <SectionHeader title="Skill activity" />
         {skillUsage === null ? (
           <p className="dim">No skill activity data.</p>
         ) : skillUsage.kpis.views === 0 ? (
@@ -615,33 +611,33 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
                 <Bar dataKey="views" name="Views" fill={themeColors.secondary} />
               </BarChart>
             </ResponsiveContainer>
-            <table className="usage-table">
+            <Table className="usage-table">
               <thead>
                 <tr>
-                  <th>Skill</th>
-                  <th>Views</th>
-                  <th>Sessions</th>
-                  <th>Last used</th>
+                  <Th>Skill</Th>
+                  <Th>Views</Th>
+                  <Th>Sessions</Th>
+                  <Th>Last used</Th>
                 </tr>
               </thead>
               <tbody>
                 {skillUsage.bySkill.map((s) => (
                   <tr key={s.skill}>
-                    <td>{s.skill}</td>
-                    <td>{fmtInt(s.views)}</td>
-                    <td>{fmtInt(s.sessions)}</td>
-                    <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
+                    <Td>{s.skill}</Td>
+                    <Td>{fmtInt(s.views)}</Td>
+                    <Td>{fmtInt(s.sessions)}</Td>
+                    <Td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
       </Card>
 
       {/* --- MCP activity: mcp/<server>/<tool> + helper calls (mcp_events store) --- */}
       <Card className="chart-card">
-        <h3>MCP activity</h3>
+        <SectionHeader title="MCP activity" />
         {mcpUsage === null ? (
           <p className="dim">No MCP activity data.</p>
         ) : mcpUsage.kpis.calls === 0 ? (
@@ -685,35 +681,35 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
                 <Bar dataKey="errors" name="Errors" stackId="mcp-calls" fill={themeColors.danger} />
               </BarChart>
             </ResponsiveContainer>
-            <table className="usage-table">
+            <Table className="usage-table">
               <thead>
                 <tr>
-                  <th>Server</th>
-                  <th>Calls</th>
-                  <th>Errors</th>
-                  <th>Sessions</th>
-                  <th>Last used</th>
+                  <Th>Server</Th>
+                  <Th>Calls</Th>
+                  <Th>Errors</Th>
+                  <Th>Sessions</Th>
+                  <Th>Last used</Th>
                 </tr>
               </thead>
               <tbody>
                 {mcpUsage.byServer.map((s) => (
                   <tr key={s.server}>
-                    <td>{s.server}</td>
-                    <td>{fmtInt(s.calls)}</td>
-                    <td>{s.errors > 0 ? <span className="usage-errors">{fmtInt(s.errors)}</span> : "—"}</td>
-                    <td>{fmtInt(s.sessions)}</td>
-                    <td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</td>
+                    <Td>{s.server}</Td>
+                    <Td>{fmtInt(s.calls)}</Td>
+                    <Td>{s.errors > 0 ? <span className="usage-errors">{fmtInt(s.errors)}</span> : "—"}</Td>
+                    <Td>{fmtInt(s.sessions)}</Td>
+                    <Td>{s.lastUsedAt !== undefined ? new Date(s.lastUsedAt).toLocaleString() : "—"}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
       </Card>
 
       {/* --- image generation: terminal image jobs (media_events store) --- */}
       <Card className="chart-card">
-        <h3>Image generation</h3>
+        <SectionHeader title="Image generation" />
         {imageUsage === null ? (
           <p className="dim">No image activity data.</p>
         ) : imageUsage.kpis.requests === 0 ? (
@@ -760,33 +756,33 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
                 <Bar dataKey="errors" name="Failed" stackId="img" fill={themeColors.danger} />
               </BarChart>
             </ResponsiveContainer>
-            <table className="usage-table">
+            <Table className="usage-table">
               <thead>
                 <tr>
-                  <th>Model</th>
-                  <th>Requests</th>
-                  <th>Images</th>
-                  <th>Spend</th>
-                  <th>Errors</th>
-                  <th>Avg ms</th>
+                  <Th>Model</Th>
+                  <Th>Requests</Th>
+                  <Th>Images</Th>
+                  <Th>Spend</Th>
+                  <Th>Errors</Th>
+                  <Th>Avg ms</Th>
                 </tr>
               </thead>
               <tbody>
                 {imageUsage.byModel.map((m) => (
                   <tr key={`${m.provider}/${m.model}`}>
-                    <td>
+                    <Td>
                       {m.model}
                       <span className="dim"> ({m.provider})</span>
-                    </td>
-                    <td>{fmtInt(m.requests)}</td>
-                    <td>{fmtInt(m.images)}</td>
-                    <td>{fmtUsd(m.spendUsd)}</td>
-                    <td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</td>
-                    <td>{fmtInt(Math.round(m.avgDurationMs))}</td>
+                    </Td>
+                    <Td>{fmtInt(m.requests)}</Td>
+                    <Td>{fmtInt(m.images)}</Td>
+                    <Td>{fmtUsd(m.spendUsd)}</Td>
+                    <Td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</Td>
+                    <Td>{fmtInt(Math.round(m.avgDurationMs))}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
       </Card>

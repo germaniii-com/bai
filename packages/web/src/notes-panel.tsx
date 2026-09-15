@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, StickyNote } from "lucide-react";
+import { StickyNote } from "lucide-react";
+import { Disclosure, Textarea } from "./components";
 
 /** Debounce before an edit is persisted (ms). */
 const SAVE_DEBOUNCE_MS = 800;
@@ -84,23 +85,17 @@ export function NotesPanel({
 
   return (
     <aside className="todos-panel notes-panel" role="region" aria-label="Session notes">
-      <button
-        type="button"
-        className="todos-head"
-        aria-expanded={!collapsed}
-        aria-controls="notes-body"
-        onClick={() => setCollapsed((c) => !c)}
+      <Disclosure
+        variant="panel"
+        icon={<StickyNote size={14} />}
+        title="Notes"
+        id="notes-body"
+        open={!collapsed}
+        onOpenChange={(open) => setCollapsed(!open)}
+        count={label.length > 0 ? <span className="notes-status">{label}</span> : undefined}
       >
-        <StickyNote size={14} aria-hidden="true" />
-        <span>Notes</span>
-        {label.length > 0 && <span className="todos-count notes-status">{label}</span>}
-        <span className="todos-chevron" aria-hidden="true">
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        </span>
-      </button>
-      {!collapsed && (
-        <div id="notes-body" className="notes-body">
-          <textarea
+        <div className="notes-body">
+          <Textarea
             className="notes-textarea"
             value={value}
             disabled={disabled}
@@ -110,7 +105,7 @@ export function NotesPanel({
             onChange={(e) => onChange(e.target.value)}
           />
         </div>
-      )}
+      </Disclosure>
     </aside>
   );
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, FolderPlus, Upload, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import { ListItem } from "./components";
+import { Checkbox, ConfirmDialog, FileInput, IconButton, ListItem } from "./components";
 
 interface FsEntry {
   name: string;
@@ -59,7 +59,7 @@ export function FileTree({
   const [showDotfiles, setShowDotfiles] = useState(false);
   const [dropDir, setDropDir] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   // Current extra folders readable from the stable `load` callback.
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
@@ -183,6 +183,9 @@ export function FileTree({
       onDragLeave={(e) => dragLeave(root, e)}
       onDrop={(e) => dropOn(root, e)}
     >
+      {/* @ui-raw: the collapse header's toolbar stays visible when collapsed and
+          the header carries a data-tooltip; Disclosure collapses its whole body
+          and exposes no head tooltip, so the raw header is kept. */}
       <button
         type="button"
         className="file-tree-head"
@@ -198,49 +201,32 @@ export function FileTree({
         </span>
       </button>
       <div className="file-tree-bar">
-        <label className="ws-dotfiles-toggle">
-          <input
-            type="checkbox"
-            checked={showDotfiles}
-            onChange={(e) => setShowDotfiles(e.target.checked)}
-          />
-          dotfiles
-        </label>
+        <Checkbox
+          className="ws-dotfiles-toggle"
+          label="dotfiles"
+          checked={showDotfiles}
+          onChange={(e) => setShowDotfiles(e.target.checked)}
+        />
         <span className="file-tree-bar-spacer" />
         {onAddFolder !== undefined && (
-          <button
-            type="button"
+          <IconButton
             className="file-tree-add-folder"
-            aria-label="Add folder to workspace"
-            data-tooltip="Add folder to workspace"
+            label="Add folder to workspace"
+            hint="Add folder to workspace"
             onClick={onAddFolder}
           >
             <FolderPlus size={14} aria-hidden="true" />
-          </button>
+          </IconButton>
         )}
         {onUpload !== undefined && (
-          <>
-            <button
-              type="button"
-              className="file-tree-upload"
-              aria-label="Upload files to the workspace root"
-              data-tooltip="Upload files to the workspace root"
-              onClick={() => uploadInputRef.current?.click()}
-            >
-              <Upload size={14} aria-hidden="true" />
-            </button>
-            <input
-              ref={uploadInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                e.target.value = "";
-                if (files.length > 0) onUpload(root, files);
-              }}
-            />
-          </>
+          <FileInput
+            className="file-tree-upload"
+            label="Upload files to the workspace root"
+            multiple
+            onFiles={(files) => onUpload(root, files)}
+          >
+            <Upload size={14} aria-hidden="true" />
+          </FileInput>
         )}
       </div>
       <div className="file-tree-body" id="file-tree-body">
@@ -299,18 +285,17 @@ export function FileTree({
                       <span className="file-tree-extra-actions">
                         <span className="file-tree-alias">#{folder.alias}</span>
                         {onRemoveFolder !== undefined && (
-                          <button
-                            type="button"
+                          <IconButton
                             className="file-tree-remove"
-                            title={`Remove ${basename(folder.path)} from this workspace`}
-                            aria-label={`Remove ${basename(folder.path)} from this workspace`}
+                            label={`Remove ${basename(folder.path)} from this workspace`}
+                            hint={`Remove ${basename(folder.path)} from this workspace`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              onRemoveFolder(folder.path);
+                              setPendingRemove(folder.path);
                             }}
                           >
                             <X size={12} aria-hidden="true" />
-                          </button>
+                          </IconButton>
                         )}
                       </span>
                     }
@@ -338,6 +323,22 @@ export function FileTree({
           </ul>
         )}
       </div>
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title="Remove folder?"
+        body={
+          pendingRemove !== null
+            ? <>Remove "{basename(pendingRemove)}" from this workspace? The folder on disk is not touched.</>
+            : "Remove this folder from the workspace?"
+        }
+        confirmLabel="Remove"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          const path = pendingRemove;
+          setPendingRemove(null);
+          if (path !== null) onRemoveFolder?.(path);
+        }}
+      />
     </aside>
   );
 }

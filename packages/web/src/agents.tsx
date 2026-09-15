@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import { isValidAgentName, type AgentInfo, type SkillInfo, type ToolListEntry } from "@bai/shared";
-import { Button, Combobox, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
+import { Button, Checkbox, Combobox, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -227,6 +227,7 @@ function AgentForm({
   const [skillList, setSkillList] = useState<string[]>(agent.skills?.filter((s) => s !== "*") ?? []);
   const [prompt, setPrompt] = useState(agent.prompt);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const save = async (): Promise<void> => {
     setBusy(true);
@@ -317,20 +318,17 @@ function AgentForm({
           emptyText="No matching tool."
         />
       </Field>
-      {/* Skills whitelist (plain div — the checkbox gets its own label, so
-          no label nesting). Checked = ["*"]; unchecked = the picked list. */}
-      <div className="field">
-        <span className="field-label">
-          Skills <span className="field-hint">(what this agent can load — authoring follows the tools list)</span>
-        </span>
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={allSkills}
-            onChange={(e) => setAllSkills(e.target.checked)}
-          />
-          Allow all skills (*)
-        </label>
+      {/* Skills whitelist: the checkbox is its own labelled control. Checked =
+          ["*"]; unchecked = the picked list. */}
+      <Field
+        label="Skills"
+        hint="(what this agent can load — authoring follows the tools list)"
+      >
+        <Checkbox
+          label="Allow all skills (*)"
+          checked={allSkills}
+          onChange={(e) => setAllSkills(e.target.checked)}
+        />
         {!allSkills && (
           <Combobox
             multiple
@@ -342,7 +340,7 @@ function AgentForm({
             emptyText="No matching skill."
           />
         )}
-      </div>
+      </Field>
       <Field
         label="System prompt"
         hint="(the markdown body)"
@@ -357,11 +355,28 @@ function AgentForm({
           {activeSessionId === null ? "Set as default" : "Use in session"}
         </Button>
         {agent.source === "file" && (
-          <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+          <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
             Delete
           </Button>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete agent?"
+        body={
+          <>
+            Delete <strong>{agent.name}</strong>? Its file is removed and the change is live everywhere. This cannot
+            be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        busy={busy}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          void remove();
+        }}
+      />
     </form>
   );
 }

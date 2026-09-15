@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { FileText, Image as ImageIcon, Plus } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AttachmentRef, Input, Message } from "@bai/shared";
-import { Modal } from "./components";
+import { Chip, FileInput, Modal } from "./components";
 
 /**
  * Transcript + composer rendering for stored attachments (`attachment` parts
@@ -109,13 +109,14 @@ function ImageThumb({
   const title = `${attachment.name} (${formatBytes(attachment.bytes)})`;
   if (url === undefined) {
     return (
-      <span className="attachment-chip" title={attachment.name}>
+      <Chip hint={attachment.name}>
         <ImageIcon size={12} aria-hidden="true" />
         <span className="chip-label">{attachment.name}</span>
-      </span>
+      </Chip>
     );
   }
   return (
+    // @ui-raw: bespoke image thumbnail surface (thumbnail button + img).
     <button
       type="button"
       className="attachment-thumb-button"
@@ -132,15 +133,14 @@ function ImageThumb({
 /** A PDF/text chip that opens the stored blob in a new tab. */
 function DocChip({ id, name, bytes, client }: { id: string; name: string; bytes: number | undefined; client: BaiClient }) {
   return (
-    <button
-      type="button"
-      className="attachment-chip clickable"
-      title={bytes !== undefined ? `${name} (${formatBytes(bytes)})` : name}
+    <Chip
+      interactive
+      hint={bytes !== undefined ? `${name} (${formatBytes(bytes)})` : name}
       onClick={() => void openAssetInTab(client, id)}
     >
       <FileText size={12} aria-hidden="true" />
       <span className="chip-label">{name}</span>
-    </button>
+    </Chip>
   );
 }
 
@@ -202,6 +202,7 @@ export function AttachmentChips({
             <RemoveButton id={a.id} name={a.name} disabled={disabled} onRemove={onRemove} />
           </span>
         ) : (
+          // @ui-raw: chip carrying a disabled-aware remove control (Chip's remove has no disabled state).
           <span key={a.id} className="attachment-chip static" title={`${a.name} (${formatBytes(a.bytes)})`}>
             <FileText size={12} aria-hidden="true" />
             <span className="chip-label">{a.name}</span>
@@ -215,6 +216,7 @@ export function AttachmentChips({
 
 function RemoveButton({ id, name, disabled, onRemove, inline = false }: { id: string; name: string; disabled: boolean; onRemove: (id: string) => void; inline?: boolean }) {
   return (
+    // @ui-raw: bespoke micro remove control (IconButton's 32px hit target does not fit the 18px overlay).
     <button
       type="button"
       className={inline ? "attachment-remove" : "composer-thumb-remove"}
@@ -288,31 +290,16 @@ const DOCUMENT_ACCEPT =
 
 /** The `+` attach control (chat only): opens the OS picker. */
 export function AttachButton({ onFiles, disabled = false }: { onFiles: (files: File[]) => void; disabled?: boolean }) {
-  const [input, setInput] = useState<HTMLInputElement | null>(null);
   return (
-    <>
-      <button
-        type="button"
-        className="btn btn-outline btn-lg attachment-add"
-        aria-label="Attach files"
-        data-tooltip="Attach images, PDF, or text files"
-        disabled={disabled}
-        onClick={() => input?.click()}
-      >
-        <Plus size={16} aria-hidden="true" />
-      </button>
-      <input
-        ref={setInput}
-        type="file"
-        multiple
-        hidden
-        accept={DOCUMENT_ACCEPT}
-        onChange={(e) => {
-          const files = Array.from(e.target.files ?? []);
-          e.target.value = "";
-          if (files.length > 0) onFiles(files);
-        }}
-      />
-    </>
+    <FileInput
+      onFiles={onFiles}
+      multiple
+      accept={DOCUMENT_ACCEPT}
+      disabled={disabled}
+      label="Attach files"
+      className="btn btn-outline btn-lg attachment-add"
+    >
+      <Plus size={16} aria-hidden="true" />
+    </FileInput>
   );
 }

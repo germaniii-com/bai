@@ -1,9 +1,7 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
-  type ChangeEvent,
   type DragEvent,
 } from "react";
 import {
@@ -35,8 +33,12 @@ import {
 } from "@bai/shared";
 import {
   Button,
+  Chip,
   Combobox,
+  ConfirmDialog,
+  DropdownMenu,
   Field,
+  FileInput,
   MediaParamsForm,
   Modal,
   SectionHeader,
@@ -110,11 +112,11 @@ export function ImagePane({
   const [lightbox, setLightbox] = useState<Asset | null>(null);
   const [editingTags, setEditingTags] = useState<Asset | null>(null);
   const [errorJob, setErrorJob] = useState<Job | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Asset | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const gallery = useImageGallery(client, galleryApplied);
   const galleryRefresh = gallery.refresh;
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Debounce the free-text gallery tag search (fuzzy, resolved server-side).
   useEffect(() => {
@@ -560,7 +562,7 @@ export function ImagePane({
           </Field>
 
           {workflow === "i2i" && (
-            <div className="field">
+            <Field label="Reference image">
               <div
                 className="image-ref"
                 onDragOver={(e) => e.preventDefault()}
@@ -582,30 +584,24 @@ export function ImagePane({
                 ) : (
                   <>
                     <p className="dim">Drop an image here, paste it (Ctrl/Cmd+V), or</p>
-                    <Button variant="secondary" onClick={() => fileRef.current?.click()}>
-                      Choose image
-                    </Button>
-                    {/* Custom-styled picker: the native input stays hidden and
-                        is opened programmatically (the repo's AttachButton
-                        pattern), so the UI keeps its own control. */}
-                    <input
-                      ref={fileRef}
-                      type="file"
+                    <FileInput
                       accept={REFERENCE_ACCEPT}
-                      hidden
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                        const file = e.target.files?.[0];
+                      label="Choose image"
+                      className="btn btn-secondary btn-md"
+                      onFiles={(files) => {
+                        const file = files[0];
                         if (file !== undefined) void uploadReference(file);
-                        e.target.value = "";
                       }}
-                    />
+                    >
+                      Choose image
+                    </FileInput>
                     <p className="image-ref-formats">
                       Supported: {REFERENCE_LABEL} · up to 10 MB
                     </p>
                   </>
                 )}
               </div>
-            </div>
+            </Field>
           )}
 
           <div className="image-actions">
@@ -656,23 +652,18 @@ export function ImagePane({
           )}
         </div>
         {gallerySuggestions.length > 0 && (
-          <div
-            className="tag-suggestions"
-            role="listbox"
-            aria-label="Tag suggestions"
-          >
+          <div className="tag-suggestions" role="group" aria-label="Tag suggestions">
             {gallerySuggestions.map((tag) => (
-              <button
+              <Chip
                 key={tag.tag}
-                type="button"
-                className="tag-suggestion"
+                interactive
                 onClick={() => {
                   setGalleryQuery(tag.tag);
                   setGalleryApplied(tag.tag);
                 }}
               >
                 {tag.tag} <span className="dim">· {tag.count}</span>
-              </button>
+              </Chip>
             ))}
           </div>
         )}
@@ -703,20 +694,20 @@ export function ImagePane({
                 onDownload={(a) => void downloadImage(a)}
                 onLoad={loadInputs}
                 onEditTags={setEditingTags}
-                onDelete={(a) => void deleteImage(a)}
+                onDelete={(a) => setPendingDelete(a)}
               />
             ))}
           </div>
         )}
         {gallery.hasMore && (
-          <button
-            type="button"
-            className="load-more"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={gallery.loadMore}
             disabled={gallery.loadingMore}
           >
             {gallery.loadingMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -753,6 +744,25 @@ export function ImagePane({
             void retryJob(job);
           }}
           onClose={() => setErrorJob(null)}
+        />
+      )}
+
+      {pendingDelete !== null && (
+        <ConfirmDialog
+          open
+          title="Delete image"
+          body={
+            <>
+              Delete <strong>{assetTitle(pendingDelete)}</strong>? This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const asset = pendingDelete;
+            setPendingDelete(null);
+            void deleteImage(asset);
+          }}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </div>
@@ -799,31 +809,10 @@ function JobCard({
 }) {
   const failed = job.status === "error";
   const request = jobRequest(job);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent): void => {
-      if (rootRef.current !== null && !rootRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
-
   const trailing = request.resolution ?? request.model;
   return (
-    <div
-      ref={rootRef}
-      className={failed ? "image-card image-card-job failed" : "image-card image-card-job"}
-    >
+    <div className={failed ? "image-card image-card-job failed" : "image-card image-card-job"}>
+      {/* @ui-raw: bespoke card media surface */}
       <button
         type="button"
         className="image-card-job-media"
@@ -840,34 +829,19 @@ function JobCard({
         <span className="image-card-job-label">{failed ? "Failed" : "Generating…"}</span>
       </button>
       {failed && (
-        <>
-          <button
-            type="button"
-            className="image-card-menu-btn"
-            aria-label="Generation actions"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <MoreVertical size={15} aria-hidden="true" />
-          </button>
-          {menuOpen && (
-            <div className="image-card-menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                className="image-card-menu-item"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onRetry(job);
-                }}
-              >
-                <RotateCcw size={13} aria-hidden="true" />
-                Retry
-              </button>
-            </div>
-          )}
-        </>
+        <DropdownMenu
+          className="image-card-menu-btn"
+          ariaLabel="Generation actions"
+          align="end"
+          button={<MoreVertical size={15} aria-hidden="true" />}
+          items={[
+            {
+              label: "Retry",
+              icon: <RotateCcw size={13} aria-hidden="true" />,
+              onSelect: () => onRetry(job),
+            },
+          ]}
+        />
       )}
       <div className="image-card-body">
         <div className="image-card-meta">
@@ -910,8 +884,6 @@ function ImageCard({
   onDelete: (asset: Asset) => void;
 }) {
   const url = useAssetUrl(client, asset.id);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const gen = readMediaGen(asset.meta);
   const mode =
     gen?.mode ??
@@ -930,34 +902,9 @@ function ImageCard({
     typeof asset.meta.costUsd === "number" ? asset.meta.costUsd : undefined;
   const tags = gen?.tags ?? [];
 
-  // Close the actions popup on an outside click or Escape.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent): void => {
-      if (
-        rootRef.current !== null &&
-        !rootRef.current.contains(e.target as Node)
-      )
-        setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
-
-  const run = (fn: (a: Asset) => void): void => {
-    setMenuOpen(false);
-    fn(asset);
-  };
-
   return (
-    <div className="image-card" ref={rootRef}>
+    <div className="image-card">
+      {/* @ui-raw: bespoke card media surface */}
       {/* Clicking the image always opens the expanded modal. */}
       <button
         type="button"
@@ -971,57 +918,35 @@ function ImageCard({
           <span className="image-card-placeholder" />
         )}
       </button>
-      <button
-        type="button"
+      <DropdownMenu
         className="image-card-menu-btn"
-        aria-label="Image actions"
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        data-tooltip="Actions"
-        onClick={() => setMenuOpen((open) => !open)}
-      >
-        <MoreVertical size={15} aria-hidden="true" />
-      </button>
-      {menuOpen && (
-        <div className="image-card-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            className="image-card-menu-item"
-            onClick={() => run(onDownload)}
-          >
-            <Download size={13} aria-hidden="true" />
-            Download
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="image-card-menu-item"
-            onClick={() => run(onLoad)}
-          >
-            <SlidersHorizontal size={13} aria-hidden="true" />
-            Load Inputs
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="image-card-menu-item"
-            onClick={() => run(onEditTags)}
-          >
-            <Tags size={13} aria-hidden="true" />
-            Edit Tags
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="image-card-menu-item danger"
-            onClick={() => run(onDelete)}
-          >
-            <Trash2 size={13} aria-hidden="true" />
-            Delete
-          </button>
-        </div>
-      )}
+        ariaLabel="Image actions"
+        align="end"
+        button={<MoreVertical size={15} aria-hidden="true" />}
+        items={[
+          {
+            label: "Download",
+            icon: <Download size={13} aria-hidden="true" />,
+            onSelect: () => onDownload(asset),
+          },
+          {
+            label: "Load Inputs",
+            icon: <SlidersHorizontal size={13} aria-hidden="true" />,
+            onSelect: () => onLoad(asset),
+          },
+          {
+            label: "Edit Tags",
+            icon: <Tags size={13} aria-hidden="true" />,
+            onSelect: () => onEditTags(asset),
+          },
+          {
+            label: "Delete",
+            icon: <Trash2 size={13} aria-hidden="true" />,
+            danger: true,
+            onSelect: () => onDelete(asset),
+          },
+        ]}
+      />
       <div className="image-card-body">
         <div className="image-card-meta">
           <span className="image-card-mode">
@@ -1040,9 +965,7 @@ function ImageCard({
         {tags.length > 0 && (
           <div className="image-card-tags">
             {tags.map((tag) => (
-              <span className="tag-chip small" key={tag}>
-                {tag}
-              </span>
+              <Chip key={tag}>{tag}</Chip>
             ))}
           </div>
         )}

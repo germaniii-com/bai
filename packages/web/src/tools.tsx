@@ -6,7 +6,7 @@ import { defineBaiTheme } from "./monaco-setup";
 import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 import { OverrideWarning } from "./icons";
 import { TriangleAlert } from "lucide-react";
-import { Button, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
+import { Button, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -186,6 +186,7 @@ function ToolForm({
 }) {
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   // Monaco theme name — defined from the palette data (themes.ts), so a
   // theme switch re-skins the live editor with no CSS-read race (the
   // file-view pattern).
@@ -317,13 +318,35 @@ function ToolForm({
           <Button
             variant="danger"
             disabled={busy}
-            onClick={() => void remove()}
+            onClick={() => setConfirmRemove(true)}
             title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
           >
             {isBuiltinOverride ? "Reset to default" : "Delete"}
           </Button>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        title={isBuiltinOverride ? "Reset to default?" : "Delete tool?"}
+        body={
+          isBuiltinOverride ? (
+            <>
+              Delete the override file for <strong>{tool.name}</strong> and restore the built-in registration?
+            </>
+          ) : (
+            <>
+              Delete <strong>{tool.name}</strong>? Its file is removed and the change is live. This cannot be undone.
+            </>
+          )
+        }
+        confirmLabel={isBuiltinOverride ? "Reset" : "Delete"}
+        busy={busy}
+        onCancel={() => setConfirmRemove(false)}
+        onConfirm={() => {
+          setConfirmRemove(false);
+          void remove();
+        }}
+      />
     </form>
   );
 }

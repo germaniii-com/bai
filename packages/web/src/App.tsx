@@ -35,7 +35,7 @@ import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
-import { Chip, ContextMenu, ListItem, NavItem, type ContextMenuItem } from "./components";
+import { Button, Chip, ContextMenu, ListItem, NavItem, SubNavCreate, Tabs, TextInput, type ContextMenuItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -1747,11 +1747,12 @@ export function App() {
           <>
             {/* Draft state: no session row exists until the first message is
                 sent (submit() creates it) — opencode's new-chat pattern. */}
-            <button className="new-session" onClick={() => pushRoute({ section: "chat", sessionId: null })}>
-              + New session
-            </button>
+            <SubNavCreate
+              label="+ New session"
+              onClick={() => pushRoute({ section: "chat", sessionId: null })}
+            />
             {/* Server-side filter: matches sessions beyond the loaded page. */}
-            <input
+            <TextInput
               className="session-filter"
               type="search"
               placeholder="Filter sessions…"
@@ -1787,14 +1788,9 @@ export function App() {
                 />
               ))}
               {chatSessionsHasMore && (
-                <button
-                  type="button"
-                  className="load-more"
-                  onClick={loadMoreChatSessions}
-                  disabled={chatSessionsLoadingMore}
-                >
+                <Button variant="ghost" size="sm" onClick={loadMoreChatSessions} disabled={chatSessionsLoadingMore}>
                   {chatSessionsLoadingMore ? "Loading…" : "Load more"}
-                </button>
+                </Button>
               )}
             </nav>
           </>
@@ -1831,15 +1827,13 @@ export function App() {
             />
             {/* Draft state: the code session (rooted at this workspace) is
                 created by submit() on the first message. */}
-            <button
-              className="new-session"
+            <SubNavCreate
+              label="+ New session"
               onClick={() =>
                 pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null })
               }
-            >
-              + New session
-            </button>
-            <input
+            />
+            <TextInput
               className="session-filter"
               type="search"
               placeholder="Filter sessions…"
@@ -1869,14 +1863,9 @@ export function App() {
                 />
               ))}
               {wsSessionsHasMore && (
-                <button
-                  type="button"
-                  className="load-more"
-                  onClick={loadMoreWsSessions}
-                  disabled={wsSessionsLoadingMore}
-                >
+                <Button variant="ghost" size="sm" onClick={loadMoreWsSessions} disabled={wsSessionsLoadingMore}>
                   {wsSessionsLoadingMore ? "Loading…" : "Load more"}
-                </button>
+                </Button>
               )}
             </nav>
           </>
@@ -2071,40 +2060,22 @@ export function App() {
             // aside) opens files into the viewer.
             <div className="workspace-center">
               <div className="pane-switch-header">
-                <div className="pane-switch" role="tablist" aria-label="Workspace view">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={workspaceView === "chat"}
-                    className={workspaceView === "chat" ? "active" : undefined}
-                    onClick={() =>
-                      pushRoute({
-                        section: "workspace",
-                        wsPath: effectiveWorkspacePath,
-                        view: "chat",
-                        sessionId: active?.id ?? null,
-                      })
-                    }
-                  >
-                    Chat
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={workspaceView === "files"}
-                    className={workspaceView === "files" ? "active" : undefined}
-                    onClick={() =>
-                      pushRoute({
-                        section: "workspace",
-                        wsPath: effectiveWorkspacePath,
-                        view: "files",
-                        sessionId: active?.id ?? null,
-                      })
-                    }
-                  >
-                    Files
-                  </button>
-                </div>
+                <Tabs
+                  ariaLabel="Workspace view"
+                  value={workspaceView}
+                  onChange={(view) =>
+                    pushRoute({
+                      section: "workspace",
+                      wsPath: effectiveWorkspacePath,
+                      view: view as "chat" | "files",
+                      sessionId: active?.id ?? null,
+                    })
+                  }
+                  tabs={[
+                    { value: "chat", label: "Chat" },
+                    { value: "files", label: "Files" },
+                  ]}
+                />
               </div>
               {workspaceView === "files" && effectiveWorkspacePath !== null ? (
                 <FileView
@@ -2280,16 +2251,12 @@ function MasterNav({
         <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
       </div>
       <div className="master-spacer" />
-      <button
-        type="button"
-        className="master-item"
-        aria-label="Choose a theme"
-        data-tooltip="Choose a theme"
-        data-tooltip-placement="right"
+      <NavItem
+        icon={<Palette className="nav-icon" aria-hidden="true" />}
+        label="Choose a theme"
         onClick={onThemePicker}
-      >
-        <Palette className="nav-icon" aria-hidden="true" />
-      </button>
+      />
+      
       {/* Shell sits directly above Settings — a pinned utility like Theme. */}
       <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
       <NavItem icon={<SlidersHorizontal className="nav-icon" aria-hidden="true" />} label="Settings" active={section === "settings"} onClick={() => onNavigate("settings")} />
