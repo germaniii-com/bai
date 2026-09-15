@@ -269,6 +269,11 @@ function buildApi(deps: ApiDeps) {
 
     // --- MCP servers (external integrations) ---
     .get("/mcp/servers", (c) => c.json({ servers: deps.core.mcpServers() }))
+    .get("/mcp/server/:name", (c) => {
+      const server = deps.core.mcpServer(c.req.param("name"));
+      if (server === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ server });
+    })
     .get("/mcp/catalog", (c) => c.json({ catalog: deps.core.mcpCatalog() }))
     .put("/mcp/server/:name", zValidator("json", z.object({ config: mcpServerSchema })), async (c) => {
       try {

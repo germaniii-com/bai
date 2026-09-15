@@ -106,7 +106,7 @@ export interface MCPServerConfig {
   url?: string;
   headers?: Record<string, string>;
   /** Enable the interactive OAuth flow (remote servers). */
-  oauth?: boolean | { clientId?: string; clientSecret?: string; scope?: string };
+  oauth?: boolean | { clientId?: string; clientSecret?: string; scope?: string; clientName?: string };
   // --- shared ---
   /** Disabled servers are listed but never connected (default true). */
   enabled?: boolean;
@@ -281,6 +281,7 @@ const oauthConfigSchema = z.union([
     clientId: z.string().optional(),
     clientSecret: z.string().optional(),
     scope: z.string().optional(),
+    clientName: z.string().optional(),
   }),
 ]);
 

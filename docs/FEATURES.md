@@ -409,12 +409,16 @@ drop-in model as agents, skills, and tools.
 - A server's tools appear to the model as **`mcp/<server>/<tool>`**; resources
   and prompts ride the `mcp/list_resources`, `mcp/read_resource`,
   `mcp/list_prompts`, and `mcp/get_prompt` helpers.
-- **Settings → Integrations** (web): installed servers with live status
-  (connected / failed / needs authorization / disabled), enable/disable, retry,
-  authorize, and remove — plus a curated catalog (Figma, Atlassian/Jira, Notion,
-  Linear, GitLab, Sentry) that installs with one click and starts OAuth. A
-  server stuck on authorization shows an **Authorize** button and a paste-the-
-  code step.
+- **Settings → Integrations** (web): a scrollable **Catalog** first (Figma,
+  Atlassian/Jira, Notion, Linear, GitLab, Sentry) that installs with one click
+  and starts OAuth, then **Custom MCP Servers** — your own servers with live
+  status (connected / failed / needs authorization / disabled), **add/edit**
+  (stdio: command · args · env · cwd, or HTTP: url · headers · OAuth), plus
+  enable/disable, retry, authorize, and remove. Authorization runs an OAuth
+  2.1 flow against a local loopback callback (127.0.0.1:1455, ephemeral
+  fallback) so it **completes automatically** when the browser lands — with a
+  paste-the-code fallback if the callback can't be reached. Catalog entries
+  already installed render a muted **Installed** button.
 - Failures are isolated per server: one broken server never blocks the others,
   and the rest of bai starts immediately.
 
@@ -425,9 +429,10 @@ drop-in model as agents, skills, and tools.
   diff), `manager.ts` reconciles live connections and merges tools,
   `transport.ts` builds stdio/HTTP/SSE transports, and `auth.ts` persists OAuth
   credentials. `mcp.updated` + `tools.updated` events keep surfaces live.
-  REST: `GET /api/mcp/servers`, `GET /api/mcp/catalog`,
-  `PUT/DELETE /api/mcp/server/:name`, `POST /api/mcp/server/:name/{enabled,
-  reconnect,auth,auth/finish}`, `POST /api/mcp/catalog/:name/install`.
+  REST: `GET /api/mcp/servers`, `GET /api/mcp/server/:name`,
+  `GET /api/mcp/catalog`, `PUT/DELETE /api/mcp/server/:name`,
+  `POST /api/mcp/server/:name/{enabled,reconnect,auth,auth/finish}`,
+  `POST /api/mcp/catalog/:name/install`.
 - SDK: `@modelcontextprotocol/client` v2 (protocol rev `2026-07-28`).
 
 **Coming next**

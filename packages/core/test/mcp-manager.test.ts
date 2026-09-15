@@ -118,4 +118,30 @@ describe("McpManager", () => {
     await stack.manager.reconcile();
     expect(stack.tools.names()).toContain("mcp/late/echo");
   }, 20_000);
+
+  test("put exposes the definition via server() and connects it", async () => {
+    const stack = makeStack();
+    await stack.manager.put("custom", { transport: "stdio", command: process.execPath, args: [FIXTURE] });
+    const def = stack.manager.server("custom");
+    expect(def?.source).toBe("file");
+    expect(def?.config.command).toBe(process.execPath);
+    expect(stack.manager.status().find((s) => s.name === "custom")?.state).toBe("connected");
+    expect(stack.tools.names()).toContain("mcp/custom/echo");
+  }, 20_000);
+
+  test("startAuth rejects clearly when oauth is not enabled", async () => {
+    const stack = makeStack();
+    stack.registry.put("echo", { command: process.execPath, args: [FIXTURE] });
+    await stack.manager.start();
+    await expect(stack.manager.startAuth("echo")).rejects.toThrow(/OAuth is not enabled/);
+  }, 20_000);
+
+  test("startAuth surfaces the real failure instead of a generic message", async () => {
+    const stack = makeStack();
+    // Nothing listening → connect fails; authProvider is set, so no SSE retry
+    // masks it and the error must reach the caller.
+    stack.registry.put("dead", { transport: "http", url: "http://127.0.0.1:1/mcp", oauth: true, timeout: 1500 });
+    await stack.manager.start();
+    await expect(stack.manager.startAuth("dead")).rejects.toThrow(/dead/);
+  }, 20_000);
 });

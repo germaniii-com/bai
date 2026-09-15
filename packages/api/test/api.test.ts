@@ -293,6 +293,11 @@ describe("api contract", () => {
     expect(res.status).toBe(400);
   });
 
+  test("GET /api/mcp/server/:name is 404 for an unknown server", async () => {
+    const res = await app.request("/api/mcp/server/nope");
+    expect(res.status).toBe(404);
+  });
+
   test("session list filters by workbench and cwd", async () => {
     stack.core.createSession({ workbench: "chat" });
     stack.core.createSession({ workbench: "code", cwd: "/ws/one" });

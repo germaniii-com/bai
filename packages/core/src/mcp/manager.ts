@@ -1,12 +1,16 @@
 import { UnauthorizedError, type CallToolResult, type Prompt, type Resource, type Tool as McpTool, type Transport } from "@modelcontextprotocol/client";
-import type { MCPServerConfig, McpServerInfo, McpServerState } from "@bai/shared";
+import type { MCPServerConfig, McpServerInfo, McpServerSource, McpServerState } from "@bai/shared";
 import type { ToolContext, ToolRegistry, ToolResult } from "../tools/registry";
 import { callResultToText, normalizeInputSchema, promptResultToText, qualifiedToolName, readResourceToText } from "./catalog";
 import { buildHttpTransport, buildSseTransport, buildStdioTransport, createClient, transportKind } from "./transport";
 import { McpAuthStore, createOAuthProvider } from "./auth";
+import { McpCallbackServer } from "./callback";
 import type { McpRegistry, ResolvedMcpServer } from "./registry";
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
+/** Preferred loopback port (matches the default redirect URL); falls back to ephemeral. */
+const DEFAULT_CALLBACK_PORT = 1455;
+const DEFAULT_REDIRECT_URL = `http://127.0.0.1:${DEFAULT_CALLBACK_PORT}/callback`;
 
 export interface McpManagerOptions {
   registry: McpRegistry;
@@ -45,6 +49,8 @@ export class McpManager {
   private readonly handles = new Map<string, ClientHandle>();
   /** Transports left mid-OAuth (needed to finish the code exchange). */
   private readonly pendingAuth = new Map<string, Transport>();
+  /** Active loopback callback listeners, one per in-flight authorization. */
+  private readonly callbacks = new Map<string, McpCallbackServer>();
   private readonly states = new Map<string, ServerState>();
   private reconciling: Promise<void> | undefined;
 
@@ -71,6 +77,13 @@ export class McpManager {
         ...(server.path !== undefined ? { path: server.path } : {}),
       };
     });
+  }
+
+  /** The raw definition of one server (for the edit form); undefined if unknown. */
+  server(name: string): { name: string; source: McpServerSource; config: MCPServerConfig } | undefined {
+    const server = this.opts.registry.get(name);
+    if (server === undefined) return undefined;
+    return { name: server.name, source: server.source, config: server.config };
   }
 
   /** Create or replace a drop-in server file, then reconnect. */
@@ -132,29 +145,69 @@ export class McpManager {
   }
 
   async stop(): Promise<void> {
+    for (const callback of this.callbacks.values()) await callback.stop();
+    this.callbacks.clear();
     for (const name of [...this.handles.keys()]) await this.disconnect(name);
+  }
+  /** The authorization URL captured by the last connect attempt, if any. */
+  authorizationUrl(name: string): string | undefined {
+    return this.auth.read(name).authorizationUrl;
   }
 
   /** Begin an interactive OAuth flow; returns the authorization URL to open. */
-  async startAuth(name: string): Promise<string> {    const server = this.opts.registry.get(name);
+  async startAuth(name: string): Promise<string> {
+    const server = this.opts.registry.get(name);
     if (server === undefined) throw new Error(`Unknown MCP server: ${name}`);
+    if (!server.config.oauth) {
+      throw new Error(`OAuth is not enabled for "${name}" — set "oauth": true in its definition.`);
+    }
+
+    // Replace any in-flight listener for this server, then bind the callback.
+    await this.callbacks.get(name)?.stop();
+    const callback = new McpCallbackServer();
+    await callback.start(DEFAULT_CALLBACK_PORT);
+    // A non-default port means the redirect URI differs from any cached client
+    // registration — force a fresh DCR so it is registered for this URI.
+    if (callback.port !== DEFAULT_CALLBACK_PORT) this.auth.clearClientInformation(name);
+    this.callbacks.set(name, callback);
+
+    // Never return a URL captured before this listener existed.
+    this.auth.clearAuthorizationUrl(name);
     await this.disconnect(name);
-    await this.connect(server);
-    const url = this.auth.read(name).authorizationUrl;
-    if (url === undefined) throw new Error(`${name} did not start an OAuth flow (is oauth enabled?)`);
+    await this.connect(server, callback.redirectUrl);
+
+    const url = this.authorizationUrl(name);
+    if (url === undefined) {
+      await callback.stop();
+      this.callbacks.delete(name);
+      const state = this.states.get(name);
+      if (state?.error !== undefined && state.error !== "authorization required") {
+        throw new Error(`OAuth failed for ${name}: ${state.error}`);
+      }
+      throw new Error(
+        `${name} did not return an authorization URL — check its OAuth client registration (some servers allowlist client_name).`,
+      );
+    }
+
+    // Auto-complete when the browser lands on the loopback callback.
+    void callback
+      .waitForCode()
+      .then((params) => this.completeAuth(name, params))
+      .catch(() => undefined)
+      .finally(() => {
+        void callback.stop();
+        if (this.callbacks.get(name) === callback) this.callbacks.delete(name);
+      });
+
     return url;
   }
 
-  /** Finish an OAuth flow with the pasted authorization code (or full callback URL). */
-  async finishAuth(name: string, codeOrUrl: string): Promise<void> {
+  /** Exchange the callback params for tokens and reconnect. */
+  private async completeAuth(name: string, params: URLSearchParams): Promise<void> {
     const transport = this.pendingAuth.get(name);
-    if (transport === undefined) throw new Error(`No pending OAuth flow for ${name}`);
-    const finish = (transport as unknown as { finishAuth?: (params: URLSearchParams) => Promise<void> }).finishAuth;
-    if (typeof finish !== "function") throw new Error(`${name} transport does not support OAuth`);
-    const params =
-      codeOrUrl.includes("?") || codeOrUrl.includes("code=")
-        ? new URL(codeOrUrl, "http://localhost").searchParams
-        : new URLSearchParams({ code: codeOrUrl });
+    if (transport === undefined) return;
+    const finish = (transport as unknown as { finishAuth?: (p: URLSearchParams) => Promise<void> }).finishAuth;
+    if (typeof finish !== "function") return;
     await finish.call(transport, params);
     this.pendingAuth.delete(name);
     await this.disconnect(name);
@@ -163,15 +216,27 @@ export class McpManager {
     this.emit();
   }
 
+  /** Finish an OAuth flow with the pasted authorization code (or full callback URL). */
+  async finishAuth(name: string, codeOrUrl: string): Promise<void> {
+    await this.callbacks.get(name)?.stop();
+    this.callbacks.delete(name);
+    if (!this.pendingAuth.has(name)) throw new Error(`No pending OAuth flow for ${name}`);
+    const params =
+      codeOrUrl.includes("?") || codeOrUrl.includes("code=")
+        ? new URL(codeOrUrl, "http://localhost").searchParams
+        : new URLSearchParams({ code: codeOrUrl });
+    await this.completeAuth(name, params);
+  }
+
   // --- connections -------------------------------------------------------
 
-  private async connect(server: ResolvedMcpServer): Promise<void> {
+  private async connect(server: ResolvedMcpServer, redirectUrl?: string): Promise<void> {
     const { name, config } = server;
     const kind = transportKind(config);
     this.states.set(name, { state: "connecting", toolCount: 0 });
     this.emit();
     const client = createClient(this.opts.version);
-    const authProvider = config.oauth ? this.providerFor(name, config) : undefined;
+    const authProvider = config.oauth ? this.providerFor(name, config, redirectUrl) : undefined;
     let activeTransport: Transport | undefined;
     try {
       let transport: Transport;
@@ -180,12 +245,14 @@ export class McpManager {
         activeTransport = transport;
         await withTimeout(client.connect(transport), this.timeoutMs(config));
       } else {
+        transport = buildHttpTransport(config, authProvider);
+        activeTransport = transport;
         try {
-          transport = buildHttpTransport(config, authProvider);
-          activeTransport = transport;
           await withTimeout(client.connect(transport), this.timeoutMs(config));
         } catch (err) {
-          if (err instanceof UnauthorizedError) throw err;
+          // Never mask an auth/registration failure with an SSE retry: when an
+          // OAuth provider is configured, the HTTP error IS the diagnosis.
+          if (authProvider !== undefined || err instanceof UnauthorizedError) throw err;
           transport = buildSseTransport(config, authProvider);
           activeTransport = transport;
           await withTimeout(client.connect(transport), this.timeoutMs(config));
@@ -231,16 +298,17 @@ export class McpManager {
     }
   }
 
-  private providerFor(name: string, config: MCPServerConfig) {
+  private providerFor(name: string, config: MCPServerConfig, redirectUrl?: string) {
     const oauth = config.oauth;
     const options = typeof oauth === "object" ? oauth : {};
     return createOAuthProvider({
       server: name,
       store: this.auth,
-      redirectUrl: "http://localhost:1455/callback",
+      redirectUrl: redirectUrl ?? DEFAULT_REDIRECT_URL,
       ...(options.clientId !== undefined ? { clientId: options.clientId } : {}),
       ...(options.clientSecret !== undefined ? { clientSecret: options.clientSecret } : {}),
       ...(options.scope !== undefined ? { scope: options.scope } : {}),
+      ...(options.clientName !== undefined ? { clientName: options.clientName } : {}),
     });
   }
 

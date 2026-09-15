@@ -55,5 +55,9 @@ describe("MCP config", () => {
       expect(entry.server.transport).toBe("http");
       expect(entry.server.url?.startsWith("https://")).toBe(true);
     }
+    // Figma's DCR allowlists specific client_name strings.
+    const figma = MCP_CATALOG.find((e) => e.name === "figma");
+    const oauth = figma?.server.oauth;
+    expect(typeof oauth === "object" && oauth.clientName).toBe("Claude Code");
   });
 });

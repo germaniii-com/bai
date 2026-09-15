@@ -44,6 +44,20 @@ export class McpAuthStore {
     const file = this.file(server);
     if (existsSync(file)) writeFileSync(file, "{}\n", { mode: 0o600 });
   }
+
+  /** Drop only the cached Dynamic Client Registration (forces a fresh DCR). */
+  clearClientInformation(server: string): void {
+    const record = this.read(server);
+    delete record.clientInformation;
+    this.write(server, record);
+  }
+
+  /** Forget the last captured authorization URL (avoids returning a stale one). */
+  clearAuthorizationUrl(server: string): void {
+    const record = this.read(server);
+    delete record.authorizationUrl;
+    this.write(server, record);
+  }
 }
 
 export interface McpOAuthProviderOptions {
@@ -54,6 +68,8 @@ export interface McpOAuthProviderOptions {
   clientId?: string;
   clientSecret?: string;
   scope?: string;
+  /** `client_name` sent during Dynamic Client Registration (default "bai"). */
+  clientName?: string;
 }
 
 /**
@@ -68,7 +84,7 @@ export function createOAuthProvider(opts: McpOAuthProviderOptions): OAuthClientP
     },
     get clientMetadata(): unknown {
       return {
-        client_name: "bai",
+        client_name: opts.clientName ?? "bai",
         redirect_uris: [redirectUrl],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],

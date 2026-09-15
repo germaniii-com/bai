@@ -26,6 +26,7 @@ import type {
   MCPServerConfig,
   McpCatalogEntry,
   McpServerInfo,
+  McpServerSource,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -308,6 +309,13 @@ export class BaiClient {
     const res = await this.rpc().mcp.servers.$get();
     if (!res.ok) throw new Error(`get mcp servers failed: ${res.status}`);
     return (await res.json()).servers;
+  }
+
+  /** One server's raw definition (for the edit form). */
+  async getMcpServer(name: string): Promise<{ name: string; source: McpServerSource; config: MCPServerConfig }> {
+    const res = await this.rpc().mcp.server[":name"].$get({ param: { name } });
+    if (!res.ok) throw new Error(await errorMessage(res, `get mcp server failed: ${res.status}`));
+    return (await res.json()).server;
   }
 
   async getMcpCatalog(): Promise<McpCatalogEntry[]> {

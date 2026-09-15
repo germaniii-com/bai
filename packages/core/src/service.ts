@@ -32,6 +32,7 @@ import {
   type MCPServerConfig,
   type McpCatalogEntry,
   type McpServerInfo,
+  type McpServerSource,
   type PutAgentBody,
   type PutSkillBody,
   type SkillInfo,
@@ -1134,6 +1135,11 @@ export class Service {
     return this.deps.mcp?.status() ?? [];
   }
 
+  /** One server's raw definition (edit form); undefined when unknown. */
+  mcpServer(name: string): { name: string; source: McpServerSource; config: MCPServerConfig } | undefined {
+    return this.deps.mcp?.server(name);
+  }
+
   /** Curated one-click install catalog. */
   mcpCatalog(): McpCatalogEntry[] {
     return MCP_CATALOG;
@@ -1178,7 +1184,10 @@ export class Service {
     if (entry === undefined) throw new Error(`Unknown catalog entry: ${name}`);
     const mcp = this.requireMcp();
     await mcp.put(entry.name, { ...entry.server, enabled: true });
-    return entry.oauth === true ? await mcp.startAuth(entry.name) : undefined;
+    if (entry.oauth !== true) return undefined;
+    // Always go through startAuth: it starts the loopback callback listener and
+    // reconnects, so the returned URL's redirect URI is actually reachable.
+    return await mcp.startAuth(entry.name);
   }
 
   /** Custom-tool file path for surface-side editing. */

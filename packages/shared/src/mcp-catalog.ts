@@ -13,7 +13,10 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     name: "figma",
     title: "Figma",
     description: "Design context, Code Connect, and write-to-canvas via Figma's hosted MCP.",
-    server: { transport: "http", url: "https://mcp.figma.com/mcp", oauth: true },
+    // Figma's Dynamic Client Registration allowlists exact client_name strings
+    // ("Claude Code" / "Codex"); anything else 403s. Override via
+    // `oauth.clientName` if Figma changes the allowlist.
+    server: { transport: "http", url: "https://mcp.figma.com/mcp", oauth: { clientName: "Claude Code" } },
     oauth: true,
   },
   {

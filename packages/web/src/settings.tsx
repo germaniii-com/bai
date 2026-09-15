@@ -3,8 +3,10 @@ import { Check, ChevronDown } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
+  MCPServerConfig,
   McpCatalogEntry,
   McpServerInfo,
+  McpServerSource,
   MediaGenConfig,
   OAuthProviderInfo,
   ProviderInfo,
@@ -19,6 +21,7 @@ import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
 import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
+import { McpServerModal } from "./mcp-server-form";
 import { Button, Card, Combobox, Field, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -1184,7 +1187,13 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [authName, setAuthName] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [authCode, setAuthCode] = useState("");
+  const [serverModal, setServerModal] = useState<
+    | { mode: "add" }
+    | { mode: "edit"; server: { name: string; source: McpServerSource; config: MCPServerConfig } }
+    | null
+  >(null);
 
   const load = async (): Promise<void> => {
     try {
@@ -1200,6 +1209,30 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // While authorization is pending, poll so the server-side loopback callback
+  // flips the row to connected without a manual paste.
+  useEffect(() => {
+    if (authName === null) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const next = await client.getMcpServers();
+          setServers(next);
+          if (next.find((s) => s.name === authName)?.state === "connected") {
+            onNotice(`${authName} authorized`);
+            setAuthName(null);
+            setAuthUrl(null);
+            setAuthCode("");
+          }
+        } catch {
+          // transient — keep polling
+        }
+      })();
+    }, 2000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authName]);
 
   const run = async (key: string, fn: () => Promise<void>, ok: string): Promise<void> => {
     setBusy(key);
@@ -1217,8 +1250,9 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
   const beginAuth = (name: string, url: string): void => {
     window.open(url, "_blank", "noopener,noreferrer");
     setAuthName(name);
+    setAuthUrl(url);
     setAuthCode("");
-    onNotice("Complete authorization in the browser, then paste the code below.");
+    onNotice("Authorize in the browser window — this page updates automatically when it completes.");
   };
 
   const authorize = async (name: string): Promise<void> => {
@@ -1251,7 +1285,19 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     const name = authName;
     await run(name, () => client.finishMcpAuth(name, authCode.trim()), `${name} authorized`);
     setAuthName(null);
+    setAuthUrl(null);
     setAuthCode("");
+  };
+
+  const openEdit = async (name: string): Promise<void> => {
+    setBusy(`edit:${name}`);
+    try {
+      setServerModal({ mode: "edit", server: await client.getMcpServer(name) });
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
+    }
   };
 
   if (servers === null) {
@@ -1267,8 +1313,15 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         <Card>
           <SectionHeader
             title={`Authorize ${authName}`}
-            lede="Finish the browser flow, then paste the authorization code (or the full callback URL) here."
+            lede="A browser window opened — authorize there and this page will update automatically. If the browser cannot reach the local callback, paste the authorization code (or the full callback URL) instead."
           />
+          {authUrl !== null && (
+            <p>
+              <a href={authUrl} target="_blank" rel="noopener noreferrer">
+                Reopen the authorization page
+              </a>
+            </p>
+          )}
           <Field label="Authorization code">
             <TextInput value={authCode} placeholder="paste code…" onChange={(e) => setAuthCode(e.target.value)} />
           </Field>
@@ -1281,94 +1334,32 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
             >
               Finish authorization
             </Button>{" "}
-            <Button type="button" variant="ghost" onClick={() => setAuthName(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setAuthName(null);
+                setAuthUrl(null);
+              }}
+            >
               Cancel
             </Button>
           </div>
         </Card>
       )}
 
-      <Card>
-        <SectionHeader
-          title="Installed servers"
-          lede="External MCP servers, defined as files in ~/.config/bai/mcp/ (or config.json). Their tools appear as mcp/<server>/<tool>."
-        />
-        {servers.length === 0 ? (
-          <p className="dim">No MCP servers yet. Install one below, or drop a file into ~/.config/bai/mcp/.</p>
-        ) : (
-          <div style={{ display: "grid", gap: "0.75rem" }}>
-            {servers.map((server) => (
-              <div
-                key={server.name}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}
-              >
-                <div>
-                  <strong>{server.name}</strong>{" "}
-                  <span className="dim">
-                    {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
-                    {server.tools === 1 ? "" : "s"}
-                    {server.error !== undefined ? ` · ${server.error}` : ""}
-                  </span>
-                </div>
-                <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
-                  {server.state === "needs_auth" && (
-                    <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void authorize(server.name)}>
-                      Authorize
-                    </Button>
-                  )}
-                  {server.state === "failed" && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busy !== null}
-                      onClick={() => void run(server.name, () => client.reconnectMcpServer(server.name), "Reconnect requested")}
-                    >
-                      Retry
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      void run(
-                        server.name,
-                        () => client.setMcpServerEnabled(server.name, server.state === "disabled"),
-                        server.state === "disabled" ? "Enabled" : "Disabled",
-                      )
-                    }
-                  >
-                    {server.state === "disabled" ? "Enable" : "Disable"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    disabled={busy !== null}
-                    onClick={() => void run(server.name, () => client.deleteMcpServer(server.name), `Removed ${server.name}`)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <Card>
-        <SectionHeader
-          title="Catalog"
-          lede="Official vendor-hosted MCP servers. Install writes a drop-in file, then starts OAuth."
-        />
-        <div style={{ display: "grid", gap: "0.75rem" }}>
-          {catalog.map((entry) => (
-            <div
-              key={entry.name}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}
-            >
-              <div>
-                <strong>{entry.title}</strong> <span className="dim">{entry.description}</span>
-              </div>
+      {/* --- Catalog (first, height-capped so it never buries the servers) --- */}
+      <h3 className="settings-subheading">Catalog</h3>
+      <p className="section-lede">
+        Official vendor-hosted MCP servers. Install writes a drop-in file in ~/.config/bai/mcp/, then starts OAuth.
+      </p>
+      <div className="provider-accordion catalog-scroll">
+        {catalog.map((entry) => (
+          <div key={entry.name} className="mcp-row">
+            <div>
+              <strong>{entry.title}</strong> <span className="mcp-row-meta">{entry.description}</span>
+            </div>
+            <div className="mcp-row-actions">
               <Button
                 type="button"
                 variant={installed.has(entry.name) ? "ghost" : "primary"}
@@ -1378,9 +1369,93 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                 {installed.has(entry.name) ? "Installed" : "Install"}
               </Button>
             </div>
+          </div>
+        ))}
+      </div>
+
+      {/* --- Custom MCP servers (files in ~/.config/bai/mcp/ or config.json) --- */}
+      <h3 className="settings-subheading">Custom MCP Servers</h3>
+      <p className="section-lede">
+        Your own servers — files in ~/.config/bai/mcp/ or config.json. Their tools appear as{" "}
+        <code>mcp/&lt;server&gt;/&lt;tool&gt;</code>.
+      </p>
+      <div className="provider-actions">
+        <Button variant="outline" onClick={() => setServerModal({ mode: "add" })}>
+          + Add a custom MCP server
+        </Button>
+      </div>
+      {servers.length === 0 ? (
+        <p className="dim provider-empty">No MCP servers yet. Install one above, or drop a file into ~/.config/bai/mcp/.</p>
+      ) : (
+        <div className="provider-accordion">
+          {servers.map((server) => (
+            <div key={server.name} className="mcp-row">
+              <div>
+                <strong>{server.name}</strong>{" "}
+                <span className="mcp-row-meta">
+                  {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
+                  {server.tools === 1 ? "" : "s"} · {server.source === "file" ? "file" : "config.json"}
+                  {server.error !== undefined ? ` · ${server.error}` : ""}
+                </span>
+              </div>
+              <div className="mcp-row-actions">
+                <Button type="button" variant="ghost" disabled={busy !== null} onClick={() => void openEdit(server.name)}>
+                  Edit
+                </Button>
+                {server.state === "needs_auth" && (
+                  <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void authorize(server.name)}>
+                    Authorize
+                  </Button>
+                )}
+                {server.state === "failed" && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy !== null}
+                    onClick={() => void run(server.name, () => client.reconnectMcpServer(server.name), "Reconnect requested")}
+                  >
+                    Retry
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void run(
+                      server.name,
+                      () => client.setMcpServerEnabled(server.name, server.state === "disabled"),
+                      server.state === "disabled" ? "Enabled" : "Disabled",
+                    )
+                  }
+                >
+                  {server.state === "disabled" ? "Enable" : "Disable"}
+                </Button>
+                {server.source === "file" && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={busy !== null}
+                    onClick={() => void run(server.name, () => client.deleteMcpServer(server.name), `Removed ${server.name}`)}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
           ))}
         </div>
-      </Card>
+      )}
+
+      {serverModal !== null && (
+        <McpServerModal
+          client={client}
+          {...(serverModal.mode === "edit" ? { server: serverModal.server } : {})}
+          onClose={() => setServerModal(null)}
+          onSaved={() => void load()}
+          onNotice={onNotice}
+        />
+      )}
     </>
   );
 }
