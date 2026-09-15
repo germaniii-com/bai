@@ -26,7 +26,18 @@ export { webSearchStatus, clearSearchCache, resolveSearchProviders, extractWithF
 export { createFolder, statPath, expandHomeInput, FsError, ioError, toReal, type PathStat } from "./fs/paths";
 export { findFiles, clearFindCache, fuzzyScore, rank, type FoundEntry, type FindResult } from "./fs/find";
 export * from "./workbench";
-export { JobQueue } from "./jobs/queue";
+export {
+  MediaGenError,
+  isRetryableJobError,
+  type MediaGenAdapter,
+  type MediaGenContext,
+  type MediaGeneratedImage,
+  type MediaAdapterCredentials,
+} from "./workbench/media/adapter";
+export { OpenRouterMediaAdapter, OPENROUTER_BASE_URL } from "./workbench/media/openrouter";
+export { StubMediaAdapter } from "./workbench/media/stub";
+export { imageDimensions, looksLikeImage, type ImageDimensions } from "./workbench/media/dimensions";
+export { JobQueue, type JobLimits } from "./jobs/queue";
 export { AutomationScheduler, type AutomationSchedulerDeps, type AutomationDraft, type AutomationUpdate } from "./automations/scheduler";
 export { RunCoordinator } from "./run";
 export { Snapshot, snapshotDir, type SnapshotPatch } from "./snapshot";

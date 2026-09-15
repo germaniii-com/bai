@@ -76,6 +76,22 @@ export interface MediaGenConfig {
   model?: string;
 }
 
+/**
+ * Job-runtime limits for the in-process media queue (image/video generation).
+ * A hung provider call must never block later jobs, and transient upstream
+ * failures should be retried before a job is failed.
+ */
+export interface JobsConfig {
+  /** Per-job wall-clock timeout in milliseconds (default 180 000). */
+  timeoutMs?: number;
+  /** Maximum attempts for retryable failures — 1 disables retry (default 3). */
+  maxAttempts?: number;
+  /** Base backoff between attempts in milliseconds (default 1500). */
+  backoffMs?: number;
+  /** How many media jobs may run at once (default 3). */
+  concurrency?: number;
+}
+
 export interface AgentsConfig {
   /**
    * Default agent for sessions that select none (new sessions, surfaces that
@@ -242,6 +258,8 @@ export interface Config {
   archivedWorkspaces: string[];
   server: ServerConfig;
   tools: ToolsConfig;
+  /** Media job-runtime limits (timeout/retries/backoff). */
+  jobs: JobsConfig;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -257,6 +275,7 @@ export const DEFAULT_CONFIG: Config = {
   archivedWorkspaces: [],
   server: {},
   tools: {},
+  jobs: {},
 };
 
 const providerSchema = z.object({
@@ -346,6 +365,13 @@ const toolsSchema = z.object({
 
 const themeSchema = z.string().min(1).max(100);
 
+const jobsSchema = z.object({
+  timeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  backoffMs: z.number().int().min(0).max(600_000).optional(),
+  concurrency: z.number().int().min(1).max(10).optional(),
+});
+
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
   models: modelsSchema.default({}),
@@ -369,8 +395,8 @@ export const configSchema = z.object({
     })
     .default({}),
   tools: toolsSchema.default({}),
+  jobs: jobsSchema.default({}),
 });
-
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
 export const configPatchSchema = z.object({
   providers: z.record(z.string(), providerSchema).optional(),
@@ -395,6 +421,7 @@ export const configPatchSchema = z.object({
     })
     .optional(),
   tools: toolsSchema.optional(),
+  jobs: jobsSchema.optional(),
 });
 
 export type ConfigPatch = z.infer<typeof configPatchSchema>;

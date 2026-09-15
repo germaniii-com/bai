@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import type {
   AgentInfo,
+  Asset,
   AttachmentRef,
   Automation,
   AutomationRun,
@@ -30,6 +31,11 @@ import type {
   McpUsageQuery,
   McpUsageResponse,
   McpUsageTotals,
+  MediaCapabilitiesResponse,
+  MediaGalleryPage,
+  MediaGenRequestBody,
+  MediaRecent,
+  MediaTagCount,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -1039,6 +1045,95 @@ export class BaiClient {
     if (res.status === 404) return undefined;
     if (!res.ok) throw new Error(`get job failed: ${res.status}`);
     return (await res.json()).job;
+  }
+
+  // --- image generation (single-page workbench) ---
+
+  async generateImage(body: MediaGenRequestBody): Promise<Job> {
+    const res = await this.rpc().image.generate.$post({ json: body });
+    if (!res.ok) throw new Error(await errorMessage(res, `generate image failed: ${res.status}`));
+    return (await res.json()).job;
+  }
+
+  async imageCapabilities(provider?: string, model?: string): Promise<MediaCapabilitiesResponse> {
+    const res = await this.rpc().image.capabilities.$get({
+      query: {
+        ...(provider !== undefined && provider.length > 0 ? { provider } : {}),
+        ...(model !== undefined && model.length > 0 ? { model } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`image capabilities failed: ${res.status}`);
+    return res.json();
+  }
+
+  async imageGallery(opts: { limit?: number; tags?: string[]; before?: string } = {}): Promise<MediaGalleryPage> {
+    const res = await this.rpc().image.gallery.$get({
+      query: {
+        ...(opts.limit !== undefined ? { limit: String(opts.limit) } : {}),
+        ...(opts.tags !== undefined && opts.tags.length > 0 ? { tags: opts.tags.join(",") } : {}),
+        ...(opts.before !== undefined ? { before: opts.before } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`image gallery failed: ${res.status}`);
+    return res.json();
+  }
+
+  async imageTags(q?: string, limit?: number): Promise<MediaTagCount[]> {
+    const res = await this.rpc().image.tags.$get({
+      query: {
+        ...(q !== undefined && q.length > 0 ? { q } : {}),
+        ...(limit !== undefined ? { limit: String(limit) } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`image tags failed: ${res.status}`);
+    return (await res.json()).tags;
+  }
+
+  async imageRecent(): Promise<MediaRecent> {
+    const res = await this.rpc().image.recent.$get();
+    if (!res.ok) throw new Error(`image recent failed: ${res.status}`);
+    return res.json();
+  }
+
+  async deleteAsset(id: string): Promise<boolean> {
+    const res = await this.rpc().asset[":id"].$delete({ param: { id: encodeURIComponent(id) } });
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(`delete asset failed: ${res.status}`);
+    return true;
+  }
+
+  /** Replace one image's tags (normalized server-side). */
+  async setAssetTags(id: string, tags: string[]): Promise<Asset | undefined> {
+    const res = await fetch(this.url(`/api/asset/${encodeURIComponent(id)}/tags`), {
+      method: "PUT",
+      headers: { ...this.headers, "content-type": "application/json" },
+      body: JSON.stringify({ tags }),
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`set asset tags failed: ${res.status}`);
+    return ((await res.json()) as { asset: Asset }).asset;
+  }
+
+  async cancelJob(id: string): Promise<Job | undefined> {
+    // Raw fetch (not the typed RPC): the nested job action routes type
+    // inconsistently through hc, and this is a one-line call either way.
+    const res = await fetch(this.url(`/api/job/${encodeURIComponent(id)}/cancel`), {
+      method: "POST",
+      headers: this.headers,
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`cancel job failed: ${res.status}`);
+    return ((await res.json()) as { job: Job }).job;
+  }
+
+  async retryJob(id: string): Promise<Job | undefined> {
+    const res = await fetch(this.url(`/api/job/${encodeURIComponent(id)}/retry`), {
+      method: "POST",
+      headers: this.headers,
+    });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`retry job failed: ${res.status}`);
+    return ((await res.json()) as { job: Job }).job;
   }
 
   // --- automations (scheduled jobs) ---

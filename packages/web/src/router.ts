@@ -22,8 +22,8 @@ export type RouteSettingsSection = SettingsSection;
 
 /**
  * A parsed route — the URL projection of the app's navigation state.
- * `image`/`video` are absent: those master-rail items are disabled
- * placeholders and never navigable.
+ * `video` is absent: that master-rail item is a disabled placeholder and
+ * never navigable. `image` is a single page (workflow + gallery).
  */
 export type Route =
   | { section: "chat"; sessionId: string | null }
@@ -41,6 +41,7 @@ export type Route =
   | { section: "skills"; name: string | null; creating: boolean }
   | { section: "automations"; name: string | null; creating: boolean }
   | { section: "analytics" }
+  | { section: "image" }
   | { section: "shell" };
 
 /**
@@ -122,6 +123,9 @@ export function parseRoute(pathname: string, search: string): Route {
     case "analytics":
       // /analytics — a single page, no sub-state.
       return { section: "analytics" };
+    case "image":
+      // /image — the single-page image generation workbench.
+      return { section: "image" };
     case "shell":
       // /shell — the web terminal, a single page, no sub-state.
       return { section: "shell" };
@@ -159,6 +163,8 @@ export function routeToPath(route: Route): string {
         : `/${route.section}`;
     case "analytics":
       return "/analytics";
+    case "image":
+      return "/image";
     case "shell":
       return "/shell";
   }

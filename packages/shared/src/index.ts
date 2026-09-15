@@ -20,3 +20,4 @@ export * from "./mcp-usage";
 export * from "./usage";
 export * from "./mention";
 export * from "./workspace";
+export * from "./media";

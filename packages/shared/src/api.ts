@@ -109,6 +109,26 @@ export const enqueueJobSchema = z.object({
   input: z.unknown(),
 });
 
+/** POST /api/image/generate — one text-to-image / image-to-image request. */
+export const mediaGenRequestSchema = z.object({
+  mode: z.enum(["t2i", "i2i"]),
+  prompt: z.string().min(1).max(4000),
+  model: z.string().max(200).optional(),
+  /** Adapter-specific parameter values (validated/coerced by the adapter). */
+  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  referenceAssetIds: z.array(z.string().min(1).max(100)).max(16).optional(),
+  tags: z.array(z.string().min(1).max(64)).max(50).optional(),
+});
+
+export type MediaGenRequestBody = z.infer<typeof mediaGenRequestSchema>;
+
+/** PUT /api/asset/:id/tags — replace one image's tags. */
+export const putAssetTagsSchema = z.object({
+  tags: z.array(z.string().min(1).max(64)).max(50),
+});
+
+export type PutAssetTagsBody = z.infer<typeof putAssetTagsSchema>;
+
 /** The structured schedule stored/transported for an automation. */
 export const automationScheduleSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("interval"), minutes: z.number().int().min(1).max(100_000) }),

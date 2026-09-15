@@ -45,6 +45,7 @@ export interface TestCore {
   agents: AgentRegistry;
   skills: SkillRegistry;
   automations: AutomationScheduler;
+  jobs: JobQueue;
 }
 
 /** Full core stack against a throwaway data dir. */
@@ -166,7 +167,7 @@ export function makeCore(): TestCore {
     snapshot: new Snapshot(join(dir, "snapshot")),
   });
   coreRef = core;
-  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents, skills, automations };
+  return { dir, store, bus, log, core, providers, accounts, config, tools, toolLoader, agents, skills, automations, jobs };
 }
 
 export function sleep(ms: number): Promise<void> {

@@ -110,6 +110,11 @@ describe("parseRoute", () => {
     expect(parseRoute("/analytics", "")).toEqual({ section: "analytics" });
   });
 
+  test("image: single page, sub-segments ignored", () => {
+    expect(parseRoute("/image", "")).toEqual({ section: "image" });
+    expect(parseRoute("/image/extra", "")).toEqual({ section: "image" });
+  });
+
   test("automations: list, new, detail; extra segments → list", () => {
     expect(parseRoute("/automations", "")).toEqual({ section: "automations", name: null, creating: false });
     expect(parseRoute("/automations/new", "")).toEqual({ section: "automations", name: null, creating: true });
@@ -153,6 +158,7 @@ describe("routeToPath", () => {
     roundTrip({ section: "automations", name: null, creating: true });
     roundTrip({ section: "automations", name: "auto_01ABC", creating: false });
     roundTrip({ section: "analytics" });
+    roundTrip({ section: "image" });
   });
 
   test("canonical shapes", () => {
@@ -169,6 +175,7 @@ describe("routeToPath", () => {
     );
     expect(routeToPath({ section: "automations", name: null, creating: true })).toBe("/automations/new");
     expect(routeToPath({ section: "analytics" })).toBe("/analytics");
+    expect(routeToPath({ section: "image" })).toBe("/image");
   });
 
   test("workspace slug is opaque in the URL (no raw path visible)", () => {

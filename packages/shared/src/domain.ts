@@ -261,6 +261,10 @@ export interface Job {
   output?: unknown;
   error?: string;
   progress?: number;
+  /** 1-based attempt counter (retries during transient failures). */
+  attempt?: number;
+  /** Transient human-facing note (e.g. "retrying 2/3 after 429"). */
+  note?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -31,8 +31,10 @@ continue it from your phone, teach it new agents from either side.
 - 🧑‍💻 **Workspace / Code** — file-defined **agents** (hot-reloaded, no
   restarts) driving real tool loops: `fs.read/list/glob/write/edit`,
   fail-closed interactive permissions, token discipline, and compaction
-- 🖼️ **Image / 🎬 Video workbenches** — structured today (job queue, asset
-  store, galleries); real adapters land next
+- 🖼️ **Image workbench** — a single-page text-to-image / image-to-image
+  workspace over the **OpenRouter Image API** (capability-driven params,
+  reusable tagged history, per-image delete, job retry/cancel); 🎬 video is
+  still a structured stub
 - 🖥️ **Surfaces** — Ink TUI, web app for desktop _and_ mobile (browser/PWA),
   native desktop shell later
 - 🔌 **Extensible** — custom tools as TypeScript files (hot-imported), MCP as
@@ -52,11 +54,12 @@ bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 
 ## Status
 
-Implemented through the code-workbench phase — **chat, sync, agents, file
+Implemented through the media-workbench phase — **chat, sync, agents, file
 tools + bash/grep, interactive permissions, token discipline + compaction,
-and per-message revert/fork/copy with shadow-repo file rollback all ship
-today** (483 tests, 6 packages). Pending: MCP dual role, real image/video
-adapters, desktop shell. Details in
+per-message revert/fork/copy with shadow-repo file rollback, provider
+OAuth/subscription logins, and the image workbench (OpenRouter adapter +
+hardened job runtime + tag gallery) all ship today** (1217 tests, 6
+packages). Pending: MCP dual role, the video adapter, desktop shell. Details in
 [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
 
 ## Inspiration

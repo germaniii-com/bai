@@ -1,29 +1,51 @@
-import type { MediaGenConfig } from "@bai/shared";
+import type { MediaGenConfig, MediaGenRequest, MediaModelInfo, MediaParamValue } from "@bai/shared";
+import { normalizeTags } from "@bai/shared";
 import type { Workbench } from "../workbench/types";
 import type { GeneratedFile, JobExecutor, JobExecutorResult } from "../workbench/types";
-import { fnv1a, solidPng } from "../jobs/png";
+import { MediaGenError, type MediaGenAdapter, type MediaGeneratedImage } from "./media/adapter";
+import { OpenRouterMediaAdapter } from "./media/openrouter";
+import { StubMediaAdapter } from "./media/stub";
+import { imageDimensions, looksLikeImage } from "./media/dimensions";
 
-export interface ImageGenRequest {
-  prompt: string;
-  model?: string;
-  size?: string;
-  count?: number;
+/** Credentials + stored-asset reads the image executor needs at runtime. */
+export interface MediaRuntimeDeps {
+  /** Resolve a provider's API key/base URL/headers (the provider registry). */
+  resolveCredentials(
+    providerId: string,
+    accountId?: string,
+  ): Promise<{ apiKey?: string; baseUrl?: string; headers?: Record<string, string> }>;
+  /** Read a stored reference asset's bytes (image-to-image). */
+  readAsset(id: string): { mime: string; bytes: Uint8Array } | undefined;
+}
+
+export interface ImageWorkbenchDeps {
+  /** config imageGen accessor — provider/model/account fallbacks. */
+  defaults?: () => MediaGenConfig | undefined;
+  /** Provider credentials + asset reads; absent → stub-only. */
+  runtime?: MediaRuntimeDeps;
+  /** Fetch override for the OpenRouter adapter (tests). */
+  fetch?: typeof globalThis.fetch;
 }
 
 /**
- * Image-generation modality — structured stub in Phase 0. The pipeline is
- * real: prompt → job row → executor → asset file + DB row → events →
- * galleries. The stub adapter renders a deterministic placeholder PNG; the
- * fal.ai adapter (Phase 5) plugs in behind the same interface. The configured
- * default (config imageGen) is the model fallback when a job doesn't name
- * one — the settings field is observable before a real adapter exists.
+ * Image-generation modality. The pipeline (prompt → job → executor → asset +
+ * DB row → events → gallery) is unchanged; this class selects a
+ * {@link MediaGenAdapter} from config (`imageGen.provider`): `openrouter` for
+ * the real Image API, the deterministic stub for anything else (offline/no-key
+ * safe). Every produced asset is self-describing — its `meta.gen` carries the
+ * request so the gallery can reload it.
  */
 export class ImageWorkbench implements Workbench {
-  /** config imageGen accessor — the executor's model fallback. */
-  private readonly defaults?: () => MediaGenConfig | undefined;
+  private readonly deps: ImageWorkbenchDeps;
+  private readonly adapters: Map<string, MediaGenAdapter>;
 
-  constructor(defaults?: () => MediaGenConfig | undefined) {
-    this.defaults = defaults;
+  constructor(deps: ImageWorkbenchDeps = {}) {
+    this.deps = deps;
+    const openrouter = new OpenRouterMediaAdapter(deps.fetch ?? globalThis.fetch);
+    this.adapters = new Map<string, MediaGenAdapter>([
+      ["openrouter", openrouter],
+      ["stub", new StubMediaAdapter()],
+    ]);
   }
 
   name() {
@@ -46,43 +68,66 @@ export class ImageWorkbench implements Workbench {
     return ["image" as const];
   }
 
+  /** The adapter for a provider id; unknown providers fall back to the stub. */
+  private adapterFor(provider: string): MediaGenAdapter {
+    return this.adapters.get(provider) ?? this.adapters.get("stub")!;
+  }
+
+  /** Curated model list (with rates) + param spec for the page's picker. */
+  async capabilities(provider?: string, model?: string): Promise<{
+    provider: string;
+    model: string;
+    models: MediaModelInfo[];
+    capabilities: ReturnType<MediaGenAdapter["capabilities"]>;
+  }> {
+    const configured = this.deps.defaults?.();
+    const providerId = provider ?? configured?.provider ?? "stub";
+    const adapter = this.adapterFor(providerId);
+    const modelId = model ?? configured?.model ?? adapter.defaultModel();
+    return {
+      provider: providerId,
+      model: modelId,
+      models: await adapter.listModels(),
+      capabilities: adapter.capabilities(modelId),
+    };
+  }
+
   jobExecutors() {
     const executor: JobExecutor = async (job, ctx) => {
-      const req = parseRequest(job.input);
-      const configured = this.defaults?.();
-      const model = req.model ?? configured?.model ?? "stub";
-      ctx.progress(0.1);
-      const files: GeneratedFile[] = [];
-      const count = Math.min(Math.max(req.count ?? 1, 1), 4);
-      for (let i = 0; i < count; i++) {
-        if (ctx.signal.aborted) throw new Error("cancelled");
-        const seed = fnv1a(`${req.prompt}#${i}`);
-        const rgb: [number, number, number] = [
-          (seed & 0xff) as number,
-          ((seed >> 8) & 0xff) as number,
-          ((seed >> 16) & 0xff) as number,
-        ];
-        const [w, h] = parseSize(req.size);
-        files.push({
-          kind: "image",
-          mime: "image/png",
-          ext: "png",
-          bytes: solidPng(w, h, rgb),
-          meta: {
-            prompt: req.prompt,
-            model,
-            ...(configured?.provider !== undefined ? { provider: configured.provider } : {}),
-            ...(configured?.account !== undefined ? { account: configured.account } : {}),
-            seed,
-            width: w,
-            height: h,
-            placeholder: true,
-          },
-        });
-        ctx.progress((i + 1) / count);
-      }
+      const request = parseRequest(job.input);
+      const configured = this.deps.defaults?.();
+      const provider = configured?.provider ?? "stub";
+      const adapter = this.adapterFor(provider);
+      const model = request.model ?? configured?.model ?? adapter.defaultModel();
+      const resolved: MediaGenRequest = { ...request, model };
+      const params = resolved.params ?? {};
+      ctx.progress(0.05);
+      const credentials = this.deps.runtime
+        ? await this.deps.runtime.resolveCredentials(provider, configured?.account)
+        : {};
+      const generated = await adapter.generate({
+        request: resolved,
+        credentials,
+        ctx: {
+          signal: ctx.signal,
+          readAsset: (id) => this.deps.runtime?.readAsset(id),
+        },
+      });
+      ctx.progress(0.9);
+      const costPerImage =
+        generated.costUsd !== undefined && generated.images.length > 0
+          ? generated.costUsd / generated.images.length
+          : undefined;
+      const files: GeneratedFile[] = generated.images.map((image) =>
+        this.toFile(image, resolved, provider, configured, costPerImage),
+      );
       const result: JobExecutorResult = {
-        output: { model, count: files.length },
+        output: {
+          model,
+          provider,
+          count: files.length,
+          ...(generated.costUsd !== undefined ? { costUsd: generated.costUsd } : {}),
+        },
         files,
       };
       return result;
@@ -90,25 +135,67 @@ export class ImageWorkbench implements Workbench {
     return { "image.generate": executor };
   }
 
+  private toFile(
+    image: MediaGeneratedImage,
+    request: MediaGenRequest,
+    provider: string,
+    configured: MediaGenConfig | undefined,
+    costUsd?: number,
+  ): GeneratedFile {
+    if (!looksLikeImage(image.bytes, image.mime)) {
+      throw new MediaGenError(`Provider returned a non-image payload (${image.mime}).`, { retryable: false });
+    }
+    const dims = imageDimensions(image.bytes, image.mime);
+    const params = request.params ?? {};
+    const meta: Record<string, unknown> = {
+      // Self-describing: the exact request reloads into the form.
+      gen: { ...request, provider, ...(configured?.account !== undefined ? { account: configured.account } : {}) },
+      prompt: request.prompt,
+      mode: request.mode,
+      model: request.model,
+      provider,
+      ...(configured?.account !== undefined ? { account: configured.account } : {}),
+      ...(request.tags !== undefined && request.tags.length > 0 ? { tags: request.tags } : {}),
+      ...(typeof params.aspect_ratio === "string" ? { aspectRatio: params.aspect_ratio } : {}),
+      ...(typeof params.resolution === "string" ? { resolution: params.resolution } : {}),
+      ...(dims !== undefined ? { width: dims.width, height: dims.height } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+    };
+    return { kind: "image", mime: image.mime, ext: image.ext, bytes: image.bytes, meta };
+  }
+
   routes() {
     return [];
   }
 }
 
-function parseRequest(input: unknown): ImageGenRequest {
+/** Tolerant input parser: new `MediaGenRequest` plus legacy top-level fields. */
+function parseRequest(input: unknown): MediaGenRequest {
   const obj = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+  const params: Record<string, MediaParamValue> = {};
+  if (typeof obj.params === "object" && obj.params !== null) {
+    for (const [key, value] of Object.entries(obj.params as Record<string, unknown>)) {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") params[key] = value;
+    }
+  }
+  if (params.size === undefined && typeof obj.size === "string") params.size = obj.size;
+  if (params.count === undefined && typeof obj.count === "number") params.count = obj.count;
+  const referenceAssetIds: string[] = [];
+  if (Array.isArray(obj.referenceAssetIds)) {
+    for (const ref of obj.referenceAssetIds) if (typeof ref === "string" && ref.length > 0) referenceAssetIds.push(ref);
+  }
+  if (referenceAssetIds.length === 0 && typeof obj.referenceAssetId === "string" && obj.referenceAssetId.length > 0) {
+    referenceAssetIds.push(obj.referenceAssetId);
+  }
+  const tags = normalizeTags(
+    Array.isArray(obj.tags) ? obj.tags.filter((t): t is string => typeof t === "string") : undefined,
+  );
   return {
-    prompt: typeof obj.prompt === "string" ? obj.prompt : "placeholder",
-    ...(typeof obj.model === "string" ? { model: obj.model } : {}),
-    ...(typeof obj.size === "string" ? { size: obj.size } : {}),
-    ...(typeof obj.count === "number" ? { count: obj.count } : {}),
+    mode: obj.mode === "i2i" ? "i2i" : "t2i",
+    prompt: typeof obj.prompt === "string" && obj.prompt.length > 0 ? obj.prompt : "placeholder",
+    ...(typeof obj.model === "string" && obj.model.length > 0 ? { model: obj.model } : {}),
+    ...(Object.keys(params).length > 0 ? { params } : {}),
+    ...(referenceAssetIds.length > 0 ? { referenceAssetIds } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
   };
-}
-
-function parseSize(size?: string): [number, number] {
-  const match = size?.match(/^(\d+)x(\d+)$/);
-  if (!match) return [256, 256];
-  const w = Number(match[1]);
-  const h = Number(match[2]);
-  return [Math.min(w, 1024), Math.min(h, 1024)];
 }

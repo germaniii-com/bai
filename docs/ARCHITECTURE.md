@@ -197,6 +197,7 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **Workspace file uploads** | `api/src/server/fs.ts` (`writeFile`), route `POST /api/fs/upload` (`api/src/server/app.ts`), client `BaiClient.uploadWorkspaceFile`, UI `web/src/file-tree.tsx` (drop targets) + `web/src/App.tsx` (`uploadToWorkspace`) | Drag files from the OS onto a folder row or the tree root → raw bytes written into the registered workspace (realpath-contained, 64 MB cap, auto-rename on collision). No composer attach button in workspace; uploaded files are ordinary files and are immediately `#file`-able (`clearFindCache(root)`). |
 | **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts`, `adapters/responses.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints, OAuth Bearer/beta + Claude Code shape. OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Responses serves ChatGPT/Codex + xAI (`store:false`, `function_call` items, `ChatGPT-Account-ID`). Model resolution + credentials: `core/src/provider/registry.ts`; logins: `core/src/provider/oauth/`. |
 | **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
+| **Image generation (workbench + adapters)** | `core/src/workbench/image.ts` (job executor) + `core/src/workbench/media/{adapter,openrouter,stub,dimensions}.ts`; service `Service.{enqueueImageGeneration,imageCapabilities,imageGallery,imageTags,imageRecent,deleteAsset,retryJob,cancelJob}`; routes in `api/src/server/app.ts`; web `web/src/image.tsx` + `use-image-gallery.ts` + `components/TagInput.tsx` | Adapters own the provider wire shape and declare a generic `MediaParamSpec` vocabulary; the web renders it. Assets are self-describing (`meta.gen` = the request) and independently deletable; tags are indexed in `asset_tags`. Jobs run on the hardened `JobQueue` (boot recovery, timeout, bounded retry/backoff, **parallel up to `config.jobs.concurrency`**, cancel, graceful stop, atomic asset writes). |
 | **Subagent spawning** | `core/src/tools/task.ts` | The `task` tool: spawns a real child session (`meta: {parent, agent}`) running any agent to completion via `RunCoordinator.drainNow`, returns the child's final text in a `<task>` XML block. Depth-capped (`agents.subagentDepth`, default 1); children never offered/allowed `task`/`question`/`plan.exit`; batched task calls run concurrently (executeCalls stage 2); the result payload carries `subagent: {sessionId, agent}` for surface links. |
 | **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from the TUI agent manager (supermenu → Switch agent) or web Agents page via `PUT /api/tool/:name`. |
 | **Session plans & notes** | `core/src/session-files.ts` (`<dataDir>/sessions/<sessionId>/{notes.md,plans/*.md}`) + `core/src/tools/{plan-write,plan-read,notes}.ts` | Plans/notes are session-scoped FILES (portable between surfaces). `plan.write` is session-scoped (the plan agent's only write); `plan.read` lists/reads them for any agent (the Plans panel's build action hands a plan to the build agent); `notes.read`/`notes.write` give the agent the user's scratchpad. Service methods emit durable `plans.updated`/`notes.updated`; REST at `/api/session/:id/{notes,plan,todo}`. The web workspace right rail renders collapsible **Checklist** (editable `session.meta.todos`), **Plans** (list; click opens an editable editor in the Files view; a hammer builds a plan), and **Notes** (inline autosave) panels. |
@@ -317,7 +318,7 @@ Event types (initial set): `session.created|updated`, `input.admitted`,
 `run.usage` (one durable event per provider turn — the context tracker's
 live feed; carries the full token breakdown + the model's context window;
 after compaction a token-less row means "unknown until the next turn"),
-`permission.asked|replied`, `job.updated`, `asset.created`,
+`permission.asked|replied`, `job.updated`, `asset.created`, `asset.deleted`,
 `config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
 `skills.updated`, `automations.updated`, `server.hello`. Live-only events
 (`config.updated`, `provider.updated`, `agents.updated`, `tools.updated`,
@@ -594,7 +595,8 @@ Example:
   "agents": { "default": "reviewer" },
   "permissions": { "bash.*": "ask", "fs.read": "allow" },
   "mcp": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } },
-  "workbenches": { "image": { "adapter": "fal", "model": "flux-2" } }
+  "workbenches": { "image": { "adapter": "fal", "model": "flux-2" } },
+  "jobs": { "timeoutMs": 180000, "maxAttempts": 3, "backoffMs": 1500, "concurrency": 3 }
 }
 ```
 
@@ -797,7 +799,7 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 | **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
 | **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), subagents (`task` tool), token discipline + compaction, diff viewer, per-message revert/fork/copy with file rollback | Guided multi-file edit with approvals from either surface                  | ✅ shipped (file-tree diff viewer pending) |
 | **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
-| **5 — Media workbenches** | Real image adapters (fal.ai first), job queue UX, galleries; video adapter after                                           | Prompt→job→asset→gallery round trip on phone                               | ⏳ pending (structured stubs live — see FEATURES.md) |
+| **5 — Media workbenches** | Image workbench shipped (OpenRouter adapter + hardened job runtime + tag gallery); video adapter after | Prompt→job→asset→gallery round trip on phone | 🟡 image shipped; video pending |
 | **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |
 
 (The agents + custom-tools feature set was built as part of Phase 3's

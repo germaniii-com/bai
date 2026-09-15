@@ -70,6 +70,10 @@ export interface EventPayloads {
   "plans.updated": { plans: PlanFile[] };
   "job.updated": { job: Job };
   "asset.created": { asset: Asset };
+  /** A stored asset's metadata changed (e.g. edited tags) — live-only. */
+  "asset.updated": { asset: Asset };
+  /** A stored asset was deleted (file + row + tags) — live-only. */
+  "asset.deleted": { assetId: AssetId };
   "config.updated": Record<string, never>;
   /** Accounts changed (added/removed) — live-only, surfaces refetch providers. */
   "provider.updated": Record<string, never>;
@@ -113,6 +117,8 @@ export const EVENT_TYPES = Object.keys({
   "plans.updated": 1,
   "job.updated": 1,
   "asset.created": 1,
+  "asset.updated": 1,
+  "asset.deleted": 1,
   "config.updated": 1,
   "provider.updated": 1,
   "agents.updated": 1,

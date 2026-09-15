@@ -51,7 +51,7 @@ describe("job queue (structured stubs)", () => {
     await assetCreated;
     const stored = t.store.jobs.get(job.id);
     expect(stored?.status).toBe("done");
-    expect(stored?.output).toEqual({ model: "gpt-image-2", count: 1 });
+    expect(stored?.output).toEqual({ model: "gpt-image-2", provider: "openai", count: 1 });
     const asset = t.store.assets.byJob(job.id)[0];
     expect(asset?.meta.model).toBe("gpt-image-2");
     expect(asset?.meta.provider).toBe("openai");
@@ -73,7 +73,7 @@ describe("job queue (structured stubs)", () => {
     const assetCreated = waitForEvent(t.bus, "asset.created");
     const job = t.core.enqueueJob("image.generate", undefined, { prompt: "x", model: "custom/model" });
     await assetCreated;
-    expect(t.store.jobs.get(job.id)?.output).toEqual({ model: "custom/model", count: 1 });
+    expect(t.store.jobs.get(job.id)?.output).toEqual({ model: "custom/model", provider: "openai", count: 1 });
   });
 
   test("job.updated events fire through the pipeline", async () => {

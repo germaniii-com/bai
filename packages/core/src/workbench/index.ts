@@ -12,6 +12,7 @@ import { ImageWorkbench } from "./image";
 import { VideoWorkbench } from "./video";
 import type { Workbench } from "./types";
 import type { MediaGenConfig } from "@bai/shared";
+import type { MediaRuntimeDeps } from "./image";
 
 /** Per-modality media-gen defaults (config imageGen/videoGen), read live. */
 export interface MediaDefaults {
@@ -25,12 +26,20 @@ export function createDefaultWorkbenches(opts: {
   workspaceRoots?: () => string[];
   /** config imageGen/videoGen accessors — the stub executors' model fallback. */
   mediaDefaults?: MediaDefaults;
+  /** Credentials + asset reads for the image adapter (provider registry). */
+  mediaRuntime?: MediaRuntimeDeps;
+  /** Fetch override for the image adapter (tests). */
+  mediaFetch?: typeof globalThis.fetch;
 }): Workbench[] {
   mkdirSync(path.join(opts.dataDir, "assets"), { recursive: true });
   return [
     new ChatWorkbench(),
     new CodeWorkbench({ roots: opts.workspaceRoots }),
-    new ImageWorkbench(opts.mediaDefaults?.image),
+    new ImageWorkbench({
+      ...(opts.mediaDefaults?.image !== undefined ? { defaults: opts.mediaDefaults.image } : {}),
+      ...(opts.mediaRuntime !== undefined ? { runtime: opts.mediaRuntime } : {}),
+      ...(opts.mediaFetch !== undefined ? { fetch: opts.mediaFetch } : {}),
+    }),
     new VideoWorkbench(opts.mediaDefaults?.video),
   ];
 }

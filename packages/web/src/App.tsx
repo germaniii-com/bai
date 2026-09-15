@@ -30,6 +30,7 @@ import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
 import { SkillsNav, SkillsPane, SkillCreateForm, SkillLearnForm } from "./skills";
 import { AutomationsNav, AutomationsPane, AutomationCreateForm } from "./automations";
 import { AnalyticsPane } from "./analytics";
+import { ImagePane } from "./image";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
@@ -48,7 +49,7 @@ type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automatio
  * contextual nav content, so the main pane gets the full width). Add or
  * remove section names here to change which views hide the sidebar.
  */
-const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics"];
+const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics", "image"];
 
 /** Workspace right-rail resize bounds + per-device persistence key. */
 const WORKSPACE_SIDEBAR_MIN = 180;
@@ -844,11 +845,13 @@ export function App() {
       case "analytics":
         pushRoute({ section: "analytics" });
         break;
+      case "image":
+        pushRoute({ section: "image" });
+        break;
       case "shell":
         pushRoute({ section: "shell" });
         break;
-      // Image/Video are disabled rail placeholders — never navigable (D9).
-      case "image":
+      // Video is a disabled rail placeholder — never navigable (D9).
       case "video":
         break;
     }
@@ -906,6 +909,8 @@ export function App() {
               ? { section: "automations", name: effectiveAutomationId, creating: creatingAutomation }
               : section === "analytics"
             ? { section: "analytics" }
+            : section === "image"
+              ? { section: "image" }
             : section === "shell"
               ? { section: "shell" }
               : section === "workspace"
@@ -2039,6 +2044,10 @@ export function App() {
             />
           )}
         </main>
+      ) : section === "image" ? (
+        <main id="main-content" className="image-main">
+          <ImagePane client={client} imageGen={configImageGen} onNotice={pushNotice} />
+        </main>
       ) : section === "analytics" ? (
         <main id="main-content" className="settings-pane">
           <AnalyticsPane client={client} themeColors={themeColors} />
@@ -2257,7 +2266,7 @@ function MasterNav({
           active={section === "workspace"}
           onClick={() => onNavigate("workspace")}
         />
-        <NavItem icon={<Image className="nav-icon" aria-hidden="true" />} label="Image Gen" disabled onClick={() => onNavigate("image")} />
+        <NavItem icon={<Image className="nav-icon" aria-hidden="true" />} label="Image Gen" active={section === "image"} onClick={() => onNavigate("image")} />
         <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" disabled onClick={() => onNavigate("video")} />
         {/* Workbenches above the line, agent machinery below it. */}
         <div className="nav-divider" role="separator" aria-label="workbenches / agents" />

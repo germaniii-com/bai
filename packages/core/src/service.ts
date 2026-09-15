@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -8,10 +8,19 @@ import {
   type Event,
   type EventType,
   type AttachmentRef,
+  type Asset,
   type Automation,
   type Input,
   type InputId,
+  type Job,
+  type JobId,
   type JobKind,
+  type MediaGalleryCursor,
+  type MediaGalleryPage,
+  type MediaGenRequest,
+  type MediaCapabilitiesResponse,
+  type MediaRecent,
+  type MediaTagCount,
   type Message,
   type MessageId,
   type PermissionRequest,
@@ -56,6 +65,8 @@ import {
   mcpCatalogEntry,
   registeredRoots,
   sortModelsZdrFirst,
+  normalizeTags,
+  fuzzyTagScore,
 } from "@bai/shared";
 import type { McpManager } from "./mcp";
 import type { AgentRegistry } from "./agent/registry";
@@ -105,6 +116,7 @@ import type { Tool, ToolRegistry } from "./tools/registry";
 import type { SkillRegistry } from "./skills/registry";
 import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
+import { ImageWorkbench } from "./workbench/image";
 
 export interface ServiceDeps {
   store: Store;
@@ -1223,6 +1235,118 @@ export class Service {
 
   enqueueJob(kind: JobKind, sessionId: SessionId | undefined, input: unknown) {
     return this.deps.jobs.enqueue(kind, sessionId, input);
+  }
+
+  // --- image generation (the single-page workbench) ---
+
+  private imageWorkbench(): ImageWorkbench | undefined {
+    return this.workbenches.find((wb): wb is ImageWorkbench => wb instanceof ImageWorkbench);
+  }
+
+  /** Adapter model list + parameter vocabulary for the page's params UI. */
+  async imageCapabilities(provider?: string, model?: string): Promise<MediaCapabilitiesResponse> {
+    const workbench = this.imageWorkbench();
+    if (workbench === undefined) throw new Error("Image workbench is not registered");
+    return workbench.capabilities(provider, model);
+  }
+
+  /** Enqueue one image generation (tags normalized before they are persisted). */
+  enqueueImageGeneration(request: MediaGenRequest): Job {
+    const normalized: MediaGenRequest = {
+      ...request,
+      ...(request.tags !== undefined ? { tags: normalizeTags(request.tags) } : {}),
+    };
+    return this.deps.jobs.enqueue("image.generate", undefined, normalized);
+  }
+
+  /**
+   * Tag-filtered, keyset-paged gallery of generated images (newest first).
+   * Each filter entry is matched fuzzily against the tag index, then images
+   * are filtered by the resolved exact tags (ANY).
+   */
+  imageGallery(limit: number, cursor?: MediaGalleryCursor, tags?: string[]): MediaGalleryPage {
+    const entries = (tags ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+    let exactTags: string[] | undefined;
+    if (entries.length > 0) {
+      const all = this.deps.store.assetTags.list(5000);
+      const matched = new Set<string>();
+      for (const entry of entries) {
+        for (const { tag } of all) {
+          if (fuzzyTagScore(tag, entry) > 0) matched.add(tag);
+        }
+      }
+      if (matched.size === 0) return { images: [], hasMore: false, total: 0 };
+      exactTags = [...matched];
+    }
+    const page = this.deps.store.assets.listPage(limit, cursor, {
+      kind: "image",
+      ...(exactTags !== undefined ? { tags: exactTags } : {}),
+    });
+    return {
+      images: page.assets,
+      hasMore: page.hasMore,
+      total: page.total,
+      ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+    };
+  }
+
+  /**
+   * Fuzzy tag search: every whitespace token of `query` must match the tag
+   * (prefix/substring/subsequence), so `gemini` finds `gemini 3 pro`. Results
+   * are ranked by match tightness, then usage count.
+   */
+  imageTags(query?: string, limit = 50): MediaTagCount[] {
+    const all = this.deps.store.assetTags.list(5000);
+    const q = query?.trim() ?? "";
+    if (q.length === 0) return all.slice(0, limit);
+    return all
+      .map((entry) => ({ entry, score: fuzzyTagScore(entry.tag, q) }))
+      .filter((row) => row.score > 0)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.entry.count - a.entry.count ||
+          a.entry.tag.localeCompare(b.entry.tag),
+      )
+      .slice(0, limit)
+      .map((row) => row.entry);
+  }
+
+  /** The newest image job + its images — the output area's seed on reload. */
+  imageRecent(): MediaRecent {
+    const job = this.deps.store.jobs.latestOfKind("image.generate");
+    const images = job !== undefined ? this.deps.store.assets.byJob(job.id) : [];
+    return { ...(job !== undefined ? { job } : {}), images };
+  }
+
+  /** Replace one image's tags (normalized) and broadcast the change. */
+  setAssetTags(id: string, tags: string[]): Asset | undefined {
+    const asset = this.deps.store.setAssetTags(id, normalizeTags(tags));
+    if (asset !== undefined) this.emitLive("asset.updated", { asset });
+    return asset;
+  }
+
+  /** Delete one generated image (row + tags + file) and broadcast it. */
+  deleteAsset(id: string): boolean {
+    const removed = this.deps.store.deleteAsset(id);
+    if (removed === undefined) return false;
+    try {
+      unlinkSync(removed.asset.path);
+    } catch {
+      // The row is gone; a missing file is fine.
+    }
+    this.emitLive("asset.deleted", { assetId: removed.asset.id });
+    return true;
+  }
+
+  /** Re-enqueue a terminal job's input as a fresh job (surface "Retry"). */
+  retryJob(id: JobId): Job | undefined {
+    return this.deps.jobs.retry(id);
+  }
+
+  /** Cancel a queued/running job. */
+  cancelJob(id: JobId): Job | undefined {
+    return this.deps.jobs.cancel(id);
   }
 
   // --- providers & accounts ---

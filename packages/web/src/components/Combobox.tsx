@@ -132,8 +132,17 @@ export function Combobox(props: ComboboxProps) {
     props.onValuesChange(props.values.filter((v) => v !== value));
   };
 
+  /** The row index of the current selection (0 when nothing is selected). */
+  const indexOfSelected = (): number => {
+    const idx = rows.findIndex((row) => row.kind === "option" && selectedValues.includes(row.option.value));
+    return idx >= 0 ? idx : 0;
+  };
+
   const openPopup = (): void => {
     if (disabled) return;
+    // Park the keyboard cursor on the selected option so the highlight opens
+    // on it (not the first row).
+    setActive(indexOfSelected());
     setOpen(true);
     inputRef.current?.focus();
   };
@@ -218,7 +227,12 @@ export function Combobox(props: ComboboxProps) {
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (!open) {
+              setActive(indexOfSelected());
+              setOpen(true);
+            }
+          }}
           onKeyDown={onKeyDown}
           aria-autocomplete="list"
           aria-label={ariaLabel}
@@ -239,7 +253,11 @@ export function Combobox(props: ComboboxProps) {
                 type="button"
                 role="option"
                 aria-selected={selectedValues.includes(row.option.value)}
-                className={i === active ? "combobox-option active" : "combobox-option"}
+                className={
+                  "combobox-option" +
+                  (i === active ? " active" : "") +
+                  (selectedValues.includes(row.option.value) ? " selected" : "")
+                }
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => commit(row.option.value)}
               >

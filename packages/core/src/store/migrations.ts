@@ -224,4 +224,23 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_mcp_events_tool ON mcp_events(server, tool, created_at);
   CREATE INDEX IF NOT EXISTS idx_mcp_events_created ON mcp_events(created_at);
   `,
+  // 009 — media job hardening + gallery indexes. Jobs gain an attempt counter
+  // and a transient note (retry status); assets get a gallery-friendly index;
+  // asset_tags normalizes the freeform tags applied to generated images so the
+  // gallery can filter by tag (ANY) and autocomplete tags cheaply. Prompt text
+  // stays inside `assets.meta` (load-inputs only — not searched).
+  `
+  ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE jobs ADD COLUMN note TEXT;
+
+  CREATE INDEX IF NOT EXISTS idx_assets_kind_created ON assets(kind, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS asset_tags (
+    asset_id TEXT NOT NULL REFERENCES assets(id),
+    tag TEXT NOT NULL,
+    PRIMARY KEY (asset_id, tag)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_asset_tags_tag ON asset_tags(tag);
+  `,
 ];

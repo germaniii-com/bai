@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -145,18 +145,47 @@ export async function boot(args: CliArgs): Promise<Booted> {
       const config = configStore.get();
       return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
     },
-    // Media-gen defaults (config imageGen/videoGen) — the stub executors'
-    // model fallback until the Phase 5 adapters land.
+    // Media-gen defaults (config imageGen/videoGen) — the executors' fallbacks.
     mediaDefaults: {
       image: () => configStore.get().imageGen,
       video: () => configStore.get().videoGen,
+    },
+    // The image adapter's runtime: provider credentials + stored reference
+    // asset reads (image-to-image data URLs).
+    mediaRuntime: {
+      resolveCredentials: (providerId, accountId) => providers.resolveCredentials(providerId, accountId),
+      readAsset: (id) => {
+        const asset = store.assets.get(id);
+        if (asset === undefined) return undefined;
+        try {
+          return { mime: asset.mime, bytes: new Uint8Array(readFileSync(asset.path)) };
+        } catch {
+          return undefined;
+        }
+      },
     },
   });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
     {},
     ...workbenches.map((wb) => wb.jobExecutors()),
   );
-  const jobs = new JobQueue({ store, bus, assetsDir: assetsDir(), executors });
+  const jobs = new JobQueue({
+    store,
+    bus,
+    assetsDir: assetsDir(),
+    executors,
+    limits: () => {
+      const limits = configStore.get().jobs ?? {};
+      return {
+        timeoutMs: limits.timeoutMs ?? 180_000,
+        maxAttempts: limits.maxAttempts ?? 3,
+        backoffMs: limits.backoffMs ?? 1500,
+        concurrency: limits.concurrency ?? 3,
+      };
+    },
+  });
+  // Reconcile jobs interrupted by a previous process and resume leftover queued work.
+  jobs.start();
 
   const tools = new ToolRegistry({ spillDir: tmpDir() });
 
@@ -366,6 +395,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
       toolLoader.stop();
       mcpRegistry.stop();
       void mcpManager.stop();
+      // Cancel in-flight media jobs (records them cancelled) before closing the store.
+      await jobs.stop();
       store.close();
     },
   };

@@ -144,7 +144,10 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     bus,
     core,
     deps,
-    cleanup: () => {
+    cleanup: async () => {
+      // Stop the media worker before closing the store so no pending drain
+      // touches a closed database.
+      await jobs.stop({ timeoutMs: 200 });
       automations.stop();
       agents.stop();
       skills.stop();

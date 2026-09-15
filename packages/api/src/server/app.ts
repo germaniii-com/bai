@@ -12,9 +12,11 @@ import {
   learnSkillSchema,
   mcpServerSchema,
   mcpUsageQuerySchema,
+  mediaGenRequestSchema,
   permissionReplySchema,
   promptPayloadSchema,
   putAccountSchema,
+  putAssetTagsSchema,
   putNotesSchema,
   putPlanSchema,
   putTodosSchema,
@@ -40,8 +42,10 @@ import {
   type AttachmentRef,
   type InputId,
   type MessageId,
+  type JobId,
   type SessionId,
   type SessionsCursor,
+  type MediaGalleryCursor,
 } from "@bai/shared";
 import { decodeCursor, decodeHistoryCursor, encodeCursor, webSearchStatus, type HistoryCursor } from "@bai/core";
 import { bearerAuth } from "./auth";
@@ -931,6 +935,62 @@ function buildApi(deps: ApiDeps) {
       if (job === undefined) return c.json({ error: "not_found" }, 404);
       return c.json({ job });
     })
+    .post("/job/:id/cancel", (c) => {
+      const job = deps.core.cancelJob(c.req.param("id") as JobId);
+      if (job === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ job });
+    })
+    .post("/job/:id/retry", (c) => {
+      const job = deps.core.retryJob(c.req.param("id") as JobId);
+      if (job === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ job }, 202);
+    })
+
+    // --- image generation (single-page workbench) ---
+    .post("/image/generate", zValidator("json", mediaGenRequestSchema), (c) => {
+      const job = deps.core.enqueueImageGeneration(c.req.valid("json"));
+      return c.json({ job }, 202);
+    })
+    .get("/image/capabilities", async (c) => {
+      const provider = c.req.query("provider");
+      const model = c.req.query("model");
+      return c.json(
+        await deps.core.imageCapabilities(
+          provider !== undefined && provider.length > 0 ? provider : undefined,
+          model !== undefined && model.length > 0 ? model : undefined,
+        ),
+      );
+    })
+    .get("/image/gallery", (c) => {
+      const rawLimit = Number(c.req.query("limit") ?? "60");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 60;
+      const tagsRaw = c.req.query("tags");
+      const tags =
+        tagsRaw !== undefined && tagsRaw.length > 0
+          ? tagsRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+          : undefined;
+      const rawBefore = c.req.query("before");
+      let cursor: MediaGalleryCursor | undefined;
+      if (rawBefore !== undefined && rawBefore.length > 0) {
+        const decoded = decodeCursor<MediaGalleryCursor>(rawBefore);
+        if (
+          decoded === undefined ||
+          typeof decoded.createdAt !== "string" ||
+          typeof decoded.id !== "string"
+        ) {
+          return c.json({ error: "invalid before cursor" }, 400);
+        }
+        cursor = decoded;
+      }
+      return c.json(deps.core.imageGallery(limit, cursor, tags));
+    })
+    .get("/image/tags", (c) => {
+      const rawLimit = Number(c.req.query("limit") ?? "50");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 50;
+      const q = c.req.query("q");
+      return c.json({ tags: deps.core.imageTags(q, limit) });
+    })
+    .get("/image/recent", (c) => c.json(deps.core.imageRecent()))
 
     // --- automations (scheduled jobs) ---
     .get("/automation", (c) => c.json({ automations: deps.automations.list() }))
@@ -987,6 +1047,15 @@ function buildApi(deps: ApiDeps) {
           "X-Content-Type-Options": "nosniff",
         },
       });
+    })
+    .delete("/asset/:id", (c) => {
+      if (!deps.core.deleteAsset(c.req.param("id"))) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true });
+    })
+    .put("/asset/:id/tags", zValidator("json", putAssetTagsSchema), (c) => {
+      const asset = deps.core.setAssetTags(c.req.param("id"), c.req.valid("json").tags);
+      if (asset === undefined) return c.json({ error: "not_found" }, 404);
+      return c.json({ asset });
     })
 
     // --- attachments ---

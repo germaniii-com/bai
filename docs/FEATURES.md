@@ -503,30 +503,78 @@ list of name / schedule).
 
 ---
 
-## 🖼️ Image generation — structured stub
+## 🖼️ Image generation — shipped
 
-The image modality exists end-to-end as plumbing today; the generation
-adapter is the missing piece.
+The image modality is a **single-page web workbench**: pick a workflow
+(Text to Image / Image to Image), tune the model's parameters, generate, and
+browse a tag-searchable gallery. Images are standalone, self-describing assets
+— no session or batch container.
 
-**What exists today**
+**What you can do today**
 
-- The workbench registers job types (`image.generate`), asset kinds, and
-  HTTP routes against the core contract
-- The job queue persists, tracks status/progress, and produces **assets**
-  (stored under `~/.local/share/bai/assets/`, indexed in SQLite, served via
-  `GET /api/asset/:id/content`)
-- The event system is wired for `job.updated` / `asset.created` — galleries
-  and the TUI/web views will light up the moment a real adapter lands
+- **Text to Image and Image to Image.** Image-to-image takes a reference image
+  (drop or pick — **PNG, JPG, GIF, or WebP, up to 10 MB**; uploaded once,
+  stored as an asset, lowered to the provider's `input_references` data URL).
+- **OpenRouter first.** `imageGen.provider: "openrouter"` calls the dedicated
+  Image API (`POST /api/v1/images`); `imageGen.model` picks the model and the
+  per-page picker (openrouter + a curated model list, creatable) persists the
+  choice back to config. Any other/unset provider uses the deterministic
+  **stub** adapter — the workbench works offline with no keys.
+- **Capability-driven params.** Every adapter declares its parameter
+  vocabulary (enum pickers, toggles, ranges with min/max, numbers, text); the
+  page renders them generically. OpenRouter exposes aspect ratio, resolution,
+  quality, output format, background, compression, seed, count, and provider
+  fallbacks — so a new provider is data, not UI work.
+- **Tags + gallery.** Tags applied to a batch are normalized and indexed;
+  the gallery's tag search is **fuzzy** — every whitespace token must match
+  (prefix, substring, or subsequence), so `gemini` (or even `g3p`) finds a
+  `gemini 3 pro` tag — and tag autocomplete ranks the same way. The prompt is
+  searchable by **loading** an image's inputs (see below) — there is
+  deliberately no prompt text search.
+- **Reusable history.** Every image carries its full generation request
+  (`meta.gen`). Each card's floating **`…`** menu offers **Download / Load
+  Inputs / Edit Tags / Delete** — Load Inputs repopulates the workflow, prompt,
+  tags, params, model, and reference in the form, and Edit Tags rewrites the
+  image's tags in place (index + recipe); clicking the image itself always
+  opens the expanded modal. **Generate always creates a new image**, never
+  mutates history.
+- **One output view.** The gallery *is* the output area (no duplicate batch
+  panel): a click on **Generate** immediately adds a placeholder card
+  (spinning `LoaderCircle` + "Generating…") that becomes the images as they
+  land; a failed job shows an **X + "Failed"** card whose **`…`** menu offers
+  **Retry** (clicking the card opens a modal with the full error). Generate
+  stays clickable while a job runs, so several generations
+  with **different prompts** run in parallel (up to `jobs.concurrency`). The
+  gallery is the full searchable history; job **retry/cancel** also sit beside
+  Generate.
+- **Live** via `job.updated` / `asset.created` / `asset.deleted` — progress,
+  new images, and deletions appear on every connected surface.
 
-**What you'll see in the UI today**
+**Under the hood**
 
-- The rail marks Image as "soon" (the TUI placeholder and disabled web nav
-  item are deliberate honesty, not missing polish)
+- `core/src/workbench/media/` — the adapter seam (`MediaGenAdapter`),
+  `openrouter.ts` (the only file that speaks the Image API wire shape),
+  `stub.ts`, and `dimensions.ts` (image-header size parsing for the card's
+  `1920×1080`). `core/src/workbench/image.ts` owns the job executor and stamps
+  each asset's recipe/metadata.
+- **Hardened job runtime** (`core/src/jobs/queue.ts`): boot recovery for
+  interrupted jobs, a per-job timeout (a hung provider never blocks the
+  queue), **parallel execution** up to `jobs.concurrency` (default 3), bounded
+  retries with abortable backoff and persisted `attempt`/`note`, abort
+  re-checks (cancelled jobs never persist assets), graceful `stop()` on
+  shutdown, and atomic asset writes. Limits live in `config.jobs`
+  (`timeoutMs` / `maxAttempts` / `backoffMs` / `concurrency`).
+- Routes: `POST /api/image/generate`, `GET /api/image/{capabilities,gallery,
+  tags,recent}`, `DELETE /api/asset/:id`, `POST /api/job/:id/{cancel,retry}`.
+  Assets live under `~/.local/share/bai/assets/image/`; tags in the
+  `asset_tags` index.
+- The web page is `packages/web/src/image.tsx` (single page, no nested
+  sidebar); the router exposes `/image`.
 
 **Coming next**
 
-- fal.ai adapter first (config: `workbenches.image.adapter`), then a
-  prompt→job→asset→gallery round trip on the phone
+- Video workbench · more provider adapters (fal.ai, vendor-direct) · streaming
+  partial images · tag editing after generation
 
 ---
 

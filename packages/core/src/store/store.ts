@@ -1,7 +1,8 @@
 import { checkpointAndClose, openDb, type SqliteDb } from "./db";
-import type { Input, Message, SessionId } from "@bai/shared";
+import type { Asset, Input, Message, SessionId } from "@bai/shared";
 import type { HistoryCursor } from "./messages";
 import { AssetsRepo } from "./assets";
+import { AssetTagsRepo } from "./asset-tags";
 import { AutomationsRepo, AutomationRunsRepo } from "./automations";
 import { EventsRepo } from "./events";
 import { InputsRepo } from "./inputs";
@@ -27,6 +28,7 @@ export class Store {
   readonly permissions: PermissionsRepo;
   readonly jobs: JobsRepo;
   readonly assets: AssetsRepo;
+  readonly assetTags: AssetTagsRepo;
   readonly kv: KvRepo;
   readonly usage: UsageRepo;
   readonly skillUsage: SkillUsageRepo;
@@ -45,6 +47,7 @@ export class Store {
     this.permissions = new PermissionsRepo(this.db);
     this.jobs = new JobsRepo(this.db);
     this.assets = new AssetsRepo(this.db);
+    this.assetTags = new AssetTagsRepo(this.db);
     this.kv = new KvRepo(this.db);
     this.usage = new UsageRepo(this.db);
     this.skillUsage = new SkillUsageRepo(this.db);
@@ -55,6 +58,41 @@ export class Store {
 
   close(): void {
     checkpointAndClose(this.db);
+  }
+
+  /**
+   * Replace one asset's tags across all three homes: `meta.tags`, the stored
+   * recipe (`meta.gen.tags`), and the `asset_tags` query index. Returns the
+   * refreshed asset (undefined when the id is unknown).
+   */
+  setAssetTags(id: string, tags: string[]): Asset | undefined {
+    const asset = this.assets.get(id);
+    if (asset === undefined) return undefined;
+    const meta: Record<string, unknown> = { ...asset.meta, tags };
+    const gen = meta.gen;
+    if (typeof gen === "object" && gen !== null) {
+      meta.gen = { ...(gen as Record<string, unknown>), tags };
+    }
+    this.db.transaction(() => {
+      this.assets.updateMeta(id, meta);
+      this.assetTags.replace(id, tags);
+    })();
+    return this.assets.get(id);
+  }
+
+  /**
+   * Delete one asset row + its tag rows in a single transaction. Returns the
+   * removed asset (its `path` is unlinked by the caller) and its tags.
+   */
+  deleteAsset(id: string): { asset: Asset; tags: string[] } | undefined {
+    const asset = this.assets.get(id);
+    if (asset === undefined) return undefined;
+    const tags = this.assetTags.listForAsset(id);
+    this.db.transaction(() => {
+      this.assetTags.deleteByAsset(id);
+      this.assets.remove(id);
+    })();
+    return { asset, tags };
   }
 
   /**

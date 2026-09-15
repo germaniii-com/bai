@@ -59,7 +59,7 @@ export function formatBytes(bytes: number): string {
 }
 
 /** Auth-aware object URL for one stored asset (revoked on unmount). */
-function useAssetUrl(client: BaiClient, id: string): string | undefined {
+export function useAssetUrl(client: BaiClient, id: string): string | undefined {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     let active = true;
