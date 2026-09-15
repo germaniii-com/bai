@@ -1663,6 +1663,14 @@ select:focus-visible,
   gap: 12px;
 }
 
+/* Anchor the transcript to the bottom: when the content is shorter than the
+   pane, the first child's auto top margin pushes everything down (a spacer
+   rather than justify-content:flex-end, which clips the top of overflowing
+   content in Chromium/WebKit). */
+.messages > :first-child {
+  margin-top: auto;
+}
+
 /* Scroll-back paging affordance (transcript top): a status line while a page
    loads, a button at the idle boundary (keyboard/reduced-motion users). */
 .load-older {

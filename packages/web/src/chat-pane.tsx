@@ -314,6 +314,12 @@ export function ChatPane({
   // reading position is preserved as rows are prepended above.
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<{ height: number; top: number; firstId: string | undefined } | null>(null);
+  // Follow the bottom: new messages snap the view to the latest row unless
+  // the user has scrolled up to read history (then their position is kept).
+  const pinnedRef = useRef(true);
+  // The session the pane is currently showing — a change (opening a session,
+  // switching sessions) re-pins to the bottom so history reads bottom-up.
+  const sessionIdRef = useRef<string | undefined>(active?.id);
 
   const requestOlder = (): void => {
     const el = messagesRef.current;
@@ -321,6 +327,25 @@ export function ChatPane({
     anchorRef.current = { height: el.scrollHeight, top: el.scrollTop, firstId: messages[0]?.id };
     onLoadOlder?.();
   };
+
+  // Opening/switching a session: jump to the newest message (bottom) and
+  // re-arm follow mode. Runs before paint so there is no top-anchored flash.
+  useLayoutEffect(() => {
+    if (sessionIdRef.current === active?.id) return;
+    sessionIdRef.current = active?.id;
+    pinnedRef.current = true;
+    const el = messagesRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [active?.id]);
+
+  // New content (a sent message, a streaming reply, a queued node): follow
+  // the bottom while pinned. Skipped when an older page is being prepended —
+  // that path preserves the reading position via the anchor below.
+  useLayoutEffect(() => {
+    if (!pinnedRef.current || anchorRef.current !== null) return;
+    const el = messagesRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [messages, waiting, queuedInputs]);
 
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
@@ -340,7 +365,11 @@ export function ChatPane({
 
   const onMessagesScroll = (): void => {
     const el = messagesRef.current;
-    if (el !== null && el.scrollTop <= 48) requestOlder();
+    if (el === null) return;
+    if (el.scrollTop <= 48) requestOlder();
+    // Near the bottom (within a small threshold) re-arms follow mode; any
+    // meaningful upward scroll disarms it so reading history is undisturbed.
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   };
 
   // ---- `#file` mention picker (opencode2 completion) --------------------
