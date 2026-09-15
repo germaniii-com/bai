@@ -10,6 +10,7 @@
  */
 
 import type { Asset, Job } from "./domain";
+import type { AssetId } from "./ids";
 
 /** The two generation workflows: text-to-image and image-to-image. */
 export type MediaMode = "t2i" | "i2i";
@@ -132,6 +133,20 @@ export interface MediaTagCount {
   count: number;
 }
 
+/**
+ * A generated media artifact reference carried on a tool result (the
+ * `assets` payload key) so surfaces can render/act on it without another
+ * lookup. Bytes live on disk (`GET /api/asset/:id/content`).
+ */
+export interface MediaAssetRef {
+  id: AssetId;
+  name: string;
+  mime: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+}
+
 export const MEDIA_TAG_MAX_COUNT = 10;
 export const MEDIA_TAG_MAX_LENGTH = 32;
 
@@ -160,6 +175,60 @@ export function mediaParamDefaults(specs: readonly MediaParamSpec[]): Record<str
     if (spec.default !== undefined) out[spec.key] = spec.default;
   }
   return out;
+}
+
+/**
+ * Clamp/validate a param map against a capability spec: unknown keys drop,
+ * enums/toggles keep only valid values, ranges/numbers clamp to their bounds,
+ * and declared defaults fill anything missing. Used by the surface forms and
+ * the agent tool so both always agree.
+ */
+export function coerceMediaParams(
+  specs: readonly MediaParamSpec[],
+  params: Record<string, MediaParamValue>,
+): Record<string, MediaParamValue> {
+  const out: Record<string, MediaParamValue> = {};
+  for (const spec of specs) {
+    const current = params[spec.key];
+    switch (spec.kind) {
+      case "enum": {
+        const chosen =
+          typeof current === "string" && spec.options.some((o) => o.value === current)
+            ? current
+            : spec.default;
+        if (chosen !== undefined) out[spec.key] = chosen;
+        break;
+      }
+      case "toggle": {
+        const chosen = typeof current === "boolean" ? current : spec.default;
+        if (chosen !== undefined) out[spec.key] = chosen;
+        break;
+      }
+      case "range": {
+        const chosen = typeof current === "number" ? clamp(current, spec.min, spec.max) : spec.default;
+        if (chosen !== undefined) out[spec.key] = chosen;
+        break;
+      }
+      case "number": {
+        if (typeof current === "number") {
+          out[spec.key] = clamp(current, spec.min ?? current, spec.max ?? current);
+        } else if (spec.default !== undefined) {
+          out[spec.key] = spec.default;
+        }
+        break;
+      }
+      case "text": {
+        if (typeof current === "string") out[spec.key] = current;
+        else if (spec.default !== undefined) out[spec.key] = spec.default;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /**

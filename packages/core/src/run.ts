@@ -1,4 +1,4 @@
-import type { AgentInfo, AskOutcome, Clock, ContextBreakdown, EventType, Input, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
+import type { AgentInfo, AskOutcome, Clock, ContextBreakdown, EventType, Input, MediaAssetRef, MessageId, Part, PartId, PromptPayload, QuestionReview, SessionId, SessionUsage } from "@bai/shared";
 import { deriveFolderAliases, folderAliasMap } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import type { AttachmentStore } from "./attachments";
@@ -1233,7 +1233,10 @@ export class RunCoordinator {
     const allTask = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
     const allReadOnly =
       readyIdx.length > 1 && readyIdx.every((i) => PARALLEL_READ_ONLY_TOOLS.has(gated[i]?.call.name ?? ""));
-    const parallel = allTask || allReadOnly;
+    // Image generations are independent jobs on the media queue (bounded by
+    // config.jobs.concurrency) — a batch of them runs concurrently.
+    const allImage = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "image.generate");
+    const parallel = allTask || allReadOnly || allImage;
     const executed: Array<
       {
         content: string;
@@ -1242,6 +1245,7 @@ export class RunCoordinator {
         subagent?: { sessionId: string; agent: string };
         questions?: QuestionReview[];
         workspace?: string;
+        assets?: MediaAssetRef[];
       } | undefined
     > = new Array(gated.length).fill(undefined);
     const runOne = async (i: number): Promise<void> => {
@@ -1255,6 +1259,7 @@ export class RunCoordinator {
           ...(typeof result.meta?.title === "string" ? { title: result.meta.title as string } : {}),
           ...readSubagentMeta(result.meta?.subagent),
           ...readQuestionsMeta(result.meta?.questions),
+          ...readAssetsMeta(result.meta?.assets),
           // workspace.create's registered folder — surfaces render an
           // "open workspace" action on the tool node (domain-typed like
           // subagent; the route/slug decision stays surface-side).
@@ -1299,6 +1304,7 @@ export class RunCoordinator {
           entry.ask,
           outcome.questions,
           outcome.workspace,
+          outcome.assets,
         );
         outcomes.push("executed");
       }
@@ -1336,6 +1342,7 @@ export class RunCoordinator {
     permission?: AskOutcome,
     questions?: QuestionReview[],
     workspace?: string,
+    assets?: MediaAssetRef[],
   ): void {
     // Final args snapshot lands in the tool_call part (deltas may have raced).
     const callPart = this.deps.store.parts.get(call.partId);
@@ -1351,6 +1358,7 @@ export class RunCoordinator {
       ...(permission !== undefined ? { permission } : {}),
       ...(questions !== undefined ? { questions } : {}),
       ...(workspace !== undefined ? { workspace } : {}),
+      ...(assets !== undefined && assets.length > 0 ? { assets } : {}),
     });
     this.emitDurable(sessionId, "message.part.updated", {
       messageId: assistantId,
@@ -1520,6 +1528,34 @@ function readQuestionsMeta(value: unknown): { questions?: QuestionReview[] } {
     });
   }
   return rows.length > 0 ? { questions: rows } : {};
+}
+
+/** Generated media assets (the image tool): validated references for surfaces. */
+function readAssetsMeta(value: unknown): { assets?: MediaAssetRef[] } {
+  if (!Array.isArray(value)) return {};
+  const refs: MediaAssetRef[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object") continue;
+    const candidate = item as {
+      id?: unknown;
+      name?: unknown;
+      mime?: unknown;
+      bytes?: unknown;
+      width?: unknown;
+      height?: unknown;
+    };
+    if (typeof candidate.id !== "string" || candidate.id.length === 0) continue;
+    if (typeof candidate.mime !== "string" || candidate.mime.length === 0) continue;
+    refs.push({
+      id: candidate.id as MediaAssetRef["id"],
+      name: typeof candidate.name === "string" ? candidate.name : candidate.id,
+      mime: candidate.mime,
+      bytes: typeof candidate.bytes === "number" ? candidate.bytes : 0,
+      ...(typeof candidate.width === "number" ? { width: candidate.width } : {}),
+      ...(typeof candidate.height === "number" ? { height: candidate.height } : {}),
+    });
+  }
+  return refs.length > 0 ? { assets: refs } : {};
 }
 
 /**

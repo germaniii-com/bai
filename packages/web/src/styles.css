@@ -2180,6 +2180,43 @@ select:focus-visible,
   text-decoration: underline;
 }
 
+/* Generated-image thumbnails on an image.generate tool node. */
+.tool-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 6px 0 2px;
+}
+
+.tool-asset-thumb {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--inset);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.tool-asset-thumb:hover {
+  border-color: var(--accent);
+}
+
+.tool-asset-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tool-asset-thumb-loading {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--inset);
+}
+
 .tool-body {
   white-space: pre-wrap;
   word-break: break-word;

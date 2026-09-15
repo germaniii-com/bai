@@ -362,6 +362,14 @@ built-in file tools plus user-written TypeScript tools.
   - `task` — **subagent spawning**: launches another agent in its own
     durable child session and returns its final message (see Agents below);
     batched `task` calls in one turn run concurrently
+  - `image.generate` — **generate images**: text-to-image from a prompt, or
+    image-to-image from a reference (an asset id or a workspace image file).
+    Uses the Image Generation settings defaults (provider/model + default
+    params/tags), enqueues a real media job and waits for it, and returns the
+    generated assets (inline thumbnails in the web transcript; the TUI shows
+    a count). Pass `save_to` to also write the files into the workspace
+    (snapshot-covered). A batch of calls runs in parallel, bounded by
+    `jobs.concurrency`. Defaults to **ask** on first use (it spends money)
 - **Permission defaults**: `question`/`todo`/`plan.write`/`plan.exit`
   auto-allow (they ARE the user interaction); `web.fetch`, `web.search`,
   `bash`, `task` default to **ask** — fail-closed like everything unmatched
@@ -521,8 +529,11 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
   choice back to config. Any other/unset provider uses the deterministic
   **stub** adapter — the workbench works offline with no keys.
 - **Settings → Image Generation** owns the image workbench defaults
-  (provider · account · model) and the media job limits: **concurrent
-  generations** (1–10), timeout, retry attempts, and backoff (config `jobs`).
+  (provider · account · model · **default parameters and tags** — the param
+  controls come from the selected model's spec) and the media job limits:
+  **concurrent generations** (1–10), timeout, retry attempts, and backoff
+  (config `jobs`). The agent `image.generate` tool and the page both fall
+  back to these.
 - **Capability-driven params.** Every adapter declares its parameter
   vocabulary (enum pickers, toggles, ranges with min/max, numbers, text); the
   page renders them generically. OpenRouter exposes aspect ratio, resolution,

@@ -1758,6 +1758,9 @@ export function ChatView({
                     {permVerdict !== undefined && (
                       <Text color={t.dim}> · {permVerdict}</Text>
                     )}
+                    {c.assetCount !== undefined && (
+                      <Text color={t.dim}> · {c.assetCount} image{c.assetCount === 1 ? "" : "s"}</Text>
+                    )}
                     {c.result !== undefined && c.result.isError && (
                       <Text color={t.danger}> · denied/failed</Text>
                     )}

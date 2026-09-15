@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import type { AgentInfo, AttachmentRef, Input, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
+import type { AgentInfo, AttachmentRef, Input, MediaAssetRef, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, deriveFolderAliases, mergeExternalResults, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
@@ -12,7 +12,7 @@ import { AgentPicker } from "./agent-picker";
 import { SubagentStream } from "./subagent-stream";
 import { Markdown } from "./markdown";
 import { MentionPicker, type MentionEntry } from "./mention-picker";
-import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAttachments, type MediaAttachment } from "./attachments";
+import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAttachments, useAssetUrl, type MediaAttachment } from "./attachments";
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
@@ -1035,6 +1035,7 @@ function ToolNodes({
   onOpenWorkspace?: (wsPath: string) => void;
 }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const [assetLightbox, setAssetLightbox] = useState<MediaAssetRef | null>(null);
   const toggle = (callId: string) => {
     setOpenIds((prev) => {
       const next = new Set(prev);
@@ -1111,6 +1112,18 @@ function ToolNodes({
                 Open workspace
               </button>
             )}
+            {c.assets !== undefined && c.assets.length > 0 && (
+              <div className="tool-assets">
+                {c.assets.map((asset) => (
+                  <ToolAssetThumb
+                    key={asset.id}
+                    asset={asset}
+                    client={client}
+                    onOpen={setAssetLightbox}
+                  />
+                ))}
+              </div>
+            )}
             {open && isTask && child !== undefined ? (
               // Live child transcript (snapshot polling while the task
               // runs; stays reviewable after it finishes).
@@ -1169,6 +1182,43 @@ function ToolNodes({
           </div>
         );
       })}
+      {assetLightbox !== null && (
+        <ImageLightbox
+          attachment={{
+            id: assetLightbox.id,
+            name: assetLightbox.name,
+            mime: assetLightbox.mime,
+            bytes: assetLightbox.bytes,
+            kind: "image",
+          }}
+          client={client}
+          onClose={() => setAssetLightbox(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** One inline generated-image thumbnail on a tool node (opens the lightbox). */
+function ToolAssetThumb({
+  asset,
+  client,
+  onOpen,
+}: {
+  asset: MediaAssetRef;
+  client: BaiClient;
+  onOpen: (asset: MediaAssetRef) => void;
+}) {
+  const url = useAssetUrl(client, asset.id);
+  return (
+    <button
+      type="button"
+      className="tool-asset-thumb"
+      onClick={() => onOpen(asset)}
+      title={asset.name}
+      aria-label={`View generated image ${asset.name}`}
+    >
+      {url !== undefined ? <img src={url} alt={asset.name} /> : <span className="tool-asset-thumb-loading" />}
+    </button>
   );
 }

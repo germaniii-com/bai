@@ -91,6 +91,40 @@ describe("toolCalls (tool-node views)", () => {
     };
     expect(toolCalls(message)[0]?.workspace).toBeUndefined();
   });
+
+  test("image.generate results carry the generated asset refs", () => {
+    const message: Message = {
+      id: "m1" as Message["id"],
+      sessionId: "ses_1" as Message["sessionId"],
+      role: "assistant",
+      createdAt: "t",
+      parts: [
+        part("p1", 0, "tool_call", { callId: "c1", name: "image.generate", args: '{"prompt":"a cat"}' }),
+        part("p2", 1, "tool_result", {
+          callId: "c1",
+          content: "Generated 1 image",
+          assets: [{ id: "ast_1", name: "a cat", mime: "image/png", bytes: 10, width: 512, height: 512 }],
+        }),
+      ],
+    };
+    const view = toolCalls(message)[0];
+    expect(view?.assets).toHaveLength(1);
+    expect(String(view?.assets?.[0]?.id)).toBe("ast_1");
+  });
+
+  test("malformed assets payloads are dropped", () => {
+    const message: Message = {
+      id: "m1" as Message["id"],
+      sessionId: "ses_1" as Message["sessionId"],
+      role: "assistant",
+      createdAt: "t",
+      parts: [
+        part("p1", 0, "tool_call", { callId: "c1", name: "image.generate", args: "{}" }),
+        part("p2", 1, "tool_result", { callId: "c1", content: "ok", assets: [{ id: 1 }] }),
+      ],
+    };
+    expect(toolCalls(message)[0]?.assets).toBeUndefined();
+  });
 });
 
 describe("message.removed reducer", () => {

@@ -107,6 +107,7 @@ import { taskTool, taskDescription, type TaskToolDeps } from "./tools/task";
 import { skillsViewTool } from "./tools/skills";
 import { skillsSaveTool, skillsWriteFileTool, skillsPatchTool, skillsDeleteTool } from "./tools/skills-write";
 import { agentViewTool, agentSaveTool } from "./tools/agent-write";
+import { imageGenerateTool } from "./tools/image";
 import { automationListTool, automationSaveTool } from "./tools/automation";
 import { toolCreateTool } from "./tools/tool-create";
 import { workspaceCreateTool } from "./tools/workspace-create";
@@ -280,6 +281,33 @@ export class Service {
       // can schedule unattended auto-approved runs — the tool.create stance.
       automationListTool({ automations: deps.automations }),
       automationSaveTool({ automations: deps.automations }),
+      // Agent-facing image generation (the Image workbench): t2i/i2i via the
+      // configured provider/model + Image Generation settings defaults. Raises
+      // a permission ask on first use (fail-closed — it spends real money).
+      imageGenerateTool({
+        enqueue: (kind, sessionId, input) => this.deps.jobs.enqueue(kind, sessionId, input),
+        waitFor: (jobId, signal) => this.deps.jobs.waitFor(jobId, signal),
+        cancel: (jobId) => {
+          this.deps.jobs.cancel(jobId);
+        },
+        capabilities: (provider, model) => this.imageCapabilities(provider, model),
+        defaults: () => this.deps.config().imageGen,
+        readAsset: (id) => {
+          const asset = this.deps.store.assets.get(id);
+          if (asset === undefined) return undefined;
+          try {
+            return { mime: asset.mime, bytes: new Uint8Array(readFileSync(asset.path)) };
+          } catch {
+            return undefined;
+          }
+        },
+        saveAsset: (bytes, name, mime) => this.attachments.save(bytes, name, mime),
+        assetsByJob: (jobId) => this.deps.store.assets.byJob(jobId),
+        roots: () => {
+          const config = this.deps.config();
+          return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
+        },
+      }),
       // Custom-tool authoring: writes through Service.putTool (atomic write +
       // loader rescan). Deliberately NOT auto-allowed — a tool file is
       // arbitrary executable code; first use asks (fail-closed default).

@@ -449,11 +449,16 @@ export interface ToolCallView {
   permission?: AskOutcome;
   /** Retained Q&A (question tool) — rendered as a re-openable review. */
   questions?: QuestionReview[];
+  /** Generated media (the image.generate tool) — count for a text marker. */
+  assetCount?: number;
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
 export function toolCalls(message: Message): ToolCallView[] {
-  const results = new Map<string, { content: string; isError: boolean; permission?: AskOutcome; questions?: QuestionReview[] }>();
+  const results = new Map<
+    string,
+    { content: string; isError: boolean; permission?: AskOutcome; questions?: QuestionReview[]; assetCount?: number }
+  >();
   for (const p of message.parts) {
     if (p.kind !== "tool_result") continue;
     const payload = p.payload as {
@@ -462,6 +467,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       isError?: boolean;
       permission?: AskOutcome;
       questions?: QuestionReview[];
+      assets?: unknown;
     } | null;
     if (payload?.callId === undefined) continue;
     results.set(payload.callId, {
@@ -473,6 +479,7 @@ export function toolCalls(message: Message): ToolCallView[] {
         ? { permission: payload.permission as AskOutcome }
         : {}),
       ...(Array.isArray(payload.questions) && payload.questions.length > 0 ? { questions: payload.questions as QuestionReview[] } : {}),
+      ...(Array.isArray(payload.assets) && payload.assets.length > 0 ? { assetCount: payload.assets.length } : {}),
     });
   }
   const views: ToolCallView[] = [];
@@ -486,9 +493,10 @@ export function toolCalls(message: Message): ToolCallView[] {
       name: payload.name,
       argsPreview: argsDigest(payload.name, payload.args ?? ""),
       status: result === undefined ? "running" : result.isError ? "error" : "done",
-      ...(result !== undefined ? { result } : {}),
+      ...(result !== undefined ? { result: { content: result.content, isError: result.isError } } : {}),
       ...(result?.permission !== undefined ? { permission: result.permission } : {}),
       ...(result?.questions !== undefined ? { questions: result.questions } : {}),
+      ...(result?.assetCount !== undefined ? { assetCount: result.assetCount } : {}),
     });
   }
   return views;

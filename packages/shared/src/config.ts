@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PermissionAction } from "./enums";
 import type { AdapterName } from "./providers";
+import type { MediaParamValue } from "./media";
 
 export interface ProviderConfig {
   /** Custom base URL — makes any provider OpenAI-compatible (OpenRouter, Ollama…). */
@@ -74,6 +75,14 @@ export interface MediaGenConfig {
   account?: string;
   /** Default model id, e.g. "gpt-image-2" or "fal-ai/flux-2". */
   model?: string;
+  /**
+   * Default generation parameters (aspect ratio, resolution, quality, count,
+   * seed, …) — merged under any explicit request/job params. Keys match the
+   * selected model's `MediaParamSpec` vocabulary.
+   */
+  params?: Record<string, MediaParamValue>;
+  /** Default tags applied to every generation when the request names none. */
+  tags?: string[];
 }
 
 /**
@@ -344,6 +353,8 @@ const mediaGenSchema = z.object({
   provider: z.string().min(1).max(100).optional(),
   account: z.string().min(1).max(100).optional(),
   model: z.string().min(1).max(200).optional(),
+  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  tags: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 const modelsSchema = z.object({

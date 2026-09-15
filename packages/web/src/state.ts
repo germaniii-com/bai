@@ -3,6 +3,7 @@ import type {
   AskOutcome,
   Event,
   Input,
+  MediaAssetRef,
   Message,
   Part,
   PermissionRequest,
@@ -307,6 +308,8 @@ export interface ToolCallView {
   subagent?: { sessionId: string; agent: string };
   /** For `workspace.create` results: the registered workspace folder path. */
   workspace?: string;
+  /** Generated media (the image.generate tool) — inline thumbnails. */
+  assets?: MediaAssetRef[];
 }
 
 /** Pair tool_call parts with their tool_result parts for rendering. */
@@ -320,6 +323,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       permission?: AskOutcome;
       questions?: QuestionReview[];
       workspace?: string;
+      assets?: MediaAssetRef[];
     }
   >();
   for (const p of message.parts) {
@@ -332,6 +336,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       permission?: AskOutcome;
       questions?: QuestionReview[];
       workspace?: unknown;
+      assets?: unknown;
     } | null;
     if (payload?.callId === undefined) continue;
     const subagent =
@@ -355,6 +360,7 @@ export function toolCalls(message: Message): ToolCallView[] {
         ? (payload.questions as QuestionReview[])
         : undefined;
     const workspace = typeof payload.workspace === "string" && payload.workspace.length > 0 ? payload.workspace : undefined;
+    const assets = parseAssetRefs(payload.assets);
     results.set(payload.callId, {
       content,
       isError: payload.isError === true,
@@ -362,6 +368,7 @@ export function toolCalls(message: Message): ToolCallView[] {
       ...(permission !== undefined ? { permission } : {}),
       ...(questions !== undefined ? { questions } : {}),
       ...(workspace !== undefined ? { workspace } : {}),
+      ...(assets !== undefined ? { assets } : {}),
     });
   }
   const views: ToolCallView[] = [];
@@ -383,11 +390,31 @@ export function toolCalls(message: Message): ToolCallView[] {
             ...(result.permission !== undefined ? { permission: result.permission } : {}),
             ...(result.questions !== undefined ? { questions: result.questions } : {}),
             ...(result.workspace !== undefined ? { workspace: result.workspace } : {}),
+            ...(result.assets !== undefined ? { assets: result.assets } : {}),
           }
         : {}),
     });
   }
   return views;
+}
+
+/** Validate a tool result's `assets` payload (generated media references). */
+function parseAssetRefs(value: unknown): MediaAssetRef[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const refs: MediaAssetRef[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object") continue;
+    const candidate = item as { id?: unknown; name?: unknown; mime?: unknown; bytes?: unknown };
+    if (typeof candidate.id !== "string" || candidate.id.length === 0) continue;
+    if (typeof candidate.mime !== "string" || candidate.mime.length === 0) continue;
+    refs.push({
+      id: candidate.id as MediaAssetRef["id"],
+      name: typeof candidate.name === "string" ? candidate.name : candidate.id,
+      mime: candidate.mime,
+      bytes: typeof candidate.bytes === "number" ? candidate.bytes : 0,
+    });
+  }
+  return refs.length > 0 ? refs : undefined;
 }
 
 /** One-line args digest: first string-ish field (path/pattern/input). */

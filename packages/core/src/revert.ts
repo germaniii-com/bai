@@ -6,7 +6,7 @@ import type { SnapshotPatch } from "./snapshot";
  * them gets a shadow-repo snapshot + a `patch` part recording the pre-change
  * tree and the files touched (the revert rollback input).
  */
-export const SNAPSHOT_TOOLS = new Set(["bash", "fs.edit", "fs.write", "task"]);
+export const SNAPSHOT_TOOLS = new Set(["bash", "fs.edit", "fs.write", "task", "image.generate"]);
 
 /** Read `session.meta.revert` (two-phase revert boundary), validated. */
 export function readRevert(meta: Record<string, unknown>): RevertState | undefined {

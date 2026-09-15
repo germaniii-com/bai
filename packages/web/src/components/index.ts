@@ -15,4 +15,5 @@ export { Card } from "./card";
 export { Chip } from "./chip";
 export { ToggleRow } from "./toggle";
 export { TagInput } from "./TagInput";
+export { MediaParamsForm } from "./media-params";
 export { ContextMenu, type ContextMenuItem } from "./ContextMenu";

@@ -9,13 +9,16 @@ import type {
   McpServerInfo,
   McpServerSource,
   MediaGenConfig,
+  MediaParamSpec,
+  MediaParamValue,
+  MediaTagCount,
   OAuthProviderInfo,
   ProviderInfo,
   ProviderListResponse,
   WebSearchProviderId,
   WebSearchStatus,
 } from "@bai/shared";
-import { isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
+import { coerceMediaParams, isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
 import { partitionProviders, sortProviders } from "./provider-utils";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
@@ -24,7 +27,7 @@ import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
-import { Button, Card, Combobox, Field, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TextInput, ToggleRow } from "./components";
+import { Button, Card, Combobox, Field, MediaParamsForm, PageHeader, SectionHeader, Select, SubNav, SubNavItem, TagInput, TextInput, ToggleRow } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -1021,8 +1024,99 @@ function ImageGenPane({
         config={imageGen}
         mutate={mutate}
       />
+      <ImageDefaultsParamsForm client={client} imageGen={imageGen} mutate={mutate} />
       <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
     </>
+  );
+}
+
+/**
+ * Default generation parameters + tags (config imageGen.params/.tags). The
+ * parameter controls come from the selected model's capability spec, so the
+ * form always matches the provider. The agent `image.generate` tool and the
+ * Image page both fall back to these.
+ */
+function ImageDefaultsParamsForm({
+  client,
+  imageGen,
+  mutate,
+}: {
+  client: BaiClient;
+  imageGen?: MediaGenConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  const provider = imageGen?.provider;
+  const model = imageGen?.model;
+  const [specs, setSpecs] = useState<MediaParamSpec[]>([]);
+  const [params, setParams] = useState<Record<string, MediaParamValue>>({});
+  const [tags, setTags] = useState<string[]>(imageGen?.tags ?? []);
+  const [tagOptions, setTagOptions] = useState<MediaTagCount[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .imageCapabilities(provider, model)
+      .then((res) => {
+        if (cancelled) return;
+        setSpecs(res.capabilities.params);
+        // Seed declared defaults, then the saved config values on top.
+        const seeded = coerceMediaParams(res.capabilities.params, { ...(imageGen?.params ?? {}) });
+        setParams(seeded);
+      })
+      .catch(() => {
+        if (!cancelled) setSpecs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch when the configured provider/model changes; params are re-seeded
+    // from config inside (the form remounts on model change via App refresh).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, provider, model]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .imageTags(undefined, 200)
+      .then((res) => {
+        if (!cancelled) setTagOptions(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const submit = (e: FormEvent): void => {
+    e.preventDefault();
+    void mutate(
+      async () => {
+        await client.putConfig({ imageGen: { params, tags } });
+      },
+      "Image default parameters saved",
+    );
+  };
+
+  return (
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title="Default parameters"
+        lede="Applied to every generation (the Image page and the agent image.generate tool) unless overridden. Controls come from the selected model."
+      />
+      {specs.length > 0 ? (
+        <MediaParamsForm specs={specs} value={params} onChange={setParams} />
+      ) : (
+        <p className="dim">Set a provider and model above to configure its parameters.</p>
+      )}
+      <Field label="Default tags" hint="(added to every generation)">
+        <TagInput value={tags} onChange={setTags} suggestions={tagOptions} />
+      </Field>
+      <div>
+        <Button type="submit" variant="primary">
+          Save defaults
+        </Button>
+      </div>
+    </Card>
   );
 }
 

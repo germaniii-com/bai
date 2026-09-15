@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { eventMux, type BaiClient } from "@bai/api/client";
 import {
+  coerceMediaParams,
   formatCost,
   fuzzyTagScore,
   modelsForWorkflow,
@@ -29,7 +30,6 @@ import {
   type MediaGenConfig,
   type MediaModelInfo,
   type MediaMode,
-  type MediaParamSpec,
   type MediaParamValue,
   type MediaTagCount,
 } from "@bai/shared";
@@ -37,13 +37,13 @@ import {
   Button,
   Combobox,
   Field,
+  MediaParamsForm,
   Modal,
   SectionHeader,
   Select,
   TagInput,
   Textarea,
   TextInput,
-  ToggleRow,
 } from "./components";
 import { ImageLightbox, useAssetUrl } from "./attachments";
 import { useImageGallery } from "./use-image-gallery";
@@ -139,7 +139,7 @@ export function ImagePane({
       .then((res) => {
         if (cancelled) return;
         setCaps(res);
-        setParams((prev) => coerceParams(res.capabilities.params, prev));
+        setParams((prev) => coerceMediaParams(res.capabilities.params, prev));
         setProvider((p) => (p.length > 0 ? p : res.provider));
         setModel((m) => (m.length > 0 ? m : res.model));
       })
@@ -434,7 +434,7 @@ export function ImagePane({
     setTags(gen.tags ?? []);
     if (gen.model !== undefined && gen.model.length > 0) setModel(gen.model); // form-only on load
     if (gen.params !== undefined)
-      setParams(coerceParams(caps?.capabilities.params ?? [], gen.params));
+      setParams(coerceMediaParams(caps?.capabilities.params ?? [], gen.params));
     const refId = gen.referenceAssetIds?.[0];
     setReference(refId !== undefined ? { id: refId, name: "reference" } : null);
     onNotice("inputs loaded — Generate creates a new image", "info");
@@ -754,112 +754,6 @@ export function ImagePane({
           onClose={() => setErrorJob(null)}
         />
       )}
-    </div>
-  );
-}
-
-/** Renders the capability param spec generically (enum/toggle/range/number/text). */
-function MediaParamsForm({
-  specs,
-  value,
-  onChange,
-}: {
-  specs: MediaParamSpec[];
-  value: Record<string, MediaParamValue>;
-  onChange: (next: Record<string, MediaParamValue>) => void;
-}) {
-  if (specs.length === 0) return null;
-  const set = (key: string, v: MediaParamValue): void =>
-    onChange({ ...value, [key]: v });
-  return (
-    <div className="media-params">
-      {specs.map((spec) => {
-        if (spec.kind === "enum") {
-          return (
-            <Field key={spec.key} label={spec.label} hint={spec.hint}>
-              <Select
-                value={String(
-                  value[spec.key] ??
-                    spec.default ??
-                    spec.options[0]?.value ??
-                    "",
-                )}
-                onChange={(v) => set(spec.key, v)}
-                ariaLabel={spec.label}
-                options={spec.options}
-              />
-            </Field>
-          );
-        }
-        if (spec.kind === "toggle") {
-          return (
-            <ToggleRow
-              key={spec.key}
-              checked={Boolean(value[spec.key] ?? spec.default ?? false)}
-              onChange={(next) => set(spec.key, next)}
-              title={spec.label}
-              description={spec.hint}
-            />
-          );
-        }
-        if (spec.kind === "range") {
-          const current =
-            typeof value[spec.key] === "number"
-              ? (value[spec.key] as number)
-              : (spec.default ?? spec.min);
-          return (
-            <Field key={spec.key} label={spec.label} hint={spec.hint}>
-              <div className="param-range">
-                <input
-                  type="range"
-                  min={spec.min}
-                  max={spec.max}
-                  step={spec.step ?? 1}
-                  value={current}
-                  aria-label={spec.label}
-                  onChange={(e) => set(spec.key, Number(e.target.value))}
-                />
-                <span className="param-range-value">
-                  {current}
-                  {spec.unit ?? ""}
-                </span>
-              </div>
-            </Field>
-          );
-        }
-        if (spec.kind === "number") {
-          const current =
-            typeof value[spec.key] === "number"
-              ? (value[spec.key] as number)
-              : spec.default;
-          return (
-            <Field key={spec.key} label={spec.label} hint={spec.hint}>
-              <TextInput
-                type="number"
-                min={spec.min}
-                max={spec.max}
-                value={current ?? ""}
-                aria-label={spec.label}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  set(spec.key, Number.isFinite(n) ? n : 0);
-                }}
-              />
-            </Field>
-          );
-        }
-        return (
-          <Field key={spec.key} label={spec.label} hint={spec.hint}>
-            <TextInput
-              type="text"
-              value={String(value[spec.key] ?? spec.default ?? "")}
-              placeholder={spec.placeholder}
-              aria-label={spec.label}
-              onChange={(e) => set(spec.key, e.target.value)}
-            />
-          </Field>
-        );
-      })}
     </div>
   );
 }
@@ -1309,61 +1203,4 @@ function extFromMime(mime: string): string {
     default:
       return "png";
   }
-}
-
-/** Clamp/validate params against the spec (used when the model or recipe changes). */
-function coerceParams(
-  specs: MediaParamSpec[],
-  params: Record<string, MediaParamValue>,
-): Record<string, MediaParamValue> {
-  const out: Record<string, MediaParamValue> = {};
-  for (const spec of specs) {
-    const current = params[spec.key];
-    switch (spec.kind) {
-      case "enum": {
-        const chosen =
-          typeof current === "string" &&
-          spec.options.some((o) => o.value === current)
-            ? current
-            : spec.default;
-        if (chosen !== undefined) out[spec.key] = chosen;
-        break;
-      }
-      case "toggle": {
-        const chosen = typeof current === "boolean" ? current : spec.default;
-        if (chosen !== undefined) out[spec.key] = chosen;
-        break;
-      }
-      case "range": {
-        const chosen =
-          typeof current === "number"
-            ? clamp(current, spec.min, spec.max)
-            : spec.default;
-        if (chosen !== undefined) out[spec.key] = chosen;
-        break;
-      }
-      case "number": {
-        if (typeof current === "number") {
-          out[spec.key] = clamp(
-            current,
-            spec.min ?? current,
-            spec.max ?? current,
-          );
-        } else if (spec.default !== undefined) {
-          out[spec.key] = spec.default;
-        }
-        break;
-      }
-      case "text": {
-        if (typeof current === "string") out[spec.key] = current;
-        else if (spec.default !== undefined) out[spec.key] = spec.default;
-        break;
-      }
-    }
-  }
-  return out;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }

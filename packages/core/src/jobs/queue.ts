@@ -55,6 +55,8 @@ export class JobQueue {
   private aborters = new Map<JobId, AbortController>();
   /** Per-job analytics dimensions reported by the executor via `ctx.describe`. */
   private jobMeta = new Map<JobId, JobMeta>();
+  /** Callers awaiting a job's terminal status (the agent image tool). */
+  private waiters = new Map<JobId, Array<(job: Job | undefined) => void>>();
   private readonly clock: Clock;
 
   constructor(private deps: JobQueueDeps) {
@@ -138,6 +140,43 @@ export class JobQueue {
     return this.enqueue(job.kind, job.sessionId, job.input);
   }
 
+  /**
+   * Await a job's terminal status (`done`/`error`/`cancelled`). Resolves
+   * immediately for an unknown or already-terminal job. When `signal` aborts,
+   * the wait resolves with the current row (the caller decides whether to
+   * cancel) — an interrupted run must never park here.
+   */
+  waitFor(jobId: JobId, signal?: AbortSignal): Promise<Job | undefined> {
+    const job = this.deps.store.jobs.get(jobId);
+    if (job === undefined || isTerminal(job.status)) return Promise.resolve(job);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: Job | undefined): void => {
+        if (settled) return;
+        settled = true;
+        const list = this.waiters.get(jobId);
+        if (list !== undefined) {
+          const next = list.filter((entry) => entry !== finish);
+          if (next.length > 0) this.waiters.set(jobId, next);
+          else this.waiters.delete(jobId);
+        }
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const onAbort = (): void => finish(this.deps.store.jobs.get(jobId));
+      if (signal !== undefined) {
+        if (signal.aborted) {
+          finish(job);
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+      const list = this.waiters.get(jobId) ?? [];
+      list.push(finish);
+      this.waiters.set(jobId, list);
+    });
+  }
+
   private emit(job: Job): void {
     this.deps.bus.publish({
       seq: 0,
@@ -146,6 +185,16 @@ export class JobQueue {
       ...(job.sessionId !== undefined ? { sessionId: job.sessionId } : {}),
       payload: { job },
     });
+    this.settle(job);
+  }
+
+  /** Resolve any waiters once the job reaches a terminal status. */
+  private settle(job: Job): void {
+    if (!isTerminal(job.status)) return;
+    const list = this.waiters.get(job.id);
+    if (list === undefined) return;
+    this.waiters.delete(job.id);
+    for (const resolve of list) resolve(job);
   }
 
   private schedule(): void {
@@ -413,6 +462,11 @@ function costOf(output: unknown): number | undefined {
   if (typeof output !== "object" || output === null) return undefined;
   const cost = (output as { costUsd?: unknown }).costUsd;
   return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
+}
+
+/** A job that will not change status again. */
+function isTerminal(status: Job["status"]): boolean {
+  return status === "done" || status === "error" || status === "cancelled";
 }
 
 function tagsFromMeta(meta: Record<string, unknown> | undefined): string[] {

@@ -116,7 +116,7 @@ describe("plan agent flow (end-to-end)", () => {
     const third = provider.requests[2] as LlmRequest & { tools?: ToolDef[] };
     expect(third).toBeDefined();
     expect((third.messages[0] as { content: string }).content).toContain("bai's build agent");
-    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "notes.read", "notes.write", "plan.read", "task", "todo"]);
+    expect(third.tools?.map((d) => d.name)).toEqual(["bash", "fs.edit", "fs.glob", "fs.grep", "fs.list", "fs.read", "fs.write", "image.generate", "notes.read", "notes.write", "plan.read", "task", "todo"]);
 
     // The plan.exit tool result told the model the switch happened.
     const results = t.core.history(session.id).flatMap((m) => m.parts).filter((p) => p.kind === "tool_result");

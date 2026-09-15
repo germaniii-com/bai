@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BUILTIN_BUILD_AGENT,
+  coerceMediaParams,
   fuzzyTagScore,
   mediaParamDefaults,
   modelsForWorkflow,
@@ -65,6 +67,44 @@ describe("fuzzyTagScore", () => {
     expect(fuzzyTagScore("gemini 3 pro", "gemini")).toBeGreaterThan(fuzzyTagScore("gemini 3 pro", "g3p"));
     expect(fuzzyTagScore("gemini 3 pro", "gemini pro")).toBeGreaterThan(fuzzyTagScore("gemini 3 pro", "pro"));
     expect(fuzzyTagScore("anything", "")).toBeGreaterThan(0);
+  });
+});
+
+describe("coerceMediaParams", () => {
+  const specs: MediaParamSpec[] = [
+    {
+      key: "aspect_ratio",
+      label: "Aspect",
+      kind: "enum",
+      options: [
+        { value: "1:1", label: "1:1" },
+        { value: "16:9", label: "16:9" },
+      ],
+      default: "1:1",
+    },
+    { key: "count", label: "Count", kind: "range", min: 1, max: 4, default: 1 },
+    { key: "seed", label: "Seed", kind: "number", min: 0, max: 100 },
+    { key: "allow_fallbacks", label: "Fallbacks", kind: "toggle", default: true },
+  ];
+
+  test("clamps, validates, fills defaults, drops unknown keys", () => {
+    expect(
+      coerceMediaParams(specs, { aspect_ratio: "16:9", count: 99, seed: -5, allow_fallbacks: false, nope: 1 }),
+    ).toEqual({ aspect_ratio: "16:9", count: 4, seed: 0, allow_fallbacks: false });
+  });
+
+  test("an invalid enum falls back to its default", () => {
+    expect(coerceMediaParams(specs, { aspect_ratio: "bogus" }).aspect_ratio).toBe("1:1");
+  });
+
+  test("missing keys take their declared defaults", () => {
+    expect(coerceMediaParams(specs, {})).toEqual({ aspect_ratio: "1:1", count: 1, allow_fallbacks: true });
+  });
+});
+
+describe("agents", () => {
+  test("the build agent may call the image generation tool", () => {
+    expect(BUILTIN_BUILD_AGENT.tools).toContain("image.generate");
   });
 });
 

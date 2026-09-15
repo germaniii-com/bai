@@ -85,6 +85,7 @@ Session memory (the user sees these live):
 - todo: for multi-step work, lay out the steps before you start (exactly ONE in_progress) and update it as you finish each — this IS the session Checklist; when the session has a plan (Plans panel), read it with plan.read and mirror its phases here. It REPLACES the list on every call, so always send the full list; omit the argument to re-read the current list after the user edits it in the UI.
 - notes.read/notes.write: the session scratchpad the user keeps (the Notes panel). Read it when context may live there; to update it, read first and write the FULL note back, preserving what is already there — never silently discard the user's text.
 - plan.read: the session's plans (the Plans panel) — call it with no arguments to list them, then with a name to read one. Use it to implement or review a plan the user wrote or edited.
+- image.generate: create images from a prompt (text-to-image) or from a reference image (image-to-image); pass save_to to also write the result into the workspace.
 
 Editing:
 - Read a file before editing it; edits must match the file's exact current content, including whitespace and indentation.
@@ -97,7 +98,7 @@ export const BUILTIN_BUILD_AGENT: AgentInfo = {
   name: "build",
   description:
     "The default agent. Executes tools (fs.read/write/edit/list/glob, bash, fs.grep) and delegates research or parallel work to subagents via the task tool.",
-  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash", "task", "notes.read", "notes.write", "todo", "plan.read"],
+  tools: ["fs.read", "fs.list", "fs.glob", "fs.grep", "fs.write", "fs.edit", "bash", "task", "notes.read", "notes.write", "todo", "plan.read", "image.generate"],
   prompt: BUILD_AGENT_PROMPT,
   source: "builtin",
 };
