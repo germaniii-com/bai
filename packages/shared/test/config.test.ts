@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { configSchema, deepMerge, DEFAULT_CONFIG, type Config } from "../src";
+import { configSchema, configPatchSchema, deepMerge, DEFAULT_CONFIG, type Config } from "../src";
 
 describe("config schema", () => {
   test("empty document parses to defaults", () => {
@@ -56,6 +56,20 @@ describe("config schema", () => {
     expect(configSchema.parse({}).tools).toEqual({});
     expect(configSchema.parse({ tools: { webSearch: { provider: "auto" } } }).tools.webSearch?.provider).toBe("auto");
     expect(() => configSchema.parse({ tools: { webSearch: { provider: "nope" } } })).toThrow();
+  });
+
+  test("parses router (Run as router toggle; default on)", () => {
+    expect(configSchema.parse({ router: { enabled: false } }).router).toEqual({ enabled: false });
+    expect(configSchema.parse({ router: { enabled: true } }).router).toEqual({ enabled: true });
+    // Missing → default {} and `enabled` undefined means ON (see cli boot).
+    expect(configSchema.parse({}).router).toEqual({});
+    expect(configSchema.parse({}).router.enabled).toBeUndefined();
+    expect(() => configSchema.parse({ router: { enabled: "yes" } })).toThrow();
+  });
+
+  test("configPatchSchema accepts a partial router patch", () => {
+    expect(configPatchSchema.parse({ router: { enabled: false } })).toEqual({ router: { enabled: false } });
+    expect(configPatchSchema.parse({})).toEqual({});
   });
 
   test("rejects invalid values", () => {

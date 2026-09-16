@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bearerAuth } from "@bai/api";
 import type { RouterDeps } from "./deps";
 import { chatCompletions } from "./chat";
+import { routerGate } from "./gate";
 import { createRouterHelp } from "./help";
 import { generateImages } from "./images";
 import { listModels } from "./models";
@@ -14,6 +15,8 @@ export type { RouterDeps } from "./deps";
  */
 export function createRouterRoutes(deps: RouterDeps): Hono {
   const app = new Hono();
+  // Live gate first: a disabled router 404s before auth (behaves uninstalled).
+  app.use("/v1/*", routerGate(deps));
   // Mirror the main API: bearer auth only for non-loopback listeners.
   if (deps.token !== undefined && !deps.loopbackBind) {
     app.use("/v1/*", bearerAuth(deps.token));

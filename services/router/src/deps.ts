@@ -20,4 +20,11 @@ export interface RouterDeps {
   token?: string;
   /** True when bound to 127.0.0.1 — loopback requests bypass auth. */
   loopbackBind: boolean;
+  /**
+   * Live enablement gate (config `router.enabled`). When it returns false the
+   * gateway 404s — evaluated per request, so toggling the setting in Settings
+   * takes effect without a restart. Omitted → always enabled. The explicit
+   * `--router` flag forces this true at boot.
+   */
+  enabled?: () => boolean;
 }

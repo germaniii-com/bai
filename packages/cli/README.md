@@ -36,8 +36,11 @@ receives interfaces.
 `--router` is a **modifier**: it may accompany `--web`/`--host`
 (`bai --web --router` = web UI + gateway + `/api/help`, one process/one
 listener), or stand alone. It cannot combine with `--one-shot`. The gateway
-(`/v1/*`) is mounted in every mode; `/api/help` only in router mode. Never run
-two bai core processes at once — boot reconciles shared job/automation state.
+(`/v1/*`) + `/api/help` are gated live by config `router.enabled` (Settings →
+Model Providers → "Run as router", persisted to `~/.config/bai/config.json`),
+**on by default** — so `bai --web` already serves them; the explicit
+`--router` flag forces them on. Never run two bai core processes at once —
+boot reconciles shared job/automation state.
 
 Shared flags: `--port`, `--token`, `--config`, `--continue`, `--session`,
 `--auto`, `--format`, `--dev`, `--version`.

@@ -14,6 +14,15 @@ export default defineConfig({
       // the 2 MiB default — precache it anyway so the PWA works offline.
       workbox: {
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        // Never serve the cached app shell for backend routes. Without this,
+        // Workbox's NavigationRoute handles EVERY browser navigation — so
+        // opening /api/help would boot the SPA and fall back to chat.
+        navigateFallbackDenylist: [
+          /^\/api(?:\/|$)/,
+          /^\/mcp(?:\/|$)/,
+          /^\/v1(?:\/|$)/,
+          /^\/wb(?:\/|$)/,
+        ],
       },
       manifest: {
         name: "bai",

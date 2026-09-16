@@ -204,6 +204,16 @@ export interface ServerConfig {
   token?: string;
 }
 
+/**
+ * Router gateway settings. `enabled` defaults to ON (unset = enabled), so
+ * `bai --web`/`--host` serve the OpenAI-compatible `/v1/*` gateway and
+ * `/api/help` by default; Settings → Model Providers → "Run as router"
+ * turns it off. The explicit `--router` flag always forces it on.
+ */
+export interface RouterConfig {
+  enabled?: boolean;
+}
+
 export type WebSearchProviderId = "auto" | "exa" | "parallel" | "ddgs";
 
 export interface ToolsConfig {
@@ -269,6 +279,8 @@ export interface Config {
   tools: ToolsConfig;
   /** Media job-runtime limits (timeout/retries/backoff). */
   jobs: JobsConfig;
+  /** Router gateway (`/v1/*` + `/api/help`) settings. Default on. */
+  router: RouterConfig;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -285,6 +297,7 @@ export const DEFAULT_CONFIG: Config = {
   server: {},
   tools: {},
   jobs: {},
+  router: {},
 };
 
 const providerSchema = z.object({
@@ -383,6 +396,10 @@ const jobsSchema = z.object({
   concurrency: z.number().int().min(1).max(10).optional(),
 });
 
+const routerSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+
 export const configSchema = z.object({
   providers: z.record(z.string(), providerSchema).default({}),
   models: modelsSchema.default({}),
@@ -407,6 +424,7 @@ export const configSchema = z.object({
     .default({}),
   tools: toolsSchema.default({}),
   jobs: jobsSchema.default({}),
+  router: routerSchema.default({}),
 });
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
 export const configPatchSchema = z.object({
@@ -433,6 +451,7 @@ export const configPatchSchema = z.object({
     .optional(),
   tools: toolsSchema.optional(),
   jobs: jobsSchema.optional(),
+  router: routerSchema.optional(),
 });
 
 export type ConfigPatch = z.infer<typeof configPatchSchema>;

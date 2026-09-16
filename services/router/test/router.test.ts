@@ -175,6 +175,41 @@ describe("router gateway", () => {
   });
 });
 
+describe("router live gate (config router.enabled)", () => {
+  test("disabled → /v1/* and /api/help 404; enabled → 200; toggles live", async () => {
+    const fx = makeFixture();
+    let enabled = false;
+    fx.deps.enabled = () => enabled;
+    const routes = createRouterRoutes(fx.deps);
+    const app = createRouterApp(fx.deps);
+
+    // Disabled: the gateway behaves as if uninstalled.
+    const offModels = await routes.request("/v1/models");
+    expect(offModels.status).toBe(404);
+    expect(((await offModels.json()) as { error: { type: string } }).error.type).toBe("router_disabled");
+    expect((await app.request("/api/help")).status).toBe(404);
+    expect((await app.request("/api/help/openapi.json")).status).toBe(404);
+
+    // Enabled: same app instance, no rebuild — live.
+    enabled = true;
+    expect((await routes.request("/v1/models")).status).toBe(200);
+    expect((await app.request("/api/help")).status).toBe(200);
+    expect((await app.request("/api/help/openapi.json")).status).toBe(200);
+
+    // Back off: live again.
+    enabled = false;
+    expect((await routes.request("/v1/models")).status).toBe(404);
+    fx.cleanup();
+  });
+
+  test("omitting `enabled` keeps the gateway always on", async () => {
+    const fx = makeFixture();
+    expect(fx.deps.enabled).toBeUndefined();
+    expect((await createRouterRoutes(fx.deps).request("/v1/models")).status).toBe(200);
+    fx.cleanup();
+  });
+});
+
 describe("parseChatRequest", () => {
   test("binds tool results into a synthetic user message and maps tools", () => {
     const parsed = parseChatRequest({

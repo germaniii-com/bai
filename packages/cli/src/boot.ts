@@ -386,9 +386,13 @@ export async function boot(args: CliArgs): Promise<Booted> {
   }
 
   const token = resolveToken(args, config);
-  // The router gateway (`/v1/*`) is mounted in EVERY mode; `/api/help` only in
-  // --router mode. It shares this process's core/store/jobs — never a second
-  // stateful process (two boots would double-run media jobs + automations).
+  // The router gateway (`/v1/*` + `/api/help`) is mounted in EVERY mode and
+  // gated LIVE by config `router.enabled` (default on): `bai --web`/`--host`
+  // serve it by default, Settings → Model Providers → "Run as router" turns it
+  // off without a restart, and the explicit `--router` flag forces it on. It
+  // shares this process's core/store/jobs — never a second stateful process
+  // (two boots would double-run media jobs + automations).
+  const routerEnabled = (): boolean => args.router || configStore.get().router?.enabled !== false;
   const routerDeps: RouterDeps = {
     router: new ModelRouter(providers),
     core,
@@ -397,6 +401,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     version: VERSION,
     ...(token !== undefined ? { token } : {}),
     loopbackBind: args.mode !== "host",
+    enabled: routerEnabled,
   };
   const app = createApp({
     core,
@@ -412,7 +417,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     loopbackBind: args.mode !== "host",
     webDist: webDistDir(),
     themesDir: path.join(configDir(), "themes"),
-    extraRoutes: createRouterGateway(routerDeps, { help: args.router }),
+    extraRoutes: createRouterGateway(routerDeps, { help: true }),
     serveSpa: args.mode !== "router",
   });
 

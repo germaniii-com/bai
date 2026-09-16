@@ -569,13 +569,16 @@ core's run loop and the `@bai/router` service both use it.
 
 **Target selection:** `model` = bai `provider/model`; the saved account rides
 the `x-bai-account` header (default: `config.models.defaultAccount`, else the
-first stored account / env). `/v1/*` is mounted in **every** mode via
-`ApiDeps.extraRoutes`, so `bai --web` is already a gateway; `bai --router` is
-the same minus the SPA, plus the help page. The router is composed in-process
-against the one core — running two independent bai processes would double-run
-media jobs and automations (`JobQueue.start` / `AutomationScheduler.start`
-reconcile shared store state), so `--router` combines with `--web`/`--host`
-rather than running beside them.
+first stored account / env). `/v1/*` + `/api/help` are mounted in **every**
+mode via `ApiDeps.extraRoutes`, gated **live** by `config.router.enabled`
+(Settings → Model Providers → **Run as router**, persisted to
+`~/.config/bai/config.json`). It defaults **on**, so `bai --web` is a gateway
+out of the box; toggling it off takes effect without a restart (a disabled
+router 404s `router_disabled`), and the explicit `--router` flag forces it on.
+The router is composed in-process against the one core — running two
+independent bai processes would double-run media jobs and automations
+(`JobQueue.start` / `AutomationScheduler.start` reconcile shared store state),
+so `--router` combines with `--web`/`--host` rather than running beside them.
 
 ## 11. Extensibility (MCP-first)
 
@@ -644,7 +647,8 @@ Example:
   "mcp": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } },
   "workbenches": { "image": { "adapter": "fal", "model": "flux-2" } },
   "imageGen": { "provider": "fal", "model": "fal-ai/flux/schnell" },
-  "jobs": { "timeoutMs": 180000, "maxAttempts": 3, "backoffMs": 1500, "concurrency": 3 }
+  "jobs": { "timeoutMs": 180000, "maxAttempts": 3, "backoffMs": 1500, "concurrency": 3 },
+  "router": { "enabled": true }
 }
 ```
 
@@ -778,8 +782,13 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
 Serving contract (owned by `@bai/api`):
 
 - Static hosting of `@bai/web/dist` with SPA fallback: real file → serve;
-  otherwise rewrite to `/` for the client router; `/api/*` and `/mcp` never
-  fall through.
+  otherwise rewrite to `/` for the client router; `/api/*`, `/mcp`, `/v1/*`,
+  and `/wb/*` never fall through.
+- **PWA service worker**: Workbox's `NavigationRoute` handles *every* browser
+  navigation, so `vite.config.ts` sets `workbox.navigateFallbackDenylist` for
+  `/api`, `/mcp`, `/v1`, `/wb` — otherwise opening `/api/help` in a browser
+  serves the cached app shell and the SPA lands on chat (curl can't catch this;
+  only navigations are intercepted).
 - `hasAssets()` guard: friendly "run the web build" hint page instead of a
   blank 404 when dist is missing.
 - Cache headers: immutable for hashed `/assets/*`, `no-cache` for index.html.

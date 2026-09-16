@@ -137,6 +137,7 @@ export function SettingsPane({
   refreshAgents,
   userName,
   preferZdr,
+  routerEnabled,
   defaultAgent,
   imageGen,
   videoGen,
@@ -159,6 +160,8 @@ export function SettingsPane({
   /** Config snapshot for the forms (firehose-refreshed by the caller). */
   userName?: string;
   preferZdr?: boolean;
+  /** config router.enabled — the Model Providers "Run as router" toggle. */
+  routerEnabled?: boolean;
   defaultAgent?: string;
   imageGen?: MediaGenConfig;
   videoGen?: MediaGenConfig;
@@ -249,6 +252,7 @@ export function SettingsPane({
           refresh={refresh}
           onNotice={onNotice}
           preferZdr={preferZdr}
+          routerEnabled={routerEnabled}
           videoGen={videoGen}
         />
       )}
@@ -549,6 +553,7 @@ function ProvidersPane({
   refresh,
   onNotice,
   preferZdr,
+  routerEnabled,
   videoGen,
 }: {
   client: BaiClient;
@@ -558,6 +563,7 @@ function ProvidersPane({
   refresh: () => Promise<void>;
   onNotice: (message: string, kind?: "success" | "error") => void;
   preferZdr?: boolean;
+  routerEnabled?: boolean;
   videoGen?: MediaGenConfig;
 }) {
   // Single-expanded accordion: one provider's accounts + add form at a time
@@ -608,6 +614,7 @@ function ProvidersPane({
     <>
       <PageHeader title="Model Providers" />
       <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
+      <RouterToggle client={client} routerEnabled={routerEnabled} mutate={mutate} />
 
       {/* --- Provider files (~/.config/bai/providers/) -------------------- */}
       <h3 className="settings-subheading">Provider Files</h3>
@@ -929,6 +936,40 @@ function ZdrToggle({
           on
             ? "Prefer ZDR-capable models: on"
             : "Prefer ZDR-capable models: off",
+        );
+      }}
+    />
+  );
+}
+
+/**
+ * Run as router (config router.enabled) — serve the OpenAI-compatible gateway
+ * (`/v1/*`) and `/api/help` from this server. Applies live; `bai --router`
+ * always enables it.
+ */
+function RouterToggle({
+  client,
+  routerEnabled,
+  mutate,
+}: {
+  client: BaiClient;
+  routerEnabled?: boolean;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  return (
+    <ToggleRow
+      checked={routerEnabled !== false}
+      title="Run as router"
+      description={
+        "Serve the OpenAI-compatible router gateway (/v1) and /api/help from this server. " +
+        "Applies live; bai --router always enables it."
+      }
+      onChange={(on) => {
+        void mutate(
+          async () => {
+            await client.putConfig({ router: { enabled: on } });
+          },
+          on ? "Run as router: on" : "Run as router: off",
         );
       }}
     />

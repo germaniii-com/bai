@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { RouterDeps } from "./deps";
+import { routerGate } from "./gate";
 
 /** Gateway endpoints documented by `/api/help` (kept in one place). */
 const ENDPOINTS = [
@@ -43,6 +44,9 @@ const ENDPOINTS = [
  */
 export function createRouterHelp(deps: RouterDeps): Hono {
   const app = new Hono();
+  // Live gate: the help page disappears with the rest of the router.
+  app.use("/api/help", routerGate(deps));
+  app.use("/api/help/*", routerGate(deps));
   app.get("/api/help", async (c) => {
     const providers = await deps.router.providers().catch(() => []);
     return c.html(renderHelpPage(deps.version, providers));

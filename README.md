@@ -51,7 +51,7 @@ log, and roadmap.
 ```bash
 bai                      # TUI (default)
 bai --code               # same, explicit
-bai --web --open         # serve API + web UI on loopback, open browser
+bai --web --open         # serve API + web UI + router gateway on loopback, open browser
 bai --host               # bind beyond loopback; pairing token for phone
 bai --router             # headless OpenAI-compatible gateway + /api/help
 bai --web --router       # web UI + gateway + /api/help, one process

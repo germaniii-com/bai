@@ -272,6 +272,8 @@ export function App() {
   // — firehose-refreshed via config.updated like the defaults above.
   const [configUserName, setConfigUserName] = useState<string | undefined>(undefined);
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
+  /** config router.enabled — the Model Providers "Run as router" toggle. */
+  const [configRouterEnabled, setConfigRouterEnabled] = useState<boolean | undefined>(undefined);
   const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configJobs, setConfigJobs] = useState<JobsConfig | undefined>(undefined);
@@ -339,6 +341,7 @@ export function App() {
       setConfigDefaultAgent(config.agents?.default);
       setConfigUserName(config.user?.name);
       setConfigPreferZdr(config.models.preferZdr);
+      setConfigRouterEnabled(config.router?.enabled);
       setConfigImageGen(config.imageGen);
       setConfigVideoGen(config.videoGen);
       setConfigJobs(config.jobs);
@@ -1947,6 +1950,7 @@ export function App() {
             refreshAgents={refreshAgents}
             userName={configUserName}
             preferZdr={configPreferZdr}
+            routerEnabled={configRouterEnabled}
             defaultAgent={configDefaultAgent}
             imageGen={configImageGen}
             videoGen={configVideoGen}

@@ -27,7 +27,16 @@ export function staticHandler(distDir: string | undefined) {
     }
     const url = new URL(c.req.url);
     const pathname = decodeURIComponent(url.pathname);
-    if (pathname.startsWith("/api/") || pathname === "/api" || pathname.startsWith("/mcp")) {
+    // Backend prefixes never fall through to the SPA shell (belt and braces
+    // alongside the PWA service worker's navigateFallbackDenylist).
+    if (
+      pathname.startsWith("/api/") ||
+      pathname === "/api" ||
+      pathname.startsWith("/mcp") ||
+      pathname.startsWith("/v1/") ||
+      pathname === "/v1" ||
+      pathname.startsWith("/wb/")
+    ) {
       return c.body(null, 404);
     }
     const rel = pathname.replace(/^\/+/, "");
