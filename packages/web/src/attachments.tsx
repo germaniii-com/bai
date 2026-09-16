@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
-import { FileText, Image as ImageIcon, Plus } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Image as ImageIcon,
+  LoaderCircle,
+  Plus,
+} from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AttachmentRef, Input, Message } from "@bai/shared";
-import { Chip, FileInput, Modal } from "./components";
+import { Chip, FileInput, IconButton, Modal } from "./components";
 
 /**
  * Transcript + composer rendering for stored attachments (`attachment` parts
@@ -255,17 +262,60 @@ export function QueuedAttachments({
   );
 }
 
-/** Maximized image modal (Esc/backdrop/close button dismiss). */
+/**
+ * Optional gallery traversal for the lightbox. Supplied by a list-based caller
+ * (the image gallery); omitted for single-image callers (chat), which keeps the
+ * plain maximized preview.
+ */
+export interface LightboxNavigation {
+  /** 0-based position of the open image within the full result set. */
+  index: number;
+  /** Total images in the result set (server total for the active filter). */
+  total: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  /** True while the next page is being fetched (Next caret spins). */
+  loadingNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}
+
+/**
+ * Maximized image modal (Esc/backdrop/close button dismiss). With `navigation`
+ * it becomes a gallery viewer: left/right carets, a position counter, and
+ * ArrowLeft/ArrowRight keys walk the list without leaving the modal.
+ */
 export function ImageLightbox({
   attachment,
   client,
   onClose,
+  navigation,
 }: {
   attachment: MediaAttachment;
   client: BaiClient;
   onClose: () => void;
+  /** Enables prev/next traversal; omit for a single-image lightbox. */
+  navigation?: LightboxNavigation;
 }) {
   const url = useAssetUrl(client, attachment.id);
+
+  // Arrow keys traverse the gallery while the modal is open. Esc is owned by
+  // Modal; the two listeners never share a key.
+  useEffect(() => {
+    if (navigation === undefined) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "ArrowLeft" && navigation.hasPrevious) {
+        e.preventDefault();
+        navigation.onPrevious();
+      } else if (e.key === "ArrowRight" && navigation.hasNext) {
+        e.preventDefault();
+        navigation.onNext();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigation]);
+
   return (
     <Modal
       open
@@ -276,6 +326,41 @@ export function ImageLightbox({
       bodyClassName="image-lightbox-body"
       ariaLabel={`Image: ${attachment.name}`}
     >
+      {navigation !== undefined && (
+        <>
+          <IconButton
+            className="image-lightbox-nav prev"
+            label="Previous image"
+            hint="Previous image (←)"
+            disabled={!navigation.hasPrevious}
+            onClick={navigation.onPrevious}
+          >
+            <ChevronLeft size={26} aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            className="image-lightbox-nav next"
+            label="Next image"
+            hint="Next image (→)"
+            disabled={!navigation.hasNext}
+            onClick={navigation.onNext}
+          >
+            {navigation.loadingNext ? (
+              <LoaderCircle size={24} className="icon-spin" aria-hidden="true" />
+            ) : (
+              <ChevronRight size={26} aria-hidden="true" />
+            )}
+          </IconButton>
+          {navigation.total > 0 && (
+            <span
+              className="image-lightbox-count"
+              role="status"
+              aria-label={`Image ${navigation.index + 1} of ${navigation.total}`}
+            >
+              {navigation.index + 1} / {navigation.total}
+            </span>
+          )}
+        </>
+      )}
       {url !== undefined ? (
         <img className="image-lightbox-img" src={url} alt={attachment.name} />
       ) : (

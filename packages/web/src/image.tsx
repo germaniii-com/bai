@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type DragEvent,
 } from "react";
@@ -49,6 +50,7 @@ import {
   TextInput,
 } from "./components";
 import { ImageLightbox, useAssetUrl } from "./attachments";
+import { galleryNavState } from "./image-nav";
 import { modeLabel, modelOptionHint } from "./media-model-hint";
 import { useImageGallery } from "./use-image-gallery";
 
@@ -145,6 +147,12 @@ export function ImagePane({
 
   const gallery = useImageGallery(client, galleryApplied);
   const galleryRefresh = gallery.refresh;
+
+  // Lightbox traversal bookkeeping: a "Next" that fired at the loaded end waits
+  // here until its page arrives; `prefetchedAt` guards the near-end auto-load so
+  // a page that yields nothing can't loop.
+  const pendingAdvanceRef = useRef(false);
+  const prefetchedAtRef = useRef(-1);
 
   // Debounce the free-text gallery tag search (fuzzy, resolved server-side).
   useEffect(() => {
@@ -543,6 +551,76 @@ export function ImagePane({
           .slice(0, 8)
           .map((row) => row.tag);
 
+  /**
+   * Open/close the lightbox. Both directions reset a pending cross-page advance
+   * so a stale request can't move a later view.
+   */
+  const showLightbox = useCallback((asset: Asset | null): void => {
+    pendingAdvanceRef.current = false;
+    prefetchedAtRef.current = -1;
+    setLightbox(asset);
+  }, []);
+
+  // Traversal bounds for the open image within the loaded gallery (undefined
+  // when nothing is open or the image has fallen out of the list).
+  const lightboxNav = galleryNavState(gallery.images, lightbox?.id ?? null, {
+    hasMore: gallery.hasMore,
+    total: gallery.total,
+  });
+
+  /**
+   * Move one image within the loaded list. Past the loaded end with pages left,
+   * remember the intent and fetch the next page; the effect below advances when
+   * it arrives.
+   */
+  const stepLightbox = useCallback(
+    (delta: number): void => {
+      if (lightbox === null) return;
+      const index = gallery.images.findIndex((a) => a.id === lightbox.id);
+      if (index < 0) return;
+      const target = gallery.images[index + delta];
+      if (target !== undefined) {
+        setLightbox(target);
+        return;
+      }
+      if (delta > 0 && gallery.hasMore) {
+        pendingAdvanceRef.current = true;
+        gallery.loadMore();
+      }
+    },
+    [lightbox, gallery.images, gallery.hasMore, gallery.loadMore],
+  );
+
+  // Prefetch the next page as the viewer nears the loaded end, so Next is
+  // usually instant. At most one auto-load per loaded length.
+  useEffect(() => {
+    if (lightbox === null || !gallery.hasMore || gallery.loadingMore) return;
+    const index = gallery.images.findIndex((a) => a.id === lightbox.id);
+    if (index < 0 || index < gallery.images.length - 3) return;
+    if (prefetchedAtRef.current === gallery.images.length) return;
+    prefetchedAtRef.current = gallery.images.length;
+    gallery.loadMore();
+  }, [lightbox, gallery.images, gallery.hasMore, gallery.loadingMore, gallery.loadMore]);
+
+  // Complete a pending Next once the fetched page appends the next image; give
+  // up (so a later click can retry) if the page didn't materialize one.
+  useEffect(() => {
+    if (!pendingAdvanceRef.current) return;
+    const index =
+      lightbox === null ? -1 : gallery.images.findIndex((a) => a.id === lightbox.id);
+    if (index < 0) {
+      pendingAdvanceRef.current = false;
+      return;
+    }
+    const target = gallery.images[index + 1];
+    if (target !== undefined) {
+      pendingAdvanceRef.current = false;
+      setLightbox(target);
+    } else if (!gallery.loadingMore) {
+      pendingAdvanceRef.current = false;
+    }
+  }, [gallery.images, gallery.loadingMore, lightbox]);
+
   return (
     <div className="image-pane">
       <SectionHeader
@@ -746,7 +824,7 @@ export function ImagePane({
                 key={asset.id}
                 client={client}
                 asset={asset}
-                onOpen={setLightbox}
+                onOpen={showLightbox}
                 onDownload={(a) => void downloadImage(a)}
                 onLoad={loadInputs}
                 onEditTags={setEditingTags}
@@ -778,7 +856,19 @@ export function ImagePane({
             kind: "image",
           }}
           client={client}
-          onClose={() => setLightbox(null)}
+          onClose={() => showLightbox(null)}
+          {...(lightboxNav !== undefined
+            ? {
+                navigation: {
+                  ...lightboxNav,
+                  loadingNext:
+                    gallery.loadingMore &&
+                    lightboxNav.index >= gallery.images.length - 1,
+                  onPrevious: () => stepLightbox(-1),
+                  onNext: () => stepLightbox(1),
+                },
+              }
+            : {})}
         />
       )}
 

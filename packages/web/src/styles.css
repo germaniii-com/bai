@@ -2634,6 +2634,9 @@ select:focus-visible,
 .image-lightbox {
   max-width: min(95vw, 1400px);
   width: auto;
+  /* Anchors the floating traversal controls to the dialog, so they stay put
+     when a tall image scrolls inside the body. */
+  position: relative;
 }
 
 .image-lightbox-body {
@@ -2648,6 +2651,46 @@ select:focus-visible,
   max-height: 82vh;
   object-fit: contain;
   border-radius: var(--radius-sm);
+}
+
+/* Gallery traversal controls (opt-in via ImageLightbox's `navigation`). The
+   descendant selector out-specifies the library .icon-button rules, which are
+   bundled after styles.css. */
+.image-lightbox .image-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--text);
+  backdrop-filter: blur(3px);
+}
+
+.image-lightbox .image-lightbox-nav.prev { left: var(--space-3); }
+.image-lightbox .image-lightbox-nav.next { right: var(--space-3); }
+
+.image-lightbox .image-lightbox-nav:hover:not(:disabled),
+.image-lightbox .image-lightbox-nav:focus-visible:not(:disabled) {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.image-lightbox .image-lightbox-count {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .attachment-add {
