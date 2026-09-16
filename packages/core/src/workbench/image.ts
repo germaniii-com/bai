@@ -157,7 +157,7 @@ export class ImageWorkbench implements Workbench {
           ? generated.costUsd / generated.images.length
           : undefined;
       const files: GeneratedFile[] = generated.images.map((image) =>
-        this.toFile(image, resolved, provider, configured, costPerImage),
+        this.toFile(image, resolved, provider, configured, costPerImage, ctx.sessionId),
       );
       const result: JobExecutorResult = {
         output: {
@@ -179,6 +179,7 @@ export class ImageWorkbench implements Workbench {
     provider: string,
     configured: MediaGenConfig | undefined,
     costUsd?: number,
+    sessionId?: string,
   ): GeneratedFile {
     if (!looksLikeImage(image.bytes, image.mime)) {
       throw new MediaGenError(`Provider returned a non-image payload (${image.mime}).`, { retryable: false });
@@ -193,6 +194,10 @@ export class ImageWorkbench implements Workbench {
       model: request.model,
       provider,
       ...(configured?.account !== undefined ? { account: configured.account } : {}),
+      // Provenance: the chat/agent session this image was generated from (set
+      // by the image.generate tool). Absent for Image-page generations, so the
+      // gallery knows when an "Open chat" action is possible.
+      ...(sessionId !== undefined ? { sessionId } : {}),
       ...(request.tags !== undefined && request.tags.length > 0 ? { tags: request.tags } : {}),
       ...(typeof params.aspect_ratio === "string" ? { aspectRatio: params.aspect_ratio } : {}),
       ...(typeof params.resolution === "string" ? { resolution: params.resolution } : {}),

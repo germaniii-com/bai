@@ -582,9 +582,12 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
   deliberately no prompt text search.
 - **Reusable history.** Every image carries its full generation request
   (`meta.gen`). Each card's floating **`…`** menu offers **Download / Load
-  Inputs / Edit Tags / Delete** — Load Inputs repopulates the workflow, prompt,
-  tags, params, model, and reference in the form, and Edit Tags rewrites the
-  image's tags in place (index + recipe); clicking the image itself always
+  Inputs / Edit Tags / Delete** — and **Open chat** when the image was produced
+  by an agent/skill run (the job's session is stamped onto the asset, so the
+  menu deep-links back to the originating chat; Image-page generations have no
+  session and show no such action). Load Inputs repopulates the workflow,
+  prompt, tags, params, model, and reference in the form, and Edit Tags rewrites
+  the image's tags in place (index + recipe); clicking the image itself always
   opens the expanded modal. **Generate always creates a new image**, never
   mutates history.
 - **One output view.** The gallery *is* the output area (no duplicate batch

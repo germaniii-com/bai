@@ -806,8 +806,28 @@ export function App() {
     [applyRouteStates],
   );
 
-  const navigate = (next: Section): void => {
-    // Keep the open session coherent with the section — a chat session in
+  /**
+   * Open the chat/agent session that produced an image (the Image page's
+   * "Open chat" action). Resolves the session so the right surface is used:
+   * code sessions open in the workspace view, everything else in chat.
+   */
+  const openSession = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const session = await client.getSession(sessionId).catch(() => undefined);
+      if (session === undefined) return;
+      if (session.workbench === "code") {
+        pushRoute(
+          { section: "workspace", wsPath: session.cwd ?? null, view: "chat", sessionId },
+          session,
+        );
+      } else {
+        pushRoute({ section: "chat", sessionId }, session);
+      }
+    },
+    [client, pushRoute],
+  );
+
+  const navigate = (next: Section): void => {    // Keep the open session coherent with the section — a chat session in
     // the workspace view (or vice versa) would read as a context mixup —
     // and carry it into the route so the URL keeps identifying it.
     switch (next) {
@@ -2038,7 +2058,12 @@ export function App() {
         </main>
       ) : section === "image" ? (
         <main id="main-content" className="image-main">
-          <ImagePane client={client} imageGen={configImageGen} onNotice={pushNotice} />
+          <ImagePane
+            client={client}
+            imageGen={configImageGen}
+            onNotice={pushNotice}
+            onOpenSession={(id) => void openSession(id)}
+          />
         </main>
       ) : section === "analytics" ? (
         <main id="main-content" className="settings-pane">

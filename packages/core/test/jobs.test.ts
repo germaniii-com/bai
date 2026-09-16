@@ -25,6 +25,8 @@ describe("job queue (structured stubs)", () => {
     const asset = assetEvt.payload.asset;
     expect(asset.kind).toBe("image");
     expect(asset.mime).toBe("image/png");
+    // Image-page generations carry no session (no "Open chat" action).
+    expect(asset.meta.sessionId).toBeUndefined();
 
     const bytes = readFileSync(asset.path);
     // PNG signature: 89 50 4E 47 0D 0A 1A 0A
@@ -34,6 +36,15 @@ describe("job queue (structured stubs)", () => {
     expect(stored?.status).toBe("done");
     // count=2 → two assets for the job
     expect(t.store.assets.byJob(job.id)).toHaveLength(2);
+  });
+
+  test("images generated from a chat/agent session record their session id", async () => {
+    const session = t.core.createSession({ workbench: "chat" });
+    const assetCreated = waitForEvent(t.bus, "asset.created");
+    t.core.enqueueJob("image.generate", session.id, { prompt: "a green cube" });
+    const asset = (await assetCreated).payload.asset;
+    // The Image page uses this to offer "Open chat".
+    expect(asset.meta.sessionId).toBe(session.id);
   });
 
   test("video.generate → done + placeholder clip asset", async () => {
