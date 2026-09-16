@@ -315,6 +315,9 @@ export class ProviderRegistry {
     ]);
     for (const id of [...extra].sort()) {
       if (seen.has(id)) continue;
+      // Media-only vendors stay out of the chat pickers even when they have a
+      // saved account or a config entry (they are image-only providers).
+      if (byId.get(id)?.mediaOnly === true) continue;
       const pc = this.deps.config().providers[id];
       out.push({
         id,
@@ -409,6 +412,17 @@ export class ProviderRegistry {
     return this.deps.accounts.remove(providerId, accountId);
   }
 
+  /**
+   * Reveal one stored API key for copy-to-clipboard. Only the `api` account
+   * kind is eligible — OAuth access tokens are never exposed, and env-derived
+   * keys are not stored here at all. Callers must treat the result as a secret.
+   */
+  revealApiKey(providerId: string, accountId: string): string | undefined {
+    const info = this.deps.accounts.get(providerId, accountId);
+    if (info === undefined || info.source !== "api" || info.hasKey !== true) return undefined;
+    return this.deps.accounts.resolve(providerId, accountId)?.apiKey;
+  }
+
   private async isConnected(providerId: string): Promise<boolean> {
     return (await this.accounts(providerId)).length > 0;
   }
@@ -466,6 +480,9 @@ function baseUrlFor(entry: CatalogProvider | undefined, providerId: string, conf
 
 /** Wire-shape detection: explicit override, then anthropic/openai natives, else openai-compatible. */
 function adapterNameFor(entry: CatalogProvider): AdapterName | undefined {
+  // Media-only vendors (image adapters) have no LLM wire protocol — they are
+  // intentionally absent from the chat provider/model pickers.
+  if (entry.mediaOnly === true) return undefined;
   if (entry.adapter !== undefined) return entry.adapter;
   if (entry.npm === "@ai-sdk/anthropic") return "anthropic";
   if (entry.npm === "@ai-sdk/openai") return "openai";

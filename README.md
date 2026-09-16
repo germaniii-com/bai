@@ -32,8 +32,10 @@ continue it from your phone, teach it new agents from either side.
   restarts) driving real tool loops: `fs.read/list/glob/write/edit`,
   fail-closed interactive permissions, token discipline, and compaction
 - 🖼️ **Image workbench** — a single-page text-to-image / image-to-image
-  workspace over the **OpenRouter Image API** (capability-driven params,
-  reusable tagged history, per-image delete, job retry/cancel); 🎬 video is
+  workspace over **many providers** (OpenRouter, OpenAI, Google Gemini/Gemini
+  Nano Banana, xAI, Together, DeepInfra, Recraft, Black Forest Labs, fal.ai,
+  Replicate, Stability, Ideogram, MiniMax) with capability-driven params,
+  reusable tagged history, per-image delete, and job retry/cancel; 🎬 video is
   still a structured stub
 - 🖥️ **Surfaces** — Ink TUI, web app for desktop _and_ mobile (browser/PWA),
   native desktop shell later
@@ -57,8 +59,8 @@ bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 Implemented through the media-workbench phase — **chat, sync, agents, file
 tools + bash/grep, interactive permissions, token discipline + compaction,
 per-message revert/fork/copy with shadow-repo file rollback, provider
-OAuth/subscription logins, and the image workbench (OpenRouter adapter +
-hardened job runtime + tag gallery) all ship today** (1217 tests, 6
+OAuth/subscription logins, and the multi-provider image workbench (13 adapters
++ hardened job runtime + tag gallery) all ship today** (1291 tests, 6
 packages). Pending: MCP dual role, the video adapter, desktop shell. Details in
 [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
 

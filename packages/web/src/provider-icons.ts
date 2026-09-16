@@ -139,5 +139,12 @@ export const PROVIDER_FALLBACKS: Record<string, string> = {
   "ai21": "Bot",
   "reka": "Bot",
   "nous": "Bot",
+  "bfl": "Flame",
+  "fal": "Zap",
+  "replicate": "Layers",
+  "stability": "Sparkles",
+  "ideogram": "Bot",
+  "recraft": "Sparkles",
+  "deepinfra": "Server",
   "generic": "Cloud"
 };

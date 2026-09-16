@@ -121,6 +121,78 @@ describe("image routes", () => {
     expect(body.capabilities.params.length).toBeGreaterThan(0);
   });
 
+  test("GET /api/image/providers lists the workbench's media providers", async () => {
+    const res = await app.request("/api/image/providers");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      providers: Array<{
+        id: string;
+        label: string;
+        defaultModel: string;
+        modes: string[];
+        models?: Array<{ id: string; modes: string[] }>;
+        connected?: boolean;
+      }>;
+    };
+    expect(body.providers.map((p) => p.id)).toContain("openrouter");
+    expect(body.providers.map((p) => p.id)).not.toContain("stub");
+    expect(
+      body.providers.every(
+        (p) =>
+          p.label.length > 0 &&
+          p.defaultModel.length > 0 &&
+          p.modes.length > 0 &&
+          (p.models?.length ?? 0) > 0,
+      ),
+    ).toBe(true);
+    // The page builds its flat model list from these, so ids must be present.
+    expect(body.providers.every((p) => p.models?.every((m) => m.id.length > 0 && m.modes.length > 0))).toBe(true);
+  });
+
+  test("GET /api/image/providers exposes saved keys for image-only providers (hidden from chat)", async () => {
+    const put = await app.request("/api/provider/fal/account/default", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "fal", key: "fal-secret-key" }),
+    });
+    expect(put.status).toBe(201);
+
+    const res = await app.request("/api/image/providers");
+    const body = (await res.json()) as {
+      providers: Array<{ id: string; connected?: boolean; accounts?: Array<{ id: string; label: string }> }>;
+    };
+    const fal = body.providers.find((p) => p.id === "fal");
+    expect(fal?.connected).toBe(true);
+    expect(fal?.accounts?.map((a) => a.id)).toEqual(["default"]);
+    // The key itself never crosses the wire.
+    expect(JSON.stringify(body)).not.toContain("fal-secret-key");
+
+    // Image-only providers stay out of the LLM/chat provider list.
+    const providers = await app.request("/api/provider?models=0");
+    const list = (await providers.json()) as { providers: Array<{ id: string }> };
+    expect(list.providers.some((p) => p.id === "fal")).toBe(false);
+  });
+
+  test("account key reveal returns the stored key (no-store); unknown/env → 404", async () => {
+    const put = await app.request("/api/provider/stability/account/default", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "stability", key: "sk-reveal-me" }),
+    });
+    expect(put.status).toBe(201);
+
+    const res = await app.request("/api/provider/stability/account/default/key");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(((await res.json()) as { key: string }).key).toBe("sk-reveal-me");
+
+    const missing = await app.request("/api/provider/stability/account/nope/key");
+    expect(missing.status).toBe(404);
+    // Env-backed accounts are not stored, so they can never be revealed.
+    const env = await app.request("/api/provider/openai/account/env/key");
+    expect(env.status).toBe(404);
+  });
+
   test("delete removes the asset; unknown id → 404", async () => {
     await app.request("/api/image/generate", postJson({ mode: "t2i", prompt: "x" }));
     const asset = await waitForAsset(stack);

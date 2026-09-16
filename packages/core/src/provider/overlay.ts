@@ -1,4 +1,5 @@
 import type { AdapterName } from "@bai/shared";
+import { MEDIA_PROVIDER_SPECS } from "../media-providers";
 
 /**
  * bai-owned curated provider overlay.
@@ -39,6 +40,12 @@ export interface CuratedProvider {
   contextLength?: number;
   /** True when the provider works with no credential (free tier). */
   keyless?: boolean;
+  /**
+   * True for a media-only vendor (image generation): credentials and base URL
+   * resolve, accounts are manageable, but the provider is hidden from the
+   * LLM/chat pickers because it speaks no chat wire protocol.
+   */
+  mediaOnly?: boolean;
 }
 
 const CODEX_MODELS = [
@@ -57,6 +64,35 @@ const XAI_MODELS = ["grok-4", "grok-4-mini", "grok-3", "grok-code-fast-1"];
 function p(entry: CuratedProvider): CuratedProvider {
   return entry;
 }
+
+/**
+ * Vendor image-endpoint entries generated from {@link MEDIA_PROVIDER_SPECS}.
+ * `openai`/`xai`/`deepinfra`/`openrouter` already have catalog entries, so
+ * only the missing vendors (and the media-only ones) are added here — their
+ * env vars and base URLs then resolve through `ProviderRegistry`.
+ */
+const MEDIA_OVERLAY_IDS = new Set([
+  "together",
+  "gemini",
+  "recraft",
+  "bfl",
+  "fal",
+  "replicate",
+  "stability",
+  "ideogram",
+  "minimax-image",
+]);
+
+const MEDIA_OVERLAY_LIST: CuratedProvider[] = MEDIA_PROVIDER_SPECS.filter((s) =>
+  MEDIA_OVERLAY_IDS.has(s.id),
+).map((s) => ({
+  id: s.id,
+  name: s.label,
+  ...(s.aliases !== undefined ? { aliases: s.aliases } : {}),
+  baseUrl: s.baseUrl,
+  env: s.env,
+  ...(s.imageOnly ? { mediaOnly: true } : {}),
+}));
 
 const CURATED_LIST: CuratedProvider[] = [
     // --- OAuth / subscription logins -------------------------------------
@@ -351,6 +387,7 @@ const CURATED_LIST: CuratedProvider[] = [
       adapter: "openai-compatible",
       env: ["AI_GATEWAY_API_KEY"],
     }),
+    ...MEDIA_OVERLAY_LIST,
   ];
 
 /** Every curated provider, keyed by id (explicit tuple typing for fromEntries). */

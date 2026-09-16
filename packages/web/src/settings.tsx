@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Check } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Check, Copy, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -9,6 +9,7 @@ import type {
   McpServerInfo,
   McpServerSource,
   MediaGenConfig,
+  MediaProviderInfo,
   MediaParamSpec,
   MediaParamValue,
   MediaTagCount,
@@ -18,7 +19,12 @@ import type {
   WebSearchProviderId,
   WebSearchStatus,
 } from "@bai/shared";
-import { coerceMediaParams, isZdrCapableModel, sortModelsZdrFirst, THEME_OPTIONS } from "@bai/shared";
+import {
+  coerceMediaParams,
+  isZdrCapableModel,
+  sortModelsZdrFirst,
+  THEME_OPTIONS,
+} from "@bai/shared";
 import { partitionProviders, sortProviders } from "./provider-utils";
 import { modelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
@@ -29,7 +35,25 @@ import { CustomProviderModal } from "./custom-provider-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
 import { ProviderIcon } from "./provider-icon";
-import { Button, Card, Combobox, ConfirmDialog, Field, ListItem, MediaParamsForm, PageHeader, PickerTrigger, SectionHeader, Select, SubNav, SubNavItem, TagInput, TextInput, ToggleRow } from "./components";
+import {
+  Button,
+  Card,
+  Combobox,
+  ConfirmDialog,
+  Field,
+  IconButton,
+  ListItem,
+  MediaParamsForm,
+  PageHeader,
+  PickerTrigger,
+  SectionHeader,
+  Select,
+  SubNav,
+  SubNavItem,
+  TagInput,
+  TextInput,
+  ToggleRow,
+} from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -57,7 +81,13 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
  */
 
 /** The settings sections (the nested sidebar's entries). */
-export type SettingsSection = "user" | "general" | "providers" | "image" | "webSearch" | "integrations";
+export type SettingsSection =
+  | "user"
+  | "general"
+  | "providers"
+  | "image"
+  | "webSearch"
+  | "integrations";
 
 /** Nested-sidebar list: the settings sections. */
 export function SettingsNav({
@@ -139,7 +169,10 @@ export function SettingsPane({
   /** Toast feedback (success/error). */
   onNotice: OnNotice;
 }) {
-  const mutate = async (fn: () => Promise<void>, okMessage: string): Promise<void> => {
+  const mutate = async (
+    fn: () => Promise<void>,
+    okMessage: string,
+  ): Promise<void> => {
     try {
       await fn();
       await refresh();
@@ -236,12 +269,9 @@ function UserPane({
     e.preventDefault();
     const trimmed = name.trim();
     if (trimmed.length === 0) return;
-    void mutate(
-      async () => {
-        await client.putConfig({ user: { name: trimmed } });
-      },
-      `User name set to ${trimmed}`,
-    );
+    void mutate(async () => {
+      await client.putConfig({ user: { name: trimmed } });
+    }, `User name set to ${trimmed}`);
   };
 
   return (
@@ -261,7 +291,11 @@ function UserPane({
             />
           </Field>
         </div>
-        <Button type="submit" variant="primary" disabled={name.trim().length === 0}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={name.trim().length === 0}
+        >
           Save name
         </Button>
       </Card>
@@ -297,23 +331,43 @@ function GeneralPane({
     <>
       <PageHeader title="General" />
       <ThemeCard theme={theme} onOpenThemePicker={onOpenThemePicker} />
-      <DefaultAgentCard client={client} agents={agents} refreshAgents={refreshAgents} current={defaultAgent} mutate={mutate} />
-      <DefaultModelCard client={client} list={list} preferZdr={preferZdr} refresh={refresh} mutate={mutate} />
+      <DefaultAgentCard
+        client={client}
+        agents={agents}
+        refreshAgents={refreshAgents}
+        current={defaultAgent}
+        mutate={mutate}
+      />
+      <DefaultModelCard
+        client={client}
+        list={list}
+        preferZdr={preferZdr}
+        refresh={refresh}
+        mutate={mutate}
+      />
     </>
   );
 }
 
 /** UI theme (config theme): shows the active theme, opens the picker modal. */
-function ThemeCard({ theme, onOpenThemePicker }: { theme: string; onOpenThemePicker: () => void }) {
-  const label = THEME_OPTIONS.find((opt) => opt.value === theme)?.label ?? theme;
+function ThemeCard({
+  theme,
+  onOpenThemePicker,
+}: {
+  theme: string;
+  onOpenThemePicker: () => void;
+}) {
+  const label =
+    THEME_OPTIONS.find((opt) => opt.value === theme)?.label ?? theme;
   return (
     <Card className="theme-card">
       <SectionHeader
         title="Theme"
         lede={
           <>
-            One theme everywhere — the terminal picks it up live (config-updated), and this
-            browser remembers it for the next boot. Current: {label}
+            One theme everywhere — the terminal picks it up live
+            (config-updated), and this browser remembers it for the next boot.
+            Current: {label}
           </>
         }
       />
@@ -351,7 +405,12 @@ function DefaultAgentCard({
     <Card>
       <SectionHeader
         title="Default agent"
-        lede={<>Used by sessions that select none. Current: {current ?? "build (built-in default)"}</>}
+        lede={
+          <>
+            Used by sessions that select none. Current:{" "}
+            {current ?? "build (built-in default)"}
+          </>
+        }
       />
       <div>
         <PickerTrigger
@@ -372,12 +431,9 @@ function DefaultAgentCard({
           onClose={() => setPickerOpen(false)}
           onPick={(name) => {
             setPickerOpen(false);
-            void mutate(
-              async () => {
-                await client.putConfig({ agents: { default: name } });
-              },
-              `Default agent set to ${name}`,
-            );
+            void mutate(async () => {
+              await client.putConfig({ agents: { default: name } });
+            }, `Default agent set to ${name}`);
           }}
         />
       )}
@@ -407,18 +463,17 @@ function DefaultModelCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const current = list.default.model ?? "stub/echo";
-  const currentModel = list.providers.flatMap((p) => p.models).find((m) => m.id === current);
+  const currentModel = list.providers
+    .flatMap((p) => p.models)
+    .find((m) => m.id === current);
 
   const saveCustom = (e: FormEvent): void => {
     e.preventDefault();
     const value = custom.trim();
     if (value.length === 0) return;
-    void mutate(
-      async () => {
-        await client.putConfig({ models: { default: value } });
-      },
-      `Default model set to ${value}`,
-    );
+    void mutate(async () => {
+      await client.putConfig({ models: { default: value } });
+    }, `Default model set to ${value}`);
     setCustom("");
   };
 
@@ -426,7 +481,12 @@ function DefaultModelCard({
     <Card as="form" onSubmit={saveCustom}>
       <SectionHeader
         title="Default model"
-        lede={<>Used by new sessions; per-session picks (chat header) override it. Current: {list.default.model ?? "stub/echo"}</>}
+        lede={
+          <>
+            Used by new sessions; per-session picks (chat header) override it.
+            Current: {list.default.model ?? "stub/echo"}
+          </>
+        }
       />
       <div>
         <PickerTrigger
@@ -434,11 +494,18 @@ function DefaultModelCard({
           value={current}
           onClick={() => setPickerOpen(true)}
           ariaLabel={`default model: ${current}`}
-          trailing={currentModel !== undefined ? <ModelCapabilityBadges model={currentModel} /> : undefined}
+          trailing={
+            currentModel !== undefined ? (
+              <ModelCapabilityBadges model={currentModel} />
+            ) : undefined
+          }
         />
       </div>
       <div className="form-grid">
-        <Field label="Or any model id" hint="(provider/model — for ids outside the catalog)">
+        <Field
+          label="Or any model id"
+          hint="(provider/model — for ids outside the catalog)"
+        >
           <TextInput
             value={custom}
             placeholder="provider/model"
@@ -447,7 +514,11 @@ function DefaultModelCard({
         </Field>
       </div>
       <div>
-        <Button type="submit" variant="primary" disabled={custom.trim().length === 0}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={custom.trim().length === 0}
+        >
           Save default
         </Button>
       </div>
@@ -492,17 +563,26 @@ function ProvidersPane({
   const [oauth, setOauth] = useState<OAuthProviderInfo[]>([]);
   // OAuth target + intent: `connect` names/writes the default account, `add`
   // creates a new one, `reconnect` refreshes one specific account id.
-  const [oauthTarget, setOauthTarget] = useState<
-    { provider: ProviderInfo; intent: "connect" | "add" | "reconnect"; accountId?: string } | null
-  >(null);
+  const [oauthTarget, setOauthTarget] = useState<{
+    provider: ProviderInfo;
+    intent: "connect" | "add" | "reconnect";
+    accountId?: string;
+  } | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [pendingCustom, setPendingCustom] = useState<ProviderInfo | null>(null);
   const sorted = sortProviders(list.providers);
   const oauthById = new Map(oauth.map((o) => [o.id, o]));
-  const { custom, oauth: oauthProviders, catalog } = partitionProviders(sorted, oauthById.keys());
+  const {
+    custom,
+    oauth: oauthProviders,
+    catalog,
+  } = partitionProviders(sorted, oauthById.keys());
 
   const loadOauth = (): void => {
-    void client.oauthProviders().then(setOauth).catch(() => undefined);
+    void client
+      .oauthProviders()
+      .then(setOauth)
+      .catch(() => undefined);
   };
   useEffect(loadOauth, [client]);
 
@@ -518,7 +598,8 @@ function ProvidersPane({
       {/* --- Custom providers (config-defined endpoints) ------------------- */}
       <h3 className="settings-subheading">Custom Providers</h3>
       <p className="section-lede">
-        Your own endpoints — any OpenAI-compatible, Anthropic, or Responses gateway.
+        Your own endpoints — any OpenAI-compatible, Anthropic, or Responses
+        gateway.
       </p>
       <div className="provider-actions">
         <Button variant="outline" onClick={() => setCustomOpen(true)}>
@@ -538,10 +619,18 @@ function ProvidersPane({
               onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
               client={client}
               mutate={mutate}
-              {...(oauthById.get(p.id) !== undefined ? { oauth: oauthById.get(p.id) as OAuthProviderInfo } : {})}
-              onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
-              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
-              onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
+              {...(oauthById.get(p.id) !== undefined
+                ? { oauth: oauthById.get(p.id) as OAuthProviderInfo }
+                : {})}
+              onConnect={() =>
+                setOauthTarget({ provider: p, intent: "connect" })
+              }
+              onReconnectAccount={(accountId) =>
+                setOauthTarget({ provider: p, intent: "reconnect", accountId })
+              }
+              onAddAccount={() =>
+                setOauthTarget({ provider: p, intent: "add" })
+              }
               onDeleteCustom={() => setPendingCustom(p)}
             />
           ))}
@@ -551,7 +640,8 @@ function ProvidersPane({
       {/* --- OAuth providers (subscription / local logins) ----------------- */}
       <h3 className="settings-subheading">OAuth Providers</h3>
       <p className="section-lede">
-        Sign in with a subscription or local credential — tokens are stored server-side.
+        Sign in with a subscription or local credential — tokens are stored
+        server-side.
         {fetching ? " updating…" : ""}
       </p>
       {oauthProviders.length === 0 ? (
@@ -568,9 +658,15 @@ function ProvidersPane({
               client={client}
               mutate={mutate}
               oauth={oauthById.get(p.id) as OAuthProviderInfo}
-              onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
-              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
-              onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
+              onConnect={() =>
+                setOauthTarget({ provider: p, intent: "connect" })
+              }
+              onReconnectAccount={(accountId) =>
+                setOauthTarget({ provider: p, intent: "reconnect", accountId })
+              }
+              onAddAccount={() =>
+                setOauthTarget({ provider: p, intent: "add" })
+              }
             />
           ))}
         </div>
@@ -579,7 +675,8 @@ function ProvidersPane({
       {/* --- Catalog list (models.dev ⊕ curated overlay), height-capped ---- */}
       <h3 className="settings-subheading">Catalog List</h3>
       <p className="section-lede">
-        Every other provider the catalog knows — connect one by adding an account. Connected first.
+        Every other provider the catalog knows — connect one by adding an
+        account. Connected first.
       </p>
       <div className="provider-accordion catalog-scroll">
         {catalog.map((p) => (
@@ -591,9 +688,13 @@ function ProvidersPane({
             onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
             client={client}
             mutate={mutate}
-            {...(oauthById.get(p.id) !== undefined ? { oauth: oauthById.get(p.id) as OAuthProviderInfo } : {})}
+            {...(oauthById.get(p.id) !== undefined
+              ? { oauth: oauthById.get(p.id) as OAuthProviderInfo }
+              : {})}
             onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
-              onReconnectAccount={(accountId) => setOauthTarget({ provider: p, intent: "reconnect", accountId })}
+            onReconnectAccount={(accountId) =>
+              setOauthTarget({ provider: p, intent: "reconnect", accountId })
+            }
           />
         ))}
       </div>
@@ -611,9 +712,13 @@ function ProvidersPane({
           client={client}
           provider={oauthTarget.provider.id}
           providerName={oauthTarget.provider.name}
-          defaultAccount={oauthById.get(oauthTarget.provider.id)?.defaultAccount}
+          defaultAccount={
+            oauthById.get(oauthTarget.provider.id)?.defaultAccount
+          }
           intent={oauthTarget.intent}
-          {...(oauthTarget.accountId !== undefined ? { accountId: oauthTarget.accountId } : {})}
+          {...(oauthTarget.accountId !== undefined
+            ? { accountId: oauthTarget.accountId }
+            : {})}
           existingAccounts={oauthTarget.provider.accounts
             .filter((a) => a.source === "oauth")
             .map((a) => a.id)}
@@ -640,8 +745,8 @@ function ProvidersPane({
         title="Remove custom provider?"
         body={
           <>
-            Remove <strong>{pendingCustom?.name}</strong> ({pendingCustom?.id}) and its configured accounts? This
-            cannot be undone.
+            Remove <strong>{pendingCustom?.name}</strong> ({pendingCustom?.id})
+            and its configured accounts? This cannot be undone.
           </>
         }
         confirmLabel="Remove"
@@ -700,7 +805,12 @@ function AccordionProvider({
         aria-controls={`provider-detail-${provider.id}`}
       >
         <span className="provider-head">
-          <ProviderIcon id={provider.id} name={provider.name} adapter={provider.adapter} size={16} />
+          <ProviderIcon
+            id={provider.id}
+            name={provider.name}
+            adapter={provider.adapter}
+            size={16}
+          />
           <span className="title">{provider.name}</span>
         </span>
         <span className="dim">{hint}</span>
@@ -720,7 +830,9 @@ function AccordionProvider({
             {...(oauth !== undefined ? { oauth } : {})}
             {...(onConnect !== undefined ? { onConnect } : {})}
             {...(onAddAccount !== undefined ? { onAddAccount } : {})}
-            {...(onReconnectAccount !== undefined ? { onReconnectAccount } : {})}
+            {...(onReconnectAccount !== undefined
+              ? { onReconnectAccount }
+              : {})}
             {...(onDeleteCustom !== undefined ? { onDeleteCustom } : {})}
           />
         </div>
@@ -752,7 +864,9 @@ function ZdrToggle({
           async () => {
             await client.putConfig({ models: { preferZdr: on } });
           },
-          on ? "Prefer ZDR-capable models: on" : "Prefer ZDR-capable models: off",
+          on
+            ? "Prefer ZDR-capable models: on"
+            : "Prefer ZDR-capable models: off",
         );
       }}
     />
@@ -851,7 +965,9 @@ function ProviderDetail({
       />
       {/* OAuth providers authenticate via the browser flow above — no API-key
           form (a provider that also accepts keys is reached through OAuth). */}
-      {oauth === undefined && <AddAccount provider={provider} client={client} mutate={mutate} />}
+      {oauth === undefined && (
+        <AddAccount provider={provider} client={client} mutate={mutate} />
+      )}
     </div>
   );
 }
@@ -872,7 +988,9 @@ function ProviderAccounts({
   /** Reconnect one specific OAuth account (per-account, in place). */
   onReconnectAccount?: (accountId: string) => void;
 }) {
-  const [pending, setPending] = useState<{ id: string; label: string } | null>(null);
+  const [pending, setPending] = useState<{ id: string; label: string } | null>(
+    null,
+  );
   return (
     <Card className={provider.connected ? "connected" : undefined}>
       <div className="provider-head">
@@ -885,7 +1003,9 @@ function ProviderAccounts({
       </div>
       {provider.accounts.length === 0 && (
         <p className="section-lede">
-          {oauth ? "No accounts yet — use Connect above." : "No accounts yet — add one below."}
+          {oauth
+            ? "No accounts yet — use Connect above."
+            : "No accounts yet — add one below."}
         </p>
       )}
       {provider.accounts.length > 0 && (
@@ -894,27 +1014,38 @@ function ProviderAccounts({
             <li key={a.id}>
               <span>
                 {a.label} <span className="dim">({a.id})</span>
-                {a.baseUrl !== undefined && <span className="dim"> · {a.baseUrl}</span>}
+                {a.baseUrl !== undefined && (
+                  <span className="dim"> · {a.baseUrl}</span>
+                )}
               </span>
               <span className="dim">
-                {a.source === "env" ? "from environment" : a.source === "oauth" ? "oauth" : "api key"}
+                {a.source === "env"
+                  ? "from environment"
+                  : a.source === "oauth"
+                    ? "oauth"
+                    : "api key"}
               </span>
-              {a.source !== "env" && a.source === "oauth" && onReconnectAccount !== undefined && (
-                <Button variant="outline" size="sm" onClick={() => onReconnectAccount(a.id)}>
-                  Reconnect
-                </Button>
-              )}
+              {a.source !== "env" &&
+                a.source === "oauth" &&
+                onReconnectAccount !== undefined && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onReconnectAccount(a.id)}
+                  >
+                    Reconnect
+                  </Button>
+                )}
               {a.source !== "env" && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    void mutate(
-                      async () => {
-                        await client.putConfig({ models: { defaultAccount: { [provider.id]: a.id } } });
-                      },
-                      `Default account for ${provider.name}: ${a.label}`,
-                    );
+                    void mutate(async () => {
+                      await client.putConfig({
+                        models: { defaultAccount: { [provider.id]: a.id } },
+                      });
+                    }, `Default account for ${provider.name}: ${a.label}`);
                   }}
                 >
                   Use by default
@@ -938,7 +1069,8 @@ function ProviderAccounts({
         title="Remove account?"
         body={
           <>
-            Remove <strong>{pending?.label}</strong> from <strong>{provider.name}</strong>? This cannot be undone.
+            Remove <strong>{pending?.label}</strong> from{" "}
+            <strong>{provider.name}</strong>? This cannot be undone.
           </>
         }
         confirmLabel="Remove"
@@ -947,7 +1079,10 @@ function ProviderAccounts({
           const p = pending;
           setPending(null);
           if (p !== null) {
-            void mutate(() => client.deleteAccount(provider.id, p.id), `Removed ${p.label}`);
+            void mutate(
+              () => client.deleteAccount(provider.id, p.id),
+              `Removed ${p.label}`,
+            );
           }
         }}
       />
@@ -996,24 +1131,44 @@ function AddAccount({
       />
       <div className="form-grid">
         <Field label="Account id">
-          <TextInput value={accountId} placeholder="personal, work…" onChange={(e) => setAccountId(e.target.value)} />
+          <TextInput
+            value={accountId}
+            placeholder="personal, work…"
+            onChange={(e) => setAccountId(e.target.value)}
+          />
         </Field>
         <Field label="Label">
-          <TextInput value={label} placeholder="display name" onChange={(e) => setLabel(e.target.value)} />
+          <TextInput
+            value={label}
+            placeholder="display name"
+            onChange={(e) => setLabel(e.target.value)}
+          />
         </Field>
         <Field label="API key">
-          <TextInput type="password" value={key} onChange={(e) => setKey(e.target.value)} />
+          <TextInput
+            type="password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
         </Field>
         {/* Catalog providers have known endpoints; config/account-only
             providers without a baseUrl must be told where to send requests. */}
         {provider.baseUrl === undefined && provider.source !== "catalog" && (
           <Field label="Base URL">
-            <TextInput value={baseUrl} placeholder="https://…/v1" onChange={(e) => setBaseUrl(e.target.value)} />
+            <TextInput
+              value={baseUrl}
+              placeholder="https://…/v1"
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
           </Field>
         )}
       </div>
       <div>
-        <Button type="submit" variant="primary" disabled={accountId.length === 0 || key.length === 0}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={accountId.length === 0 || key.length === 0}
+        >
           Add account
         </Button>
       </div>
@@ -1042,17 +1197,28 @@ function ImageGenPane({
     <>
       <PageHeader title="Image Generation" />
       <p className="section-lede">
-        Where bai generates images: the default provider/model, and how many generations run at once.
+        Where bai generates images: the provider API keys, the default
+        provider/model, and how many generations run at once.
       </p>
+      <ImageProvidersCard
+        client={client}
+        list={list}
+        imageGen={imageGen}
+        mutate={mutate}
+      />
       <MediaGenForm
         kind="imageGen"
-        title="Image gen defaults"
+        title="Default model"
         client={client}
         list={list}
         config={imageGen}
         mutate={mutate}
       />
-      <ImageDefaultsParamsForm client={client} imageGen={imageGen} mutate={mutate} />
+      <ImageDefaultsParamsForm
+        client={client}
+        imageGen={imageGen}
+        mutate={mutate}
+      />
       <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
     </>
   );
@@ -1088,7 +1254,9 @@ function ImageDefaultsParamsForm({
         if (cancelled) return;
         setSpecs(res.capabilities.params);
         // Seed declared defaults, then the saved config values on top.
-        const seeded = coerceMediaParams(res.capabilities.params, { ...(imageGen?.params ?? {}) });
+        const seeded = coerceMediaParams(res.capabilities.params, {
+          ...(imageGen?.params ?? {}),
+        });
         setParams(seeded);
       })
       .catch(() => {
@@ -1117,12 +1285,9 @@ function ImageDefaultsParamsForm({
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
-    void mutate(
-      async () => {
-        await client.putConfig({ imageGen: { params, tags } });
-      },
-      "Image default parameters saved",
-    );
+    void mutate(async () => {
+      await client.putConfig({ imageGen: { params, tags } });
+    }, "Image default parameters saved");
   };
 
   return (
@@ -1134,7 +1299,9 @@ function ImageDefaultsParamsForm({
       {specs.length > 0 ? (
         <MediaParamsForm specs={specs} value={params} onChange={setParams} />
       ) : (
-        <p className="dim">Set a provider and model above to configure its parameters.</p>
+        <p className="dim">
+          Set a provider and model above to configure its parameters.
+        </p>
       )}
       <Field label="Default tags" hint="(added to every generation)">
         <TagInput value={tags} onChange={setTags} suggestions={tagOptions} />
@@ -1162,9 +1329,15 @@ function JobsLimitsForm({
   jobs?: JobsConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
-  const [concurrency, setConcurrency] = useState(String(jobs?.concurrency ?? 3));
-  const [timeoutMs, setTimeoutMs] = useState(String(jobs?.timeoutMs ?? 180_000));
-  const [maxAttempts, setMaxAttempts] = useState(String(jobs?.maxAttempts ?? 3));
+  const [concurrency, setConcurrency] = useState(
+    String(jobs?.concurrency ?? 3),
+  );
+  const [timeoutMs, setTimeoutMs] = useState(
+    String(jobs?.timeoutMs ?? 180_000),
+  );
+  const [maxAttempts, setMaxAttempts] = useState(
+    String(jobs?.maxAttempts ?? 3),
+  );
   const [backoffMs, setBackoffMs] = useState(String(jobs?.backoffMs ?? 1500));
 
   const submit = (e: FormEvent): void => {
@@ -1175,12 +1348,9 @@ function JobsLimitsForm({
       maxAttempts: clampInt(maxAttempts, 1, 10, 3),
       backoffMs: clampInt(backoffMs, 0, 600_000, 1500),
     };
-    void mutate(
-      async () => {
-        await client.putConfig({ jobs: patch });
-      },
-      `Image generation limits saved (${patch.concurrency} concurrent)`,
-    );
+    void mutate(async () => {
+      await client.putConfig({ jobs: patch });
+    }, `Image generation limits saved (${patch.concurrency} concurrent)`);
   };
 
   return (
@@ -1239,10 +1409,269 @@ function JobsLimitsForm({
 }
 
 /** Parse a numeric field, clamping to [min,max] and falling back when invalid. */
-function clampInt(raw: string, min: number, max: number, fallback: number): number {
+function clampInt(
+  raw: string,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Image Generation → **Providers**: manage the API keys of every media
+ * provider — including image-only vendors (fal, BFL, …) hidden from the LLM
+ * Model Providers pane. Keys are stored server-side (auth.json, 0600) and never
+ * echoed back; each saved key is listed as `Provider — account` with a
+ * copy-to-clipboard and a delete action.
+ */
+function ImageProvidersCard({
+  client,
+  list,
+  imageGen,
+  mutate,
+}: {
+  client: BaiClient;
+  list: ProviderListResponse;
+  imageGen?: MediaGenConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  const [providers, setProviders] = useState<MediaProviderInfo[]>([]);
+  const [provider, setProvider] = useState(imageGen?.provider ?? "");
+  const [keyAccount, setKeyAccount] = useState(imageGen?.account ?? "default");
+  const [keyValue, setKeyValue] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
+  // Copy-to-clipboard feedback + the destructive-delete confirmation.
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    providerId: string;
+    providerLabel: string;
+    accountId: string;
+  } | null>(null);
+
+  const reload = useCallback(async (): Promise<void> => {
+    try {
+      setProviders(await client.imageProviders());
+    } catch {
+      setProviders([]);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // Seed from config once it lands (config loads async), never clobbering input.
+  useEffect(() => {
+    if (imageGen === undefined) return;
+    setProvider((current) =>
+      current.length > 0 ? current : (imageGen.provider ?? ""),
+    );
+    setKeyAccount((current) =>
+      current !== "default" ? current : (imageGen.account ?? "default"),
+    );
+  }, [imageGen]);
+
+  const providerOptions = (() => {
+    const byId = new Map<string, string>();
+    for (const p of list.providers) byId.set(p.id, p.name);
+    for (const p of providers) byId.set(p.id, p.label);
+    return [...byId.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([value, label]) => ({ value, label }));
+  })();
+
+  const selected = providers.find((p) => p.id === provider.trim());
+  const storedAccounts = (selected?.accounts ?? []).filter(
+    (a) => a.source !== "env",
+  );
+  const usingEnv = (selected?.accounts ?? []).some((a) => a.source === "env");
+  // Every saved image-provider key, across providers (the overview list).
+  const savedKeys = providers.flatMap((p) =>
+    (p.accounts ?? [])
+      .filter((a) => a.source !== "env")
+      .map((a) => ({ provider: p, account: a })),
+  );
+
+  /** Save the selected provider's key and make it the default image account. */
+  const saveKey = (): void => {
+    const providerId = provider.trim();
+    const accountId = keyAccount.trim() || "default";
+    const key = keyValue.trim();
+    if (providerId.length === 0 || key.length === 0) return;
+    setSavingKey(true);
+    void mutate(async () => {
+      await client.putAccount(providerId, accountId, {
+        label: providerId,
+        key,
+      });
+      // Point image defaults at the key's account so generations use it.
+      await client.putConfig({
+        imageGen: { provider: providerId, account: accountId },
+      });
+    }, `API key saved for ${providerId}`).finally(() => {
+      setSavingKey(false);
+      setKeyValue("");
+      void reload();
+    });
+  };
+
+  /** Delete a saved key (works for any image provider). */
+  const removeKey = (providerId: string, accountId: string): void => {
+    void mutate(
+      () => client.deleteAccount(providerId, accountId),
+      `API key removed for ${providerId}`,
+    ).finally(() => {
+      void reload();
+    });
+  };
+
+  /** Fetch a stored key and copy it to the clipboard (never kept client-side). */
+  const copyKey = (providerId: string, accountId: string): void => {
+    const token = `${providerId}/${accountId}`;
+    void mutate(async () => {
+      const key = await client.revealAccountKey(providerId, accountId);
+      await navigator.clipboard.writeText(key);
+      setCopiedKey(token);
+      setTimeout(
+        () => setCopiedKey((current) => (current === token ? null : current)),
+        1500,
+      );
+    }, `API key copied for ${providerId}`);
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        title="Providers"
+        lede="API keys for image generation. Stored server-side (auth.json, 0600) and never echoed back; the provider's env var is the fallback."
+      />
+      <div className="form-grid">
+        <Field label="Provider">
+          <Combobox
+            creatable
+            value={provider}
+            onChange={setProvider}
+            options={providerOptions}
+            placeholder="fal, openai…"
+            ariaLabel="Image provider"
+            emptyText="Type a provider id."
+          />
+        </Field>
+        <Field label="Account id" hint="(the key's name)">
+          <TextInput
+            value={keyAccount}
+            placeholder="default"
+            onChange={(e) => setKeyAccount(e.target.value)}
+          />
+        </Field>
+        <Field
+          label={
+            provider.trim().length > 0
+              ? `${provider.trim()} API key`
+              : "API key"
+          }
+        >
+          <TextInput
+            type="password"
+            value={keyValue}
+            placeholder="paste the key"
+            onChange={(e) => setKeyValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                saveKey();
+              }
+            }}
+          />
+        </Field>
+      </div>
+      <p className="dim">
+        {selected === undefined
+          ? "Pick a provider to add its key."
+          : selected.connected === true
+            ? `Connected${usingEnv ? " (env var)" : ""} — ${storedAccounts.length} saved key${storedAccounts.length === 1 ? "" : "s"}.`
+            : "No saved key yet — generations use the provider's env var if one is set."}
+      </p>
+      <div>
+        <Button
+          type="button"
+          variant="primary"
+          disabled={
+            provider.trim().length === 0 ||
+            keyValue.trim().length === 0 ||
+            savingKey
+          }
+          onClick={saveKey}
+        >
+          Save API key
+        </Button>
+      </div>
+      {savedKeys.length > 0 && (
+        <ul className="accounts">
+          {savedKeys.map(({ provider: p, account: a }) => {
+            const token = `${p.id}/${a.id}`;
+            const justCopied = copiedKey === token;
+            return (
+              <li key={token}>
+                <span>
+                  {p.label} — <i>{a.id}</i>
+                </span>
+                <span className="key-actions">
+                  <IconButton
+                    label={
+                      justCopied
+                        ? "Copied"
+                        : `Copy ${p.label} API key (${a.id})`
+                    }
+                    hint={justCopied ? "Copied" : "Copy API key"}
+                    onClick={() => copyKey(p.id, a.id)}
+                  >
+                    {justCopied ? <Check size={14} /> : <Copy size={14} />}
+                  </IconButton>
+                  <IconButton
+                    label={`Delete ${p.label} key ${a.id}`}
+                    hint="Delete API key"
+                    className="danger"
+                    onClick={() =>
+                      setPendingDelete({
+                        providerId: p.id,
+                        providerLabel: p.label,
+                        accountId: a.id,
+                      })
+                    }
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete API key?"
+        body={
+          <>
+            Delete the key <strong>{pendingDelete?.accountId}</strong> for{" "}
+            <strong>{pendingDelete?.providerLabel}</strong>? This cannot be
+            undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const pending = pendingDelete;
+          setPendingDelete(null);
+          if (pending !== null)
+            removeKey(pending.providerId, pending.accountId);
+        }}
+      />
+    </Card>
+  );
 }
 
 /**
@@ -1270,11 +1699,45 @@ function MediaGenForm({
   const [provider, setProvider] = useState(config?.provider ?? "");
   const [account, setAccount] = useState(config?.account ?? "");
   const [model, setModel] = useState(config?.model ?? "");
-  const [modelOptions, setModelOptions] = useState<{ value: string; label: string; hint?: string }[]>([]);
+  const [modelOptions, setModelOptions] = useState<
+    { value: string; label: string; hint?: string }[]
+  >([]);
+  const [mediaProviders, setMediaProviders] = useState<MediaProviderInfo[]>([]);
 
-  const providerIds = list.providers.map((p) => p.id).sort((a, b) => a.localeCompare(b));
+  const providerIds = list.providers
+    .map((p) => p.id)
+    .sort((a, b) => a.localeCompare(b));
   const knownProvider = list.providers.find((p) => p.id === provider.trim());
-  const accountIds = knownProvider?.accounts.map((a) => a.id) ?? [];
+  const mediaProvider = mediaProviders.find((p) => p.id === provider.trim());
+  const accountIds = (
+    mediaProvider?.accounts ??
+    knownProvider?.accounts ??
+    []
+  ).map((a) => a.id);
+
+  const reloadMediaProviders = useCallback(async (): Promise<void> => {
+    if (kind !== "imageGen") return;
+    try {
+      setMediaProviders(await client.imageProviders());
+    } catch {
+      setMediaProviders([]);
+    }
+  }, [client, kind]);
+
+  // Reload when the config changes too, so accounts added in the Providers card
+  // (above) show up in the Account picker without a remount.
+  useEffect(() => {
+    void reloadMediaProviders();
+  }, [reloadMediaProviders, config]);
+
+  const providerOptions = (() => {
+    const byId = new Map<string, string>();
+    for (const id of providerIds) byId.set(id, id);
+    for (const p of mediaProviders) byId.set(p.id, p.label);
+    return [...byId.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([value, label]) => ({ value, label }));
+  })();
 
   // Image-gen model autocomplete: the adapter's curated list (same rows as the
   // Image page). Video has no catalog yet, so it keeps a free-text field.
@@ -1293,8 +1756,16 @@ function MediaGenForm({
       .imageCapabilities(providerId, model.trim() || undefined)
       .then((res) => {
         if (cancelled) return;
-        setModelOptions(res.models.map((m) => ({ value: m.id, label: m.id, hint: modelOptionHint(m) })));
-        setModel((current) => (current.trim().length > 0 ? current : res.model));
+        setModelOptions(
+          res.models.map((m) => ({
+            value: m.id,
+            label: m.id,
+            hint: modelOptionHint(m),
+          })),
+        );
+        setModel((current) =>
+          current.trim().length > 0 ? current : res.model,
+        );
       })
       .catch(() => {
         if (!cancelled) setModelOptions([]);
@@ -1315,13 +1786,10 @@ function MediaGenForm({
       ...(account.trim().length > 0 ? { account: account.trim() } : {}),
     };
     // Branch for the typed ConfigPatch (a computed key widens the type).
-    void mutate(
-      async () => {
-        if (kind === "imageGen") await client.putConfig({ imageGen: value });
-        else await client.putConfig({ videoGen: value });
-      },
-      `${title} default set to ${modelId} via ${providerId}`,
-    );
+    void mutate(async () => {
+      if (kind === "imageGen") await client.putConfig({ imageGen: value });
+      else await client.putConfig({ videoGen: value });
+    }, `${title} default set to ${modelId} via ${providerId}`);
   };
 
   return (
@@ -1330,8 +1798,11 @@ function MediaGenForm({
         title={title}
         lede={
           <>
-            Defaults for the {kind === "imageGen" ? "image" : "video"} workbench — jobs without an
-            explicit model use this. Accounts come from the provider's saved keys (LLMs above).
+            Defaults for the {kind === "imageGen" ? "image" : "video"} workbench
+            — jobs without an explicit model use this.{" "}
+            {kind === "imageGen"
+              ? "Keys are managed in Providers above."
+              : "Accounts come from the provider's saved keys."}{" "}
             Empty fields keep their saved value.
           </>
         }
@@ -1342,7 +1813,7 @@ function MediaGenForm({
             creatable
             value={provider}
             onChange={setProvider}
-            options={providerIds.map((id) => ({ value: id, label: id }))}
+            options={providerOptions}
             placeholder="openai, fal…"
             ariaLabel={`${title} provider`}
             emptyText="Type a provider id."
@@ -1371,12 +1842,20 @@ function MediaGenForm({
               emptyText="Type a model id."
             />
           ) : (
-            <TextInput value={model} placeholder="veo-3…" onChange={(e) => setModel(e.target.value)} />
+            <TextInput
+              value={model}
+              placeholder="veo-3…"
+              onChange={(e) => setModel(e.target.value)}
+            />
           )}
         </Field>
       </div>
       <div>
-        <Button type="submit" variant="primary" disabled={provider.trim().length === 0 || model.trim().length === 0}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={provider.trim().length === 0 || model.trim().length === 0}
+        >
           Save {title.toLowerCase()} default
         </Button>
       </div>
@@ -1402,7 +1881,13 @@ const WEB_SEARCH_PROVIDER_LABELS: Record<string, string> = {
  * read-only status line (which keys the server has detected, which providers
  * are usable now). Self-loads its status and refetches after each save.
  */
-function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNotice }) {
+function WebSearchPane({
+  client,
+  onNotice,
+}: {
+  client: BaiClient;
+  onNotice: OnNotice;
+}) {
   const [status, setStatus] = useState<WebSearchStatus | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -1419,7 +1904,10 @@ function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const save = async (patch: { provider?: WebSearchProviderId; keylessFallback?: boolean }): Promise<void> => {
+  const save = async (patch: {
+    provider?: WebSearchProviderId;
+    keylessFallback?: boolean;
+  }): Promise<void> => {
     setSaving(true);
     try {
       await client.putConfig({ tools: { webSearch: patch } });
@@ -1436,8 +1924,11 @@ function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNo
     return <p className="dim">Loading…</p>;
   }
 
-  const available = status.available.map((name) => WEB_SEARCH_PROVIDER_LABELS[name] ?? name).join(", ");
-  const keyLine = (label: string, detected: boolean): string => `${label}: ${detected ? "key detected" : "no key"}`;
+  const available = status.available
+    .map((name) => WEB_SEARCH_PROVIDER_LABELS[name] ?? name)
+    .join(", ");
+  const keyLine = (label: string, detected: boolean): string =>
+    `${label}: ${detected ? "key detected" : "no key"}`;
 
   return (
     <>
@@ -1452,7 +1943,9 @@ function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNo
             options={WEB_SEARCH_PROVIDER_OPTIONS}
             value={status.provider}
             disabled={saving}
-            onChange={(value) => void save({ provider: value as WebSearchProviderId })}
+            onChange={(value) =>
+              void save({ provider: value as WebSearchProviderId })
+            }
             ariaLabel="Web search provider"
           />
         </Field>
@@ -1463,9 +1956,12 @@ function WebSearchPane({ client, onNotice }: { client: BaiClient; onNotice: OnNo
           description="Use the public Exa/Parallel free tiers (and DuckDuckGo) when no API key is configured."
         />
         <p className="dim">
-          {keyLine("Exa", status.keys.exa)} · {keyLine("Parallel", status.keys.parallel)}
+          {keyLine("Exa", status.keys.exa)} ·{" "}
+          {keyLine("Parallel", status.keys.parallel)}
         </p>
-        <p className="dim">Available now: {available.length > 0 ? available : "none"}</p>
+        <p className="dim">
+          Available now: {available.length > 0 ? available : "none"}
+        </p>
       </Card>
     </>
   );
@@ -1484,7 +1980,13 @@ const MCP_STATE_LABELS: Record<McpServerInfo["state"], string> = {
  * authorize, retry, remove) plus the curated catalog. Installing a catalog
  * entry writes a drop-in file under ~/.config/bai/mcp/ and starts OAuth.
  */
-function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: OnNotice }) {
+function IntegrationsPane({
+  client,
+  onNotice,
+}: {
+  client: BaiClient;
+  onNotice: OnNotice;
+}) {
   const [servers, setServers] = useState<McpServerInfo[] | null>(null);
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1493,7 +1995,14 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
   const [authCode, setAuthCode] = useState("");
   const [serverModal, setServerModal] = useState<
     | { mode: "add" }
-    | { mode: "edit"; server: { name: string; source: McpServerSource; config: MCPServerConfig } }
+    | {
+        mode: "edit";
+        server: {
+          name: string;
+          source: McpServerSource;
+          config: MCPServerConfig;
+        };
+      }
     | null
   >(null);
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -1501,7 +2010,10 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
 
   const load = async (): Promise<void> => {
     try {
-      const [nextServers, nextCatalog] = await Promise.all([client.getMcpServers(), client.getMcpCatalog()]);
+      const [nextServers, nextCatalog] = await Promise.all([
+        client.getMcpServers(),
+        client.getMcpCatalog(),
+      ]);
       setServers(nextServers);
       setCatalog(nextCatalog);
     } catch (err) {
@@ -1538,7 +2050,11 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authName]);
 
-  const run = async (key: string, fn: () => Promise<void>, ok: string): Promise<void> => {
+  const run = async (
+    key: string,
+    fn: () => Promise<void>,
+    ok: string,
+  ): Promise<void> => {
     setBusy(key);
     try {
       await fn();
@@ -1556,7 +2072,9 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     setAuthName(name);
     setAuthUrl(url);
     setAuthCode("");
-    onNotice("Authorize in the browser window — this page updates automatically when it completes.");
+    onNotice(
+      "Authorize in the browser window — this page updates automatically when it completes.",
+    );
   };
 
   const authorize = async (name: string): Promise<void> => {
@@ -1587,7 +2105,11 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
   const finishAuth = async (): Promise<void> => {
     if (authName === null || authCode.trim().length === 0) return;
     const name = authName;
-    await run(name, () => client.finishMcpAuth(name, authCode.trim()), `${name} authorized`);
+    await run(
+      name,
+      () => client.finishMcpAuth(name, authCode.trim()),
+      `${name} authorized`,
+    );
     setAuthName(null);
     setAuthUrl(null);
     setAuthCode("");
@@ -1616,7 +2138,9 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
     query.length === 0
       ? catalog
       : catalog.filter((entry) =>
-          `${entry.title} ${entry.name} ${entry.description} ${entry.category}`.toLowerCase().includes(query),
+          `${entry.title} ${entry.name} ${entry.description} ${entry.category}`
+            .toLowerCase()
+            .includes(query),
         );
   const catalogGroups: { category: string; entries: McpCatalogEntry[] }[] = [];
   for (const entry of filteredCatalog) {
@@ -1645,7 +2169,11 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
             </p>
           )}
           <Field label="Authorization code">
-            <TextInput value={authCode} placeholder="paste code…" onChange={(e) => setAuthCode(e.target.value)} />
+            <TextInput
+              value={authCode}
+              placeholder="paste code…"
+              onChange={(e) => setAuthCode(e.target.value)}
+            />
           </Field>
           <div>
             <Button
@@ -1673,8 +2201,8 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
       {/* --- Catalog (first, height-capped so it never buries the servers) --- */}
       <h3 className="settings-subheading">Catalog</h3>
       <p className="section-lede">
-        Official vendor-hosted MCP servers, grouped by category. Install writes a drop-in file in ~/.config/bai/mcp/,
-        then starts OAuth where required.
+        Official vendor-hosted MCP servers, grouped by category. Install writes
+        a drop-in file in ~/.config/bai/mcp/, then starts OAuth where required.
       </p>
       <div className="provider-actions">
         <TextInput
@@ -1685,7 +2213,9 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         />
       </div>
       {catalogGroups.length === 0 ? (
-        <p className="dim provider-empty">No integrations match "{catalogQuery.trim()}".</p>
+        <p className="dim provider-empty">
+          No integrations match "{catalogQuery.trim()}".
+        </p>
       ) : (
         <div className="provider-accordion mcp-catalog-scroll">
           {catalogGroups.map((group) => (
@@ -1701,15 +2231,21 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                   title={
                     <>
                       <strong>{entry.title}</strong>{" "}
-                      <span className="mcp-badge">{entry.oauth === true ? "OAuth" : "No auth"}</span>
+                      <span className="mcp-badge">
+                        {entry.oauth === true ? "OAuth" : "No auth"}
+                      </span>
                     </>
                   }
                   subtitle={
                     <>
                       <span className="mcp-row-meta">{entry.description}</span>
-                      {entry.envVars !== undefined && entry.envVars.length > 0 && (
-                        <span className="mcp-row-meta"> env: {entry.envVars.map((v) => v.name).join(", ")}</span>
-                      )}
+                      {entry.envVars !== undefined &&
+                        entry.envVars.length > 0 && (
+                          <span className="mcp-row-meta">
+                            {" "}
+                            env: {entry.envVars.map((v) => v.name).join(", ")}
+                          </span>
+                        )}
                     </>
                   }
                   trailing={
@@ -1732,39 +2268,57 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
       {/* --- Custom MCP servers (files in ~/.config/bai/mcp/ or config.json) --- */}
       <h3 className="settings-subheading">Custom MCP Servers</h3>
       <p className="section-lede">
-        Your own servers — files in ~/.config/bai/mcp/ or config.json. Their tools appear as{" "}
-        <code>mcp/&lt;server&gt;/&lt;tool&gt;</code>.
+        Your own servers — files in ~/.config/bai/mcp/ or config.json. Their
+        tools appear as <code>mcp/&lt;server&gt;/&lt;tool&gt;</code>.
       </p>
       <div className="provider-actions">
-        <Button variant="outline" onClick={() => setServerModal({ mode: "add" })}>
+        <Button
+          variant="outline"
+          onClick={() => setServerModal({ mode: "add" })}
+        >
           + Add a custom MCP server
         </Button>
       </div>
       {servers.length === 0 ? (
-        <p className="dim provider-empty">No MCP servers yet. Install one above, or drop a file into ~/.config/bai/mcp/.</p>
+        <p className="dim provider-empty">
+          No MCP servers yet. Install one above, or drop a file into
+          ~/.config/bai/mcp/.
+        </p>
       ) : (
         <div className="provider-accordion">
-            {servers.map((server) => (
-              <div key={server.name} className="mcp-row">
-                <div className="mcp-row-main">
-                  <BrandIcon name={server.name} />
-                  <div>
-                    <span className="mcp-row-title">
-                      <strong>{server.name}</strong>
-                    </span>
-                    <div className="mcp-row-meta">
-                      {MCP_STATE_LABELS[server.state]} · {server.transport} · {server.tools} tool
-                      {server.tools === 1 ? "" : "s"} · {server.source === "file" ? "file" : "config.json"}
-                      {server.error !== undefined ? ` · ${server.error}` : ""}
-                    </div>
+          {servers.map((server) => (
+            <div key={server.name} className="mcp-row">
+              <div className="mcp-row-main">
+                <BrandIcon name={server.name} />
+                <div>
+                  <span className="mcp-row-title">
+                    <strong>{server.name}</strong>
+                  </span>
+                  <div className="mcp-row-meta">
+                    {MCP_STATE_LABELS[server.state]} · {server.transport} ·{" "}
+                    {server.tools} tool
+                    {server.tools === 1 ? "" : "s"} ·{" "}
+                    {server.source === "file" ? "file" : "config.json"}
+                    {server.error !== undefined ? ` · ${server.error}` : ""}
                   </div>
                 </div>
-                <div className="mcp-row-actions">
-                <Button type="button" variant="ghost" disabled={busy !== null} onClick={() => void openEdit(server.name)}>
+              </div>
+              <div className="mcp-row-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy !== null}
+                  onClick={() => void openEdit(server.name)}
+                >
                   Edit
                 </Button>
                 {server.state === "needs_auth" && (
-                  <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void authorize(server.name)}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy !== null}
+                    onClick={() => void authorize(server.name)}
+                  >
                     Authorize
                   </Button>
                 )}
@@ -1773,7 +2327,13 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                     type="button"
                     variant="secondary"
                     disabled={busy !== null}
-                    onClick={() => void run(server.name, () => client.reconnectMcpServer(server.name), "Reconnect requested")}
+                    onClick={() =>
+                      void run(
+                        server.name,
+                        () => client.reconnectMcpServer(server.name),
+                        "Reconnect requested",
+                      )
+                    }
                   >
                     Retry
                   </Button>
@@ -1785,7 +2345,11 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
                   onClick={() =>
                     void run(
                       server.name,
-                      () => client.setMcpServerEnabled(server.name, server.state === "disabled"),
+                      () =>
+                        client.setMcpServerEnabled(
+                          server.name,
+                          server.state === "disabled",
+                        ),
                       server.state === "disabled" ? "Enabled" : "Disabled",
                     )
                   }
@@ -1811,7 +2375,9 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
       {serverModal !== null && (
         <McpServerModal
           client={client}
-          {...(serverModal.mode === "edit" ? { server: serverModal.server } : {})}
+          {...(serverModal.mode === "edit"
+            ? { server: serverModal.server }
+            : {})}
           onClose={() => setServerModal(null)}
           onSaved={() => void load()}
           onNotice={onNotice}
@@ -1822,7 +2388,8 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         title="Remove MCP server?"
         body={
           <>
-            Remove <strong>{pendingRemove}</strong> and its drop-in file? This cannot be undone.
+            Remove <strong>{pendingRemove}</strong> and its drop-in file? This
+            cannot be undone.
           </>
         }
         confirmLabel="Remove"
@@ -1830,7 +2397,12 @@ function IntegrationsPane({ client, onNotice }: { client: BaiClient; onNotice: O
         onConfirm={() => {
           const name = pendingRemove;
           setPendingRemove(null);
-          if (name !== null) void run(name, () => client.deleteMcpServer(name), `Removed ${name}`);
+          if (name !== null)
+            void run(
+              name,
+              () => client.deleteMcpServer(name),
+              `Removed ${name}`,
+            );
         }}
       />
     </>

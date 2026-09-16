@@ -1,10 +1,9 @@
-import type { MediaGenConfig, MediaGenRequest, MediaModelInfo, MediaParamValue } from "@bai/shared";
+import type { MediaGenConfig, MediaGenRequest, MediaModelInfo, MediaParamValue, MediaProviderInfo } from "@bai/shared";
 import { normalizeTags } from "@bai/shared";
 import type { Workbench } from "../workbench/types";
 import type { GeneratedFile, JobExecutor, JobExecutorResult } from "../workbench/types";
 import { MediaGenError, type MediaGenAdapter, type MediaGeneratedImage } from "./media/adapter";
-import { OpenRouterMediaAdapter } from "./media/openrouter";
-import { StubMediaAdapter } from "./media/stub";
+import { buildMediaAdapters, mediaProviderDef, mediaProviderInfos } from "./media/registry";
 import { imageDimensions, looksLikeImage } from "./media/dimensions";
 
 /** Credentials + stored-asset reads the image executor needs at runtime. */
@@ -41,11 +40,9 @@ export class ImageWorkbench implements Workbench {
 
   constructor(deps: ImageWorkbenchDeps = {}) {
     this.deps = deps;
-    const openrouter = new OpenRouterMediaAdapter(deps.fetch ?? globalThis.fetch);
-    this.adapters = new Map<string, MediaGenAdapter>([
-      ["openrouter", openrouter],
-      ["stub", new StubMediaAdapter()],
-    ]);
+    // Adapters are materialized from the media-provider registry, so a new
+    // provider is a spec entry + adapter file — not a change here.
+    this.adapters = buildMediaAdapters(deps.fetch ?? globalThis.fetch);
   }
 
   name() {
@@ -68,9 +65,21 @@ export class ImageWorkbench implements Workbench {
     return ["image" as const];
   }
 
-  /** The adapter for a provider id; unknown providers fall back to the stub. */
+  /** The provider picker's rows (label + adapter defaults + models). */
+  async providers(): Promise<MediaProviderInfo[]> {
+    return mediaProviderInfos(this.adapters);
+  }
+
+  /** The adapter for a provider id or alias; unknown providers fall back to the stub. */
   private adapterFor(provider: string): MediaGenAdapter {
-    return this.adapters.get(provider) ?? this.adapters.get("stub")!;
+    const direct = this.adapters.get(provider);
+    if (direct !== undefined) return direct;
+    const aliased = mediaProviderDef(provider);
+    if (aliased !== undefined) {
+      const adapter = this.adapters.get(aliased.id);
+      if (adapter !== undefined) return adapter;
+    }
+    return this.adapters.get("stub")!;
   }
 
   /** Curated model list (with rates) + param spec for the page's picker. */

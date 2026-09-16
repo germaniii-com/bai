@@ -89,6 +89,18 @@ const MATCHERS: Array<[string, string]> = [
   ["reka", "reka"],
   ["nous", "nous"],
   ["cloudflare", "cloudflare"],
+  // Image-only vendors (no brand mark compiled — resolved to a fallback).
+  ["black forest", "bfl"],
+  ["black-forest", "bfl"],
+  ["bfl", "bfl"],
+  ["flux", "bfl"],
+  ["fal", "fal"],
+  ["replicate", "replicate"],
+  ["stability", "stability"],
+  ["stable diffusion", "stability"],
+  ["ideogram", "ideogram"],
+  ["recraft", "recraft"],
+  ["deepinfra", "deepinfra"],
 ];
 
 /** Adapter → brand key, when the id/name tells us nothing. */

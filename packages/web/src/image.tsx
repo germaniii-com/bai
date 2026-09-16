@@ -19,7 +19,6 @@ import {
   coerceMediaParams,
   formatCost,
   fuzzyTagScore,
-  modelsForWorkflow,
   readMediaGen,
   type Asset,
   type AttachmentRef,
@@ -29,6 +28,7 @@ import {
   type MediaModelInfo,
   type MediaMode,
   type MediaParamValue,
+  type MediaProviderInfo,
   type MediaTagCount,
 } from "@bai/shared";
 import {
@@ -78,6 +78,28 @@ function isReferenceImage(file: File): boolean {
 }
 
 /**
+ * The offline placeholder. The provider selector was removed from this page in
+ * favor of a flat model list, so the stub is injected client-side as a fallback
+ * when no real provider has a key (matching the workbench's own fallback).
+ */
+const STUB_PROVIDER: MediaProviderInfo = {
+  id: "stub",
+  label: "Stub (offline placeholder)",
+  defaultModel: "stub",
+  modes: ["t2i", "i2i"],
+  connected: true,
+  models: [
+    {
+      id: "stub",
+      label: "Stub (placeholder)",
+      modes: ["t2i", "i2i"],
+      maxReferences: 1,
+      maxCount: 4,
+    },
+  ],
+};
+
+/**
  * The single-page image generation workbench: a workflow selector + params
  * on the left and a fuzzy tag-filtered gallery below (the gallery IS the
  * output — no duplicate batch view). Clicking a gallery image opens the
@@ -95,6 +117,8 @@ export function ImagePane({
   onNotice: OnNotice;
 }) {
   const [provider, setProvider] = useState(imageGen?.provider ?? "");
+  const [mediaProviders, setMediaProviders] = useState<MediaProviderInfo[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
   const [model, setModel] = useState(imageGen?.model ?? "");
   const [caps, setCaps] = useState<MediaCapabilitiesResponse | null>(null);
   const [workflow, setWorkflow] = useState<MediaMode>("t2i");
@@ -130,6 +154,53 @@ export function ImagePane({
     setProvider((p) => (p.length > 0 ? p : (imageGen.provider ?? "stub")));
     setModel((m) => (m.length > 0 ? m : (imageGen.model ?? "")));
   }, [imageGen]);
+
+  // Registered media providers + their models. The provider selector is gone:
+  // the model list aggregates every provider that has a saved key (or env var).
+  // With none set up, the offline stub keeps the page usable.
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .imageProviders()
+      .then((providers) => {
+        if (cancelled) return;
+        setMediaProviders(providers);
+        setProvidersLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMediaProviders([]);
+          setProvidersLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  // Providers that can actually generate; the stub stands in only when nothing
+  // is configured, so the list stays clean once real keys exist.
+  const activeProviders = (() => {
+    const connected = mediaProviders.filter((p) => p.connected === true);
+    return connected.length > 0 ? connected : [STUB_PROVIDER];
+  })();
+
+  // Every (provider, model) pair on offer for the active workflow, deduped by
+  // model id (the first provider in spec order wins) so the picker stays unique.
+  const workflowModels = (() => {
+    const seen = new Set<string>();
+    const out: { provider: MediaProviderInfo; model: MediaModelInfo }[] = [];
+    for (const p of activeProviders) {
+      for (const m of p.models ?? []) {
+        if (!m.modes.includes(workflow) || seen.has(m.id)) continue;
+        seen.add(m.id);
+        out.push({ provider: p, model: m });
+      }
+    }
+    return out;
+  })();
+  const activeProviderLabel =
+    activeProviders.find((p) => p.id === provider)?.label ?? provider;
 
   // Capabilities for the selected provider/model (drives the params UI).
   useEffect(() => {
@@ -226,7 +297,9 @@ export function ImagePane({
           imageGen: {
             provider: nextProvider,
             model: nextModel,
-            ...(imageGen?.account !== undefined
+            // Carry the account across only when the provider is unchanged —
+            // another provider's account id would be meaningless.
+            ...(imageGen?.account !== undefined && imageGen.provider === nextProvider
               ? { account: imageGen.account }
               : {}),
           },
@@ -235,33 +308,31 @@ export function ImagePane({
           onNotice(err instanceof Error ? err.message : String(err), "error"),
         );
     },
-    [client, imageGen?.account, onNotice],
+    [client, imageGen?.account, imageGen?.provider, onNotice],
   );
 
-  const updateProvider = (next: string): void => {
-    setProvider(next);
-    if (next.trim().length > 0 && model.trim().length > 0)
-      persistImageGen(next, model);
-  };
-
-  const updateModel = (next: string): void => {
-    setModel(next);
-    if (next.trim().length > 0 && provider.trim().length > 0)
-      persistImageGen(provider, next);
+  /** Selecting a model picks its provider implicitly and persists the pair. */
+  const selectModel = (modelId: string): void => {
+    const entry = workflowModels.find((e) => e.model.id === modelId);
+    if (entry === undefined) return;
+    setProvider(entry.provider.id);
+    setModel(entry.model.id);
+    persistImageGen(entry.provider.id, entry.model.id);
   };
 
   // Keep the selection inside the current workflow's supported model set: a
-  // model that can't do image-to-image is hidden (and swapped out) for i2i.
+  // model that can't do image-to-image is swapped for the first available one
+  // (initial seeding is local; explicit user changes are persisted).
   useEffect(() => {
-    if (caps === null) return;
-    const supported = modelsForWorkflow(caps.models, workflow);
-    if (supported.length === 0) return;
-    if (supported.some((m) => m.id === model)) return;
-    const next = supported[0]?.id;
+    if (!providersLoaded || workflowModels.length === 0) return;
+    if (workflowModels.some((e) => e.model.id === model && e.provider.id === provider)) return;
+    const next = workflowModels.find((e) => e.provider.id === provider) ?? workflowModels[0];
     if (next === undefined) return;
-    setModel(next);
-    if (provider.trim().length > 0) persistImageGen(provider, next);
-  }, [caps, workflow, model, provider, persistImageGen]);
+    const hadSelection = model.trim().length > 0;
+    setProvider(next.provider.id);
+    setModel(next.model.id);
+    if (hadSelection) persistImageGen(next.provider.id, next.model.id);
+  }, [providersLoaded, workflowModels, model, provider, persistImageGen]);
 
   const uploadReference = useCallback(
     async (file: File): Promise<void> => {
@@ -435,6 +506,10 @@ export function ImagePane({
     setWorkflow(gen.mode);
     setPrompt(gen.prompt);
     setTags(gen.tags ?? []);
+    // Load the provider too, so a recipe from a non-active provider still
+    // resolves its capabilities.
+    const providerId = typeof asset.meta.provider === "string" ? asset.meta.provider : undefined;
+    if (providerId !== undefined && providerId.length > 0) setProvider(providerId);
     if (gen.model !== undefined && gen.model.length > 0) setModel(gen.model); // form-only on load
     if (gen.params !== undefined)
       setParams(coerceMediaParams(caps?.capabilities.params ?? [], gen.params));
@@ -447,10 +522,9 @@ export function ImagePane({
   // generation (parallel up to config.jobs.concurrency), with its own prompt.
   const canGenerate =
     prompt.trim().length > 0 && !submitting && (workflow === "t2i" || reference !== null);
-  const selectedModel = caps?.models.find((m) => m.id === model);
-  // Only models that support the selected workflow are offered (e.g. a
-  // text-to-image-only model disappears for Image to Image).
-  const workflowModels = modelsForWorkflow(caps?.models ?? [], workflow);
+  const selectedModel =
+    workflowModels.find((e) => e.model.id === model)?.model ??
+    caps?.models.find((m) => m.id === model);
 
   // Fuzzy tag suggestions for the gallery search (ranked prefix > substring > subsequence).
   const gallerySuggestions: MediaTagCount[] =
@@ -489,47 +563,28 @@ export function ImagePane({
                 ]}
               />
             </Field>
-            <Field label="Provider">
+            <Field
+              label="Model"
+              hint={activeProviderLabel.length > 0 ? activeProviderLabel : undefined}
+            >
               <Combobox
-                creatable
-                value={provider}
-                onChange={updateProvider}
-                options={[
-                  {
-                    value: "openrouter",
-                    label: "OpenRouter",
-                    hint: "image API",
-                  },
-                  {
-                    value: "stub",
-                    label: "Stub (placeholder)",
-                    hint: "offline",
-                  },
-                ]}
-                ariaLabel="Provider"
-                emptyText="Type a provider id."
-              />
-            </Field>
-            <Field label="Model" hint={`(${workflowModels.length})`}>
-              <Combobox
-                creatable
                 value={model}
-                onChange={updateModel}
-                options={workflowModels.map((m) => ({
-                  value: m.id,
-                  label: m.id,
-                  hint: modelOptionHint(m),
+                onChange={selectModel}
+                options={workflowModels.map((e) => ({
+                  value: e.model.id,
+                  label: e.model.id,
+                  hint: `${e.provider.label} · ${modelOptionHint(e.model)}`,
                 }))}
                 ariaLabel="Model"
-                emptyText="No model supports this workflow — type an id."
+                emptyText="No model available."
               />
             </Field>
           </div>
 
-          {caps !== null && workflowModels.length === 0 && (
+          {workflowModels.length === 0 && (
             <p className="dim">
-              No {workflow === "i2i" ? "image-to-image" : "text-to-image"} model
-              is available for {provider.trim() || "this provider"}.
+              No {workflow === "i2i" ? "image-to-image" : "text-to-image"} models are
+              available. Add a provider key in Settings → Image Generation.
             </p>
           )}
 

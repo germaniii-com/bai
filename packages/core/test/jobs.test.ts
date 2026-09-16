@@ -45,16 +45,18 @@ describe("job queue (structured stubs)", () => {
   });
 
   test("image job without a model falls back to the configured imageGen default", async () => {
-    t.config.imageGen = { provider: "openai", account: "personal", model: "gpt-image-2" };
+    // The stub adapter keeps the fallback-resolution assertions hermetic — real
+    // media provider ids (openai, …) now resolve to live adapters that need keys.
+    t.config.imageGen = { provider: "stub", account: "personal", model: "gpt-image-2" };
     const assetCreated = waitForEvent(t.bus, "asset.created");
     const job = t.core.enqueueJob("image.generate", undefined, { prompt: "a blue sphere" });
     await assetCreated;
     const stored = t.store.jobs.get(job.id);
     expect(stored?.status).toBe("done");
-    expect(stored?.output).toEqual({ model: "gpt-image-2", provider: "openai", count: 1 });
+    expect(stored?.output).toEqual({ model: "gpt-image-2", provider: "stub", count: 1 });
     const asset = t.store.assets.byJob(job.id)[0];
     expect(asset?.meta.model).toBe("gpt-image-2");
-    expect(asset?.meta.provider).toBe("openai");
+    expect(asset?.meta.provider).toBe("stub");
     expect(asset?.meta.account).toBe("personal");
   });
 
@@ -69,11 +71,11 @@ describe("job queue (structured stubs)", () => {
   });
 
   test("an explicit job model beats the configured media default", async () => {
-    t.config.imageGen = { provider: "openai", model: "gpt-image-2" };
+    t.config.imageGen = { provider: "stub", model: "gpt-image-2" };
     const assetCreated = waitForEvent(t.bus, "asset.created");
     const job = t.core.enqueueJob("image.generate", undefined, { prompt: "x", model: "custom/model" });
     await assetCreated;
-    expect(t.store.jobs.get(job.id)?.output).toEqual({ model: "custom/model", provider: "openai", count: 1 });
+    expect(t.store.jobs.get(job.id)?.output).toEqual({ model: "custom/model", provider: "stub", count: 1 });
   });
 
   test("job.updated events fire through the pipeline", async () => {

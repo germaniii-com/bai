@@ -19,6 +19,7 @@ import {
   type MediaGalleryPage,
   type MediaGenRequest,
   type MediaCapabilitiesResponse,
+  type MediaProviderInfo,
   type MediaRecent,
   type MediaTagCount,
   type Message,
@@ -1278,6 +1279,22 @@ export class Service {
     return workbench.capabilities(provider, model);
   }
 
+  /**
+   * Every media provider the image workbench can generate with, each enriched
+   * with its saved accounts (so the Settings page can manage API keys for
+   * image-only vendors that never appear in the LLM provider list).
+   */
+  async imageProviders(): Promise<MediaProviderInfo[]> {
+    const workbench = this.imageWorkbench();
+    if (workbench === undefined) return [];
+    const infos: MediaProviderInfo[] = [];
+    for (const info of await workbench.providers()) {
+      const accounts = await this.deps.providers.accounts(info.id);
+      infos.push({ ...info, accounts, connected: accounts.length > 0 });
+    }
+    return infos;
+  }
+
   /** Enqueue one image generation (tags normalized before they are persisted). */
   enqueueImageGeneration(request: MediaGenRequest): Job {
     const normalized: MediaGenRequest = {
@@ -1452,6 +1469,11 @@ export class Service {
     const removed = this.deps.providers.removeAccount(providerId, accountId);
     if (removed) this.emitLive("provider.updated", {});
     return removed;
+  }
+
+  /** Reveal one stored API key for copy-to-clipboard (secrets; api accounts only). */
+  revealAccountKey(providerId: string, accountId: string): string | undefined {
+    return this.deps.providers.revealApiKey(providerId, accountId);
   }
 
   // --- OAuth logins (server-side sessions) ---

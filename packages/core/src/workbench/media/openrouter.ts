@@ -5,7 +5,6 @@ import type {
   MediaModelRate,
   MediaMode,
   MediaParamSpec,
-  MediaParamValue,
 } from "@bai/shared";
 import {
   MediaGenError,
@@ -14,6 +13,7 @@ import {
   type MediaGenerateResult,
   type MediaGeneratedImage,
 } from "./adapter";
+import { decodeB64, extForMime, mimeFromFormat, postJson, toDataUrl } from "./http";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -227,41 +227,22 @@ export class OpenRouterMediaAdapter implements MediaGenAdapter {
     const baseUrl = (credentials.baseUrl ?? OPENROUTER_BASE_URL).replace(/\/+$/, "");
     const model = request.model ?? this.defaultModel();
     const body = buildBody(request, model, ctx);
-    let res: Response;
-    try {
-      res = await this.fetchImpl(`${baseUrl}/images`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${credentials.apiKey}`,
-          "x-title": "bai",
-          ...(credentials.headers ?? {}),
-        },
-        body: JSON.stringify(body),
-        signal: ctx.signal,
-      });
-    } catch (err) {
-      if (ctx.signal.aborted) throw err;
-      throw new MediaGenError(err instanceof Error ? err.message : String(err), { retryable: true });
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      const message = errorMessage(text) ?? `OpenRouter image request failed (${res.status})`;
-      throw new MediaGenError(message, {
-        retryable: res.status === 429 || res.status >= 500,
-        status: res.status,
-      });
-    }
-    const json = (await res.json().catch(() => undefined)) as
-      | { data?: unknown; usage?: { cost?: unknown } }
-      | undefined;
+    const json = (await postJson(this.fetchImpl, `${baseUrl}/images`, body, {
+      headers: {
+        authorization: `Bearer ${credentials.apiKey}`,
+        "x-title": "bai",
+        ...(credentials.headers ?? {}),
+      },
+      signal: ctx.signal,
+      label: "OpenRouter image request",
+    })) as { data?: unknown; usage?: { cost?: unknown } } | undefined;
     const data = Array.isArray(json?.data) ? json.data : [];
     const files: MediaGeneratedImage[] = [];
     for (const entry of data) {
       if (typeof entry !== "object" || entry === null) continue;
       const record = entry as { b64_json?: unknown; media_type?: unknown };
       if (typeof record.b64_json !== "string" || record.b64_json.length === 0) continue;
-      const bytes = new Uint8Array(Buffer.from(record.b64_json, "base64"));
+      const bytes = decodeB64(record.b64_json);
       if (bytes.byteLength === 0) continue;
       const mime =
         typeof record.media_type === "string" && record.media_type.length > 0
@@ -319,52 +300,6 @@ function buildBody(request: MediaGenRequest, model: string, ctx: MediaGenContext
     if (refs.length > 0) body.input_references = refs;
   }
   return body;
-}
-
-function toDataUrl(mime: string, bytes: Uint8Array): string {
-  return `data:${mime.length > 0 ? mime : "image/png"};base64,${Buffer.from(bytes).toString("base64")}`;
-}
-
-function mimeFromFormat(format: MediaParamValue | undefined): string {
-  switch (format) {
-    case "jpeg":
-      return "image/jpeg";
-    case "webp":
-      return "image/webp";
-    case "svg":
-      return "image/svg+xml";
-    default:
-      return "image/png";
-  }
-}
-
-function extForMime(mime: string): string {
-  switch (mime) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/webp":
-      return "webp";
-    case "image/svg+xml":
-      return "svg";
-    case "image/gif":
-      return "gif";
-    default:
-      return "png";
-  }
-}
-
-function errorMessage(text: string): string | undefined {
-  if (text.length === 0) return undefined;
-  try {
-    const parsed = JSON.parse(text) as { error?: { message?: unknown } | string };
-    if (typeof parsed.error === "string") return parsed.error;
-    if (typeof parsed.error === "object" && parsed.error !== null && typeof parsed.error.message === "string") {
-      return parsed.error.message;
-    }
-  } catch {
-    // fall through to the raw text
-  }
-  return text.slice(0, 400);
 }
 
 /**

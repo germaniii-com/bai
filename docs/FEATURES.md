@@ -523,22 +523,45 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
 - **Text to Image and Image to Image.** Image-to-image takes a reference image
   (drop or pick — **PNG, JPG, GIF, or WebP, up to 10 MB**; uploaded once,
   stored as an asset, lowered to the provider's `input_references` data URL).
-- **OpenRouter first.** `imageGen.provider: "openrouter"` calls the dedicated
-  Image API (`POST /api/v1/images`); `imageGen.model` picks the model and the
-  per-page picker (openrouter + a curated model list, creatable) persists the
-  choice back to config. Any other/unset provider uses the deterministic
-  **stub** adapter — the workbench works offline with no keys.
-- **Settings → Image Generation** owns the image workbench defaults
-  (provider · account · model · **default parameters and tags** — the param
-  controls come from the selected model's spec) and the media job limits:
-  **concurrent generations** (1–10), timeout, retry attempts, and backoff
-  (config `jobs`). The agent `image.generate` tool and the page both fall
-  back to these.
+- **Multi-provider.** `imageGen.provider` picks an adapter from a
+  data-driven registry. The Image page shows a single **model** picker that
+  aggregates the models of every provider you've connected (provider selection
+  lives in **Settings → Image Generation**, where keys are saved); when nothing
+  is connected it falls back to the offline **stub**. Shipped adapters:
+  **OpenRouter**, **OpenAI Images**, **Google Gemini (Nano Banana)**,
+  **xAI Grok Imagine**, **Together AI**, **DeepInfra**, **Recraft**,
+  **Black Forest Labs (FLUX)**, **fal.ai**, **Replicate**, **Stability AI**,
+  **Ideogram**, and **MiniMax Image** — across sync JSON, multipart, Google
+  Interactions, and async submit→poll transports. `imageGen.model` picks the
+  model; per-provider model lists are curated but the pickers are **creatable**
+  so any id can be typed. Any other/unset provider uses the deterministic
+  **stub** adapter — the workbench works offline with no keys. Keys are saved
+  from **Settings → Image Generation**, in a **Providers** card above the
+  defaults (covering image-only vendors like fal/BFL that don't appear in Model
+  Providers), and listed there as `Provider — account` rows with a
+  **copy-to-clipboard** and a **delete** action (stored API keys only; OAuth
+  tokens and env keys are never revealed). They can also come from env (`OPENAI_API_KEY`,
+  `GEMINI_API_KEY`, `BFL_API_KEY`, `FAL_KEY`, `REPLICATE_API_TOKEN`,
+  `STABILITY_API_KEY`, `IDEOGRAM_API_KEY`, `RECRAFT_API_TOKEN`,
+  `MINIMAX_API_KEY`, …), saved accounts, or `config.providers.<id>.apiKeyEnv`.
+- **Cost where the provider reports it.** Adapters surface the provider's own
+  USD cost when available (OpenRouter `usage.cost`, xAI `cost_in_usd_ticks`);
+  others leave cost blank rather than guessing. Slow async models
+  (BFL/fal/Replicate) must finish within `config.jobs.timeoutMs` — raise it
+  from the default 180 s for heavy jobs.
+- **Settings → Image Generation** opens with a **Providers** card (API keys),
+  then owns the image workbench defaults (provider · account · model ·
+  **default parameters and tags** — the param controls come from the selected
+  model's spec) and the media job limits: **concurrent generations** (1–10),
+  timeout, retry attempts, and backoff (config `jobs`). The agent
+  `image.generate` tool and the page both fall back to these.
 - **Capability-driven params.** Every adapter declares its parameter
   vocabulary (enum pickers, toggles, ranges with min/max, numbers, text); the
   page renders them generically. OpenRouter exposes aspect ratio, resolution,
   quality, output format, background, compression, seed, count, and provider
-  fallbacks — so a new provider is data, not UI work.
+  fallbacks; OpenAI size/quality/background/format; Gemini aspect ratio +
+  1K/2K/4K; FLUX width/height/seed; and so on — so a new provider is data,
+  not UI work.
 - **Tags + gallery.** Tags applied to a batch are normalized and indexed;
   the gallery's tag search is **fuzzy** — every whitespace token must match
   (prefix, substring, or subsequence), so `gemini` (or even `g3p`) finds a
@@ -567,10 +590,16 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
 **Under the hood**
 
 - `core/src/workbench/media/` — the adapter seam (`MediaGenAdapter`),
-  `openrouter.ts` (the only file that speaks the Image API wire shape),
-  `stub.ts`, and `dimensions.ts` (image-header size parsing for the card's
-  `1920×1080`). `core/src/workbench/image.ts` owns the job executor and stamps
-  each asset's recipe/metadata.
+  `registry.ts` (specs → adapters), `http.ts` (JSON/multipart + async-poll
+  helpers), one file per vendor that speaks its wire shape
+  (`openrouter.ts`, `openai-images.ts` + `openai/xai/together/deepinfra/recraft.ts`,
+  `gemini.ts`, `bfl.ts`, `fal.ts`, `replicate.ts`,
+  `stability.ts`, `ideogram.ts`, `minimax.ts`), plus `stub.ts` and
+  `dimensions.ts` (image-header size parsing for the card's `1920×1080`).
+  `core/src/media-providers.ts` is the shared spec table (id/label/base URL/env)
+  consumed by the curated provider overlay. `core/src/workbench/image.ts` owns
+  the job executor and stamps each asset's recipe/metadata. **No vendor SDKs** —
+  adapters call provider REST APIs directly through `fetch`/`FormData`.
 - **Hardened job runtime** (`core/src/jobs/queue.ts`): boot recovery for
   interrupted jobs, a per-job timeout (a hung provider never blocks the
   queue), **parallel execution** up to `jobs.concurrency` (default 3), bounded
@@ -578,8 +607,8 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
   re-checks (cancelled jobs never persist assets), graceful `stop()` on
   shutdown, and atomic asset writes. Limits live in `config.jobs`
   (`timeoutMs` / `maxAttempts` / `backoffMs` / `concurrency`).
-- Routes: `POST /api/image/generate`, `GET /api/image/{capabilities,gallery,
-  tags,recent,usage}`, `DELETE /api/asset/:id`, `PUT /api/asset/:id/tags`,
+- Routes: `POST /api/image/generate`, `GET /api/image/{providers,capabilities,
+  gallery,tags,recent,usage}`, `DELETE /api/asset/:id`, `PUT /api/asset/:id/tags`,
   `POST /api/job/:id/{cancel,retry}`.
   Assets live under `~/.local/share/bai/assets/image/`; tags in the
   `asset_tags` index. Every terminal job records one append-only
@@ -590,8 +619,8 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
 
 **Coming next**
 
-- Video workbench · more provider adapters (fal.ai, vendor-direct) · streaming
-  partial images · tag editing after generation
+- Video workbench · streaming partial images · provider-side async result
+  storage (fal image-to-image uploads)
 
 ---
 

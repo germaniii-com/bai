@@ -711,6 +711,14 @@ function buildApi(deps: ApiDeps) {
       if (!deps.core.removeAccount(provider, account)) return c.json({ error: "not_found" }, 404);
       return c.json({ ok: true });
     })
+    // Reveal one stored API key for copy-to-clipboard. Secrets: only the `api`
+    // account kind (never OAuth tokens), and the response must not be cached.
+    .get("/provider/:provider/account/:account/key", (c) => {
+      const key = deps.core.revealAccountKey(c.req.param("provider"), c.req.param("account"));
+      if (key === undefined) return c.json({ error: "not_found" }, 404);
+      c.header("cache-control", "no-store");
+      return c.json({ key });
+    })
 
     // --- OAuth logins (server-side sessions; device-code & paste-code) ---
     .get("/provider/oauth", (c) => c.json({ providers: deps.core.oauthProviders() }))
@@ -962,6 +970,7 @@ function buildApi(deps: ApiDeps) {
         ),
       );
     })
+    .get("/image/providers", async (c) => c.json({ providers: await deps.core.imageProviders() }))
     .get("/image/gallery", (c) => {
       const rawLimit = Number(c.req.query("limit") ?? "60");
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 60;

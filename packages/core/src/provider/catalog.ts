@@ -54,6 +54,8 @@ export interface CatalogProvider {
   headers?: Record<string, string>;
   /** True when the provider works with no credential (free tier). */
   keyless?: boolean;
+  /** True for a media-only vendor (image adapters) — never an LLM provider. */
+  mediaOnly?: boolean;
   /** Alternate ids that resolve to this provider. */
   aliases?: string[];
 }
@@ -303,6 +305,7 @@ function mergeCurated(catalog: CatalogProvider[]): CatalogProvider[] {
       ...(entry.authType !== undefined ? { authType: entry.authType } : existing?.authType !== undefined ? { authType: existing.authType } : {}),
       ...(entry.headers !== undefined ? { headers: entry.headers } : existing?.headers !== undefined ? { headers: existing.headers } : {}),
       ...(entry.keyless === true ? { keyless: true } : existing?.keyless === true ? { keyless: true } : {}),
+      ...(entry.mediaOnly === true ? { mediaOnly: true } : existing?.mediaOnly === true ? { mediaOnly: true } : {}),
       ...(entry.aliases !== undefined ? { aliases: entry.aliases } : existing?.aliases !== undefined ? { aliases: existing.aliases } : {}),
     });
   }
@@ -362,6 +365,7 @@ function mergeConfigProviders(catalog: CatalogProvider[], config: Config): Catal
           ? { headers: existing.headers }
           : {}),
       ...(existing?.keyless === true ? { keyless: true } : {}),
+      ...(existing?.mediaOnly === true ? { mediaOnly: true } : {}),
       ...(existing?.aliases !== undefined ? { aliases: existing.aliases } : {}),
     };
     byId.set(id, merged);

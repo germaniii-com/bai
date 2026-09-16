@@ -32,6 +32,7 @@ import type {
   McpUsageResponse,
   McpUsageTotals,
   MediaCapabilitiesResponse,
+  MediaProviderInfo,
   MediaGalleryPage,
   MediaGenRequestBody,
   MediaRecent,
@@ -824,6 +825,15 @@ export class BaiClient {
     if (!res.ok) throw new Error(`delete account failed: ${res.status}`);
   }
 
+  /** Reveal one stored API key (copy-to-clipboard only; never OAuth tokens). */
+  async revealAccountKey(provider: string, account: string): Promise<string> {
+    const res = await this.rpc().provider[":provider"].account[":account"].key.$get({
+      param: { provider: encodeURIComponent(provider), account: encodeURIComponent(account) },
+    });
+    if (!res.ok) throw new Error(`reveal account key failed: ${res.status}`);
+    return (await res.json()).key;
+  }
+
   // --- OAuth logins -------------------------------------------------------
 
   /** Providers that support an OAuth/import login, with connection state. */
@@ -1066,6 +1076,13 @@ export class BaiClient {
     });
     if (!res.ok) throw new Error(`image capabilities failed: ${res.status}`);
     return res.json();
+  }
+
+  /** Media providers the image workbench can generate with (the picker). */
+  async imageProviders(): Promise<MediaProviderInfo[]> {
+    const res = await this.rpc().image.providers.$get();
+    if (!res.ok) throw new Error(`image providers failed: ${res.status}`);
+    return (await res.json()).providers;
   }
 
   async imageGallery(opts: { limit?: number; tags?: string[]; before?: string } = {}): Promise<MediaGalleryPage> {

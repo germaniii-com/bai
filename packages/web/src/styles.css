@@ -212,6 +212,8 @@ select:focus-visible,
 .icon-button:hover,
 .icon-button:focus-visible { color: var(--text); background: var(--panel); }
 .icon-button:disabled { opacity: .45; cursor: default; }
+.icon-button.danger:hover,
+.icon-button.danger:focus-visible { color: var(--danger); }
 /* Global tooltip layer (web/src/tooltip.tsx) — fixed to the viewport, so it
    is never clipped by scroll/overflow ancestors, and above everything. */
 .app-tooltip {
@@ -3273,6 +3275,13 @@ select:focus-visible,
 .accounts li span:first-child {
   flex: 1;
   min-width: 140px;
+}
+
+/* Inline icon actions on an accounts row (copy/delete a saved key). */
+.key-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .form-grid {

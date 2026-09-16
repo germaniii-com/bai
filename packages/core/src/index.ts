@@ -36,6 +36,56 @@ export {
 } from "./workbench/media/adapter";
 export { OpenRouterMediaAdapter, OPENROUTER_BASE_URL } from "./workbench/media/openrouter";
 export { StubMediaAdapter } from "./workbench/media/stub";
+export {
+  OpenAiImagesAdapter,
+  modesFor,
+  type OpenAiImagesSpec,
+  type OpenAiImagesModel,
+  type OpenAiEditStyle,
+  type RefImage,
+} from "./workbench/media/openai-images";
+export { openAiImagesAdapter } from "./workbench/media/openai";
+export { xaiImagesAdapter } from "./workbench/media/xai";
+export { togetherImagesAdapter } from "./workbench/media/together";
+export { deepInfraImagesAdapter } from "./workbench/media/deepinfra";
+export { recraftImagesAdapter } from "./workbench/media/recraft";
+export { GeminiMediaAdapter, GEMINI_BASE_URL } from "./workbench/media/gemini";
+export { BflMediaAdapter, BFL_BASE_URL } from "./workbench/media/bfl";
+export { FalMediaAdapter, FAL_QUEUE_URL } from "./workbench/media/fal";
+export { ReplicateMediaAdapter, REPLICATE_API_URL } from "./workbench/media/replicate";
+export { StabilityMediaAdapter, STABILITY_BASE_URL } from "./workbench/media/stability";
+export { IdeogramMediaAdapter, IDEOGRAM_BASE_URL } from "./workbench/media/ideogram";
+export { MinimaxMediaAdapter, MINIMAX_BASE_URL } from "./workbench/media/minimax";
+export {
+  buildMediaAdapters,
+  mediaProviderDef,
+  mediaProviderDefs,
+  mediaProviderInfos,
+  type MediaProviderDef,
+} from "./workbench/media/registry";
+export {
+  MEDIA_PROVIDER_SPECS,
+  mediaProviderSpec,
+  type MediaProviderSpec,
+} from "./media-providers";
+export {
+  errorMessage as mediaErrorMessage,
+  ensureOk,
+  postJson,
+  postForm,
+  fetchImageBytes,
+  toGeneratedImage,
+  decodeB64,
+  encodeB64,
+  toDataUrl,
+  mimeFromFormat,
+  extForMime,
+  sniffImageMime,
+  sleep,
+  pollUntil,
+  type PollState,
+  type PollOptions,
+} from "./workbench/media/http";
 export { imageDimensions, looksLikeImage, type ImageDimensions } from "./workbench/media/dimensions";
 export { JobQueue, type JobLimits } from "./jobs/queue";
 export { AutomationScheduler, type AutomationSchedulerDeps, type AutomationDraft, type AutomationUpdate } from "./automations/scheduler";

@@ -11,6 +11,7 @@
 
 import type { Asset, Job } from "./domain";
 import type { AssetId } from "./ids";
+import type { AccountInfo } from "./providers";
 
 /** The two generation workflows: text-to-image and image-to-image. */
 export type MediaMode = "t2i" | "i2i";
@@ -117,6 +118,33 @@ export interface MediaCapabilitiesResponse {
   model: string;
   models: MediaModelInfo[];
   capabilities: MediaCapabilities;
+}
+
+/**
+ * One media provider the image workbench can generate with (the provider
+ * picker's data). `id` is the `imageGen.provider` value; adapters own the wire
+ * shape, so surfaces only need the id/label/defaults to render a selector.
+ */
+export interface MediaProviderInfo {
+  id: string;
+  label: string;
+  defaultModel: string;
+  modes: MediaMode[];
+  /** The provider's selectable models (id/label/modes/limits). */
+  models?: MediaModelInfo[];
+  /**
+   * Saved accounts for this provider (ids/labels only — keys never leave the
+   * server). Present on the Settings endpoint so image-only providers, which
+   * are hidden from the LLM provider list, can still manage keys in the UI.
+   */
+  accounts?: AccountInfo[];
+  /** Convenience: `(accounts?.length ?? 0) > 0` (or an env key is present). */
+  connected?: boolean;
+}
+
+/** GET /api/image/providers response. */
+export interface MediaProviderListResponse {
+  providers: MediaProviderInfo[];
 }
 
 /** Only the models that support a workflow (used to filter the model picker). */
