@@ -42,7 +42,7 @@ export function partitionProviders(
   const oauth: ProviderInfo[] = [];
   const catalog: ProviderInfo[] = [];
   for (const p of providers) {
-    if (p.custom === true || p.source === "config") custom.push(p);
+    if (p.custom === true || p.source === "config" || p.source === "file") custom.push(p);
     else if (oauthSet.has(p.id)) oauth.push(p);
     else catalog.push(p);
   }

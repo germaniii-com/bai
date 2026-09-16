@@ -300,6 +300,8 @@ export class ProviderRegistry {
         connected: await this.isConnected(id),
         ...(entry.authType !== undefined ? { authType: entry.authType } : { authType: "api_key" }),
         ...(entry.source === "config" ? { custom: true } : {}),
+        ...(entry.providerType !== undefined ? { providerType: entry.providerType } : {}),
+        ...(entry.filePath !== undefined ? { filePath: entry.filePath } : {}),
         ...(pc?.headers !== undefined ? { headerCount: Object.keys(pc.headers).length } : {}),
         ...(pc?.contextLength !== undefined ? { contextLength: pc.contextLength } : {}),
       });

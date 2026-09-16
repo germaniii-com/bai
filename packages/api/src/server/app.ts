@@ -24,6 +24,7 @@ import {
   oauthStartSchema,
   oauthSubmitSchema,
   customProviderSchema,
+  providerFileSchema,
   putAgentSchema,
   putSkillFileSchema,
   putSkillSchema,
@@ -769,6 +770,27 @@ function buildApi(deps: ApiDeps) {
     })
     .delete("/provider/:provider/custom", (c) => {
       if (!deps.core.removeCustomProvider(c.req.param("provider"))) return c.json({ error: "not_found" }, 404);
+      return c.json({ ok: true });
+    })
+
+    // --- provider files (~/.config/bai/providers/<id>.json) ---
+    .get("/provider/files", (c) => c.json({ files: deps.core.listProviderFiles() }))
+    .get("/provider/file/:id", (c) => {
+      const found = deps.core.getProviderFile(c.req.param("id"));
+      if (found === undefined) return c.json({ error: "not_found" }, 404);
+      c.header("cache-control", "no-store");
+      return c.json(found);
+    })
+    .put("/provider/file/:id", zValidator("json", providerFileSchema), (c) => {
+      try {
+        const file = deps.core.setProviderFile(c.req.param("id"), c.req.valid("json"));
+        return c.json({ file }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
+    .delete("/provider/file/:id", (c) => {
+      if (!deps.core.removeProviderFile(c.req.param("id"))) return c.json({ error: "not_found" }, 404);
       return c.json({ ok: true });
     })
 

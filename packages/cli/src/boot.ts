@@ -13,6 +13,7 @@ import {
   McpManager,
   McpRegistry,
   OAuthLoginManager,
+  ProviderFileRegistry,
   ProviderRegistry,
   Service,
   SkillRegistry,
@@ -23,6 +24,7 @@ import {
   bundledSkillsDir,
   createDefaultWorkbenches,
   loadConfig,
+  providerFilesToMediaDefs,
   snapshotDir,
   syncBundledSkills,
   type JobExecutor,
@@ -115,10 +117,27 @@ export async function boot(args: CliArgs): Promise<Booted> {
       void mcpManagerRef?.reconcile();
     },
   });
+  // File-defined providers (~/.config/bai/providers/*.json), hot-reloaded.
+  // Files win over config.json providers of the same id; built-in media adapter
+  // ids are reserved. A change re-derives the catalog + adapters and broadcasts
+  // provider.updated so every surface refetches without a restart. Constructed
+  // before the catalog (which reads it) with a late-bound catalog ref.
+  let catalogRef: CatalogService | undefined;
+  const providerFiles = new ProviderFileRegistry({
+    dir: path.join(configDir(), "providers"),
+    onChange: () => {
+      catalogRef?.invalidate();
+      providers.invalidate();
+      bus.publish({ seq: 0, type: "provider.updated", ts: new Date().toISOString(), payload: {} });
+      coreRef?.emitLive("provider.updated", {});
+    },
+  });
   const catalog = new CatalogService({
     cachePath: path.join(dataDir(), "models-cache.json"),
     config: () => configStore.get(),
+    fileProviders: () => providerFiles.catalogProviders(),
   });
+  catalogRef = catalog;
   const providers = new ProviderRegistry({
     catalog,
     config: () => configStore.get(),
@@ -164,6 +183,9 @@ export async function boot(args: CliArgs): Promise<Booted> {
         }
       },
     },
+    // File-defined image providers (~/.config/bai/providers/), read live so a
+    // dropped file is picked up without a restart.
+    mediaCustom: () => providerFilesToMediaDefs(providerFiles.list()),
   });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
     {},
@@ -306,6 +328,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     // atomic write, onChange broadcasts config.updated.
     updateConfig: (patch) => configStore.update(patch),
     removeProvider: (providerId) => configStore.removeProvider(providerId),
+    providerFiles,
     version: VERSION,
     sessionFilesDir: path.join(dataDir(), "sessions"),
     assetsDir: assetsDir(),
@@ -394,6 +417,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
       skills.stop();
       toolLoader.stop();
       mcpRegistry.stop();
+      providerFiles.stop();
       void mcpManager.stop();
       // Cancel in-flight media jobs (records them cancelled) before closing the store.
       await jobs.stop();

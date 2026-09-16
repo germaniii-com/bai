@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, Copy, Trash2 } from "lucide-react";
+import { Check, Copy, Pencil, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -10,6 +10,7 @@ import type {
   McpServerSource,
   MediaGenConfig,
   MediaProviderInfo,
+  ProviderFileInfo,
   MediaParamSpec,
   MediaParamValue,
   MediaTagCount,
@@ -32,6 +33,7 @@ import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
 import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
+import { ProviderFileModal } from "./provider-file-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
 import { ProviderIcon } from "./provider-icon";
@@ -236,6 +238,7 @@ export function SettingsPane({
           imageGen={imageGen}
           jobs={jobs}
           mutate={mutate}
+          onNotice={onNotice}
         />
       ) : (
         <ProvidersPane
@@ -590,10 +593,57 @@ function ProvidersPane({
     void mutate(() => client.deleteCustomProvider(p.id), `Removed ${p.name}`);
   };
 
+  // File-defined providers (~/.config/bai/providers/), hot-reloaded.
+  const [providerFileList, setProviderFileList] = useState<ProviderFileInfo[]>([]);
+  const [fileModal, setFileModal] = useState<{ existing?: ProviderFileInfo } | null>(null);
+  const reloadProviderFiles = useCallback((): void => {
+    void client
+      .providerFiles()
+      .then(setProviderFileList)
+      .catch(() => setProviderFileList([]));
+  }, [client]);
+  useEffect(reloadProviderFiles, [reloadProviderFiles]);
+
   return (
     <>
       <PageHeader title="Model Providers" />
       <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
+
+      {/* --- Provider files (~/.config/bai/providers/) -------------------- */}
+      <h3 className="settings-subheading">Provider Files</h3>
+      <p className="section-lede">
+        Drop-in JSON files in <code>~/.config/bai/providers/</code>, hot-reloaded.
+        Each file's <code>providerType</code> decides where it appears (chat and/or
+        image).
+      </p>
+      <div className="provider-actions">
+        <Button variant="outline" onClick={() => setFileModal({})}>
+          + Add provider file
+        </Button>
+      </div>
+      {providerFileList.length === 0 ? (
+        <p className="dim provider-empty">No provider files yet.</p>
+      ) : (
+        <ul className="accounts">
+          {providerFileList.map((f) => (
+            <li key={f.id}>
+              <span>
+                {f.name} <span className="dim">({f.id})</span> —{" "}
+                <i>{f.providerType.join(", ")}</i>
+              </span>
+              <span className="key-actions">
+                <IconButton
+                  label={`Edit ${f.name}`}
+                  hint="Edit provider file"
+                  onClick={() => setFileModal({ existing: f })}
+                >
+                  <Pencil size={14} />
+                </IconButton>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* --- Custom providers (config-defined endpoints) ------------------- */}
       <h3 className="settings-subheading">Custom Providers</h3>
@@ -735,6 +785,18 @@ function ProvidersPane({
           client={client}
           onClose={() => setCustomOpen(false)}
           onSaved={() => {
+            void refresh();
+          }}
+          onNotice={onNotice}
+        />
+      )}
+      {fileModal !== null && (
+        <ProviderFileModal
+          client={client}
+          {...(fileModal.existing !== undefined ? { existing: fileModal.existing } : {})}
+          onClose={() => setFileModal(null)}
+          onSaved={() => {
+            reloadProviderFiles();
             void refresh();
           }}
           onNotice={onNotice}
@@ -1186,12 +1248,14 @@ function ImageGenPane({
   imageGen,
   jobs,
   mutate,
+  onNotice,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
   imageGen?: MediaGenConfig;
   jobs?: JobsConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  onNotice: (message: string, kind?: "success" | "error") => void;
 }) {
   return (
     <>
@@ -1205,6 +1269,7 @@ function ImageGenPane({
         list={list}
         imageGen={imageGen}
         mutate={mutate}
+        onNotice={onNotice}
       />
       <MediaGenForm
         kind="imageGen"
@@ -1432,11 +1497,13 @@ function ImageProvidersCard({
   list,
   imageGen,
   mutate,
+  onNotice,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
   imageGen?: MediaGenConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  onNotice: (message: string, kind?: "success" | "error") => void;
 }) {
   const [providers, setProviders] = useState<MediaProviderInfo[]>([]);
   const [provider, setProvider] = useState(imageGen?.provider ?? "");
@@ -1450,6 +1517,8 @@ function ImageProvidersCard({
     providerLabel: string;
     accountId: string;
   } | null>(null);
+  /** Provider-file editor: undefined existing → create. */
+  const [fileModal, setFileModal] = useState<{ existing?: ProviderFileInfo } | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -1607,6 +1676,13 @@ function ImageProvidersCard({
           onClick={saveKey}
         >
           Save API key
+        </Button>{" "}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setFileModal({})}
+        >
+          + Add custom provider
         </Button>
       </div>
       {savedKeys.length > 0 && (
@@ -1620,6 +1696,24 @@ function ImageProvidersCard({
                   {p.label} — <i>{a.id}</i>
                 </span>
                 <span className="key-actions">
+                  {p.source === "file" && (
+                    <IconButton
+                      label={`Edit ${p.label}`}
+                      hint="Edit provider file"
+                      onClick={() =>
+                        setFileModal({
+                          existing: {
+                            id: p.id,
+                            name: p.label,
+                            providerType: p.providerType ?? ["image"],
+                            path: p.path ?? "",
+                          },
+                        })
+                      }
+                    >
+                      <Pencil size={14} />
+                    </IconButton>
+                  )}
                   <IconButton
                     label={
                       justCopied
@@ -1670,6 +1764,15 @@ function ImageProvidersCard({
             removeKey(pending.providerId, pending.accountId);
         }}
       />
+      {fileModal !== null && (
+        <ProviderFileModal
+          client={client}
+          {...(fileModal.existing !== undefined ? { existing: fileModal.existing } : {})}
+          onClose={() => setFileModal(null)}
+          onSaved={() => void reload()}
+          onNotice={onNotice}
+        />
+      )}
     </Card>
   );
 }

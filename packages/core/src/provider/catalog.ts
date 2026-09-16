@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { AdapterName, Config } from "@bai/shared";
+import type { AdapterName, Config, ProviderCapability } from "@bai/shared";
 import { CURATED_PROVIDERS } from "./overlay";
 
 /** Freshness window before a background refresh is attempted (opencode: 5 min). */
@@ -44,8 +44,8 @@ export interface CatalogProvider {
   api?: string;
   env: string[];
   models: CatalogModel[];
-  /** Where the entry came from: models.dev, config, or the builtin stub. */
-  source: "catalog" | "config" | "builtin";
+  /** Where the entry came from: models.dev, config, a provider file, or the builtin stub. */
+  source: "catalog" | "config" | "builtin" | "file";
   /** Explicit wire adapter (curated overlay / config override). */
   adapter?: AdapterName;
   /** Primary auth shape (curated overlay; OAuth specs add login methods). */
@@ -58,6 +58,10 @@ export interface CatalogProvider {
   mediaOnly?: boolean;
   /** Alternate ids that resolve to this provider. */
   aliases?: string[];
+  /** Declared capabilities when the provider came from a file. */
+  providerType?: ProviderCapability[];
+  /** Absolute path of the defining file (file-sourced providers only). */
+  filePath?: string;
 }
 
 /** Raw models.dev api.json entry (cache file + client response shape). */
@@ -100,6 +104,8 @@ export class CatalogService {
     private opts: {
       cachePath: string;
       config(): Config;
+      /** File-defined providers (`~/.config/bai/providers/`), the top layer. */
+      fileProviders?: () => CatalogProvider[];
       ttlMs?: number;
       fetch?: typeof globalThis.fetch;
       /** Test hook: no bundled snapshot AND no network (fully offline). */
@@ -112,11 +118,12 @@ export class CatalogService {
     this.memory = undefined;
   }
 
-  /** All providers: models.dev base ⊕ curated overlay ⊕ config, sorted by id. Never throws. */
+  /** All providers: models.dev base ⊕ curated overlay ⊕ config ⊕ provider files. Never throws. */
   async providers(): Promise<CatalogProvider[]> {
     const base = await this.baseProviders();
     this.maybeRefreshInBackground();
-    return mergeConfigProviders(mergeCurated(base), this.opts.config());
+    const merged = mergeConfigProviders(mergeCurated(base), this.opts.config());
+    return mergeFileProviders(merged, this.opts.fileProviders?.() ?? []);
   }
 
   get(providerId: string): Promise<CatalogProvider | undefined> {
@@ -367,8 +374,24 @@ function mergeConfigProviders(catalog: CatalogProvider[], config: Config): Catal
       ...(existing?.keyless === true ? { keyless: true } : {}),
       ...(existing?.mediaOnly === true ? { mediaOnly: true } : {}),
       ...(existing?.aliases !== undefined ? { aliases: existing.aliases } : {}),
+      ...(existing?.providerType !== undefined ? { providerType: existing.providerType } : {}),
+      ...(existing?.filePath !== undefined ? { filePath: existing.filePath } : {}),
     };
     byId.set(id, merged);
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * File-defined providers (`~/.config/bai/providers/`) merged as the top layer:
+ * a file wins over a same-id config/curated entry, and always reports
+ * `source: "file"`.
+ */
+function mergeFileProviders(catalog: CatalogProvider[], files: CatalogProvider[]): CatalogProvider[] {
+  if (files.length === 0) return catalog;
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  for (const file of files) {
+    byId.set(file.id, { ...file, source: "file" });
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }

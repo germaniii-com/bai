@@ -26,6 +26,8 @@ import { MinimaxMediaAdapter } from "./minimax";
 /** A spec plus the builder that materializes its adapter. */
 export interface MediaProviderDef extends MediaProviderSpec {
   build(fetchImpl: typeof globalThis.fetch): MediaGenAdapter;
+  /** Absolute path of the defining provider file (file-defined defs only). */
+  filePath?: string;
 }
 
 /** Provider id → adapter builder. Add one line per new adapter file. */
@@ -89,6 +91,7 @@ export async function mediaProviderInfos(
       defaultModel: model,
       modes: adapter.capabilities(model).modes,
       models: await adapter.listModels(),
+      source: "builtin",
     });
   }
   return out;

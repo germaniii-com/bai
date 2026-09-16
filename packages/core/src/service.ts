@@ -57,6 +57,8 @@ import {
   type OAuthProviderInfo,
   type OAuthStartMode,
   type CustomProviderBody,
+  type ProviderFile,
+  type ProviderFileInfo,
   type SessionsCursor,
   type SessionsPage,
   buildLearnRequest,
@@ -116,6 +118,7 @@ import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { SkillRegistry } from "./skills/registry";
+import type { ProviderFileRegistry } from "./provider/file-registry";
 import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
 import { ImageWorkbench } from "./workbench/image";
@@ -156,6 +159,8 @@ export interface ServiceDeps {
    * cannot delete keys, so custom-provider deletion goes through this.
    */
   removeProvider?(providerId: string): Config;
+  /** File-defined providers (~/.config/bai/providers/*.json), when wired by boot. */
+  providerFiles?: ProviderFileRegistry;
   /**
    * Home directory for workspace.create's creation guard. Optional —
    * defaults to the OS home; tests inject a throwaway dir.
@@ -1520,6 +1525,39 @@ export class Service {
     this.deps.removeProvider(providerId);
     this.emitLive("provider.updated", {});
     return true;
+  }
+
+  // --- provider files (~/.config/bai/providers/) ---
+
+  /** Every file-defined provider (no secrets). */
+  listProviderFiles(): ProviderFileInfo[] {
+    return (this.deps.providerFiles?.list() ?? []).map(({ id, file, path }) => ({
+      id,
+      name: file.name,
+      providerType: file.providerType,
+      path,
+    }));
+  }
+
+  /** One provider file's full definition (for the web editor; includes any inline key). */
+  getProviderFile(id: string): { file: ProviderFile; path: string } | undefined {
+    const resolved = this.deps.providerFiles?.get(id);
+    return resolved !== undefined ? { file: resolved.file, path: resolved.path } : undefined;
+  }
+
+  /** Create or replace a provider file (validates; broadcasts provider.updated). */
+  setProviderFile(id: string, body: ProviderFile): ProviderFileInfo {
+    if (this.deps.providerFiles === undefined) throw new Error("provider files are not available");
+    const resolved = this.deps.providerFiles.put(id, body);
+    this.emitLive("provider.updated", {});
+    return { id: resolved.id, name: resolved.file.name, providerType: resolved.file.providerType, path: resolved.path };
+  }
+
+  /** Delete a provider file; false when it does not exist. */
+  removeProviderFile(id: string): boolean {
+    const removed = this.deps.providerFiles?.remove(id) ?? false;
+    if (removed) this.emitLive("provider.updated", {});
+    return removed;
   }
 
   /**

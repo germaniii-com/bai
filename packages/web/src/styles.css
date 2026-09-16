@@ -3284,6 +3284,13 @@ select:focus-visible,
   gap: var(--space-1);
 }
 
+/* A vertical stack of checkboxes (provider capability pickers). */
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

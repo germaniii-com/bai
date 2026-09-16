@@ -64,6 +64,17 @@ export {
   type MediaProviderDef,
 } from "./workbench/media/registry";
 export {
+  providerFileToMediaDef,
+  providerFilesToMediaDefs,
+} from "./workbench/media/file-providers";
+export { GenericMediaAdapter, type GenericMediaConfig } from "./workbench/media/generic";
+export {
+  interpolate as interpolateMediaBody,
+  readPath as readMediaPath,
+  asArray as asMediaArray,
+  type MappingVars,
+} from "./workbench/media/mapping";
+export {
   MEDIA_PROVIDER_SPECS,
   mediaProviderSpec,
   type MediaProviderSpec,

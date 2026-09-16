@@ -26,8 +26,10 @@ continue it from your phone, teach it new agents from either side.
   streaming, reasoning panels, and session titles
 - 🔐 **Providers** — multi-account API keys plus **OAuth/subscription logins**
   (ChatGPT/Codex, Anthropic Claude Pro/Max, GitHub Copilot, xAI Grok, Qwen,
-  Nous Portal, MiniMax, Vertex), a curated catalog overlay, and config-defined
-  **custom providers** — from web Settings or the TUI wizard
+  Nous Portal, MiniMax, Vertex), a curated catalog overlay, config-defined
+  **custom providers**, and hot-reloaded **provider files**
+  (`~/.config/bai/providers/*.json`) declaring `text`/`image`/`video`
+  capabilities — from web Settings or the TUI wizard
 - 🧑‍💻 **Workspace / Code** — file-defined **agents** (hot-reloaded, no
   restarts) driving real tool loops: `fs.read/list/glob/write/edit`,
   fail-closed interactive permissions, token discipline, and compaction
@@ -60,7 +62,7 @@ Implemented through the media-workbench phase — **chat, sync, agents, file
 tools + bash/grep, interactive permissions, token discipline + compaction,
 per-message revert/fork/copy with shadow-repo file rollback, provider
 OAuth/subscription logins, and the multi-provider image workbench (13 adapters
-+ hardened job runtime + tag gallery) all ship today** (1291 tests, 6
++ hardened job runtime + tag gallery) all ship today** (1315 tests, 6
 packages). Pending: MCP dual role, the video adapter, desktop shell. Details in
 [ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
 
@@ -116,7 +118,8 @@ bai-ts/
 Every package directory carries its own README explaining responsibilities,
 boundaries, and planned key types. User-owned files live outside the repo:
 `~/.config/bai/config.json`, `~/.config/bai/agents/*.md`,
-`~/.config/bai/tools/*.ts`, `~/.local/share/bai/` (DB, assets, tmp).
+`~/.config/bai/tools/*.ts`, `~/.config/bai/providers/*.json`,
+`~/.local/share/bai/` (DB, assets, tmp).
 
 ## Development
 

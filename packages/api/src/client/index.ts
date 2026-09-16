@@ -54,7 +54,7 @@ import type {
   WebSearchStatus,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
-import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode } from "@bai/shared";
+import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderFile, ProviderFileInfo } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
 import { EventMux, eventMux } from "./mux";
@@ -832,6 +832,39 @@ export class BaiClient {
     });
     if (!res.ok) throw new Error(`reveal account key failed: ${res.status}`);
     return (await res.json()).key;
+  }
+
+  // --- provider files (~/.config/bai/providers/<id>.json) ------------------
+
+  /** File-defined providers (no secrets). */
+  async providerFiles(): Promise<ProviderFileInfo[]> {
+    const res = await this.rpc().provider.files.$get();
+    if (!res.ok) throw new Error(`provider files failed: ${res.status}`);
+    return (await res.json()).files;
+  }
+
+  /** One provider file's full definition (for the editor). */
+  async providerFile(id: string): Promise<{ file: ProviderFile; path: string }> {
+    const res = await this.rpc().provider.file[":id"].$get({ param: { id: encodeURIComponent(id) } });
+    if (!res.ok) throw new Error(`get provider file failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Create or replace a provider file (validated server-side). */
+  async putProviderFile(id: string, body: ProviderFile): Promise<ProviderFileInfo> {
+    const res = await this.rpc().provider.file[":id"].$put({
+      param: { id: encodeURIComponent(id) },
+      json: body,
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, `put provider file failed: ${res.status}`));
+    return (await res.json()).file;
+  }
+
+  async deleteProviderFile(id: string): Promise<void> {
+    const res = await this.rpc().provider.file[":id"].$delete({
+      param: { id: encodeURIComponent(id) },
+    });
+    if (!res.ok) throw new Error(`delete provider file failed: ${res.status}`);
   }
 
   // --- OAuth logins -------------------------------------------------------

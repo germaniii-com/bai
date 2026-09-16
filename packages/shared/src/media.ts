@@ -132,6 +132,12 @@ export interface MediaProviderInfo {
   modes: MediaMode[];
   /** The provider's selectable models (id/label/modes/limits). */
   models?: MediaModelInfo[];
+  /** Whether the provider is a built-in adapter or a user provider file. */
+  source?: "builtin" | "file";
+  /** Absolute path of the defining provider file (file providers only). */
+  path?: string;
+  /** Declared capabilities (file providers only). */
+  providerType?: ("text" | "image" | "video")[];
   /**
    * Saved accounts for this provider (ids/labels only — keys never leave the
    * server). Present on the Settings endpoint so image-only providers, which

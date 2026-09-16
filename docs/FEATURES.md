@@ -106,8 +106,20 @@ The conversation modality and bai's default session type.
 - The provider layer is deliberately thin (`core/src/provider/`): adapters
   isolate vendor SDKs and translate one neutral `LlmRequest`/`StreamEvent`
   shape; the model catalog comes from models.dev ⊕ a curated overlay ⊕ user
-  config, and credentials are multi-account API keys or OAuth tokens in
-  `auth.json` (§10.1)
+  config ⊕ **provider files**, and credentials are multi-account API keys or
+  OAuth tokens in `auth.json` (§10.1)
+- **Custom provider files** (`~/.config/bai/providers/<id>.json`, hot-reloaded)
+  declare their capabilities with a required `providerType`
+  (`text`/`image`/`video`), a `baseUrl`, env/headers/auth, an optional chat
+  block (adapter + models) and an optional **image block** — either the
+  OpenAI-images wire template or a **generic request/response mapping**
+  (`$prompt`/`$model`/`$param.*` body tokens + a tiny response path syntax like
+  `data[*].b64_json`). Files win over same-id config providers; built-in media
+  ids are reserved. Created/edited from Settings → Model Providers (a
+  "Provider Files" section) or Settings → Image Generation → Providers, and
+  also plain files on disk. `providerType` decides placement: `text` shows in
+  chat pickers, `image` in the image workbench, `video` is accepted but inert
+  until the video adapter ships.
 - Everything streams through the same event system as every other feature —
   chat is just the first consumer of the sync machinery
 

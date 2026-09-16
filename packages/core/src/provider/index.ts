@@ -9,6 +9,12 @@ export type {
   ResolvedAccount,
 } from "./auth-store";
 export { CatalogService, WELL_KNOWN_BASE_URLS } from "./catalog";
+export {
+  ProviderFileRegistry,
+  parseProviderFile,
+  type ResolvedProviderFile,
+  type ProviderFileRegistryOpts,
+} from "./file-registry";
 export { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sleepInterruptible } from "./retry";
 export type { CatalogProvider, CatalogModel } from "./catalog";
 export { CURATED_PROVIDERS, curatedProvider, type CuratedProvider } from "./overlay";

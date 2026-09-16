@@ -7,6 +7,7 @@ export * from "./display";
 export * from "./events";
 export * from "./config";
 export * from "./providers";
+export * from "./provider-files";
 export * from "./agents";
 export * from "./skills";
 export * from "./learn";

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ModelInfo } from "./domain";
+import type { ProviderCapability } from "./provider-files";
 
 /**
  * Provider/account wire types — shared by core (truth), api (boundary), and
@@ -36,7 +37,7 @@ export interface AccountInfo {
 }
 
 /** Where a provider definition comes from. */
-export type ProviderSource = "catalog" | "config" | "builtin";
+export type ProviderSource = "catalog" | "config" | "builtin" | "file";
 
 /** Public projection of one provider: catalog metadata ⊕ accounts. */
 export interface ProviderInfo {
@@ -52,6 +53,13 @@ export interface ProviderInfo {
   connected: boolean;
   /** True for a user config-defined custom provider (not catalog/curated). */
   custom?: boolean;
+  /**
+   * Declared capabilities for a file-defined provider
+   * (`~/.config/bai/providers/<id>.json`).
+   */
+  providerType?: ProviderCapability[];
+  /** Absolute path of the defining provider file (file-defined only). */
+  filePath?: string;
   /** Number of configured extra request headers (custom providers; names never exposed). */
   headerCount?: number;
   /** Configured context window override (custom providers). */
@@ -67,6 +75,20 @@ export interface ProviderInfo {
    * full model array is present.
    */
   modelCount?: number;
+}
+
+/** One file-defined provider (GET /api/provider/files; no secrets). */
+export interface ProviderFileInfo {
+  id: string;
+  name: string;
+  providerType: ProviderCapability[];
+  /** Absolute path of the defining file. */
+  path: string;
+}
+
+/** GET /api/provider/files response. */
+export interface ProviderFileListResponse {
+  files: ProviderFileInfo[];
 }
 
 /** GET /api/provider response. */

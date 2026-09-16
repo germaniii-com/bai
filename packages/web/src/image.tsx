@@ -158,25 +158,19 @@ export function ImagePane({
   // Registered media providers + their models. The provider selector is gone:
   // the model list aggregates every provider that has a saved key (or env var).
   // With none set up, the offline stub keeps the page usable.
-  useEffect(() => {
-    let cancelled = false;
-    void client
-      .imageProviders()
-      .then((providers) => {
-        if (cancelled) return;
-        setMediaProviders(providers);
-        setProvidersLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setMediaProviders([]);
-          setProvidersLoaded(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+  const reloadMediaProviders = useCallback(async (): Promise<void> => {
+    try {
+      setMediaProviders(await client.imageProviders());
+    } catch {
+      setMediaProviders([]);
+    } finally {
+      setProvidersLoaded(true);
+    }
   }, [client]);
+
+  useEffect(() => {
+    void reloadMediaProviders();
+  }, [reloadMediaProviders]);
 
   // Providers that can actually generate; the stub stands in only when nothing
   // is configured, so the list stays clean once real keys exist.
@@ -285,10 +279,13 @@ export function ImagePane({
       ) {
         void galleryRefresh();
         if (evt.type === "asset.created" || evt.type === "asset.updated") void reloadTags();
+      } else if (evt.type === "provider.updated") {
+        // A provider file / key / config change may add or remove models.
+        void reloadMediaProviders();
       }
     });
     return unsubscribe;
-  }, [client, galleryRefresh, reloadTags]);
+  }, [client, galleryRefresh, reloadTags, reloadMediaProviders]);
 
   const persistImageGen = useCallback(
     (nextProvider: string, nextModel: string): void => {

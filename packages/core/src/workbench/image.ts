@@ -3,7 +3,7 @@ import { normalizeTags } from "@bai/shared";
 import type { Workbench } from "../workbench/types";
 import type { GeneratedFile, JobExecutor, JobExecutorResult } from "../workbench/types";
 import { MediaGenError, type MediaGenAdapter, type MediaGeneratedImage } from "./media/adapter";
-import { buildMediaAdapters, mediaProviderDef, mediaProviderInfos } from "./media/registry";
+import { buildMediaAdapters, mediaProviderDef, mediaProviderInfos, type MediaProviderDef } from "./media/registry";
 import { imageDimensions, looksLikeImage } from "./media/dimensions";
 
 /** Credentials + stored-asset reads the image executor needs at runtime. */
@@ -24,6 +24,8 @@ export interface ImageWorkbenchDeps {
   runtime?: MediaRuntimeDeps;
   /** Fetch override for the OpenRouter adapter (tests). */
   fetch?: typeof globalThis.fetch;
+  /** File-defined media providers (`~/.config/bai/providers/`), hot-reloadable. */
+  custom?: () => MediaProviderDef[];
 }
 
 /**
@@ -37,12 +39,15 @@ export interface ImageWorkbenchDeps {
 export class ImageWorkbench implements Workbench {
   private readonly deps: ImageWorkbenchDeps;
   private readonly adapters: Map<string, MediaGenAdapter>;
+  private readonly fetchImpl: typeof globalThis.fetch;
 
   constructor(deps: ImageWorkbenchDeps = {}) {
     this.deps = deps;
+    this.fetchImpl = deps.fetch ?? globalThis.fetch;
     // Adapters are materialized from the media-provider registry, so a new
-    // provider is a spec entry + adapter file — not a change here.
-    this.adapters = buildMediaAdapters(deps.fetch ?? globalThis.fetch);
+    // provider is a spec entry + adapter file — not a change here. File-defined
+    // providers are added on top via `deps.custom`.
+    this.adapters = buildMediaAdapters(this.fetchImpl);
   }
 
   name() {
@@ -67,7 +72,22 @@ export class ImageWorkbench implements Workbench {
 
   /** The provider picker's rows (label + adapter defaults + models). */
   async providers(): Promise<MediaProviderInfo[]> {
-    return mediaProviderInfos(this.adapters);
+    const infos = await mediaProviderInfos(this.adapters);
+    for (const def of this.deps.custom?.() ?? []) {
+      const adapter = def.build(this.fetchImpl);
+      const model = adapter.defaultModel();
+      infos.push({
+        id: def.id,
+        label: def.label,
+        defaultModel: model,
+        modes: adapter.capabilities(model).modes,
+        models: await adapter.listModels(),
+        source: "file",
+        providerType: def.imageOnly ? ["image"] : ["text", "image"],
+        ...(def.filePath !== undefined ? { path: def.filePath } : {}),
+      });
+    }
+    return infos;
   }
 
   /** The adapter for a provider id or alias; unknown providers fall back to the stub. */
@@ -79,6 +99,8 @@ export class ImageWorkbench implements Workbench {
       const adapter = this.adapters.get(aliased.id);
       if (adapter !== undefined) return adapter;
     }
+    const custom = this.deps.custom?.().find((def) => def.id === provider);
+    if (custom !== undefined) return custom.build(this.fetchImpl);
     return this.adapters.get("stub")!;
   }
 

@@ -12,6 +12,7 @@ import {
   JobQueue,
   OAuthLoginManager,
   OAUTH_SPECS,
+  ProviderFileRegistry,
   ProviderRegistry,
   Service,
   SkillRegistry,
@@ -19,6 +20,7 @@ import {
   ToolLoader,
   ToolRegistry,
   createDefaultWorkbenches,
+  providerFilesToMediaDefs,
   type OAuthFlowSpec,
 } from "@bai/core";
 import { DEFAULT_CONFIG, deepMerge, type Config, type ConfigPatch } from "@bai/shared";
@@ -44,9 +46,18 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   // returns a fresh object and the write would be lost.
   let config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
+  const providerFiles = new ProviderFileRegistry({
+    dir: join(dir, "providers"),
+    pollMs: 0,
+    onChange: () => {
+      catalog.invalidate();
+      providers.invalidate();
+    },
+  });
   const catalog = new CatalogService({
     cachePath: join(dir, "models-cache.json"),
     config: () => config,
+    fileProviders: () => providerFiles.catalogProviders(),
     offline: true, // tests never touch network or the bundled snapshot
   });
   const providers = new ProviderRegistry({ catalog, config: () => config, accounts });
@@ -62,7 +73,10 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     },
   };
   const oauth = new OAuthLoginManager({ accounts, specs: { ...OAUTH_SPECS, "fake-oauth": fakeOAuthSpec } });
-  const workbenches = createDefaultWorkbenches({ dataDir: dir });
+  const workbenches = createDefaultWorkbenches({
+    dataDir: dir,
+    mediaCustom: () => providerFilesToMediaDefs(providerFiles.list()),
+  });
   const jobs = new JobQueue({
     store,
     bus,
@@ -104,8 +118,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     automations,
     skills,
     toolLoader,
-    config: () => config,
-    // Mirror boot.ts: the config mutation path the workspace remove/restore
+    config: () => config,    // Mirror boot.ts: the config mutation path the workspace remove/restore
     // routes use — reassign so the mutation is visible to every reader.
     updateConfig: (patch) => (config = deepMerge(config, patch)),
     removeProvider: (id) => {
@@ -114,6 +127,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
       config = { ...config, providers: rest };
       return config;
     },
+    providerFiles,
     version: "test",
     sessionFilesDir: join(dir, "sessions"),
     assetsDir: join(dir, "assets"),
@@ -152,6 +166,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
       agents.stop();
       skills.stop();
       toolLoader.stop();
+      providerFiles.stop();
       store.close();
       rmSync(dir, { recursive: true, force: true });
     },

@@ -13,6 +13,7 @@ import { VideoWorkbench } from "./video";
 import type { Workbench } from "./types";
 import type { MediaGenConfig } from "@bai/shared";
 import type { MediaRuntimeDeps } from "./image";
+import type { MediaProviderDef } from "./media/registry";
 
 /** Per-modality media-gen defaults (config imageGen/videoGen), read live. */
 export interface MediaDefaults {
@@ -30,6 +31,8 @@ export function createDefaultWorkbenches(opts: {
   mediaRuntime?: MediaRuntimeDeps;
   /** Fetch override for the image adapter (tests). */
   mediaFetch?: typeof globalThis.fetch;
+  /** File-defined media providers (`~/.config/bai/providers/`), hot-reloadable. */
+  mediaCustom?: () => MediaProviderDef[];
 }): Workbench[] {
   mkdirSync(path.join(opts.dataDir, "assets"), { recursive: true });
   return [
@@ -39,6 +42,7 @@ export function createDefaultWorkbenches(opts: {
       ...(opts.mediaDefaults?.image !== undefined ? { defaults: opts.mediaDefaults.image } : {}),
       ...(opts.mediaRuntime !== undefined ? { runtime: opts.mediaRuntime } : {}),
       ...(opts.mediaFetch !== undefined ? { fetch: opts.mediaFetch } : {}),
+      ...(opts.mediaCustom !== undefined ? { custom: opts.mediaCustom } : {}),
     }),
     new VideoWorkbench(opts.mediaDefaults?.video),
   ];
