@@ -84,6 +84,12 @@ export interface MediaGenRequest {
   mode: MediaMode;
   prompt: string;
   model?: string;
+  /**
+   * Explicit provider/account target (the router gateway). When unset the
+   * image workbench falls back to `config.imageGen.{provider,account}`.
+   */
+  provider?: string;
+  account?: string;
   /** Adapter-specific parameter values (see MediaCapabilities.params). */
   params?: Record<string, MediaParamValue>;
   /** Reference image asset ids (image-to-image only). */

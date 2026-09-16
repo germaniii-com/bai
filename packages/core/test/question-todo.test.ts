@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { QuestionRejectedError } from "../src/question/service";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 import type { Event, TodoItem } from "@bai/shared";
-import type { Provider, ProviderStream, StreamEvent, LlmRequest } from "../src/provider/types";
+import type { Provider, ProviderStream, StreamEvent, LlmRequest } from "@bai/provider";
 import type { ModelInfo } from "@bai/shared";
 
 /** Scripted provider answering title calls inline (see run-tools.test.ts). */

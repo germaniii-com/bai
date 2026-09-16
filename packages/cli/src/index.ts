@@ -2,6 +2,7 @@ import { parseCliArgs, usage, UsageError } from "./args";
 import { boot, VERSION, type Booted } from "./boot";
 import { runHost, runWeb } from "./modes/web";
 import { runOneShot } from "./modes/oneshot";
+import { runRouter } from "./modes/router";
 import { runTui } from "./modes/tui";
 
 async function main(): Promise<number> {
@@ -35,6 +36,9 @@ async function main(): Promise<number> {
       return 0;
     case "host":
       await runHost(booted);
+      return 0;
+    case "router":
+      await runRouter(booted);
       return 0;
     case "oneshot":
       return runOneShot(booted, {

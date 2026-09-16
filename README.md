@@ -53,6 +53,8 @@ bai                      # TUI (default)
 bai --code               # same, explicit
 bai --web --open         # serve API + web UI on loopback, open browser
 bai --host               # bind beyond loopback; pairing token for phone
+bai --router             # headless OpenAI-compatible gateway + /api/help
+bai --web --router       # web UI + gateway + /api/help, one process
 bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 ```
 
@@ -61,10 +63,11 @@ bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 Implemented through the media-workbench phase — **chat, sync, agents, file
 tools + bash/grep, interactive permissions, token discipline + compaction,
 per-message revert/fork/copy with shadow-repo file rollback, provider
-OAuth/subscription logins, and the multi-provider image workbench (13 adapters
-+ hardened job runtime + tag gallery) all ship today** (1315 tests, 6
-packages). Pending: MCP dual role, the video adapter, desktop shell. Details in
-[ARCHITECTURE.md §16](ARCHITECTURE.md#16-roadmap).
+OAuth/subscription logins, the multi-provider image workbench (13 adapters
++ hardened job runtime + tag gallery), and the extracted `@bai/provider` +
+`@bai/router` OpenAI-compatible gateway all ship today** (8 packages/services).
+Pending: MCP server role, the video adapter, desktop shell. Details in
+[ARCHITECTURE.md §16](docs/ARCHITECTURE.md#16-roadmap).
 
 ## Inspiration
 
@@ -103,8 +106,10 @@ bai-ts/
 ├── FEATURES.md                ← what each workbench does today
 ├── packages/
 │   ├── shared/                domain types & contracts (leaf)        @bai/shared
+│   ├── provider/              adapters, catalog, credentials, OAuth  @bai/provider
+│   │   └── src/router.ts        the router SDK (`ModelRouter`)
 │   ├── core/                  sessions, runs, agents, tools, perms   @bai/core
-│   │   └── src/                 store · event · config · provider · agent/
+│   │   └── src/                 store · event · config · agent/
 │   │                            tools/ · context/ · permissions/ · workbench/
 │   │                            run.ts (the agentic loop)
 │   │                            snapshot.ts + revert.ts (revert/fork file rollback)
@@ -113,6 +118,8 @@ bai-ts/
 │   ├── tui/                   Ink terminal surface                   @bai/tui
 │   ├── web/                   React + Vite SPA / PWA                 @bai/web
 │   └── desktop/               native shell (stub)                    @bai/desktop
+└── services/
+    └── router/                OpenAI-compatible gateway + /api/help  @bai/router
 ```
 
 Every package directory carries its own README explaining responsibilities,

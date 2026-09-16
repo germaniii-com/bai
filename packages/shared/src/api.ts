@@ -114,6 +114,9 @@ export const mediaGenRequestSchema = z.object({
   mode: z.enum(["t2i", "i2i"]),
   prompt: z.string().min(1).max(4000),
   model: z.string().max(200).optional(),
+  /** Explicit provider/account target (router gateway); falls back to config. */
+  provider: z.string().max(200).optional(),
+  account: z.string().max(200).optional(),
   /** Adapter-specific parameter values (validated/coerced by the adapter). */
   params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   referenceAssetIds: z.array(z.string().min(1).max(100)).max(16).optional(),

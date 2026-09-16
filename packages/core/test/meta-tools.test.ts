@@ -6,7 +6,7 @@ import type { SessionId } from "@bai/shared";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 import { workspaceCreateTool } from "../src/tools/workspace-create";
 import { QuestionRejectedError } from "../src/question/service";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 import type { ModelInfo } from "@bai/shared";
 
 /**

@@ -6,7 +6,8 @@
   "license": "MIT",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "services/*"
   ],
   "engines": {
     "bun": ">=1.3.14"

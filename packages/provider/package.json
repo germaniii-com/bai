@@ -1,0 +1,24 @@
+{
+  "name": "@bai/provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters/anthropic": "./src/adapters/anthropic.ts",
+    "./adapters/openai": "./src/adapters/openai.ts",
+    "./adapters/responses": "./src/adapters/responses.ts",
+    "./tool-names": "./src/tool-names.ts",
+    "./output-limit": "./src/output-limit.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@bai/shared": "workspace:*",
+    "@opencode-ai/models": "^0.0.56",
+    "google-auth-library": "^10.4.0",
+    "openai": "^7.8.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

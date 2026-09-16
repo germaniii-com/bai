@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, ModelInfo, SessionId } from "@bai/shared";
 import { makeCore, sleep, type TestCore } from "./harness";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 
 /**
  * Scripted provider with per-turn gates: `hold(n)` parks turn n at stream

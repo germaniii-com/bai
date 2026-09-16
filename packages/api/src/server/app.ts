@@ -1143,6 +1143,11 @@ export function createApp(deps: ApiDeps) {
   if (deps.token !== undefined && !deps.loopbackBind) {
     app = app.use("/api/*", bearerAuth(deps.token));
   }
+  // Router gateway (`/v1/*`) + optional `/api/help`, mounted BEFORE `/api` so
+  // `/api/help` is reachable (a mounted sub-app owns its whole prefix).
+  if (deps.extraRoutes !== undefined) {
+    app = app.route("/", deps.extraRoutes);
+  }
   app = app.route("/api", buildApi(deps));
 
   // Workbench extra routes under /wb/<name>/ + static hosting last.
@@ -1159,7 +1164,10 @@ export function createApp(deps: ApiDeps) {
       else if (route.method === "DELETE") tail = tail.delete(wbPath, handler);
     }
   }
-  tail = tail.get("*", staticHandler(deps.webDist) as (c: Context) => Promise<Response>);
+  // Headless `--router` skips the SPA fallback (no web UI).
+  if (deps.serveSpa !== false) {
+    tail = tail.get("*", staticHandler(deps.webDist) as (c: Context) => Promise<Response>);
+  }
   app = app.route("/", tail);
 
   return app;

@@ -100,7 +100,7 @@ export async function shutdown(booted: Booted, server: ReturnType<typeof Bun.ser
   await booted.stop();
 }
 
-function writeServerState(url: string, booted: Booted): void {
+export function writeServerState(url: string, booted: Booted): void {
   try {
     writeFileSync(
       serverStatePath(),
@@ -129,7 +129,7 @@ function openBrowser(url: string): void {
   }
 }
 
-function waitForever(): Promise<void> {
+export function waitForever(): Promise<void> {
   return new Promise((resolve) => {
     const stop = () => resolve();
     process.once("SIGINT", stop);

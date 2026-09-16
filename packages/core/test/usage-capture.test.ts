@@ -29,13 +29,20 @@ function walk(dir: string): string[] {
 
 describe("D26 — every LLM call site records usage", () => {
   test("each file calling provider.stream( also invokes recordLlmUsage", () => {
-    const srcDir = join(import.meta.dir, "..", "src");
+    // The provider subsystem was extracted into `@bai/provider`; scan both
+    // package sources so the invariant keeps covering the moved code.
+    const srcDirs = [
+      join(import.meta.dir, "..", "src"),
+      join(import.meta.dir, "..", "..", "provider", "src"),
+    ];
     const violations: string[] = [];
-    for (const file of walk(srcDir)) {
-      const code = readFileSync(file, "utf8");
-      if (!code.includes("provider.stream(")) continue;
-      if (!code.includes("recordLlmUsage")) {
-        violations.push(file.replace(srcDir + "/", ""));
+    for (const srcDir of srcDirs) {
+      for (const file of walk(srcDir)) {
+        const code = readFileSync(file, "utf8");
+        if (!code.includes("provider.stream(")) continue;
+        if (!code.includes("recordLlmUsage")) {
+          violations.push(file.replace(srcDir + "/", ""));
+        }
       }
     }
     expect(

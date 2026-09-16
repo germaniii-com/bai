@@ -3,7 +3,7 @@ import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   MIN_MAX_OUTPUT_TOKENS,
   resolveMaxOutputTokens,
-} from "../src/provider/output-limit";
+} from "../src/output-limit";
 
 /**
  * The output ceiling decides whether a large tool call can complete at all: the

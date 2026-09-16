@@ -13,8 +13,8 @@ import {
   isCodexEndpoint,
   toResponsesInput,
   toResponsesTools,
-} from "../src/provider/adapters/responses";
-import { buildToolNameMap } from "../src/provider/tool-names";
+} from "../src/adapters/responses";
+import { buildToolNameMap } from "../src/tool-names";
 
 function tempCatalog(config: Config): { catalog: CatalogService; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), "bai-overlay-"));

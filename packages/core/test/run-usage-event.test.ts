@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, ModelInfo, SessionUsage } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 
 /**
  * The `run.usage` event — the context tracker's live feed. One durable event

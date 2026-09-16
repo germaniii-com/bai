@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 
-export type CliMode = "tui" | "web" | "host" | "oneshot";
+export type CliMode = "tui" | "web" | "host" | "oneshot" | "router";
 
 export interface CliArgs {
   mode: CliMode;
@@ -14,6 +14,8 @@ export interface CliArgs {
   format: "json" | "text";
   dev: boolean;
   open: boolean;
+  /** Router gateway: mount `/api/help`; combined with `--web`/`--host` in one process. */
+  router: boolean;
   version: boolean;
   help: boolean;
 }
@@ -27,6 +29,8 @@ Usage:
   bai --code               TUI (explicit alias)
   bai --web [--open]       serve API + web UI on loopback
   bai --host               bind beyond loopback (LAN/tailnet); prints pairing URL
+  bai --router             headless OpenAI-compatible router (no web UI)
+  bai --web --router       web UI + router gateway + /api/help, one process
   bai --one-shot "prompt"  headless run; NDJSON (or --format text) on stdout
 
 Shared flags:
@@ -52,6 +56,7 @@ function buildParser(argv: string[]) {
       code: { type: "boolean", default: false },
       web: { type: "boolean", default: false },
       host: { type: "boolean", default: false },
+      router: { type: "boolean", default: false },
       "one-shot": { type: "string" },
       port: { type: "string" },
       token: { type: "string" },
@@ -88,6 +93,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       format: "json",
       dev: false,
       open: false,
+      router: false,
       version: true,
       help: false,
     };
@@ -100,11 +106,19 @@ export function parseCliArgs(argv: string[]): CliArgs {
       format: "json",
       dev: false,
       open: false,
+      router: false,
       version: false,
       help: true,
     };
   }
 
+  const router = values.router === true;
+  // `--router` is a modifier: it can accompany --web/--host (one process, one
+  // listener). Alone it is its own headless mode. It cannot combine with
+  // --one-shot.
+  if (router && values["one-shot"] !== undefined) {
+    throw new UsageError("--router cannot be combined with --one-shot");
+  }
   const modes: CliMode[] = [];
   if (values.web === true) modes.push("web");
   if (values.host === true) modes.push("host");
@@ -112,7 +126,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   if (modes.length > 1) {
     throw new UsageError(`mode flags are mutually exclusive: ${modes.join(", ")}`);
   }
-  const mode = modes[0] ?? "tui";
+  const mode = modes[0] ?? (router ? "router" : "tui");
 
   let port: number | undefined;
   if (values.port !== undefined) {
@@ -147,6 +161,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     format,
     dev: values.dev === true,
     open: values.open === true,
+    router,
     version: false,
     help: false,
   };

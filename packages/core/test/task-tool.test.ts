@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUILTIN_BUILD_AGENT, BUILTIN_CHAT_AGENT, BUILTIN_PLAN_AGENT, type SessionId, type ModelInfo } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 import type { Tool, ToolContext } from "../src/tools/registry";
 
 /**

@@ -14,6 +14,14 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--one-shot", "hi"])).toMatchObject({ prompt: "hi", format: "json" });
   });
 
+  test("--router is a modifier (headless or combined with web/host)", () => {
+    expect(parseCliArgs(["--router"])).toMatchObject({ mode: "router", router: true });
+    expect(parseCliArgs(["--web", "--router"])).toMatchObject({ mode: "web", router: true });
+    expect(parseCliArgs(["--host", "--router"])).toMatchObject({ mode: "host", router: true });
+    expect(parseCliArgs(["--web"]).router).toBe(false);
+    expect(() => parseCliArgs(["--one-shot", "x", "--router"])).toThrow(UsageError);
+  });
+
   test("mode flags are mutually exclusive (exit-2 class error)", () => {
     expect(() => parseCliArgs(["--web", "--host"])).toThrow(UsageError);
     expect(() => parseCliArgs(["--web", "--one-shot", "x"])).toThrow(UsageError);
@@ -40,5 +48,6 @@ describe("parseCliArgs", () => {
   test("usage text mentions the modes", () => {
     expect(usage()).toContain("--one-shot");
     expect(usage()).toContain("--host");
+    expect(usage()).toContain("--router");
   });
 });

@@ -11,7 +11,7 @@ import {
   KEEP_RESULTS,
 } from "../src/context/discipline";
 import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, fileRefAppendix } from "../src/context/compact";
-import type { Provider, ProviderStream, StreamEvent, LlmRequest } from "../src/provider/types";
+import type { Provider, ProviderStream, StreamEvent, LlmRequest } from "@bai/provider";
 import type { Message, MessageId, ModelInfo, Part, PartId, SessionId } from "@bai/shared";
 
 function part(ord: number, kind: Part["kind"], payload: unknown): Part {

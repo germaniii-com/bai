@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sleepInterruptible } from "../src/provider/retry";
+import { isRetryableApiError, MAX_API_RETRIES, RETRY_DELAYS_MS, retryAfterMs, sleepInterruptible } from "../src/retry";
 
 /** SDK APIError shape: an Error with `.status` and optional `.headers`. */
 function apiError(status: number | undefined, headers?: Record<string, string>): Error {

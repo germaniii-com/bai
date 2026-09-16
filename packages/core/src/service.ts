@@ -80,8 +80,7 @@ import type { EventLog } from "./event/log";
 import type { JobQueue } from "./jobs/queue";
 import { PermissionGate } from "./permissions/ask";
 import { QuestionService } from "./question/service";
-import type { ProviderRegistry } from "./provider/registry";
-import type { OAuthLoginManager } from "./provider/oauth/manager";
+import type { ProviderRegistry, OAuthLoginManager, ProviderFileRegistry } from "@bai/provider";
 import { RunCoordinator } from "./run";
 import {
   deletePlan as deleteSessionPlan,
@@ -118,7 +117,6 @@ import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
 import type { Tool, ToolRegistry } from "./tools/registry";
 import type { SkillRegistry } from "./skills/registry";
-import type { ProviderFileRegistry } from "./provider/file-registry";
 import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
 import { ImageWorkbench } from "./workbench/image";

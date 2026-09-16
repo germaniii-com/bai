@@ -1,24 +1,14 @@
-import type { SessionId, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
+import type { SessionId, UsageAnalyticsQuery, UsageAnalyticsResponse, UsageRates } from "@bai/shared";
 import type { SQLQueryBindings } from "bun:sqlite";
-import { newId } from "@bai/shared";
+import { newId, ZERO_RATES } from "@bai/shared";
 import { q, type SqliteDb } from "./db";
 
 /**
- * Effective per-component rates for one request — USD per 1M tokens,
- * snapshotted at insert time (catalog price × the vendor's cache billing
- * multipliers, applied by the registry). Dollars are computed at FETCH time
- * as Σ(tokens × rate) / 1e6, so history stays correct regardless of later
- * catalog price edits, and every $ figure is auditable down to the row.
+ * `UsageRates` + `ZERO_RATES` moved to `@bai/shared` (the provider package
+ * needs them too). Re-exported here so existing core importers are unchanged.
  */
-export interface UsageRates {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cacheWrite1h: number;
-}
-
-export const ZERO_RATES: UsageRates = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+export type { UsageRates };
+export { ZERO_RATES };
 
 /**
  * Fetch-time USD cost of a row from its own frozen rates (per 1M tokens).

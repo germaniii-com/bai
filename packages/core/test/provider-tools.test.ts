@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderOutbound, type ToolCallPayload, type ToolResultPayload } from "../src/run/history";
-import { toAnthropicMessages, toAnthropicTools } from "../src/provider/adapters/anthropic";
-import { toOpenAiMessages, toOpenAiTools, OpenAiToolCallAccumulator } from "../src/provider/adapters/openai";
-import { buildToolNameMap, sanitizeToolName } from "../src/provider/tool-names";
-import type { OutboundMessage } from "../src/provider/types";
+import { toAnthropicMessages, toAnthropicTools } from "@bai/provider/adapters/anthropic";
+import { toOpenAiMessages, toOpenAiTools, OpenAiToolCallAccumulator } from "@bai/provider/adapters/openai";
+import { buildToolNameMap, sanitizeToolName } from "@bai/provider/tool-names";
+import type { OutboundMessage } from "@bai/provider";
 import type { Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
 
 function part(ord: number, kind: Part["kind"], payload: unknown): Part {

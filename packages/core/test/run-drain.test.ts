@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, SessionId, ModelInfo } from "@bai/shared";
 import { makeCore, sleep, type TestCore } from "./harness";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 
 /**
  * A provider that replays a per-turn script (same pattern as

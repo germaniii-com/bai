@@ -1,13 +1,12 @@
-import type { AccountInfo, AdapterName, ModelInfo, ProviderInfo, ProviderListResponse } from "@bai/shared";
+import type { AccountInfo, AdapterName, ModelInfo, ProviderInfo, ProviderListResponse, UsageRates } from "@bai/shared";
 import type { Config } from "@bai/shared";
+import { ZERO_RATES } from "@bai/shared";
 import type { CatalogProvider, CatalogService } from "./catalog";
 import { WELL_KNOWN_BASE_URLS } from "./catalog";
 import type { AuthStore, SetAccountInput } from "./auth-store";
 import type { LlmRequest, Provider, ProviderStream } from "./types";
-import type { UsageRates } from "../store/usage";
-import { ZERO_RATES } from "../store/usage";
 import { EchoProvider } from "./stub";
-import { pickSmallModel } from "../title";
+import { pickSmallModel } from "./small-model";
 import { needsRefresh, renewOAuthTokens } from "./oauth/refresh";
 import { oauthSpec } from "./oauth/specs";
 

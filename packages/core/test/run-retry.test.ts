@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import type { Event, ModelInfo } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
-import { RETRY_DELAYS_MS } from "../src/provider/retry";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import { RETRY_DELAYS_MS } from "@bai/provider";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 
 /**
  * Auto-retry on transient pre-stream API failures (run.ts turn loop):

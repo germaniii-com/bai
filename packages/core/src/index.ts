@@ -12,7 +12,7 @@ export { EventLog } from "./event";
 export { loadConfig, ConfigStore, findProjectConfig, readJsoncFile, atomicWriteJson, stripJsonComments, type LoadedConfig } from "./config";
 export { applyDiscipline, stubIdenticalResults, pruneOldToolResults, estimateTokens, estimateTextTokens, estimateToolDefsTokens, KEEP_RESULTS } from "./context/discipline";
 export { shouldCompact, buildSummaryInput, SUMMARY_SYSTEM_PROMPT, SUMMARY_PREFIX, COMPACT_THRESHOLD, COMPACT_FLOOR_TOKENS } from "./context/compact";
-export * from "./provider";
+export * from "@bai/provider";
 export { ToolRegistry, OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./tools/registry";
 export { evaluatePermission, patternMatches } from "./permissions/engine";
 export { PermissionGate, DEFAULT_PERMISSIONS } from "./permissions/ask";
@@ -106,7 +106,6 @@ export { forkedTitle, isPatchPayload, readRevert, SNAPSHOT_TOOLS } from "./rever
 export {
   defaultTitle,
   isDefaultTitle,
-  pickSmallModel,
   sanitizeGeneratedTitle,
   TITLE_SYSTEM_PROMPT,
 } from "./title";

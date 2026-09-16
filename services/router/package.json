@@ -1,0 +1,19 @@
+{
+  "name": "@bai/router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bai/api": "workspace:*",
+    "@bai/core": "workspace:*",
+    "@bai/provider": "workspace:*",
+    "@bai/shared": "workspace:*",
+    "hono": "^4.13.5"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

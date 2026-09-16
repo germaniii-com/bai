@@ -3,8 +3,8 @@ import {
   toAnthropicTools,
   withAnthropicCacheBreakpoints,
   type AnthropicMessage,
-} from "../src/provider/adapters/anthropic";
-import { isOpenAiEndpoint, openAiPromptCacheParams } from "../src/provider/adapters/openai";
+} from "../src/adapters/anthropic";
+import { isOpenAiEndpoint, openAiPromptCacheParams } from "../src/adapters/openai";
 
 /**
  * Prompt-caching regressions.

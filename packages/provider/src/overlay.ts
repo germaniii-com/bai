@@ -1,5 +1,5 @@
 import type { AdapterName } from "@bai/shared";
-import { MEDIA_PROVIDER_SPECS } from "../media-providers";
+import { MEDIA_PROVIDER_SPECS } from "@bai/shared";
 
 /**
  * bai-owned curated provider overlay.

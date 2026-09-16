@@ -30,7 +30,14 @@ receives interfaces.
 | *(bare)* / `--code` | TUI |
 | `--web` | server + print URL/QR (`--open` launches browser) |
 | `--host[=addr]` | server bound beyond loopback |
+| `--router` | headless OpenAI-compatible gateway + `/api/help` (no web UI) |
 | `--one-shot "prompt"` | headless run → NDJSON/text on stdout |
+
+`--router` is a **modifier**: it may accompany `--web`/`--host`
+(`bai --web --router` = web UI + gateway + `/api/help`, one process/one
+listener), or stand alone. It cannot combine with `--one-shot`. The gateway
+(`/v1/*`) is mounted in every mode; `/api/help` only in router mode. Never run
+two bai core processes at once — boot reconciles shared job/automation state.
 
 Shared flags: `--port`, `--token`, `--config`, `--continue`, `--session`,
 `--auto`, `--format`, `--dev`, `--version`.
@@ -59,6 +66,7 @@ Workers (if ever introduced) must be listed as explicit compile entrypoints.
 
 ## Dependencies
 
-Imports `@bai/api`, `@bai/core`, `@bai/shared`, `@bai/tui`. See
-[ARCHITECTURE.md §4](../../ARCHITECTURE.md#4-boot-sequence-every-mode) for the
+Imports `@bai/api`, `@bai/core`, `@bai/provider`, `@bai/router`, `@bai/shared`,
+`@bai/tui`. See
+[ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-boot-sequence-every-mode) for the
 boot sequence this package triggers.

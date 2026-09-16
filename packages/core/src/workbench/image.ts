@@ -127,7 +127,10 @@ export class ImageWorkbench implements Workbench {
     const executor: JobExecutor = async (job, ctx) => {
       const request = parseRequest(job.input);
       const configured = this.deps.defaults?.();
-      const provider = configured?.provider ?? "stub";
+      // Per-request target wins (the router gateway routes by provider/account);
+      // otherwise fall back to config.imageGen defaults.
+      const provider = request.provider ?? configured?.provider ?? "stub";
+      const account = request.account ?? configured?.account;
       const adapter = this.adapterFor(provider);
       const model = request.model ?? configured?.model ?? adapter.defaultModel();
       const resolved: MediaGenRequest = { ...request, model };
@@ -135,13 +138,13 @@ export class ImageWorkbench implements Workbench {
       ctx.describe?.({
         provider,
         model,
-        ...(configured?.account !== undefined ? { account: configured.account } : {}),
+        ...(account !== undefined ? { account } : {}),
         mode: request.mode,
       });
       const params = resolved.params ?? {};
       ctx.progress(0.05);
       const credentials = this.deps.runtime
-        ? await this.deps.runtime.resolveCredentials(provider, configured?.account)
+        ? await this.deps.runtime.resolveCredentials(provider, account)
         : {};
       const generated = await adapter.generate({
         request: resolved,
@@ -157,7 +160,7 @@ export class ImageWorkbench implements Workbench {
           ? generated.costUsd / generated.images.length
           : undefined;
       const files: GeneratedFile[] = generated.images.map((image) =>
-        this.toFile(image, resolved, provider, configured, costPerImage, ctx.sessionId),
+        this.toFile(image, resolved, provider, account, costPerImage, ctx.sessionId),
       );
       const result: JobExecutorResult = {
         output: {
@@ -177,7 +180,7 @@ export class ImageWorkbench implements Workbench {
     image: MediaGeneratedImage,
     request: MediaGenRequest,
     provider: string,
-    configured: MediaGenConfig | undefined,
+    account: string | undefined,
     costUsd?: number,
     sessionId?: string,
   ): GeneratedFile {
@@ -188,12 +191,12 @@ export class ImageWorkbench implements Workbench {
     const params = request.params ?? {};
     const meta: Record<string, unknown> = {
       // Self-describing: the exact request reloads into the form.
-      gen: { ...request, provider, ...(configured?.account !== undefined ? { account: configured.account } : {}) },
+      gen: { ...request, provider, ...(account !== undefined ? { account } : {}) },
       prompt: request.prompt,
       mode: request.mode,
       model: request.model,
       provider,
-      ...(configured?.account !== undefined ? { account: configured.account } : {}),
+      ...(account !== undefined ? { account } : {}),
       // Provenance: the chat/agent session this image was generated from (set
       // by the image.generate tool). Absent for Image-page generations, so the
       // gallery knows when an "Open chat" action is possible.
@@ -237,6 +240,8 @@ function parseRequest(input: unknown): MediaGenRequest {
     mode: obj.mode === "i2i" ? "i2i" : "t2i",
     prompt: typeof obj.prompt === "string" && obj.prompt.length > 0 ? obj.prompt : "placeholder",
     ...(typeof obj.model === "string" && obj.model.length > 0 ? { model: obj.model } : {}),
+    ...(typeof obj.provider === "string" && obj.provider.length > 0 ? { provider: obj.provider } : {}),
+    ...(typeof obj.account === "string" && obj.account.length > 0 ? { account: obj.account } : {}),
     ...(Object.keys(params).length > 0 ? { params } : {}),
     ...(referenceAssetIds.length > 0 ? { referenceAssetIds } : {}),
     ...(tags.length > 0 ? { tags } : {}),

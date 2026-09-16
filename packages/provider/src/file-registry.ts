@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  MEDIA_PROVIDER_SPECS,
   PROVIDER_FILE_ID_RE,
   providerFileSchema,
+  stripJsonComments,
   type ProviderFile,
 } from "@bai/shared";
-import { stripJsonComments } from "../config";
-import { MEDIA_PROVIDER_SPECS } from "../media-providers";
 import type { CatalogProvider, CatalogModel } from "./catalog";
 
 /** One parsed provider file. */

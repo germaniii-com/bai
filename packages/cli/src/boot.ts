@@ -2,19 +2,14 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
-  AuthStore,
   AgentRegistry,
   AutomationScheduler,
-  CatalogService,
   ConfigStore,
   EventLog,
   Bus,
   JobQueue,
   McpManager,
   McpRegistry,
-  OAuthLoginManager,
-  ProviderFileRegistry,
-  ProviderRegistry,
   Service,
   SkillRegistry,
   Snapshot,
@@ -29,6 +24,15 @@ import {
   syncBundledSkills,
   type JobExecutor,
 } from "@bai/core";
+import {
+  AuthStore,
+  CatalogService,
+  ModelRouter,
+  OAuthLoginManager,
+  ProviderFileRegistry,
+  ProviderRegistry,
+} from "@bai/provider";
+import { createRouterGateway, type RouterDeps } from "@bai/router";
 import { createApp } from "@bai/api";
 import { registeredRoots } from "@bai/shared";
 import type { Config, ConfigPatch, JobKind } from "@bai/shared";
@@ -49,6 +53,8 @@ export interface Booted {
   store: Store;
   bus: Bus;
   core: Service;
+  /** The media job queue (the router's image routing awaits jobs on it). */
+  jobs: JobQueue;
   app: ReturnType<typeof createApp>;
   token?: string;
   /**
@@ -380,6 +386,18 @@ export async function boot(args: CliArgs): Promise<Booted> {
   }
 
   const token = resolveToken(args, config);
+  // The router gateway (`/v1/*`) is mounted in EVERY mode; `/api/help` only in
+  // --router mode. It shares this process's core/store/jobs — never a second
+  // stateful process (two boots would double-run media jobs + automations).
+  const routerDeps: RouterDeps = {
+    router: new ModelRouter(providers),
+    core,
+    store,
+    jobs,
+    version: VERSION,
+    ...(token !== undefined ? { token } : {}),
+    loopbackBind: args.mode !== "host",
+  };
   const app = createApp({
     core,
     store,
@@ -394,6 +412,8 @@ export async function boot(args: CliArgs): Promise<Booted> {
     loopbackBind: args.mode !== "host",
     webDist: webDistDir(),
     themesDir: path.join(configDir(), "themes"),
+    extraRoutes: createRouterGateway(routerDeps, { help: args.router }),
+    serveSpa: args.mode !== "router",
   });
 
   return {
@@ -402,6 +422,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     store,
     bus,
     core,
+    jobs,
     app,
     ...(token !== undefined ? { token } : {}),
     ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),

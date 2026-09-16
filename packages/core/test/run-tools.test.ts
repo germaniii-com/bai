@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionRequestId } from "@bai/shared";
 import { makeCore, sleep, waitForEvent, type TestCore } from "./harness";
-import type { Provider, ProviderStream, StreamEvent, ToolDef, LlmRequest } from "../src/provider/types";
+import type { Provider, ProviderStream, StreamEvent, ToolDef, LlmRequest } from "@bai/provider";
 import type { ModelInfo } from "@bai/shared";
 
 /**

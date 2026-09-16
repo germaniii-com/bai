@@ -7,7 +7,7 @@ import type { ModelInfo } from "@bai/shared";
 import { Store } from "../src";
 import { MIGRATIONS } from "../src/store/migrations";
 import { usageSpend } from "../src/store/usage";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 import { makeCore, sleep, type TestCore } from "./harness";
 
 describe("usage store", () => {

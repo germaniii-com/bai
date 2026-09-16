@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { AuthStore } from "../src";
 import { OAuthLoginManager } from "../src";
 import type { OAuthFlowSpec } from "../src";
-import { renewOAuthTokens } from "../src/provider/oauth/refresh";
-import { runRedirectFlow } from "../src/provider/oauth/redirect";
-import { pkcePair } from "../src/provider/oauth/pkce";
-import { toAnthropicMessages, toAnthropicTools } from "../src/provider/adapters/anthropic";
-import { buildToolNameMap } from "../src/provider/tool-names";
+import { renewOAuthTokens } from "../src/oauth/refresh";
+import { runRedirectFlow } from "../src/oauth/redirect";
+import { pkcePair } from "../src/oauth/pkce";
+import { toAnthropicMessages, toAnthropicTools } from "../src/adapters/anthropic";
+import { buildToolNameMap } from "../src/tool-names";
 
 function store(): { accounts: AuthStore; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), "bai-oauth-"));
@@ -131,7 +131,7 @@ describe("OAuth refresh", () => {
         return { access: "new", refresh: "r1", expiresAt: Date.now() + 3600_000 };
       },
     };
-    const { OAUTH_SPECS } = await import("../src/provider/oauth/specs");
+    const { OAUTH_SPECS } = await import("../src/oauth/specs");
     const prior = OAUTH_SPECS.singleflight;
     OAUTH_SPECS.singleflight = spec;
     try {

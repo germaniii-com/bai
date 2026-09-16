@@ -9,6 +9,8 @@
   "dependencies": {
     "@bai/api": "workspace:*",
     "@bai/core": "workspace:*",
+    "@bai/provider": "workspace:*",
+    "@bai/router": "workspace:*",
     "@bai/shared": "workspace:*",
     "@bai/tui": "workspace:*"
   },

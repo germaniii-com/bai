@@ -14,6 +14,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@bai/core": "workspace:*",
+        "@bai/provider": "workspace:*",
         "@bai/shared": "workspace:*",
         "@hono/zod-validator": "^0.9.0",
         "eventsource-parser": "^4.1.0",
@@ -27,6 +28,8 @@
       "dependencies": {
         "@bai/api": "workspace:*",
         "@bai/core": "workspace:*",
+        "@bai/provider": "workspace:*",
+        "@bai/router": "workspace:*",
         "@bai/shared": "workspace:*",
         "@bai/tui": "workspace:*",
       },
@@ -35,21 +38,29 @@
       "name": "@bai/core",
       "version": "0.1.0",
       "dependencies": {
-        "@anthropic-ai/sdk": "^0.122.0",
+        "@bai/provider": "workspace:*",
         "@bai/shared": "workspace:*",
         "@modelcontextprotocol/client": "^2.0.0",
-        "@opencode-ai/models": "^0.0.56",
         "diff": "^8.0.2",
         "duck-duck-scrape": "^2.2.7",
-        "google-auth-library": "^10.4.0",
         "htmlparser2": "^10.0.0",
-        "openai": "^7.8.0",
         "turndown": "^7.2.1",
         "yaml": "^2",
       },
       "devDependencies": {
         "@types/diff": "^8.0.0",
         "@types/turndown": "^5.0.5",
+      },
+    },
+    "packages/provider": {
+      "name": "@bai/provider",
+      "version": "0.1.0",
+      "dependencies": {
+        "@anthropic-ai/sdk": "^0.122.0",
+        "@bai/shared": "workspace:*",
+        "@opencode-ai/models": "^0.0.56",
+        "google-auth-library": "^10.4.0",
+        "openai": "^7.8.0",
       },
     },
     "packages/shared": {
@@ -104,6 +115,17 @@
         "typescript": "^5.9.0",
         "vite": "^8.2.2",
         "vite-plugin-pwa": "^1.3.0",
+      },
+    },
+    "services/router": {
+      "name": "@bai/router",
+      "version": "0.1.0",
+      "dependencies": {
+        "@bai/api": "workspace:*",
+        "@bai/core": "workspace:*",
+        "@bai/provider": "workspace:*",
+        "@bai/shared": "workspace:*",
+        "hono": "^4.13.5",
       },
     },
   },
@@ -301,6 +323,10 @@
     "@bai/cli": ["@bai/cli@workspace:packages/cli"],
 
     "@bai/core": ["@bai/core@workspace:packages/core"],
+
+    "@bai/provider": ["@bai/provider@workspace:packages/provider"],
+
+    "@bai/router": ["@bai/router@workspace:services/router"],
 
     "@bai/shared": ["@bai/shared@workspace:packages/shared"],
 

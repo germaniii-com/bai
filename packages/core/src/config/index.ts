@@ -5,45 +5,17 @@ import {
   configSchema,
   deepMerge,
   DEFAULT_CONFIG,
+  stripJsonComments,
   type Config,
   type ConfigPatch,
 } from "@bai/shared";
 
-/** Strip // and /* *​/ comments outside string literals (jsonc tolerance). */
-export function stripJsonComments(src: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i] as string;
-    const next = src[i + 1] as string | undefined;
-    if (inString) {
-      out += ch;
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      out += ch;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      while (i < src.length && src[i] !== "\n") i++;
-      out += "\n";
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
-      i++; // skip trailing '/'
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-}
+/**
+ * `stripJsonComments` moved to `@bai/shared` (the provider package's file
+ * registry needs it too). Re-exported here so existing core importers and
+ * `core/src/index.ts` are unchanged.
+ */
+export { stripJsonComments };
 
 /** Parse a JSON/JSONC file; undefined when missing or invalid (last-known-good wins). */
 export function readJsoncFile(file: string): unknown | undefined {

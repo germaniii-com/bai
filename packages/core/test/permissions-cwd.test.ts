@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 import { fsPathInsideCwd } from "../src/permissions/ask";
 import type { ModelInfo } from "@bai/shared";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 
 class ScriptedToolProvider implements Provider {
   readonly requests: LlmRequest[] = [];

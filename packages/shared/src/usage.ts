@@ -6,6 +6,25 @@
  * history stays correct regardless of later catalog price edits.
  */
 
+/**
+ * Effective per-component rates for one request — USD per 1M tokens,
+ * snapshotted at insert time (catalog price × the vendor's cache billing
+ * multipliers, applied by the provider registry). Dollars are computed at
+ * FETCH time as Σ(tokens × rate) / 1e6, so history stays correct regardless
+ * of later catalog price edits, and every $ figure is auditable down to the
+ * row. Lives in `@bai/shared` so both the provider package and core's store
+ * can name it without a layering cycle.
+ */
+export interface UsageRates {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cacheWrite1h: number;
+}
+
+export const ZERO_RATES: UsageRates = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+
 /** What kind of LLM call produced a usage row. Background calls (title
  *  generation, compaction summaries) are real spend, tagged for filtering. */
 export type UsageKind = "run" | "title" | "compaction";

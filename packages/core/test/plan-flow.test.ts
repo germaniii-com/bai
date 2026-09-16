@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 import { planWriteTool } from "../src/tools/plan-write";
 import type { Event } from "@bai/shared";
-import type { ToolDef } from "../src/provider/types";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { ToolDef } from "@bai/provider";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 import type { ModelInfo } from "@bai/shared";
 
 class ScriptedToolProvider implements Provider {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeCore, waitForEvent, type TestCore } from "./harness";
 import type { ModelInfo } from "@bai/shared";
-import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "../src/provider/types";
+import type { LlmRequest, Provider, ProviderStream, StreamEvent } from "@bai/provider";
 import { buildSkillsBlock } from "../src/run/skills";
 
 class ScriptedToolProvider implements Provider {

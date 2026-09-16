@@ -34,6 +34,7 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
 | `bai --code`                  | TUI (explicit alias)     | Same as bare invocation                                                                          |
 | `bai --web`                   | Server + browser         | Serves API + built web UI on loopback, prints URL + pairing QR; `--open` launches the browser    |
 | `bai --host[=addr]`           | Server for other devices | Same server bound beyond loopback (LAN / tailnet) for phone/tablet access                        |
+| `bai --router`                | Headless gateway         | Serve OpenAI-compatible `/v1/*` + `/api/help` (no web UI); `--web --router` combines both in one process |
 | `bai --one-shot "prompt"`     | Headless                 | Admits prompt to a session, streams NDJSON events to stdout, exits when the run goes idle        |
 | `bai --attach URL` _(future)_ | Remote client            | Any surface pointed at an already-running bai server                                             |
 
@@ -129,12 +130,14 @@ is realized literally:
 | Package       | Path                 | Notes                                                            |
 | ------------- | -------------------- | ---------------------------------------------------------------- |
 | `shared`      | `packages/shared`  | Domain types, IDs, contracts. Imports nothing.                 |
+| `provider`    | `packages/provider`| Model providers + adapters + OAuth + the router **SDK** (`ModelRouter`). Depends only on `shared`. |
 | `core`        | `packages/core`    | Sessions, runs, tools, permissions + supporting submodules     |
 | `api`         | `packages/api`     | Typed HTTP boundary, both sides (Hono app + typed client)      |
 | `cli`         | `packages/cli`     | Flags, wiring, mode dispatch (composition root)                |
 | `tui`         | `packages/tui`     | Ink surface                                                    |
 | `web`         | `packages/web`     | React SPA source; built `dist/` served by api                  |
 | `desktop`     | `packages/desktop` | Stub until Phase 6                                             |
+| `router`      | `services/router`  | OpenAI-compatible JSON gateway (`/v1/*`) + `/api/help`; composed in-process, never its own core. |
 
 Supporting modules live as submodules inside `core/src/`:
 
@@ -143,7 +146,6 @@ core/src/
 ├── store/        bun:sqlite persistence + migrations
 ├── event/        live bus + durable seq-cursor log
 ├── config/       layered configuration
-├── provider/     LLM providers behind one interface
 ├── agent/        file-defined agents: scan, watch, hot-reload
 ├── tools/        tool registry, built-in fs tools, custom-tool loader
 ├── context/      token discipline (pruning/stubbing) + compaction
@@ -156,13 +158,18 @@ core/src/
     └── video/
 ```
 
+(The former `core/src/provider/` submodule is now the standalone
+`@bai/provider` package; core re-exports it at `core/src/index.ts`.)
+
 ```
-cli ─► {config, store, event, provider, mcp, core, api, tui}
+cli ─► {config, store, event, provider, mcp, core, api, router, tui}
                           │
         core ◄────────────┼────────────── workbench/{chat,code,image,video}
         │  │              │                     (implement core contracts)
         │  └─► provider, mcp, event, store, shared
         └───► shared
+provider ─► shared
+router   ─► {provider, core, api, shared}
 api(server) ─► {core, event}            (never tui/web)
 api(client) ─► shared                   (typed API consumer)
 tui         ─► {api(client), shared}    (never core directly)
@@ -195,10 +202,11 @@ The guided tour for anyone reading the implementation. Paths are relative to
 | **`#file` mentions** | `core/src/fs/find.ts` (search) + `core/src/run/mentions.ts` (resolve/read); grammar `shared/src/mention.ts`; pickers `tui/src/components/mention-picker.tsx` + `web/src/mention-picker.tsx` | `GET /api/fs/find` fuzzy-searches a registered workspace (hidden/ignored dirs skipped); the composer inserts the shortest unique leaf token (`#button.tsx` — opencode's chip display) and expands it to the full `#path[:from-to]` at submit. At promotion, each mention is resolved (root-scoped) and read into a `file` part (numbered lines / dir listing, capped like `fs.read`); `renderOutbound` attaches `<file>` blocks to the user turn. Optional `:from`/`:from-to`/`:from-`; gated to sessions with a workspace root. In the web transcript each mention renders as a leaf chip (hover = full path, click opens the workspace viewer via `openMentionedFile`); the TUI renders the leaf inline. |
 | **Attachments (chat only)** | `core/src/attachments.ts` (classify/store/resolve), `core/src/run.ts` (`appendPromotedInputs` + `resolveAttachment`), `core/src/run/history.ts` (`renderOutbound` media blocks), adapters (`provider/adapters/anthropic.ts` image/document, `openai.ts` image_url/file); UI `web/src/attachments.tsx` + `web/src/chat-pane.tsx`; upload route `POST /api/attachment` (`api/src/server/app.ts`) | Cwd-less chat sessions only: web `+` button + composer drag-and-drop upload images/PDF/text → asset store (`assets/attachment/<id>.<ext>`, `kind:"file"`, `meta.attachment`). Text becomes a `file` part (read context); image/PDF become an `attachment` part. `renderOutbound` lowers them to provider blocks; missing/older-than-newest-3-user-turn attachments become omission notes (`context/discipline.ts`). Model capability (models.dev `attachment`/`modalities`) enforced at submit (`Service.assertAttachmentsSupported` → 400). Preview via `GET /api/asset/:id/content`. |
 | **Workspace file uploads** | `api/src/server/fs.ts` (`writeFile`), route `POST /api/fs/upload` (`api/src/server/app.ts`), client `BaiClient.uploadWorkspaceFile`, UI `web/src/file-tree.tsx` (drop targets) + `web/src/App.tsx` (`uploadToWorkspace`) | Drag files from the OS onto a folder row or the tree root → raw bytes written into the registered workspace (realpath-contained, 64 MB cap, auto-rename on collision). No composer attach button in workspace; uploaded files are ordinary files and are immediately `#file`-able (`clearFindCache(root)`). |
-| **The LLM calls (HTTP)** | `core/src/provider/types.ts` (`Provider.stream`) + `core/src/provider/adapters/anthropic.ts`, `adapters/openai.ts`, `adapters/responses.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints, OAuth Bearer/beta + Claude Code shape. OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Responses serves ChatGPT/Codex + xAI (`store:false`, `function_call` items, `ChatGPT-Account-ID`). Model resolution + credentials: `core/src/provider/registry.ts`; logins: `core/src/provider/oauth/`. |
-| **Custom provider files** | `core/src/provider/file-registry.ts` (`ProviderFileRegistry`) + `shared/src/provider-files.ts` (schema) + `core/src/workbench/media/{file-providers,generic,mapping}.ts`; routes `GET/PUT/DELETE /api/provider/file(s)`; web `web/src/provider-file-form.tsx` | `~/.config/bai/providers/<id>.json` (JSONC), hot-reloaded (fs.watch + poll, like `McpRegistry`). A required `providerType` (`text`/`image`/`video`) gates the optional `text` and `image` blocks. Files merge into the catalog as the top layer (`source: "file"`; env/base URL + `mediaOnly` hiding), and image blocks become workbench provider defs — the OpenAI-images template reuses `OpenAiImagesAdapter`, anything else uses `GenericMediaAdapter` (interpolated request body + response path mapping). Built-in media ids are reserved. Writes are validated + atomic; `onChange` invalidates the catalog/registry and broadcasts `provider.updated`. |
+| **The LLM calls (HTTP)** | `provider/src/types.ts` (`Provider.stream`) + `provider/src/adapters/anthropic.ts`, `adapters/openai.ts`, `adapters/responses.ts` | The ONLY files that touch vendor SDKs / provider HTTP. Anthropic: `tool_use`/`tool_result` blocks, `input_json_delta` streaming, cache breakpoints, OAuth Bearer/beta + Claude Code shape. OpenAI-compat serves api.openai.com + every compatible endpoint (OpenRouter, Groq, Ollama…). Responses serves ChatGPT/Codex + xAI (`store:false`, `function_call` items, `ChatGPT-Account-ID`). Model resolution + credentials: `provider/src/registry.ts`; the router SDK seam: `provider/src/router.ts`; logins: `provider/src/oauth/`. |
+| **Custom provider files** | `provider/src/file-registry.ts` (`ProviderFileRegistry`) + `shared/src/provider-files.ts` (schema) + `core/src/workbench/media/{file-providers,generic,mapping}.ts`; routes `GET/PUT/DELETE /api/provider/file(s)`; web `web/src/provider-file-form.tsx` | `~/.config/bai/providers/<id>.json` (JSONC), hot-reloaded (fs.watch + poll, like `McpRegistry`). A required `providerType` (`text`/`image`/`video`) gates the optional `text` and `image` blocks. Files merge into the catalog as the top layer (`source: "file"`; env/base URL + `mediaOnly` hiding), and image blocks become workbench provider defs — the OpenAI-images template reuses `OpenAiImagesAdapter`, anything else uses `GenericMediaAdapter` (interpolated request body + response path mapping). Built-in media ids are reserved. Writes are validated + atomic; `onChange` invalidates the catalog/registry and broadcasts `provider.updated`. |
+| **Router gateway / SDK** | `services/router/src/{index,chat,images,models,openai,help,deps}.ts`; `provider/src/router.ts` (`ModelRouter`); CLI `cli/src/modes/router.ts`; app composition `api/src/server/app.ts` (`extraRoutes`, `serveSpa`) | The **SDK version** (`ModelRouter`) resolves `provider/model` + `x-bai-account` → adapter + credentials and streams; core's run loop and the gateway share it. `@bai/router` wraps it in an OpenAI-compatible HTTP surface: `POST /v1/chat/completions` (SSE or JSON), `GET /v1/models`, `POST /v1/images/generations` (enqueues on the shared image job queue, returns base64). `/v1/*` is mounted in **every** mode via `ApiDeps.extraRoutes`; `/api/help` (HTML) + `/api/help/openapi.json` (OpenAPI 3.1) only in `--router`. Composed in-process — never a second core (boot reconciles jobs/automations). |
 | **Tool registry & execution** | `core/src/tools/registry.ts` | `ToolRegistry.execute()` is the single execution path: output bound at 32K (head+tail, spill to disk). Built-in file tools: `core/src/tools/fs-read-write.ts`, `fs-edit.ts`, `fs-list-glob.ts` with shared guards (rooting, staleness, did-you-mean, per-path mutation queue) in `fs-guard.ts`. |
-| **Image generation (workbench + adapters)** | `core/src/workbench/image.ts` (job executor) + `core/src/workbench/media/{adapter,registry,http,openrouter,openai-images,openai,xai,together,deepinfra,recraft,gemini,bfl,fal,replicate,stability,ideogram,minimax,stub,dimensions}.ts` + the shared `core/src/media-providers.ts` spec table; agent tool `core/src/tools/image.ts` (`image.generate`, registered by `Service`); service `Service.{imageProviders,revealAccountKey,enqueueImageGeneration,imageCapabilities,imageGallery,imageTags,imageRecent,deleteAsset,setAssetTags,retryJob,cancelJob}`; routes in `api/src/server/app.ts`; web `web/src/image.tsx` + `use-image-gallery.ts` + `components/TagInput.tsx`; analytics `store/media-usage.ts` + `GET /api/image/usage` + the Analytics page's **Image generation** card | Adapters own the provider wire shape (no vendor SDKs — direct REST via `fetch`/`FormData`) and declare a generic `MediaParamSpec` vocabulary; the web renders it and fetches the provider list from `GET /api/image/providers` (models + saved accounts). `media-providers.ts` feeds the curated overlay (`mediaOnly` providers resolve env keys/base URLs but are hidden from chat pickers). The Image page has no provider picker — its model list aggregates every connected provider's models. `GET /api/provider/:provider/account/:account/key` reveals one **stored API key** for copy-to-clipboard (`no-store`; OAuth tokens and env keys are never returned). Transports: sync JSON (OpenAI/xAI/Together/DeepInfra/Recraft/OpenRouter), multipart (Stability/Ideogram/OpenAI edits), Google Interactions (Gemini), async submit→poll (BFL/fal/Replicate, abort-aware with backoff, result URLs downloaded to bytes). Assets are self-describing (`meta.gen` = the request) and independently deletable; tags are indexed in `asset_tags`. Jobs run on the hardened `JobQueue` (boot recovery, timeout, bounded retry/backoff, **parallel up to `config.jobs.concurrency`**, cancel, graceful stop, atomic asset writes); each terminal image job records one `media_events` analytics row. The `image.generate` tool merges the Image Generation settings defaults, awaits the job via `JobQueue.waitFor`, optionally writes results into the workspace (`save_to`, snapshot-covered), and returns `assets` on the tool result for inline thumbnails. |
+| **Image generation (workbench + adapters)** | `core/src/workbench/image.ts` (job executor) + `core/src/workbench/media/{adapter,registry,http,openrouter,openai-images,openai,xai,together,deepinfra,recraft,gemini,bfl,fal,replicate,stability,ideogram,minimax,stub,dimensions}.ts` + the shared `shared/src/media-providers.ts` spec table; agent tool `core/src/tools/image.ts` (`image.generate`, registered by `Service`); service `Service.{imageProviders,revealAccountKey,enqueueImageGeneration,imageCapabilities,imageGallery,imageTags,imageRecent,deleteAsset,setAssetTags,retryJob,cancelJob}`; routes in `api/src/server/app.ts`; web `web/src/image.tsx` + `use-image-gallery.ts` + `components/TagInput.tsx`; analytics `store/media-usage.ts` + `GET /api/image/usage` + the Analytics page's **Image generation** card | Adapters own the provider wire shape (no vendor SDKs — direct REST via `fetch`/`FormData`) and declare a generic `MediaParamSpec` vocabulary; the web renders it and fetches the provider list from `GET /api/image/providers` (models + saved accounts). `media-providers.ts` feeds the curated overlay (`mediaOnly` providers resolve env keys/base URLs but are hidden from chat pickers). The Image page has no provider picker — its model list aggregates every connected provider's models. `GET /api/provider/:provider/account/:account/key` reveals one **stored API key** for copy-to-clipboard (`no-store`; OAuth tokens and env keys are never returned). Transports: sync JSON (OpenAI/xAI/Together/DeepInfra/Recraft/OpenRouter), multipart (Stability/Ideogram/OpenAI edits), Google Interactions (Gemini), async submit→poll (BFL/fal/Replicate, abort-aware with backoff, result URLs downloaded to bytes). Assets are self-describing (`meta.gen` = the request) and independently deletable; tags are indexed in `asset_tags`. Jobs run on the hardened `JobQueue` (boot recovery, timeout, bounded retry/backoff, **parallel up to `config.jobs.concurrency`**, cancel, graceful stop, atomic asset writes); each terminal image job records one `media_events` analytics row. The `image.generate` tool merges the Image Generation settings defaults, awaits the job via `JobQueue.waitFor`, optionally writes results into the workspace (`save_to`, snapshot-covered), and returns `assets` on the tool result for inline thumbnails. |
 | **Subagent spawning** | `core/src/tools/task.ts` | The `task` tool: spawns a real child session (`meta: {parent, agent}`) running any agent to completion via `RunCoordinator.drainNow`, returns the child's final text in a `<task>` XML block. Depth-capped (`agents.subagentDepth`, default 1); children never offered/allowed `task`/`question`/`plan.exit`; batched task calls run concurrently (executeCalls stage 2); the result payload carries `subagent: {sessionId, agent}` for surface links. |
 | **Custom tool files** | stored in `~/.config/bai/tools/*.ts`; loader `core/src/tools/loader.ts` | Contract: default export `{ description, schema (JSON Schema), execute(args, ctx) }`. Filename stem = tool name. Hot-imported on change (Bun ignores query-param cache busting → versioned temp copies). Created/edited from the TUI agent manager (supermenu → Switch agent) or web Agents page via `PUT /api/tool/:name`. |
 | **Session plans & notes** | `core/src/session-files.ts` (`<dataDir>/sessions/<sessionId>/{notes.md,plans/*.md}`) + `core/src/tools/{plan-write,plan-read,notes}.ts` | Plans/notes are session-scoped FILES (portable between surfaces). `plan.write` is session-scoped (the plan agent's only write); `plan.read` lists/reads them for any agent (the Plans panel's build action hands a plan to the build agent); `notes.read`/`notes.write` give the agent the user's scratchpad. Service methods emit durable `plans.updated`/`notes.updated`; REST at `/api/session/:id/{notes,plan,todo}`. The web workspace right rail renders collapsible **Checklist** (editable `session.meta.todos`), **Plans** (list; click opens an editable editor in the Files view; a hammer builds a plan), and **Notes** (inline autosave) panels. |
@@ -540,6 +548,35 @@ ctrl+p wizard drive them. Custom providers are config-defined entities
 (name, base URL, adapter, key env/secret, models, headers, context length)
 with `PUT/DELETE /api/provider/:provider/custom`.
 
+### 10.2 Router gateway (OpenAI-compatible)
+
+The provider layer is extracted into the transport-free `@bai/provider` package
+(adapters, registry, catalog, credentials, OAuth). Its **router SDK** —
+`ModelRouter.resolve()` / `.chat()` — is the single seam that turns a
+`provider/model` id + optional account into a live adapter + credentials;
+core's run loop and the `@bai/router` service both use it.
+
+`@bai/router` (`services/router`) exposes that SDK over HTTP:
+
+- `POST /v1/chat/completions` — OpenAI chat body → bai `OutboundMessage[]` →
+  `provider.stream()`; `StreamEvent`s map back to OpenAI SSE chunks (`[DONE]`
+  terminated) or a single completion object.
+- `GET /v1/models` — every routable `provider/model` id.
+- `POST /v1/images/generations` — enqueues on the shared image job queue and
+  returns base64 images.
+- `GET /api/help` (HTML) + `GET /api/help/openapi.json` (OpenAPI 3.1) — only in
+  `--router` mode.
+
+**Target selection:** `model` = bai `provider/model`; the saved account rides
+the `x-bai-account` header (default: `config.models.defaultAccount`, else the
+first stored account / env). `/v1/*` is mounted in **every** mode via
+`ApiDeps.extraRoutes`, so `bai --web` is already a gateway; `bai --router` is
+the same minus the SPA, plus the help page. The router is composed in-process
+against the one core — running two independent bai processes would double-run
+media jobs and automations (`JobQueue.start` / `AutomationScheduler.start`
+reconcile shared store state), so `--router` combines with `--web`/`--host`
+rather than running beside them.
+
 ## 11. Extensibility (MCP-first)
 
 **bai as MCP client** (`core/src/mcp`): **implemented**. External servers are
@@ -817,6 +854,13 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 execution; its plan and research notes live in `~/thoughts/plans/` and
 `~/thoughts/research/`.)
 
+**Provider extraction + router gateway (2026-09-16):** the provider subsystem
+moved from `core/src/provider/` to `packages/provider` (`@bai/provider`), and a
+new `services/router` (`@bai/router`) serves an OpenAI-compatible `/v1/*`
+gateway (text + image) plus `/api/help` (HTML + OpenAPI). `/v1/*` mounts in
+every mode; `--router` is a modifier that adds the help page and drops the
+SPA. See [§10.2](#102-router-gateway-openai-compatible) and D29.
+
 ## 17. Decision log
 
 Carried over from the Go design where still applicable (D1–D12), plus
@@ -852,6 +896,7 @@ TypeScript-specific decisions (D13+):
 | D26 | Every LLM call records usage (kind-tagged rows, per-row rate snapshot, cost computed at fetch) | Analytics completeness by construction — spend tracking can't be silently skipped (enforced by a source-scan test); rates frozen per data point keep history correct across catalog price edits; fetch-time Σ(tokens×rate) is auditable and drift-free | Deriving usage from events (lossy — no cache/reasoning fields); per-feature ad-hoc tracking; denormalized cost snapshot (drift risk) |
 | D27 | Server-side OAuth login engine + widened auth.json + curated provider overlay | Subscription/ChatGPT-style logins (device-code, paste-code PKCE, import, ADC) are first-class provider accounts, resolved and refreshed at stream time; device-code/paste-code work for remote surfaces without client loopback; the overlay closes models.dev gaps without forking the catalog | Per-client browser OAuth (breaks `--host`); hardcoding a second 39-provider list (drifts from models.dev); storing tokens in config (leaks via sync) |
 | D28 | Responses API as a first-class wire adapter | ChatGPT/Codex and xAI cannot be expressed over chat.completions; one adapter serves both plus future Responses endpoints, sharing tool-name/usage/StreamEvent handling | Codex-only special path (not reusable); SDK feature flags without a wire adapter |
+| D29 | Extract providers to `@bai/provider`; router gateway as a separate in-process service | The provider subsystem became a large transport-free domain (adapters, catalog, credentials, OAuth, router SDK); isolating it slims core and lets an OpenAI-compatible gateway (`@bai/router`) share the exact resolution seam (`ModelRouter`) with the run loop. A separate *process* was rejected: `boot()` reconciles shared JobQueue/AutomationScheduler state, so two cores would double-run work — `--router` composes with `--web`/`--host` instead. | Providers left in core; a second stateful daemon; per-mode bespoke gateway code |
 
 ## 18. Glossary
 

@@ -1,5 +1,5 @@
 import type { Message, Part } from "@bai/shared";
-import type { ContentBlock, OutboundMessage } from "../provider/types";
+import type { ContentBlock, OutboundMessage } from "@bai/provider";
 
 /**
  * Stored history (messages + typed parts) → provider-neutral outbound
