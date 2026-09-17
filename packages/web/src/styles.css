@@ -3413,6 +3413,21 @@ select:focus-visible,
 
 /* --- Integrations (MCP servers) ----------------------------------------- */
 
+/* Client-config snippet in the "bai as MCP server" card. */
+.mcp-connect-snippet {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 /* One server/catalog row inside a .provider-accordion. */
 .mcp-row {
   display: flex;

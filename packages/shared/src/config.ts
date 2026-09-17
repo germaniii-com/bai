@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { PermissionAction } from "./enums";
 import type { AdapterName } from "./providers";
 import type { MediaParamValue } from "./media";
+import { mcpServerRoleSchema, type McpServerRoleConfig } from "./mcp-server";
 
 export interface ProviderConfig {
   /** Custom base URL — makes any provider OpenAI-compatible (OpenRouter, Ollama…). */
@@ -286,6 +287,12 @@ export interface Config {
   jobs: JobsConfig;
   /** Router gateway (`/v1/*` + `/api/help`) settings. Default on. */
   router: RouterConfig;
+  /**
+   * bai as an MCP **server** (`/mcp`, streamable HTTP). Default OFF — the
+   * endpoint runs bai's tools under the shared session's auto-approve, so it
+   * must be opted into (`--mcp` forces it on, router parity).
+   */
+  mcpServer?: McpServerRoleConfig;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -303,6 +310,7 @@ export const DEFAULT_CONFIG: Config = {
   tools: {},
   jobs: {},
   router: {},
+  mcpServer: {},
 };
 
 const providerSchema = z.object({
@@ -433,6 +441,7 @@ export const configSchema = z.object({
   tools: toolsSchema.default({}),
   jobs: jobsSchema.default({}),
   router: routerSchema.default({}),
+  mcpServer: mcpServerRoleSchema.default({}),
 });
 /** Accepts a partial config document (used by PUT /api/config and file layers). */
 export const configPatchSchema = z.object({
@@ -460,6 +469,7 @@ export const configPatchSchema = z.object({
   tools: toolsSchema.optional(),
   jobs: jobsSchema.optional(),
   router: routerSchema.optional(),
+  mcpServer: mcpServerRoleSchema.optional(),
 });
 
 export type ConfigPatch = z.infer<typeof configPatchSchema>;

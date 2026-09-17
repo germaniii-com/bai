@@ -18,6 +18,7 @@ export * from "./zdr";
 export * from "./themes";
 export * from "./mcp-catalog";
 export * from "./mcp-usage";
+export * from "./mcp-server";
 export * from "./usage";
 export * from "./jsonc";
 export * from "./mention";

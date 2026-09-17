@@ -41,8 +41,9 @@ continue it from your phone, teach it new agents from either side.
   still a structured stub
 - 🖥️ **Surfaces** — Ink TUI, web app for desktop _and_ mobile (browser/PWA),
   native desktop shell later
-- 🔌 **Extensible** — custom tools as TypeScript files (hot-imported), MCP as
-  client and server (planned)
+- 🔌 **Extensible** — custom tools as TypeScript files (hot-imported), MCP
+  both ways: bai consumes external MCP servers **and** serves its own tools,
+  skills, and sessions at `/mcp` (plus a `bai mcp` stdio bridge)
 
 See [FEATURES.md](FEATURES.md) for what each workbench does today, and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the full design, code map, decision
@@ -55,6 +56,8 @@ bai --web --open         # serve API + web UI + router gateway on loopback, open
 bai --host               # bind beyond loopback; pairing token for phone
 bai --router             # headless OpenAI-compatible gateway + /api/help
 bai --web --router       # web UI + gateway + /api/help, one process
+bai --web --mcp          # web UI + bai as an MCP server at /mcp
+bai mcp                  # stdio MCP bridge to a running bai (Claude Desktop…)
 bai --one-shot "summarize this repo" --format json   # headless NDJSON run
 ```
 
@@ -64,9 +67,11 @@ Implemented through the media-workbench phase — **chat, sync, agents, file
 tools + bash/grep, interactive permissions, token discipline + compaction,
 per-message revert/fork/copy with shadow-repo file rollback, provider
 OAuth/subscription logins, the multi-provider image workbench (13 adapters
-+ hardened job runtime + tag gallery), and the extracted `@bai/provider` +
-`@bai/router` OpenAI-compatible gateway all ship today** (8 packages/services).
-Pending: MCP server role, the video adapter, desktop shell. Details in
++ hardened job runtime + tag gallery), the extracted `@bai/provider` +
+`@bai/router` OpenAI-compatible gateway, and **MCP both ways** (external
+servers as plugins + bai's own tools/skills/sessions at `/mcp` with the
+`bai mcp` stdio bridge) all ship today** (9 packages/services). Pending: the
+video adapter, desktop shell. Details in
 [ARCHITECTURE.md §16](docs/ARCHITECTURE.md#16-roadmap).
 
 ## Inspiration
@@ -119,7 +124,8 @@ bai-ts/
 │   ├── web/                   React + Vite SPA / PWA                 @bai/web
 │   └── desktop/               native shell (stub)                    @bai/desktop
 └── services/
-    └── router/                OpenAI-compatible gateway + /api/help  @bai/router
+    ├── router/                OpenAI-compatible gateway + /api/help  @bai/router
+    └── mcp/                   bai as an MCP server (/mcp + stdio bridge) @bai/mcp
 ```
 
 Every package directory carries its own README explaining responsibilities,

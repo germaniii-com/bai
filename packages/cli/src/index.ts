@@ -1,5 +1,6 @@
 import { parseCliArgs, usage, UsageError } from "./args";
 import { boot, VERSION, type Booted } from "./boot";
+import { runMcpBridge } from "./modes/mcp";
 import { runHost, runWeb } from "./modes/web";
 import { runOneShot } from "./modes/oneshot";
 import { runRouter } from "./modes/router";
@@ -24,6 +25,12 @@ async function main(): Promise<number> {
   if (args.help) {
     console.log(usage());
     return 0;
+  }
+
+  // The stdio bridge proxies to a running server — it must NEVER boot a second
+  // core (which would double-run media jobs and automations, D29).
+  if (args.mode === "mcp") {
+    return runMcpBridge(args);
   }
 
   const booted: Booted = await boot(args);

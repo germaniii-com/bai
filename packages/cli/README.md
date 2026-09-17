@@ -31,19 +31,29 @@ receives interfaces.
 | `--web` | server + print URL/QR (`--open` launches browser) |
 | `--host[=addr]` | server bound beyond loopback |
 | `--router` | headless OpenAI-compatible gateway + `/api/help` (no web UI) |
+| `mcp` | stdio MCP bridge to a **running** bai (`--url`/`--token`) |
 | `--one-shot "prompt"` | headless run → NDJSON/text on stdout |
 
-`--router` is a **modifier**: it may accompany `--web`/`--host`
-(`bai --web --router` = web UI + gateway + `/api/help`, one process/one
-listener), or stand alone. It cannot combine with `--one-shot`. The gateway
+`--router` and `--mcp` are **modifiers**: they may accompany `--web`/`--host`
+(`bai --web --router --mcp` = one process/one listener serving everything), or
+`--router` stands alone. Neither combines with `--one-shot`. The gateway
 (`/v1/*`) + `/api/help` are gated live by config `router.enabled` (Settings →
-Model Providers → "Run as router", persisted to `~/.config/bai/config.json`),
-**on by default** — so `bai --web` already serves them; the explicit
-`--router` flag forces them on. Never run two bai core processes at once —
-boot reconciles shared job/automation state.
+Model Providers → "Run as router"), **on by default**; the MCP server role
+(`/mcp`) is gated by `mcpServer.enabled` (Settings → Integrations → "Run as MCP
+server"), **off by default** because it runs bai's tools with auto-approve.
+`bai --mcp` forces it on.
 
-Shared flags: `--port`, `--token`, `--config`, `--continue`, `--session`,
-`--auto`, `--format`, `--dev`, `--version`.
+`bai mcp` is its own mode: a stdio MCP server that **proxies** a running bai's
+`/mcp` for desktop clients (Claude Desktop, Cursor). It never boots the core —
+a second core would double-run media jobs and automations. It finds the server
+via `--url`/`$BAI_URL` or `~/.local/state/bai/server.json`, and because stdout
+is the JSON-RPC channel, all diagnostics go to stderr.
+
+Never run two bai core processes at once — boot reconciles shared
+job/automation state.
+
+Shared flags: `--port`, `--token`, `--url`, `--config`, `--continue`,
+`--session`, `--auto`, `--format`, `--dev`, `--version`.
 
 One-shot mechanics: subscribe to the session event stream **before**
 submitting the prompt; terminate on idle; NDJSON envelope
@@ -69,7 +79,7 @@ Workers (if ever introduced) must be listed as explicit compile entrypoints.
 
 ## Dependencies
 
-Imports `@bai/api`, `@bai/core`, `@bai/provider`, `@bai/router`, `@bai/shared`,
-`@bai/tui`. See
+Imports `@bai/api`, `@bai/core`, `@bai/mcp`, `@bai/provider`, `@bai/router`,
+`@bai/shared`, `@bai/tui`. See
 [ARCHITECTURE.md §4](../../docs/ARCHITECTURE.md#4-boot-sequence-every-mode) for the
 boot sequence this package triggers.

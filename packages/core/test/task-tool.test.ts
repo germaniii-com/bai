@@ -349,6 +349,30 @@ describe("task tool (subagent spawning)", () => {
     expect(result?.content).toContain("Echo: THE PLAIN TASK");
   });
 
+  test("an unattended parent (autoApprove) propagates to its child sessions", async () => {
+    t.config.models.default = "stub/echo";
+    t.agents.put("plain", { description: "plain persona", prompt: "PLAIN PERSONA", tools: [] });
+    const parent = t.core.createSession({ workbench: "code", meta: { autoApprove: true } });
+
+    const task = t.tools.get("task");
+    await task?.execute(taskArgs("Auto child", "THE AUTO TASK", "plain"), directCtx(parent.id));
+
+    const child = t.core.listSessions().find((s) => s.meta.parent === parent.id);
+    expect(child?.meta.autoApprove).toBe(true);
+  });
+
+  test("a normal parent does not propagate autoApprove to its child", async () => {
+    t.config.models.default = "stub/echo";
+    t.agents.put("plain", { description: "plain persona", prompt: "PLAIN PERSONA", tools: [] });
+    const parent = t.core.createSession({ workbench: "code" });
+
+    const task = t.tools.get("task");
+    await task?.execute(taskArgs("Plain child", "THE PLAIN TASK", "plain"), directCtx(parent.id));
+
+    const child = t.core.listSessions().find((s) => s.meta.parent === parent.id);
+    expect(child?.meta.autoApprove).toBeUndefined();
+  });
+
   test("built-in allow-lists: build may spawn; chat/plan may not", () => {
     expect(BUILTIN_BUILD_AGENT.tools).toContain("task");
     expect(BUILTIN_CHAT_AGENT.tools).not.toContain("task");

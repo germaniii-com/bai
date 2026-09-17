@@ -7,6 +7,7 @@ import type {
   MCPServerConfig,
   McpCatalogEntry,
   McpServerInfo,
+  McpServerRoleStatus,
   McpServerSource,
   MediaGenConfig,
   MediaProviderInfo,
@@ -2306,6 +2307,104 @@ const MCP_STATE_LABELS: Record<McpServerInfo["state"], string> = {
 };
 
 /**
+ * bai AS an MCP server (config mcpServer.enabled) — the reverse of the
+ * integrations list: external clients connect here and call bai's tools,
+ * skills, and session operations over `/mcp` (streamable HTTP).
+ */
+function McpServerRoleCard({
+  role,
+  onRoleChange,
+  onNotice,
+}: {
+  role: McpServerRoleStatus;
+  onRoleChange: (enabled: boolean) => Promise<void>;
+  onNotice: OnNotice;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const origin =
+    typeof window !== "undefined" && window.location.origin.length > 0
+      ? window.location.origin
+      : "http://127.0.0.1:9640";
+  const endpoint = `${origin}/mcp`;
+  const stdioConfig = JSON.stringify(
+    { mcpServers: { bai: { command: "bai", args: ["mcp"] } } },
+    null,
+    2,
+  );
+  const httpConfig = JSON.stringify(
+    { mcpServers: { bai: { url: endpoint } } },
+    null,
+    2,
+  );
+
+  const copy = (label: string, text: string): void => {
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(label);
+        setTimeout(() => setCopied((current) => (current === label ? null : current)), 1500);
+      })
+      .catch(() => onNotice("Could not copy to the clipboard", "error"));
+  };
+
+  const toggle = (enabled: boolean): void => {
+    setSaving(true);
+    void onRoleChange(enabled)
+      .then(() => onNotice(enabled ? "Run as MCP server: on" : "Run as MCP server: off"))
+      .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err), "error"))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        title="bai as MCP server"
+        lede="Expose bai's tools, skills, and sessions over the Model Context Protocol. External agents call bai's tools in a shared, auto-approved session, read skills as prompts/resources, and can create and drive sessions."
+      />
+      <ToggleRow
+        checked={role.enabled}
+        onChange={(on) => {
+          if (!saving) toggle(on);
+        }}
+        title="Run as MCP server"
+        description={
+          `${role.transport} at ${endpoint} · ${role.tools} tools · ${role.skills} skills · ` +
+          `${role.sessions} sessions. Applies live; bai --mcp always enables it.`
+        }
+      />
+      <h4 className="settings-subheading">Connect a client</h4>
+      <p className="section-lede">
+        Desktop clients (Claude Desktop, Cursor) spawn the stdio bridge; HTTP
+        clients can point straight at the endpoint. Loopback needs no token; on
+        a <code>--host</code> server send{" "}
+        <code>Authorization: Bearer &lt;token&gt;</code>.
+      </p>
+      <div className="provider-actions">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => copy("stdio", stdioConfig)}
+        >
+          {copied === "stdio" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{" "}
+          Copy stdio config
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => copy("http", httpConfig)}
+        >
+          {copied === "http" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{" "}
+          Copy HTTP config
+        </Button>
+      </div>
+      <pre className="mcp-connect-snippet">{httpConfig}</pre>
+    </Card>
+  );
+}
+
+/**
  * Integrations section: installed MCP servers (status, enable/disable,
  * authorize, retry, remove) plus the curated catalog. Installing a catalog
  * entry writes a drop-in file under ~/.config/bai/mcp/ and starts OAuth.
@@ -2319,6 +2418,7 @@ function IntegrationsPane({
 }) {
   const [servers, setServers] = useState<McpServerInfo[] | null>(null);
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
+  const [role, setRole] = useState<McpServerRoleStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [authName, setAuthName] = useState<string | null>(null);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
@@ -2340,15 +2440,23 @@ function IntegrationsPane({
 
   const load = async (): Promise<void> => {
     try {
-      const [nextServers, nextCatalog] = await Promise.all([
+      const [nextServers, nextCatalog, nextRole] = await Promise.all([
         client.getMcpServers(),
         client.getMcpCatalog(),
+        client.mcpServerRole(),
       ]);
       setServers(nextServers);
       setCatalog(nextCatalog);
+      setRole(nextRole);
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err), "error");
     }
+  };
+
+  /** Persist the server-role toggle and refresh its status (applies live). */
+  const setRoleEnabled = async (enabled: boolean): Promise<void> => {
+    await client.putConfig({ mcpServer: { enabled } });
+    setRole(await client.mcpServerRole());
   };
 
   useEffect(() => {
@@ -2526,6 +2634,15 @@ function IntegrationsPane({
             </Button>
           </div>
         </Card>
+      )}
+
+      {/* --- bai as an MCP server (the reverse direction of the list below) --- */}
+      {role !== null && (
+        <McpServerRoleCard
+          role={role}
+          onRoleChange={setRoleEnabled}
+          onNotice={onNotice}
+        />
       )}
 
       {/* --- Catalog (first, height-capped so it never buries the servers) --- */}

@@ -410,10 +410,42 @@ built-in file tools plus user-written TypeScript tools.
 
 ---
 
-## 🔌 Integrations (MCP) — shipped
+## 🔌 Integrations (MCP) — shipped, both directions
 
-External MCP (Model Context Protocol) servers, added **file-first** — the same
+bai consumes external MCP servers (below) **and** acts as one
+(**bai as MCP server**, next). Servers are added **file-first** — the same
 drop-in model as agents, skills, and tools.
+
+### bai as an MCP server
+
+Point any MCP client at bai and drive it:
+
+- **`/mcp`** (streamable HTTP, stateless) is mounted in every mode and gated
+  live by `config.mcpServer.enabled` — **off by default** because the endpoint
+  runs bai's tools with auto-approve. Turn it on in **Settings → Integrations →
+  "Run as MCP server"**, or start with `bai --mcp`. Toggling applies with no
+  restart (a disabled server 404s as if uninstalled). Non-loopback listeners
+  require the bearer token.
+- **Everything in the registry is exposed** (filterable via
+  `mcpServer.tools.include/exclude`), under safe aliases — `fs.read` →
+  `fs_read`, `mcp/<server>/<tool>` → `mcp__<server>__<tool>`. `question` is
+  hidden by default (it waits on a human).
+- **Skills** are exposed three ways: each skill is an MCP **prompt** (its
+  `SKILL.md` body), a **resource** (`skill://<name>` plus
+  `skill://<name>/<file>` for supporting files), and discoverable via the
+  `skills_list` tool.
+- **Session operations**: `session_create`, `session_prompt` (the auditable
+  path — real transcript + revert), `session_history`, `session_list`.
+- Direct tool calls run in a shared, auto-approved **`MCP (external)`** session
+  through the normal permission gate — visible in the UI and reused across
+  calls. Every interaction lands in the Analytics **MCP activity** card as
+  server `"(bai)"`.
+- **`bai mcp`** is a stdio bridge for desktop clients (Claude Desktop, Cursor):
+  it proxies a running bai's `/mcp` over stdio without booting a second process,
+  finding the server via `--url`/`$BAI_URL` or `~/.local/state/bai/server.json`.
+  The Settings card shows the endpoint and copy-ready client configs.
+
+### External MCP servers
 
 **What you can do today**
 
@@ -470,13 +502,14 @@ drop-in model as agents, skills, and tools.
   `POST /api/mcp/catalog/:name/install`; usage analytics:
   `GET /api/mcp/usage` + `GET /api/mcp/server/:name/usage` (the
   `mcp_events` store, `store/mcp-usage.ts`).
-- SDK: `@modelcontextprotocol/client` v2 (protocol rev `2026-07-28`).
+- SDK: `@modelcontextprotocol/client` v2 (protocol rev `2026-07-28`); the
+  server role adds `@modelcontextprotocol/server` + `@modelcontextprotocol/hono`
+  v2 (`services/mcp`).
 
 **Coming next**
 
-- The MCP **server** role: expose bai's own tools at `/mcp` (streamable HTTP,
-  bearer-guarded) so external agents can drive bai
 - Per-server tool include/exclude in the Integrations UI
+- TUI Integrations surface
 
 ---
 

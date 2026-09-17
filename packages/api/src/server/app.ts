@@ -9,6 +9,7 @@ import {
   createSessionSchema,
   customThemeSchema,
   enqueueJobSchema,
+  filterMcpServerTools,
   learnSkillSchema,
   mcpServerSchema,
   mcpUsageQuerySchema,
@@ -277,6 +278,20 @@ function buildApi(deps: ApiDeps) {
 
     // --- MCP servers (external integrations) ---
     .get("/mcp/servers", (c) => c.json({ servers: deps.core.mcpServers() }))
+    // bai AS an MCP server (`/mcp`) — the Settings card's status readout.
+    .get("/mcp/server-role", (c) => {
+      const role = deps.configStore.get().mcpServer;
+      return c.json({
+        enabled: role?.enabled === true,
+        tools: filterMcpServerTools(
+          deps.core.listTools().map((tool) => tool.name),
+          role?.tools,
+        ).length,
+        skills: deps.core.listSkills().length,
+        sessions: deps.store.sessions.count(),
+        transport: "streamable-http" as const,
+      });
+    })
     // Registered before the parameterized server routes so "usage" is never
     // captured as a server name (the /skill/usage precedent).
     .get("/mcp/usage", zValidator("query", mcpUsageQuerySchema), (c) => {

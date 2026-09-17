@@ -47,19 +47,24 @@ GET    /api/usage/analytics             usage aggregation (D26): KPIs, per-model
 GET    /api/mcp/usage                   MCP interaction aggregation (mcp_events): KPIs,
                                         per-server/per-tool totals, calls/errors series
 GET    /api/mcp/server/:name/usage      per-server MCP usage totals
+GET    /api/mcp/server-role             bai-as-MCP-server status (enabled, tool/skill/
+                                        session counts, transport) for Settings
 GET    /v1/models                       router gateway: routable model catalog
 POST   /v1/chat/completions             router gateway: OpenAI-compatible chat (SSE when stream:true)
 POST   /v1/images/generations           router gateway: image generation (base64)
 GET    /api/help                        HTML help page (router enabled)
 GET    /api/help/openapi.json           OpenAPI 3.1 document (router enabled)
-/mcp                                    MCP stateless streamable HTTP (Phase 4)
+POST   /mcp                             bai AS an MCP server: stateless streamable HTTP
+                                        (JSON-RPC; gated live by config mcpServer.enabled)
 ```
 
-The `/v1/*` + `/api/help` routes come from `@bai/router` and are mounted via
+The `/v1/*` + `/api/help` routes come from `@bai/router`, and `/mcp` (POST; the
+MCP server role) comes from `@bai/mcp`; both are mounted via
 `ApiDeps.extraRoutes` (an opaque Hono) **before** the `/api` sub-app, so
-`/api/help` resolves. They are gated **live** by config `router.enabled`
-(default on; `--router` forces on), and `ApiDeps.serveSpa: false` skips the SPA
-fallback for the headless `--router` listener.
+`/api/help` resolves. Each is gated **live** by config (`router.enabled`, on by
+default; `mcpServer.enabled`, off by default — the endpoint runs bai's tools
+with auto-approve) with `--router`/`--mcp` forcing on. `ApiDeps.serveSpa: false`
+skips the SPA fallback for the headless `--router` listener.
 
 - Served by `Bun.serve({ fetch: app.fetch })`; Hono's Web-standard handlers
   map 1:1 onto Bun.

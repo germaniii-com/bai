@@ -16,9 +16,10 @@ This is the **TypeScript implementation** of the bai design (sibling of the Go
   tools + bash/grep, interactive permissions (diff-rendered asks, reject
   feedback, TUI+web dialogs), question/todo/web tools, subagent spawning
   (`task` tool), token discipline + compaction, per-message
-  revert/fork/copy with shadow-repo file rollback, and **provider
-  OAuth/subscription logins + custom providers** (§10.1) ship today. MCP
-  (§11), media adapters, and desktop are next.
+  revert/fork/copy with shadow-repo file rollback, **provider
+  OAuth/subscription logins + custom providers** (§10.1), and **MCP both ways**
+  (§11 — client manager + the `/mcp` server role with the `bai mcp` stdio
+  bridge) ship today. Media adapters and desktop are next.
 - **Packages:** npm scope `@bai/*` under `packages/`.
 - **Companion docs:** [README.md](README.md),
   [FEATURES.md](FEATURES.md) (what each workbench does today), and one README
@@ -138,6 +139,7 @@ is realized literally:
 | `web`         | `packages/web`     | React SPA source; built `dist/` served by api                  |
 | `desktop`     | `packages/desktop` | Stub until Phase 6                                             |
 | `router`      | `services/router`  | OpenAI-compatible JSON gateway (`/v1/*`) + `/api/help`; composed in-process, never its own core. |
+| `mcp`         | `services/mcp`     | bai **as** an MCP server: `/mcp` (streamable HTTP) exposing tools/skills/sessions, plus the `bai mcp` stdio bridge; composed in-process, never its own core. |
 
 Supporting modules live as submodules inside `core/src/`:
 
@@ -605,12 +607,51 @@ and per-tool totals + a calls/errors series; `GET /api/mcp/server/:name/usage`
 returns per-server totals (history survives server removal). The web
 **Analytics** page renders an "MCP activity" card from it.
 
-**bai as MCP server** (planned): exposes built-in tools and basic session
-operations at `/mcp` (streamable HTTP, stateless mode — the v2 default),
-mounted through the SDK's official **Hono adapter** (`createMcpHonoApp` +
-`createMcpHandler`) and guarded by the same bearer token — so external agents
-can drive bai. Tool schemas use Standard Schema (Zod v4), matching the rest of
-the validation stack.
+**bai as MCP server** (`services/mcp`): **implemented**. The reverse
+direction — external agents drive bai. An in-process service exposes bai at
+`/mcp` over **streamable HTTP** (v2 stateless default: a fresh `McpServer` per
+request via `createMcpHandler`, mounted through the SDK's **Hono adapter**
+`createMcpHonoApp`). It is composed into the one bai server via
+`ApiDeps.extraRoutes` (never a second core — D29) and gated **live** by config
+`mcpServer.enabled` (default **off**: the endpoint runs bai's tools with
+auto-approve, so it is an explicit opt-in; `--mcp` forces it on, the router's
+`--router` parity). Non-loopback listeners require the same bearer token (with
+a `?token=` fallback for header-incapable clients).
+
+What it exposes:
+- **Tools** — the whole registry (subject to `mcpServer.tools.include/exclude`),
+  under MCP/LLM-safe aliases (`fs.read` → `fs_read`,
+  `mcp/<server>/<tool>` → `mcp__<server>__<tool>`), since registry names use
+  dots/slashes that strict tool-name validators reject. The registry's JSON
+  Schemas are wrapped with `fromJsonSchema` (memoized per schema). `question`
+  is always hidden unless explicitly included — it waits on a human.
+- **Skills** — each skill is an MCP **prompt** (the SKILL.md body), a
+  **resource** (`skill://<name>` + `skill://<name>/<file>` for its
+  references/templates/scripts), and discoverable via the `skills_list` tool.
+- **Sessions** — `session_create`, `session_prompt`, `session_history`, and
+  `session_list`. `session_prompt` is the auditable path (real transcript +
+  revert); direct tool calls are side effects with no transcript entry.
+
+Execution runs through `Service.executeToolCall` — the SAME `ToolContext` +
+central permission gate as the run loop — against a lazily-created process
+level **shared session** (`MCP (external)`) stamped `meta.autoApprove`, so
+external calls run unattended. `task` children inherit `autoApprove`, so a
+spawned subagent never stalls on an ask nobody can answer. Every inbound
+interaction records one `mcp_events` row with `server: "(bai)"`, so the
+Analytics **MCP activity** card shows bai-as-server usage alongside
+client-side `mcp/<server>/<tool>` usage.
+
+**`bai mcp`** is a thin **stdio bridge** (`serveStdio` + a remote
+`StreamableHTTPClientTransport`) that proxies a RUNNING bai's `/mcp` to
+desktop clients (Claude Desktop, Cursor) over stdio. It never boots a core; it
+resolves the target from `--url`/`$BAI_URL` or `~/.local/state/bai/server.json`
+(written by `--web`/`--host`). stdout is the JSON-RPC channel, so the bridge
+logs to stderr only.
+
+Code: `services/mcp/src/{deps,server,http,gate,catalog,skills,sessions,analytics,bridge}.ts`;
+`packages/core/src/service.ts` (`executeToolCall`). SDK:
+`@modelcontextprotocol/server` + `@modelcontextprotocol/hono` v2 (protocol rev
+2026-07-28).
 
 **Later hooks** (config-declared commands/webhooks at lifecycle points:
 `run.started`, `tool.execute.before/after`, `permission.asked`) — deliberately
@@ -856,7 +897,7 @@ Bun issue where `stop()` can hang after server-initiated WebSocket closes.
 | **1 — Chat**              | Provider layer (OpenAI-compat + Anthropic first), streaming, sessions/messages end-to-end, web chat + TUI chat             | Same conversation visible & continuable from TUI and phone browser         | ✅ shipped |
 | **2 — Sync hardening**    | Durable event log + cursor resume, pairing token, config editing from web, `config.updated` propagation                    | Kill/resume mid-stream loses nothing                                       | ✅ shipped |
 | **3 — Code workbench**    | fs/grep/bash/edit tools, permission engine, agents (file-defined, hot-reloaded), subagents (`task` tool), token discipline + compaction, diff viewer, per-message revert/fork/copy with file rollback | Guided multi-file edit with approvals from either surface                  | ✅ shipped (file-tree diff viewer pending) |
-| **4 — MCP dual role**     | Client manager + server exposure (v2 SDK, Hono adapter), namespaced tool merge                                             | External MCP tools callable in sessions; external agent can drive bai      | ⏳ pending |
+| **4 — MCP dual role**     | Client manager + server exposure (`/mcp` + `bai mcp` stdio bridge), namespaced tool merge                                 | External MCP tools callable in sessions; external agent can drive bai      | ✅ shipped |
 | **5 — Media workbenches** | Image workbench shipped (OpenRouter adapter + hardened job runtime + tag gallery); video adapter after | Prompt→job→asset→gallery round trip on phone | 🟡 image shipped; video pending |
 | **6 — Desktop**           | Native shell reusing SPA + core (tech decided then)                                                                        | Feature parity with web                                                    | ⏳ pending |
 
@@ -907,6 +948,7 @@ TypeScript-specific decisions (D13+):
 | D27 | Server-side OAuth login engine + widened auth.json + curated provider overlay | Subscription/ChatGPT-style logins (device-code, paste-code PKCE, import, ADC) are first-class provider accounts, resolved and refreshed at stream time; device-code/paste-code work for remote surfaces without client loopback; the overlay closes models.dev gaps without forking the catalog | Per-client browser OAuth (breaks `--host`); hardcoding a second 39-provider list (drifts from models.dev); storing tokens in config (leaks via sync) |
 | D28 | Responses API as a first-class wire adapter | ChatGPT/Codex and xAI cannot be expressed over chat.completions; one adapter serves both plus future Responses endpoints, sharing tool-name/usage/StreamEvent handling | Codex-only special path (not reusable); SDK feature flags without a wire adapter |
 | D29 | Extract providers to `@bai/provider`; router gateway as a separate in-process service | The provider subsystem became a large transport-free domain (adapters, catalog, credentials, OAuth, router SDK); isolating it slims core and lets an OpenAI-compatible gateway (`@bai/router`) share the exact resolution seam (`ModelRouter`) with the run loop. A separate *process* was rejected: `boot()` reconciles shared JobQueue/AutomationScheduler state, so two cores would double-run work — `--router` composes with `--web`/`--host` instead. | Providers left in core; a second stateful daemon; per-mode bespoke gateway code |
+| D30 | MCP server role in `services/mcp`, stateless HTTP in-process + `bai mcp` stdio proxy | Reuses the one core (`Service.executeToolCall` = the run loop's context + permission gate) and the registry/skills directly; the v2 stateless handler (`createMcpHandler`, Hono adapter) makes `/mcp` a normal extra route. Desktop clients only speak stdio, so `bai mcp` proxies the running server instead of booting a second core (which would double-run jobs/automations). Tool names are aliased to the LLM-safe charset; inbound calls run in a shared `autoApprove` session and are recorded as `mcp_events` with `server: "(bai)"`. | Booting a standalone stdio core; exposing raw dotted names; bypassing the permission gate; a stateful sessionful `/mcp` |
 
 ## 18. Glossary
 

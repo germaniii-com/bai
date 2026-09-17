@@ -22,6 +22,23 @@ describe("parseCliArgs", () => {
     expect(() => parseCliArgs(["--one-shot", "x", "--router"])).toThrow(UsageError);
   });
 
+  test("--mcp is a modifier (server role) and never one-shot", () => {
+    expect(parseCliArgs(["--web", "--mcp"])).toMatchObject({ mode: "web", mcp: true });
+    expect(parseCliArgs(["--web"]).mcp).toBe(false);
+    expect(() => parseCliArgs(["--one-shot", "x", "--mcp"])).toThrow(UsageError);
+  });
+
+  test("`bai mcp` is its own stdio-bridge mode with --url/--token", () => {
+    expect(parseCliArgs(["mcp"])).toMatchObject({ mode: "mcp", mcp: false });
+    expect(parseCliArgs(["mcp", "--url", "http://127.0.0.1:9640/mcp", "--token", "t"])).toMatchObject({
+      mode: "mcp",
+      url: "http://127.0.0.1:9640/mcp",
+      token: "t",
+    });
+    expect(() => parseCliArgs(["mcp", "--web"])).toThrow(UsageError);
+    expect(() => parseCliArgs(["mcp", "extra"])).toThrow(UsageError);
+  });
+
   test("mode flags are mutually exclusive (exit-2 class error)", () => {
     expect(() => parseCliArgs(["--web", "--host"])).toThrow(UsageError);
     expect(() => parseCliArgs(["--web", "--one-shot", "x"])).toThrow(UsageError);
@@ -49,5 +66,7 @@ describe("parseCliArgs", () => {
     expect(usage()).toContain("--one-shot");
     expect(usage()).toContain("--host");
     expect(usage()).toContain("--router");
+    expect(usage()).toContain("--mcp");
+    expect(usage()).toContain("bai mcp");
   });
 });

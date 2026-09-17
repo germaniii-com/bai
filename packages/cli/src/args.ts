@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 
-export type CliMode = "tui" | "web" | "host" | "oneshot" | "router";
+export type CliMode = "tui" | "web" | "host" | "oneshot" | "router" | "mcp";
 
 export interface CliArgs {
   mode: CliMode;
@@ -16,6 +16,10 @@ export interface CliArgs {
   open: boolean;
   /** Router gateway: mount `/api/help`; combined with `--web`/`--host` in one process. */
   router: boolean;
+  /** Force the MCP server role (`/mcp`) on, regardless of config. */
+  mcp: boolean;
+  /** `bai mcp`: target a specific running server instead of server.json. */
+  url?: string;
   version: boolean;
   help: boolean;
 }
@@ -31,11 +35,14 @@ Usage:
   bai --host               bind beyond loopback (LAN/tailnet); prints pairing URL
   bai --router             headless OpenAI-compatible router (no web UI)
   bai --web --router       web UI + router gateway + /api/help, one process
+  bai --web --mcp          web UI + bai as an MCP server at /mcp
+  bai mcp                  stdio MCP bridge to a running bai (Claude Desktop etc.)
   bai --one-shot "prompt"  headless run; NDJSON (or --format text) on stdout
 
 Shared flags:
   --port <n>        preferred port (default 9640, else ephemeral)
   --token <t>       bearer token (required for non-loopback access)
+  --url <u>         mcp bridge: MCP endpoint to proxy (default: server.json)
   --config <path>   override global config file location
   --continue        continue the most recent session
   --session <id>    use a specific session
@@ -57,6 +64,8 @@ function buildParser(argv: string[]) {
       web: { type: "boolean", default: false },
       host: { type: "boolean", default: false },
       router: { type: "boolean", default: false },
+      mcp: { type: "boolean", default: false },
+      url: { type: "string" },
       "one-shot": { type: "string" },
       port: { type: "string" },
       token: { type: "string" },
@@ -94,6 +103,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       dev: false,
       open: false,
       router: false,
+      mcp: false,
       version: true,
       help: false,
     };
@@ -107,17 +117,27 @@ export function parseCliArgs(argv: string[]): CliArgs {
       dev: false,
       open: false,
       router: false,
+      mcp: false,
       version: false,
       help: true,
     };
   }
 
   const router = values.router === true;
-  // `--router` is a modifier: it can accompany --web/--host (one process, one
-  // listener). Alone it is its own headless mode. It cannot combine with
-  // --one-shot.
+  const mcp = values.mcp === true;
+  // `--router`/`--mcp` are modifiers: they can accompany --web/--host (one
+  // process, one listener). `--router` alone is its own headless mode. Neither
+  // can combine with --one-shot.
   if (router && values["one-shot"] !== undefined) {
     throw new UsageError("--router cannot be combined with --one-shot");
+  }
+  if (mcp && values["one-shot"] !== undefined) {
+    throw new UsageError("--mcp cannot be combined with --one-shot");
+  }
+  // `bai mcp` is the stdio bridge: its own mode, never booting the core.
+  const bridge = positionals[0] === "mcp";
+  if (bridge && (values.web === true || values.host === true || values["one-shot"] !== undefined || router)) {
+    throw new UsageError("`bai mcp` cannot be combined with mode flags");
   }
   const modes: CliMode[] = [];
   if (values.web === true) modes.push("web");
@@ -126,7 +146,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   if (modes.length > 1) {
     throw new UsageError(`mode flags are mutually exclusive: ${modes.join(", ")}`);
   }
-  const mode = modes[0] ?? (router ? "router" : "tui");
+  const mode: CliMode = bridge ? "mcp" : (modes[0] ?? (router ? "router" : "tui"));
 
   let port: number | undefined;
   if (values.port !== undefined) {
@@ -145,7 +165,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
   if (mode === "oneshot" && (prompt === undefined || prompt.length === 0)) {
     throw new UsageError("--one-shot requires a prompt");
   }
-  if (mode !== "oneshot" && positionals.length > 0) {
+  if (mode === "mcp" && positionals.length > 1) {
+    throw new UsageError(`unexpected positional argument: ${String(positionals[1])}`);
+  }
+  if (mode !== "oneshot" && mode !== "mcp" && positionals.length > 0) {
     throw new UsageError(`unexpected positional argument: ${String(positionals[0])}`);
   }
 
@@ -162,6 +185,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     dev: values.dev === true,
     open: values.open === true,
     router,
+    mcp,
+    ...(values.url !== undefined ? { url: values.url } : {}),
     version: false,
     help: false,
   };

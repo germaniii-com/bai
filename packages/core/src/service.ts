@@ -121,7 +121,7 @@ import { toolCreateTool } from "./tools/tool-create";
 import { workspaceCreateTool } from "./tools/workspace-create";
 import type { ToolLoader } from "./tools/loader";
 import { builtinOverrideTemplate } from "./tools/loader";
-import type { Tool, ToolRegistry } from "./tools/registry";
+import type { Tool, ToolContext, ToolRegistry, ToolResult } from "./tools/registry";
 import type { SkillRegistry } from "./skills/registry";
 import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
@@ -896,6 +896,71 @@ export class Service {
     opts: { limit?: number; before?: HistoryCursor } = {},
   ): HistoryPage {
     return this.deps.store.messages.historyPage(sessionId, opts);
+  }
+
+  /**
+   * Run one registered tool DIRECTLY on behalf of a session, without a
+   * transcript turn — the MCP server role's execution path (an external MCP
+   * client calling bai's tools). It reuses the SAME ToolContext + central
+   * permission gate as the run loop (`run.ts` `executeCalls`), so session meta
+   * (`autoApprove`, approvals) and config permission rules behave identically.
+   *
+   * Differences from a run-loop call, by contract:
+   * - no message/part is persisted and no shadow-repo snapshot is taken, so
+   *   direct calls are NOT covered by revert (use `session.prompt` for
+   *   auditable work);
+   * - a denial throws instead of returning an error result (the caller maps it
+   *   to an MCP `isError` result).
+   */
+  async executeToolCall(
+    name: string,
+    args: unknown,
+    opts: { sessionId: SessionId; signal?: AbortSignal; agent?: string },
+  ): Promise<ToolResult> {
+    const session = this.deps.store.sessions.get(opts.sessionId);
+    if (session === undefined) throw new Error(`Unknown session: ${opts.sessionId}`);
+    // Unknown tools never reach the gate (same guard as the run loop).
+    if (!this.deps.tools.has(name)) {
+      throw new Error(`Unknown tool: ${name}. Available tools: ${this.deps.tools.names().join(", ") || "(none)"}.`);
+    }
+    const signal = opts.signal ?? new AbortController().signal;
+    const meta = session.meta as { agent?: unknown };
+    const agentName =
+      opts.agent ??
+      (typeof meta.agent === "string" && meta.agent.length > 0
+        ? meta.agent
+        : this.deps.config().agents?.default ?? "build");
+    const ctx: ToolContext = {
+      sessionId: opts.sessionId,
+      agent: agentName,
+      ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+      signal,
+      emitLive: (type: EventType, payload: unknown) => this.emitLive(type, payload),
+      ask: async (tool, metadata) =>
+        this.permissions.authorize({
+          tool,
+          sessionId: opts.sessionId,
+          ...(metadata !== undefined ? { metadata } : {}),
+          signal,
+          ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+        }),
+      // plan.exit parity: flip session.meta.agent; there is no drain loop to
+      // re-resolve, so the switch applies to the NEXT direct call.
+      switchAgent: async (target) => this.setSessionAgent(opts.sessionId, { agent: target }) !== undefined,
+    };
+
+    const verdict = await this.permissions.authorize({
+      tool: name,
+      sessionId: opts.sessionId,
+      metadata: (args ?? {}) as Record<string, unknown>,
+      signal,
+      ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+    });
+    if (!verdict.allowed) {
+      const feedback = verdict.feedback !== undefined ? ` User feedback: "${verdict.feedback}".` : "";
+      throw new Error(`Permission denied for tool: ${name}.${feedback}`);
+    }
+    return this.deps.tools.execute(name, args, ctx);
   }
 
   /**

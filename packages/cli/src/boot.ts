@@ -34,19 +34,16 @@ import {
   ProviderRegistry,
 } from "@bai/provider";
 import { createRouterGateway, type RouterDeps } from "@bai/router";
+import { createMcpServerApp, type McpServerDeps } from "@bai/mcp";
 import { createApp } from "@bai/api";
+import { Hono } from "hono";
 import { registeredRoots } from "@bai/shared";
 import type { Config, ConfigPatch, JobKind } from "@bai/shared";
 import type { CliArgs } from "./args";
 import { assetsDir, configDir, dataDir, dbPath, globalConfigPath, serverStatePath, tmpDir, webDistDir } from "./paths";
 
-/**
- * Version stamp: `BAI_VERSION` is injected at compile time via `define`
- * (see scripts/compile.ts — the analog of Go's -ldflags -X). Falls back to
- * the package version when running from source.
- */
-declare const BAI_VERSION: string | undefined;
-export const VERSION: string = typeof BAI_VERSION === "string" ? BAI_VERSION : "0.1.0";
+import { VERSION } from "./version";
+export { VERSION };
 
 export interface Booted {
   config: Config;
@@ -406,6 +403,26 @@ export async function boot(args: CliArgs): Promise<Booted> {
     loopbackBind: args.mode !== "host",
     enabled: routerEnabled,
   };
+  // bai as an MCP server (`/mcp`, streamable HTTP). Default OFF: the endpoint
+  // executes bai's tools under the shared session's auto-approve, so it is an
+  // explicit opt-in; `--mcp` forces it on (the router's `--router` parity).
+  // Composed in-process against the one core, never a second process (D29).
+  const mcpEnabled = (): boolean => args.mcp || configStore.get().mcpServer?.enabled === true;
+  const mcpServerDeps: McpServerDeps = {
+    core,
+    store,
+    version: VERSION,
+    config: () => configStore.get(),
+    ...(token !== undefined ? { token } : {}),
+    loopbackBind: args.mode !== "host",
+    enabled: mcpEnabled,
+    onNotice: (message) => console.warn(`[bai] ${message}`),
+  };
+  // `ApiDeps.extraRoutes` is a single Hono — compose the router gateway and the
+  // MCP server app under it (each owns its own prefixes).
+  const extraRoutes = new Hono();
+  extraRoutes.route("/", createRouterGateway(routerDeps, { help: true }));
+  extraRoutes.route("/", createMcpServerApp(mcpServerDeps));
   const app = createApp({
     core,
     store,
@@ -420,7 +437,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     loopbackBind: args.mode !== "host",
     webDist: webDistDir(),
     themesDir: path.join(configDir(), "themes"),
-    extraRoutes: createRouterGateway(routerDeps, { help: true }),
+    extraRoutes,
     serveSpa: args.mode !== "router",
   });
 

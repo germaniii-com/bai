@@ -27,6 +27,7 @@ import type {
   MCPServerConfig,
   McpCatalogEntry,
   McpServerInfo,
+  McpServerRoleStatus,
   McpServerSource,
   McpUsageQuery,
   McpUsageResponse,
@@ -412,6 +413,13 @@ export class BaiClient {
     const res = await this.rpc().mcp.server[":name"].usage.$get({ param: { name } });
     if (!res.ok) throw new Error(`mcp server usage failed: ${res.status}`);
     return (await res.json()).usage;
+  }
+
+  /** bai-as-MCP-server status for the Settings → Integrations card. */
+  async mcpServerRole(): Promise<McpServerRoleStatus> {
+    const res = await this.rpc().mcp["server-role"].$get();
+    if (!res.ok) throw new Error(`mcp server role failed: ${res.status}`);
+    return res.json();
   }
 
   /**

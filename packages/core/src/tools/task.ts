@@ -148,11 +148,15 @@ export function taskTool(deps: TaskToolDeps, description: string): Tool {
       // parent's explicit per-session model down (resolveRunContext reads
       // meta.model before agent.model, so an unconditional copy would
       // override the subagent's choice).
-      const parentMeta = parent.meta as { model?: unknown };
+      const parentMeta = parent.meta as { model?: unknown; autoApprove?: unknown };
       const inheritModel =
         agent.model === undefined && typeof parentMeta.model === "string" && parentMeta.model.length > 0
           ? parentMeta.model
           : undefined;
+      // Unattended parents (automation runs, external MCP calls) must not have
+      // their subagents stall on a permission ask nobody can answer — carry the
+      // auto-approve flag down so the whole session tree runs autonomously.
+      const inheritAutoApprove = parentMeta.autoApprove === true;
 
       const child = deps.createSession({
         title: `${desc.trim()} (@${agent.name} subagent)`,
@@ -161,6 +165,7 @@ export function taskTool(deps: TaskToolDeps, description: string): Tool {
         parent: ctx.sessionId,
         agent: agent.name,
         ...(inheritModel !== undefined ? { model: inheritModel } : {}),
+        ...(inheritAutoApprove ? { meta: { autoApprove: true } } : {}),
       });
 
       // Parent interrupt ⇒ child interrupt (mirrors bash's kill-on-abort).
