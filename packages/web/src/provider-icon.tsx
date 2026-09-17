@@ -101,6 +101,20 @@ const MATCHERS: Array<[string, string]> = [
   ["ideogram", "ideogram"],
   ["recraft", "recraft"],
   ["deepinfra", "deepinfra"],
+  // Video-only vendors (resolved to a fallback without a brand mark).
+  ["runway", "runway"],
+  ["kling", "kling"],
+  ["kuaishou", "kling"],
+  ["luma", "luma"],
+  ["lumalabs", "luma"],
+  ["minimax", "minimax"],
+  ["hailuo", "minimax"],
+  ["dashscope", "wan"],
+  ["alibaba", "wan"],
+  ["seedance", "seedance"],
+  ["volcano", "seedance"],
+  ["bytedance", "seedance"],
+  ["veo", "gemini"],
 ];
 
 /** Adapter → brand key, when the id/name tells us nothing. */

@@ -118,12 +118,60 @@ export const mediaGenRequestSchema = z.object({
   provider: z.string().max(200).optional(),
   account: z.string().max(200).optional(),
   /** Adapter-specific parameter values (validated/coerced by the adapter). */
-  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  params: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+    .optional(),
   referenceAssetIds: z.array(z.string().min(1).max(100)).max(16).optional(),
   tags: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 export type MediaGenRequestBody = z.infer<typeof mediaGenRequestSchema>;
+
+/** POST /api/video/generate — one video-generation workflow request. */
+export const videoGenRequestSchema = z.object({
+  workflow: z.enum([
+    "t2v",
+    "i2v",
+    "flf2v",
+    "ref2v",
+    "v2v",
+    "extend",
+    "upscale",
+    "motion",
+    "lipsync",
+    "reframe",
+  ]),
+  prompt: z.string().max(8000).default(""),
+  model: z.string().max(200).optional(),
+  provider: z.string().max(200).optional(),
+  account: z.string().max(200).optional(),
+  params: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+    .optional(),
+  inputs: z
+    .array(
+      z.object({
+        role: z.enum([
+          "first_frame",
+          "last_frame",
+          "reference_image",
+          "reference_video",
+          "reference_audio",
+          "source_video",
+          "keyframe",
+        ]),
+        assetId: z.string().min(1).max(100).optional(),
+        url: z.string().url().max(2048).optional(),
+        tag: z.string().min(1).max(100).optional(),
+        timestampSeconds: z.number().min(0).optional(),
+      }),
+    )
+    .max(32)
+    .optional(),
+  tags: z.array(z.string().min(1).max(64)).max(50).optional(),
+});
+
+export type VideoGenRequestBody = z.infer<typeof videoGenRequestSchema>;
 
 /** PUT /api/asset/:id/tags — replace one image's tags. */
 export const putAssetTagsSchema = z.object({
@@ -255,7 +303,7 @@ export const mcpUsageQuerySchema = z.object({
   kind: z.enum(["tool", "resource", "prompt"]).optional(),
 });
 
-/** GET /api/image/usage — window + bucketing + dimension filters (see media-usage.ts). */
+/** GET /api/{image,video}/usage — window + bucketing + dimension filters (see media-usage.ts). */
 export const mediaUsageQuerySchema = z.object({
   from: z.string().max(40).optional(), // inclusive RFC3339 lower bound
   to: z.string().max(40).optional(), // EXCLUSIVE upper bound
@@ -263,7 +311,12 @@ export const mediaUsageQuerySchema = z.object({
   provider: z.string().max(200).optional(),
   account: z.string().max(200).optional(),
   model: z.string().max(200).optional(),
-  mode: z.enum(["t2i", "i2i"]).optional(),
+  /** Modality discriminator; `/video/usage` forces "video". */
+  kind: z.enum(["image", "video"]).optional(),
+  /** Image workflow (t2i/i2i) or video workflow (t2v/i2v/…). */
+  mode: z
+    .enum(["t2i", "i2i", "t2v", "i2v", "flf2v", "ref2v", "v2v", "extend", "upscale", "motion", "lipsync", "reframe"])
+    .optional(),
 });
 
 /** GET /api/usage/analytics — dimension filters + time bucketing (see usage.ts). */

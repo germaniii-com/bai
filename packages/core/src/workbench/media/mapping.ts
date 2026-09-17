@@ -18,10 +18,14 @@ export interface MappingVars {
   prompt: string;
   model: string;
   count: number;
-  mode: "t2i" | "i2i";
+  /** Image workflow (`t2i`/`i2i`) or video workflow (`t2v`/`i2v`/…). */
+  mode: string;
+  /** Alias for `mode` on video templates (`$workflow`). */
+  workflow?: string;
   width?: number;
   height?: number;
   seed?: number;
+  duration?: number;
   params: Record<string, MediaParamValue>;
 }
 
@@ -62,12 +66,16 @@ function resolveToken(name: string, vars: MappingVars): unknown {
       return vars.count;
     case "mode":
       return vars.mode;
+    case "workflow":
+      return vars.workflow ?? vars.mode;
     case "width":
       return vars.width;
     case "height":
       return vars.height;
     case "seed":
       return vars.seed;
+    case "duration":
+      return vars.duration;
     default:
       if (name.startsWith("param.")) return vars.params[name.slice("param.".length)];
       return undefined;

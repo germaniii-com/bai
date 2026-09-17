@@ -59,6 +59,16 @@ export const mediaParamSpecSchema = z.discriminatedUnion("kind", [
     placeholder: z.string().max(200).optional(),
     hint,
   }),
+  z.object({
+    key,
+    label,
+    kind: z.literal("list"),
+    itemKind: z.literal("text").default("text"),
+    min: z.number().int().min(0).optional(),
+    max: z.number().int().min(1).max(64).optional(),
+    default: z.array(z.string()).optional(),
+    hint,
+  }),
 ]);
 
 /** One selectable image model. */
@@ -140,6 +150,58 @@ export const imageSpecSchema = z.discriminatedUnion("template", [
   genericImageSpecSchema,
 ]);
 
+/** One selectable video model (which workflows it supports). */
+export const videoModelSchema = z.object({
+  id: z.string().min(1).max(200),
+  label: z.string().max(200).optional(),
+  workflows: z
+    .array(
+      z.enum([
+        "t2v",
+        "i2v",
+        "flf2v",
+        "ref2v",
+        "v2v",
+        "extend",
+        "upscale",
+        "motion",
+        "lipsync",
+        "reframe",
+      ]),
+    )
+    .min(1),
+});
+
+/** Where the generated videos + cost live in the response. */
+export const genericVideoResponseSchema = z
+  .object({
+    /** Tiny path to the video entry/array, e.g. `data[*]`, `output`. */
+    videos: z.string().min(1).max(200),
+    /** Relative field within an entry holding base64 bytes. */
+    base64: z.string().min(1).max(200).optional(),
+    /** Relative field within an entry holding a video URL. */
+    url: z.string().min(1).max(200).optional(),
+    /** Relative field within an entry holding the mime type. */
+    mime: z.string().min(1).max(200).optional(),
+    /** Absolute path to a USD cost number, e.g. `usage.cost`. */
+    costUsd: z.string().min(1).max(200).optional(),
+  })
+  .refine((r) => r.base64 !== undefined || r.url !== undefined, {
+    message: "response must define base64 and/or url",
+  });
+
+/** Video capabilities using the generic request/response mapping. */
+export const genericVideoSpecSchema = z.object({
+  template: z.literal("generic"),
+  defaultModel: z.string().min(1).max(200),
+  models: z.array(videoModelSchema).min(1).max(200),
+  params: z.array(mediaParamSpecSchema).max(100).optional(),
+  generate: genericRequestSchema,
+  response: genericVideoResponseSchema,
+});
+
+export const videoSpecSchema = genericVideoSpecSchema;
+
 /** Chat (LLM) capabilities. */
 export const textSpecSchema = z.object({
   adapter: z.enum(["openai-compatible", "openai", "anthropic", "responses"]).default("openai-compatible"),
@@ -164,6 +226,7 @@ export const providerFileSchema = z
     auth: providerAuthSchema.optional(),
     text: textSpecSchema.optional(),
     image: imageSpecSchema.optional(),
+    video: videoSpecSchema.optional(),
   })
   .superRefine((v, ctx) => {
     const has = (c: ProviderCapability): boolean => v.providerType.includes(c);
@@ -182,12 +245,20 @@ export const providerFileSchema = z
     if (!has("image") && v.image !== undefined) {
       ctx.addIssue({ code: "custom", path: ["image"], message: 'image block present but providerType omits "image"' });
     }
+    if (has("video") && v.video === undefined) {
+      ctx.addIssue({ code: "custom", path: ["video"], message: 'providerType includes "video" but no video block' });
+    }
+    if (!has("video") && v.video !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["video"], message: 'video block present but providerType omits "video"' });
+    }
   });
 
 export type ProviderFile = z.infer<typeof providerFileSchema>;
 export type ProviderFileImage = z.infer<typeof imageSpecSchema>;
 export type ProviderFileText = z.infer<typeof textSpecSchema>;
 export type GenericImageSpec = z.infer<typeof genericImageSpecSchema>;
+export type ProviderFileVideo = z.infer<typeof videoSpecSchema>;
+export type GenericVideoSpec = z.infer<typeof genericVideoSpecSchema>;
 export type GenericRequest = z.infer<typeof genericRequestSchema>;
 export type GenericResponse = z.infer<typeof genericResponseSchema>;
 export type ProviderFileAuth = z.infer<typeof providerAuthSchema>;

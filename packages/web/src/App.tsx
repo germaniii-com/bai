@@ -31,6 +31,7 @@ import { SkillsNav, SkillsPane, SkillCreateForm, SkillLearnForm } from "./skills
 import { AutomationsNav, AutomationsPane, AutomationCreateForm } from "./automations";
 import { AnalyticsPane } from "./analytics";
 import { ImagePane } from "./image";
+import { VideoPane } from "./video";
 import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
@@ -49,7 +50,7 @@ type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automatio
  * contextual nav content, so the main pane gets the full width). Add or
  * remove section names here to change which views hide the sidebar.
  */
-const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics", "image"];
+const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics", "image", "video"];
 
 /** Workspace right-rail resize bounds + per-device persistence key. */
 const WORKSPACE_SIDEBAR_MIN = 180;
@@ -873,11 +874,11 @@ export function App() {
       case "image":
         pushRoute({ section: "image" });
         break;
+      case "video":
+        pushRoute({ section: "video" });
+        break;
       case "shell":
         pushRoute({ section: "shell" });
-        break;
-      // Video is a disabled rail placeholder — never navigable (D9).
-      case "video":
         break;
     }
   };
@@ -936,6 +937,8 @@ export function App() {
             ? { section: "analytics" }
             : section === "image"
               ? { section: "image" }
+            : section === "video"
+              ? { section: "video" }
             : section === "shell"
               ? { section: "shell" }
               : section === "workspace"
@@ -2069,6 +2072,15 @@ export function App() {
             onOpenSession={(id) => void openSession(id)}
           />
         </main>
+      ) : section === "video" ? (
+        <main id="main-content" className="video-main">
+          <VideoPane
+            client={client}
+            videoGen={configVideoGen}
+            onNotice={pushNotice}
+            onOpenSession={(id) => void openSession(id)}
+          />
+        </main>
       ) : section === "analytics" ? (
         <main id="main-content" className="settings-pane">
           <AnalyticsPane client={client} themeColors={themeColors} />
@@ -2270,7 +2282,7 @@ function MasterNav({
           onClick={() => onNavigate("workspace")}
         />
         <NavItem icon={<Image className="nav-icon" aria-hidden="true" />} label="Image Gen" active={section === "image"} onClick={() => onNavigate("image")} />
-        <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" disabled onClick={() => onNavigate("video")} />
+        <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" active={section === "video"} onClick={() => onNavigate("video")} />
         {/* Workbenches above the line, agent machinery below it. */}
         <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
         <NavItem icon={<Bot className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />

@@ -72,13 +72,18 @@ describe("job queue (structured stubs)", () => {
   });
 
   test("video job without a model falls back to the configured videoGen default", async () => {
-    t.config.videoGen = { provider: "fal", model: "fal-ai/flux-2-video" };
+    // The stub adapter keeps the fallback-resolution assertions hermetic — real
+    // video provider ids resolve to live adapters that need keys.
+    t.config.videoGen = { provider: "stub", account: "personal", model: "video-model" };
     const assetCreated = waitForEvent(t.bus, "asset.created");
     const job = t.core.enqueueJob("video.generate", undefined, { prompt: "waves" });
     await assetCreated;
     const stored = t.store.jobs.get(job.id);
     expect(stored?.status).toBe("done");
-    expect(stored?.output).toEqual({ model: "fal-ai/flux-2-video" });
+    expect(stored?.output).toEqual({ model: "video-model", provider: "stub", workflow: "t2v", count: 1 });
+    const asset = t.store.assets.byJob(job.id)[0];
+    expect(asset?.meta.provider).toBe("stub");
+    expect(asset?.meta.account).toBe("personal");
   });
 
   test("an explicit job model beats the configured media default", async () => {

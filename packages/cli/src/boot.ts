@@ -20,6 +20,7 @@ import {
   createDefaultWorkbenches,
   loadConfig,
   providerFilesToMediaDefs,
+  providerFilesToVideoDefs,
   snapshotDir,
   syncBundledSkills,
   type JobExecutor,
@@ -192,6 +193,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
     // File-defined image providers (~/.config/bai/providers/), read live so a
     // dropped file is picked up without a restart.
     mediaCustom: () => providerFilesToMediaDefs(providerFiles.list()),
+    mediaCustomVideo: () => providerFilesToVideoDefs(providerFiles.list()),
   });
   const executors: Partial<Record<JobKind, JobExecutor>> = Object.assign(
     {},
@@ -206,6 +208,7 @@ export async function boot(args: CliArgs): Promise<Booted> {
       const limits = configStore.get().jobs ?? {};
       return {
         timeoutMs: limits.timeoutMs ?? 180_000,
+        videoTimeoutMs: limits.videoTimeoutMs ?? 900_000,
         maxAttempts: limits.maxAttempts ?? 3,
         backoffMs: limits.backoffMs ?? 1500,
         concurrency: limits.concurrency ?? 3,

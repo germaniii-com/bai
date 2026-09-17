@@ -13,6 +13,7 @@ import {
   mcpServerSchema,
   mcpUsageQuerySchema,
   mediaGenRequestSchema,
+  videoGenRequestSchema,
   mediaUsageQuerySchema,
   permissionReplySchema,
   promptPayloadSchema,
@@ -977,6 +978,55 @@ function buildApi(deps: ApiDeps) {
       return c.json({ job }, 202);
     })
 
+    // --- video generation (workflow-driven workbench) ---
+    .post("/video/generate", zValidator("json", videoGenRequestSchema), (c) => {
+      const job = deps.core.enqueueVideoGeneration(c.req.valid("json"));
+      return c.json({ job }, 202);
+    })
+    .get("/video/capabilities", async (c) => {
+      const provider = c.req.query("provider");
+      const model = c.req.query("model");
+      return c.json(
+        await deps.core.videoCapabilities(
+          provider !== undefined && provider.length > 0 ? provider : undefined,
+          model !== undefined && model.length > 0 ? model : undefined,
+        ),
+      );
+    })
+    .get("/video/providers", async (c) => c.json({ providers: await deps.core.videoProviders() }))
+    .get("/video/gallery", (c) => {
+      const rawLimit = Number(c.req.query("limit") ?? "60");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 60;
+      const tagsRaw = c.req.query("tags");
+      const tags =
+        tagsRaw !== undefined && tagsRaw.length > 0
+          ? tagsRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+          : undefined;
+      const rawBefore = c.req.query("before");
+      let cursor: MediaGalleryCursor | undefined;
+      if (rawBefore !== undefined && rawBefore.length > 0) {
+        const decoded = decodeCursor<MediaGalleryCursor>(rawBefore);
+        if (
+          decoded === undefined ||
+          typeof decoded.createdAt !== "string" ||
+          typeof decoded.id !== "string"
+        ) {
+          return c.json({ error: "invalid before cursor" }, 400);
+        }
+        cursor = decoded;
+      }
+      return c.json(deps.core.videoGallery(limit, cursor, tags));
+    })
+    .get("/video/tags", (c) => {
+      const rawLimit = Number(c.req.query("limit") ?? "50");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 50;
+      return c.json({ tags: deps.core.videoTags(c.req.query("q"), limit) });
+    })
+    .get("/video/recent", (c) => c.json(deps.core.videoRecent()))
+    .get("/video/usage", zValidator("query", mediaUsageQuerySchema), (c) => {
+      return c.json(deps.store.mediaUsage.analytics({ ...c.req.valid("query"), kind: "video" }));
+    })
+
     // --- image generation (single-page workbench) ---
     .post("/image/generate", zValidator("json", mediaGenRequestSchema), (c) => {
       const job = deps.core.enqueueImageGeneration(c.req.valid("json"));
@@ -1070,7 +1120,9 @@ function buildApi(deps: ApiDeps) {
     .get("/asset", (c) => {
       const limit = Number(c.req.query("limit") ?? "100");
       const offset = Number(c.req.query("offset") ?? "0");
-      return c.json({ assets: deps.store.assets.list(limit, offset) });
+      const kind = c.req.query("kind");
+      const assets = deps.store.assets.list(limit, offset);
+      return c.json({ assets: kind !== undefined && kind.length > 0 ? assets.filter((a) => a.kind === kind) : assets });
     })
     .get("/asset/:id/content", (c) => {
       const asset = deps.store.assets.get(c.req.param("id"));
@@ -1079,6 +1131,23 @@ function buildApi(deps: ApiDeps) {
         headers: {
           "Content-Type": asset.mime,
           "Content-Length": String(asset.bytes),
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    })
+    // Generated videos carry a first-frame poster (extracted by the job queue).
+    .get("/asset/:id/poster", async (c) => {
+      const asset = deps.store.assets.get(c.req.param("id"));
+      if (asset === undefined) return c.json({ error: "not_found" }, 404);
+      const posterPath = asset.meta["posterPath"];
+      if (typeof posterPath !== "string" || posterPath.length === 0 || !(await Bun.file(posterPath).exists())) {
+        return c.json({ error: "no_poster" }, 404);
+      }
+      const mime = asset.meta["posterMime"];
+      return new Response(Bun.file(posterPath), {
+        headers: {
+          "Content-Type": typeof mime === "string" && mime.length > 0 ? mime : "image/jpeg",
+          "Cache-Control": "public, max-age=31536000, immutable",
           "X-Content-Type-Options": "nosniff",
         },
       });

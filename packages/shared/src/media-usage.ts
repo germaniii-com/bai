@@ -6,8 +6,11 @@
  * request (the provider's reported cost), so spend is stored directly rather
  * than derived from tokens × rates.
  */
-import type { MediaMode } from "./media";
+import type { MediaMode, VideoWorkflow } from "./media";
 import type { UsageGranularity } from "./usage";
+
+/** The modality a media event belongs to. */
+export type MediaUsageKind = "image" | "video";
 
 /**
  * GET /api/image/usage query params — the same window/bucket semantics as the
@@ -22,7 +25,10 @@ export interface MediaUsageQuery {
   provider?: string;
   account?: string;
   model?: string;
-  mode?: MediaMode;
+  /** Modality filter; `/video/usage` forces "video". */
+  kind?: MediaUsageKind;
+  /** Image workflow (t2i/i2i) or video workflow (t2v/i2v/…). */
+  mode?: MediaMode | VideoWorkflow;
 }
 
 /** GET /api/image/usage response — aggregates over the append-only media_events store. */
@@ -51,9 +57,9 @@ export interface MediaUsageResponse {
     errors: number;
     avgDurationMs: number;
   }>;
-  /** Per-workflow totals (T2I / I2I). */
+  /** Per-workflow totals (image T2I/I2I; video t2v/i2v/…). */
   byWorkflow: Array<{
-    mode: MediaMode;
+    mode: MediaMode | VideoWorkflow;
     requests: number;
     images: number;
     spendUsd: number;

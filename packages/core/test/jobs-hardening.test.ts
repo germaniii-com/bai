@@ -15,6 +15,7 @@ function makeQueue(
   const bus = new Bus();
   const limits: JobLimits = {
     timeoutMs: 180_000,
+    videoTimeoutMs: 900_000,
     maxAttempts: 3,
     backoffMs: 1500,
     concurrency: 3,

@@ -93,6 +93,11 @@ export interface MediaGenConfig {
 export interface JobsConfig {
   /** Per-job wall-clock timeout in milliseconds (default 180 000). */
   timeoutMs?: number;
+  /**
+   * Per-job timeout for video generations (default 900 000). Video renders run
+   * minutes at async providers, so they get a longer budget than images.
+   */
+  videoTimeoutMs?: number;
   /** Maximum attempts for retryable failures — 1 disables retry (default 3). */
   maxAttempts?: number;
   /** Base backoff between attempts in milliseconds (default 1500). */
@@ -366,7 +371,9 @@ const mediaGenSchema = z.object({
   provider: z.string().min(1).max(100).optional(),
   account: z.string().min(1).max(100).optional(),
   model: z.string().min(1).max(200).optional(),
-  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  params: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+    .optional(),
   tags: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
@@ -391,6 +398,7 @@ const themeSchema = z.string().min(1).max(100);
 
 const jobsSchema = z.object({
   timeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
+  videoTimeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
   maxAttempts: z.number().int().min(1).max(10).optional(),
   backoffMs: z.number().int().min(0).max(600_000).optional(),
   concurrency: z.number().int().min(1).max(10).optional(),

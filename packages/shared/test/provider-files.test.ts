@@ -33,10 +33,25 @@ describe("providerFileSchema", () => {
       }).success,
     ).toBe(true);
 
-    // video is accepted with no capability block (not yet implemented).
+    // video requires its capability block (mirrors image).
+    expect(
+      providerFileSchema.safeParse({
+        name: "Vid",
+        providerType: ["video"],
+        baseUrl: "https://api.x.dev/v1",
+        video: {
+          template: "generic",
+          defaultModel: "m1",
+          models: [{ id: "m1", workflows: ["t2v"] }],
+          generate: { path: "/g" },
+          response: { videos: "data[*]", base64: "b64" },
+        },
+      }).success,
+    ).toBe(true);
+    // A video providerType without a video block is rejected.
     expect(
       providerFileSchema.safeParse({ name: "Vid", providerType: ["video"], baseUrl: "https://api.x.dev/v1" }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("providerType must match the capability blocks", () => {

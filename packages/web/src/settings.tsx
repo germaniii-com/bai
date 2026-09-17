@@ -10,6 +10,7 @@ import type {
   McpServerSource,
   MediaGenConfig,
   MediaProviderInfo,
+  VideoProviderInfo,
   ProviderFileInfo,
   MediaParamSpec,
   MediaParamValue,
@@ -27,7 +28,7 @@ import {
   THEME_OPTIONS,
 } from "@bai/shared";
 import { partitionProviders, sortProviders } from "./provider-utils";
-import { modelOptionHint } from "./media-model-hint";
+import { modelOptionHint, videoModelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
@@ -88,6 +89,7 @@ export type SettingsSection =
   | "general"
   | "providers"
   | "image"
+  | "video"
   | "webSearch"
   | "integrations";
 
@@ -104,6 +106,7 @@ export function SettingsNav({
     { id: "general", title: "General", dim: "default agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
     { id: "image", title: "Image Generation", dim: "defaults · concurrency" },
+    { id: "video", title: "Video Generation", dim: "workflows · defaults" },
     { id: "webSearch", title: "Web Search", dim: "provider · fallback" },
     { id: "integrations", title: "Integrations", dim: "MCP servers" },
   ];
@@ -243,6 +246,15 @@ export function SettingsPane({
           mutate={mutate}
           onNotice={onNotice}
         />
+      ) : section === "video" ? (
+        <VideoGenPane
+          client={client}
+          list={list}
+          videoGen={videoGen}
+          jobs={jobs}
+          mutate={mutate}
+          onNotice={onNotice}
+        />
       ) : (
         <ProvidersPane
           client={client}
@@ -253,7 +265,6 @@ export function SettingsPane({
           onNotice={onNotice}
           preferZdr={preferZdr}
           routerEnabled={routerEnabled}
-          videoGen={videoGen}
         />
       )}
     </div>
@@ -554,7 +565,6 @@ function ProvidersPane({
   onNotice,
   preferZdr,
   routerEnabled,
-  videoGen,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
@@ -564,7 +574,6 @@ function ProvidersPane({
   onNotice: (message: string, kind?: "success" | "error") => void;
   preferZdr?: boolean;
   routerEnabled?: boolean;
-  videoGen?: MediaGenConfig;
 }) {
   // Single-expanded accordion: one provider's accounts + add form at a time
   // keeps the 200+ catalog page light (forms mount lazily on expand).
@@ -756,14 +765,6 @@ function ProvidersPane({
         ))}
       </div>
 
-      <MediaGenForm
-        kind="videoGen"
-        title="Video Gen"
-        client={client}
-        list={list}
-        config={videoGen}
-        mutate={mutate}
-      />
       {oauthTarget !== null && (
         <OAuthModal
           client={client}
@@ -1308,7 +1309,8 @@ function ImageGenPane({
       <ImageProvidersCard
         client={client}
         list={list}
-        imageGen={imageGen}
+        config={imageGen}
+        kind="image"
         mutate={mutate}
         onNotice={onNotice}
       />
@@ -1327,6 +1329,144 @@ function ImageGenPane({
       />
       <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
     </>
+  );
+}
+
+/**
+ * Video Generation settings: the provider API keys (video-only vendors hidden
+ * from the LLM Model Providers pane), the default provider/model, the default
+ * workflow parameters/tags, and the media job limits (video jobs get a longer
+ * timeout than images).
+ */
+function VideoGenPane({
+  client,
+  list,
+  videoGen,
+  jobs,
+  mutate,
+  onNotice,
+}: {
+  client: BaiClient;
+  list: ProviderListResponse;
+  videoGen?: MediaGenConfig;
+  jobs?: JobsConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+  onNotice: (message: string, kind?: "success" | "error") => void;
+}) {
+  return (
+    <>
+      <PageHeader title="Video Generation" />
+      <p className="section-lede">
+        Where bai generates videos: the provider API keys, the default
+        provider/model, and the media job limits (video renders get a longer
+        timeout).
+      </p>
+      <ImageProvidersCard
+        client={client}
+        list={list}
+        config={videoGen}
+        kind="video"
+        mutate={mutate}
+        onNotice={onNotice}
+      />
+      <MediaGenForm
+        kind="videoGen"
+        title="Default model"
+        client={client}
+        list={list}
+        config={videoGen}
+        mutate={mutate}
+      />
+      <VideoDefaultsParamsForm
+        client={client}
+        videoGen={videoGen}
+        mutate={mutate}
+      />
+      <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
+    </>
+  );
+}
+
+/**
+ * Video default generation parameters + tags (config videoGen.params/.tags).
+ * The controls come from the default provider/model's workflow vocabulary, so
+ * the form always matches the adapter. The agent `video.generate` tool and the
+ * Video page both fall back to these.
+ */
+function VideoDefaultsParamsForm({
+  client,
+  videoGen,
+  mutate,
+}: {
+  client: BaiClient;
+  videoGen?: MediaGenConfig;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  const provider = videoGen?.provider;
+  const model = videoGen?.model;
+  const [specs, setSpecs] = useState<MediaParamSpec[]>([]);
+  const [params, setParams] = useState<Record<string, MediaParamValue>>({});
+  const [tags, setTags] = useState<string[]>(videoGen?.tags ?? []);
+  const [tagOptions, setTagOptions] = useState<MediaTagCount[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .videoCapabilities(provider, model)
+      .then((res) => {
+        if (cancelled) return;
+        setSpecs(res.capabilities.params);
+        setParams(coerceMediaParams(res.capabilities.params, { ...(videoGen?.params ?? {}) }));
+      })
+      .catch(() => {
+        if (!cancelled) setSpecs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, provider, model]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .videoTags(undefined, 200)
+      .then((res) => {
+        if (!cancelled) setTagOptions(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const submit = (e: FormEvent): void => {
+    e.preventDefault();
+    void mutate(async () => {
+      await client.putConfig({ videoGen: { params, tags } });
+    }, "Video default parameters saved");
+  };
+
+  return (
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title="Default parameters"
+        lede="Applied to every generation (the Video page and the agent video.generate tool) unless overridden. Controls come from the selected model."
+      />
+      {specs.length > 0 ? (
+        <MediaParamsForm specs={specs} value={params} onChange={setParams} />
+      ) : (
+        <p className="dim">Set a provider and model above to configure its parameters.</p>
+      )}
+      <Field label="Default tags" hint="(added to every generation)">
+        <TagInput value={tags} onChange={setTags} suggestions={tagOptions} />
+      </Field>
+      <div>
+        <Button type="submit" variant="primary">
+          Save defaults
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -1441,6 +1581,9 @@ function JobsLimitsForm({
   const [timeoutMs, setTimeoutMs] = useState(
     String(jobs?.timeoutMs ?? 180_000),
   );
+  const [videoTimeoutMs, setVideoTimeoutMs] = useState(
+    String(jobs?.videoTimeoutMs ?? 900_000),
+  );
   const [maxAttempts, setMaxAttempts] = useState(
     String(jobs?.maxAttempts ?? 3),
   );
@@ -1451,12 +1594,13 @@ function JobsLimitsForm({
     const patch: JobsConfig = {
       concurrency: clampInt(concurrency, 1, 10, 3),
       timeoutMs: clampInt(timeoutMs, 1000, 3_600_000, 180_000),
+      videoTimeoutMs: clampInt(videoTimeoutMs, 1000, 3_600_000, 900_000),
       maxAttempts: clampInt(maxAttempts, 1, 10, 3),
       backoffMs: clampInt(backoffMs, 0, 600_000, 1500),
     };
     void mutate(async () => {
       await client.putConfig({ jobs: patch });
-    }, `Image generation limits saved (${patch.concurrency} concurrent)`);
+    }, `Media generation limits saved (${patch.concurrency} concurrent)`);
   };
 
   return (
@@ -1475,7 +1619,7 @@ function JobsLimitsForm({
             onChange={(e) => setConcurrency(e.target.value)}
           />
         </Field>
-        <Field label="Timeout (ms)" hint="(per job)">
+        <Field label="Timeout (ms)" hint="(per image job)">
           <TextInput
             type="number"
             min={1000}
@@ -1483,6 +1627,16 @@ function JobsLimitsForm({
             step={1000}
             value={timeoutMs}
             onChange={(e) => setTimeoutMs(e.target.value)}
+          />
+        </Field>
+        <Field label="Video timeout (ms)" hint="(per video job)">
+          <TextInput
+            type="number"
+            min={1000}
+            max={3_600_000}
+            step={1000}
+            value={videoTimeoutMs}
+            onChange={(e) => setVideoTimeoutMs(e.target.value)}
           />
         </Field>
         <Field label="Max attempts" hint="(retryable failures)">
@@ -1536,19 +1690,23 @@ function clampInt(
 function ImageProvidersCard({
   client,
   list,
-  imageGen,
+  config,
+  kind = "image",
   mutate,
   onNotice,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
-  imageGen?: MediaGenConfig;
+  /** The config this card manages (imageGen or videoGen). */
+  config?: MediaGenConfig;
+  /** Which media registry the card manages. */
+  kind?: "image" | "video";
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
   onNotice: (message: string, kind?: "success" | "error") => void;
 }) {
-  const [providers, setProviders] = useState<MediaProviderInfo[]>([]);
-  const [provider, setProvider] = useState(imageGen?.provider ?? "");
-  const [keyAccount, setKeyAccount] = useState(imageGen?.account ?? "default");
+  const [providers, setProviders] = useState<Array<MediaProviderInfo | VideoProviderInfo>>([]);
+  const [provider, setProvider] = useState(config?.provider ?? "");
+  const [keyAccount, setKeyAccount] = useState(config?.account ?? "default");
   const [keyValue, setKeyValue] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   // Copy-to-clipboard feedback + the destructive-delete confirmation.
@@ -1563,11 +1721,11 @@ function ImageProvidersCard({
 
   const reload = useCallback(async (): Promise<void> => {
     try {
-      setProviders(await client.imageProviders());
+      setProviders(kind === "video" ? await client.videoProviders() : await client.imageProviders());
     } catch {
       setProviders([]);
     }
-  }, [client]);
+  }, [client, kind]);
 
   useEffect(() => {
     void reload();
@@ -1575,14 +1733,14 @@ function ImageProvidersCard({
 
   // Seed from config once it lands (config loads async), never clobbering input.
   useEffect(() => {
-    if (imageGen === undefined) return;
+    if (config === undefined) return;
     setProvider((current) =>
-      current.length > 0 ? current : (imageGen.provider ?? ""),
+      current.length > 0 ? current : (config.provider ?? ""),
     );
     setKeyAccount((current) =>
-      current !== "default" ? current : (imageGen.account ?? "default"),
+      current !== "default" ? current : (config.account ?? "default"),
     );
-  }, [imageGen]);
+  }, [config]);
 
   const providerOptions = (() => {
     const byId = new Map<string, string>();
@@ -1617,10 +1775,12 @@ function ImageProvidersCard({
         label: providerId,
         key,
       });
-      // Point image defaults at the key's account so generations use it.
-      await client.putConfig({
-        imageGen: { provider: providerId, account: accountId },
-      });
+      // Point the media defaults at the key's account so generations use it.
+      await client.putConfig(
+        kind === "video"
+          ? { videoGen: { provider: providerId, account: accountId } }
+          : { imageGen: { provider: providerId, account: accountId } },
+      );
     }, `API key saved for ${providerId}`).finally(() => {
       setSavingKey(false);
       setKeyValue("");
@@ -1656,7 +1816,7 @@ function ImageProvidersCard({
     <Card>
       <SectionHeader
         title="Providers"
-        lede="API keys for image generation. Stored server-side (auth.json, 0600) and never echoed back; the provider's env var is the fallback."
+        lede={`API keys for ${kind} generation. Stored server-side (auth.json, 0600) and never echoed back; the provider's env var is the fallback.`}
       />
       <div className="form-grid">
         <Field label="Provider">
@@ -1665,8 +1825,8 @@ function ImageProvidersCard({
             value={provider}
             onChange={setProvider}
             options={providerOptions}
-            placeholder="fal, openai…"
-            ariaLabel="Image provider"
+            placeholder={kind === "video" ? "fal, runway, kling…" : "fal, openai…"}
+            ariaLabel={`${kind} provider`}
             emptyText="Type a provider id."
           />
         </Field>
@@ -1746,7 +1906,7 @@ function ImageProvidersCard({
                           existing: {
                             id: p.id,
                             name: p.label,
-                            providerType: p.providerType ?? ["image"],
+                            providerType: p.providerType ?? [kind],
                             path: p.path ?? "",
                           },
                         })
@@ -1846,7 +2006,9 @@ function MediaGenForm({
   const [modelOptions, setModelOptions] = useState<
     { value: string; label: string; hint?: string }[]
   >([]);
-  const [mediaProviders, setMediaProviders] = useState<MediaProviderInfo[]>([]);
+  const [mediaProviders, setMediaProviders] = useState<
+    Array<MediaProviderInfo | VideoProviderInfo>
+  >([]);
 
   const providerIds = list.providers
     .map((p) => p.id)
@@ -1860,9 +2022,12 @@ function MediaGenForm({
   ).map((a) => a.id);
 
   const reloadMediaProviders = useCallback(async (): Promise<void> => {
-    if (kind !== "imageGen") return;
     try {
-      setMediaProviders(await client.imageProviders());
+      setMediaProviders(
+        kind === "videoGen"
+          ? await client.videoProviders()
+          : await client.imageProviders(),
+      );
     } catch {
       setMediaProviders([]);
     }
@@ -1883,22 +2048,38 @@ function MediaGenForm({
       .map(([value, label]) => ({ value, label }));
   })();
 
-  // Image-gen model autocomplete: the adapter's curated list (same rows as the
-  // Image page). Video has no catalog yet, so it keeps a free-text field.
+  // Model autocomplete: the adapter's curated list — the same rows the Image /
+  // Video page shows, so the configured default is a real model (the field
+  // stays creatable for ids the curated list omits).
   useEffect(() => {
-    if (kind !== "imageGen") {
-      setModelOptions([]);
-      return;
-    }
     const providerId = provider.trim();
     if (providerId.length === 0) {
       setModelOptions([]);
       return;
     }
     let cancelled = false;
-    void client
-      .imageCapabilities(providerId, model.trim() || undefined)
-      .then((res) => {
+    const load = async (): Promise<void> => {
+      if (kind === "videoGen") {
+        const res = await client.videoCapabilities(
+          providerId,
+          model.trim() || undefined,
+        );
+        if (cancelled) return;
+        setModelOptions(
+          res.models.map((m) => ({
+            value: m.id,
+            label: m.id,
+            hint: videoModelOptionHint(m),
+          })),
+        );
+        setModel((current) =>
+          current.trim().length > 0 ? current : res.model,
+        );
+      } else {
+        const res = await client.imageCapabilities(
+          providerId,
+          model.trim() || undefined,
+        );
         if (cancelled) return;
         setModelOptions(
           res.models.map((m) => ({
@@ -1910,14 +2091,20 @@ function MediaGenForm({
         setModel((current) =>
           current.trim().length > 0 ? current : res.model,
         );
-      })
-      .catch(() => {
-        if (!cancelled) setModelOptions([]);
-      });
+      }
+    };
+    void load().catch(() => {
+      if (!cancelled) setModelOptions([]);
+    });
     return () => {
       cancelled = true;
     };
   }, [client, kind, provider, model]);
+
+  const modelPlaceholder =
+    kind === "videoGen"
+      ? modelOptions[0]?.value ?? "veo-3.1…"
+      : modelOptions[0]?.value ?? "gpt-image-2…";
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
@@ -1974,24 +2161,23 @@ function MediaGenForm({
             emptyText="Type an account id."
           />
         </Field>
-        <Field label="Model">
-          {kind === "imageGen" ? (
-            <Combobox
-              creatable
-              value={model}
-              onChange={setModel}
-              options={modelOptions}
-              placeholder="gpt-image-2…"
-              ariaLabel={`${title} model`}
-              emptyText="Type a model id."
-            />
-          ) : (
-            <TextInput
-              value={model}
-              placeholder="veo-3…"
-              onChange={(e) => setModel(e.target.value)}
-            />
-          )}
+        <Field
+          label="Model"
+          hint={
+            mediaProvider !== undefined && provider.trim().length > 0
+              ? mediaProvider.label
+              : undefined
+          }
+        >
+          <Combobox
+            creatable
+            value={model}
+            onChange={setModel}
+            options={modelOptions}
+            placeholder={modelPlaceholder}
+            ariaLabel={`${title} model`}
+            emptyText="Type a model id."
+          />
         </Field>
       </div>
       <div>

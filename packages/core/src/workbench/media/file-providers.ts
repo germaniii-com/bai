@@ -1,7 +1,9 @@
 import type { MediaModelInfo, MediaParamSpec, ProviderFile } from "@bai/shared";
 import { GenericMediaAdapter } from "./generic";
+import { GenericVideoAdapter } from "./video/generic";
 import { OpenAiImagesAdapter, type OpenAiImagesModel, type OpenAiImagesSpec } from "./openai-images";
 import type { MediaProviderDef } from "./registry";
+import type { VideoProviderDef } from "./video-registry";
 
 /**
  * Translate a validated provider file into a workbench {@link MediaProviderDef}
@@ -21,7 +23,8 @@ export function providerFileToMediaDef(
     label: file.name,
     baseUrl: file.baseUrl,
     env,
-    imageOnly: !file.providerType.includes("text"),
+    mediaOnly: !file.providerType.includes("text"),
+    kinds: ["image"],
     aliases: [],
     filePath: path,
     build: (fetchImpl) =>
@@ -89,6 +92,56 @@ export function providerFilesToMediaDefs(
   const out: MediaProviderDef[] = [];
   for (const entry of files) {
     const def = providerFileToMediaDef(entry.id, entry.file, entry.path);
+    if (def !== undefined) out.push(def);
+  }
+  return out;
+}
+
+/**
+ * Translate a validated provider file into a workbench {@link VideoProviderDef}
+ * (spec + adapter builder). Returns `undefined` for files without a `video`
+ * block (text-only / image-only).
+ */
+export function providerFileToVideoDef(
+  id: string,
+  file: ProviderFile,
+  path: string,
+): VideoProviderDef | undefined {
+  const video = file.video;
+  if (video === undefined) return undefined;
+  const env = file.env ?? (file.apiKeyEnv !== undefined ? [file.apiKeyEnv] : []);
+  return {
+    id,
+    label: file.name,
+    baseUrl: file.baseUrl,
+    env,
+    mediaOnly: !file.providerType.includes("text"),
+    kinds: ["video"],
+    aliases: [],
+    filePath: path,
+    build: (fetchImpl) =>
+      new GenericVideoAdapter(
+        {
+          id,
+          label: file.name,
+          baseUrl: file.baseUrl,
+          envHint: env,
+          auth: file.auth ?? { header: "authorization", scheme: "Bearer" },
+          ...(file.headers !== undefined ? { headers: file.headers } : {}),
+          spec: video,
+        },
+        fetchImpl,
+      ),
+  };
+}
+
+/** Convenience: map every file's video block to a video def (drops the rest). */
+export function providerFilesToVideoDefs(
+  files: ReadonlyArray<{ id: string; file: ProviderFile; path: string }>,
+): VideoProviderDef[] {
+  const out: VideoProviderDef[] = [];
+  for (const entry of files) {
+    const def = providerFileToVideoDef(entry.id, entry.file, entry.path);
     if (def !== undefined) out.push(def);
   }
   return out;

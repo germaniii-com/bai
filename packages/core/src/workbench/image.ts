@@ -83,7 +83,7 @@ export class ImageWorkbench implements Workbench {
         modes: adapter.capabilities(model).modes,
         models: await adapter.listModels(),
         source: "file",
-        providerType: def.imageOnly ? ["image"] : ["text", "image"],
+        providerType: def.mediaOnly ? ["image"] : ["text", "image"],
         ...(def.filePath !== undefined ? { path: def.filePath } : {}),
       });
     }

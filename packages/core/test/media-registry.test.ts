@@ -18,16 +18,17 @@ const noopFetch = (async () =>
 
 describe("media provider registry", () => {
   test("every implemented spec materializes an adapter (+ the offline stub)", () => {
+    const imageSpecs = MEDIA_PROVIDER_SPECS.filter((s) => s.kinds.includes("image"));
     const defs = mediaProviderDefs();
     const adapters = buildMediaAdapters(noopFetch);
-    for (const spec of MEDIA_PROVIDER_SPECS) {
+    for (const spec of imageSpecs) {
       const def = defs.find((d) => d.id === spec.id);
       expect(def).toBeDefined();
       expect(adapters.has(spec.id)).toBe(true);
       expect(adapters.get(spec.id)?.id).toBe(spec.id);
     }
     expect(adapters.has("stub")).toBe(true);
-    expect(defs.length).toBe(MEDIA_PROVIDER_SPECS.length);
+    expect(defs.length).toBe(imageSpecs.length);
   });
 
   test("specs carry the credential metadata the overlay needs", () => {

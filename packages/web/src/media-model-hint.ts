@@ -1,4 +1,5 @@
-import type { MediaMode, MediaModelInfo } from "@bai/shared";
+import { VIDEO_WORKFLOW_LABELS } from "@bai/shared";
+import type { MediaMode, MediaModelInfo, VideoModelInfo } from "@bai/shared";
 
 /** `t2i` → "T2I", `i2i` → "I2I". */
 export function modeLabel(mode: MediaMode): string {
@@ -12,6 +13,21 @@ export function modelOptionHint(model: MediaModelInfo): string {
   parts.push(model.modes.map(modeLabel).join("/"));
   parts.push(`refs≤${model.maxReferences}`);
   parts.push(`n≤${model.maxCount}`);
+  if (model.rates !== undefined && model.rates.length > 0) {
+    parts.push(model.rates.map((r) => `${r.label} ${r.value}`).join(", "));
+  }
+  return parts.join(" · ");
+}
+
+/** Every field of a {@link VideoModelInfo}, compacted for a dropdown row. */
+export function videoModelOptionHint(model: VideoModelInfo): string {
+  const parts: string[] = [];
+  if (model.label !== undefined && model.label !== model.id) parts.push(model.label);
+  parts.push(
+    model.workflows.length <= 3
+      ? model.workflows.map((w) => VIDEO_WORKFLOW_LABELS[w]).join("/")
+      : `${model.workflows.length} workflows`,
+  );
   if (model.rates !== undefined && model.rates.length > 0) {
     parts.push(model.rates.map((r) => `${r.label} ${r.value}`).join(", "));
   }

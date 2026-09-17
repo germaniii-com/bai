@@ -634,25 +634,81 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
 
 **Coming next**
 
-- Video workbench · streaming partial images · provider-side async result
-  storage (fal image-to-image uploads)
+- Streaming partial images · provider-side async result storage (fal
+  image-to-image uploads)
 
 ---
 
-## 🎬 Video generation — structured stub
+## 🎬 Video generation — shipped
 
-Identical shape to image, second in line.
+The video modality is a **workflow-driven single-page web workbench**. Unlike
+images, video is task-verb driven: pick a workflow (`t2v`, `i2v`, `flf2v`,
+`ref2v`, `v2v`, `extend`, `upscale`, `motion`, `lipsync`, `reframe`), attach
+its **role-tagged** inputs (first/last frame, reference images/videos/audio,
+source video), tune the params, and generate. Workflows and input roles come
+from each adapter's declarative capabilities, so a new provider is data — not
+UI work.
 
-**What exists today**
+**What you can do today**
 
-- Same structured plumbing: `video.generate` job kind, asset pipeline,
-  gallery routes, event wiring — all proven by the shared queue and store
-  contracts (bai's "structured stubs day one" principle, D9)
+- **Ten workflows.** Text to video; image to video (first frame); first + last
+  frame; reference-to-video; video-to-video edit; extend; upscale/enhance;
+  motion control; lip-sync/avatar; reframe.
+- **Role-tagged references.** Each workflow declares its input slots
+  (`first_frame`, `last_frame`, `reference_image`, `reference_video`,
+  `reference_audio`, `source_video`). A slot accepts a **stored bai asset**
+  (picked from any gallery, any kind), an **upload**, or a **hosted URL** — so
+  a generated video can seed a later extend/v2v/upscale job.
+- **Multi-provider.** `videoGen.provider` picks an adapter from a data-driven
+  registry. The Video page shows one **model** picker aggregating every
+  connected provider's models, filtered to the workflows each model supports;
+  with nothing connected it falls back to the offline **stub** (which
+  advertises every workflow). Shipped adapters: **OpenRouter**, **fal.ai**,
+  **Replicate**, **Google Veo 3.1 (Gemini API)**, **Runway**, **Kuaishou
+  Kling**, **Luma (Agents)**, **MiniMax Video**, **Alibaba Wan**, and
+  **ByteDance Seedance**. Keys live in **Settings → Video Generation** (the
+  same Providers card as images), or env (`OPENROUTER_API_KEY`, `FAL_KEY`,
+  `REPLICATE_API_TOKEN`, `GEMINI_API_KEY`, `RUNWAYML_API_SECRET`,
+  `KLING_API_KEY`, `LUMA_API_KEY`, `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`,
+  `ARK_API_KEY`).
+- **Honest workflow coverage.** Adapters advertise only the workflows they can
+  serve with local bytes and throw a clear error otherwise. Inline
+  base64/data-URI inputs work for Gemini Veo, Runway, Kling, MiniMax, Wan, and
+  Seedance; fal/Replicate upload through the vendor's storage API; OpenRouter is
+  HTTPS-URL-only (its reference inputs accept a pasted URL, not an uploaded
+  asset). i2v/flf2v/ref2v are available wherever the vendor accepts inline
+  bytes; URL-only paths (e.g. Luma's legacy Dream Machine) are not used.
+- **Still posters; the modal plays the clip.** The job queue extracts the first
+  frame of every produced video with ffmpeg (the bundled `ffmpeg-static` binary;
+  override with `FFMPEG_PATH`, or a system `ffmpeg`) into a JPEG beside the
+  file, served at `GET /api/asset/:id/poster`. Gallery cards render that still —
+  **no `<video>` element in the grid** — and the clip plays only in the expanded
+  modal. Posters are best-effort: without an ffmpeg the asset simply has none.
+- **Reusable history.** Every video carries its full request (`meta.gen` plus
+  `durationSeconds`/`width`/`height`), so a gallery card's `…` menu can Load
+  Inputs (repopulate the workflow/slots/params) — Generate always enqueues a NEW
+  job. The gallery is fuzzy tag-searchable; the expanded view plays the clip.
+- **Longer job budget.** Video renders run minutes, so `video.generate` uses
+  `config.jobs.videoTimeoutMs` (default 900 s) — images keep `jobs.timeoutMs`
+  (180 s). Both are editable in Settings.
+- **Live** via `job.updated` / `asset.created` / `asset.deleted`, and a
+  **Video generation** card on Analytics (a `kind='video'` slice of the
+  `media_events` ledger).
+
+**Under the hood**
+
+- `core/src/workbench/media/video-*` — the video seam (`VideoGenAdapter`,
+  workflow/role vocabulary, registry, container probe, upload helpers) and one
+  file per vendor under `video/`. `core/src/workbench/video.ts` owns the
+  workflow-aware job executor and stamps each asset's recipe/metadata. Routes:
+  `POST /api/video/generate`, `GET /api/video/{providers,capabilities,gallery,
+  tags,recent,usage}`. Assets live under `~/.local/share/bai/assets/video/`.
+  The web page is `packages/web/src/video.tsx`; the router exposes `/video`.
 
 **Coming next**
 
-- Adapter after image ships; longer job durations shape the queue UX
-  (progress, cancellation, partial results) first
+- Per-model workflow field mapping refinements · generated posters/thumbnails ·
+  enrolled reference assets (Kling Elements) · C2PA provenance metadata
 
 ---
 

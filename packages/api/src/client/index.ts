@@ -39,6 +39,11 @@ import type {
   MediaTagCount,
   MediaUsageQuery,
   MediaUsageResponse,
+  VideoCapabilitiesResponse,
+  VideoGenRequestBody,
+  VideoGalleryPage,
+  VideoProviderInfo,
+  VideoRecent,
   QuestionRequest,
   Session,
   SessionUsage,
@@ -230,10 +235,31 @@ export class BaiClient {
     return ((await res.json()) as { attachment: AttachmentRef }).attachment;
   }
 
-  /** Fetch stored attachment bytes (raw Response; caller builds an object URL). */
-  async assetContent(id: string): Promise<Response> {
-    const res = await fetch(this.url(`/api/asset/${encodeURIComponent(id)}/content`), { headers: this.headers });
+  /**
+   * Fetch stored attachment bytes (raw Response; caller builds an object URL).
+   * Pass a `signal` to abort an in-flight download on unmount — media previews
+   * (especially large videos) must never keep the connection pool busy after a
+   * surface unmounts.
+   */
+  async assetContent(id: string, opts: { signal?: AbortSignal } = {}): Promise<Response> {
+    const res = await fetch(this.url(`/api/asset/${encodeURIComponent(id)}/content`), {
+      headers: this.headers,
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    });
     if (!res.ok) throw new Error(`asset fetch failed: ${res.status}`);
+    return res;
+  }
+
+  /**
+   * Fetch a video asset's generated first-frame poster (raw Response; caller
+   * builds an object URL). 404s when the video has no poster.
+   */
+  async assetPoster(id: string, opts: { signal?: AbortSignal } = {}): Promise<Response> {
+    const res = await fetch(this.url(`/api/asset/${encodeURIComponent(id)}/poster`), {
+      headers: this.headers,
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    });
+    if (!res.ok) throw new Error(`asset poster failed: ${res.status}`);
     return res;
   }
 
@@ -1152,6 +1178,79 @@ export class BaiClient {
     const res = await this.rpc().image.usage.$get({ query });
     if (!res.ok) throw new Error(`image usage failed: ${res.status}`);
     return res.json();
+  }
+
+  // --- video generation (workflow-driven workbench) ---
+
+  async generateVideo(body: VideoGenRequestBody): Promise<Job> {
+    const res = await this.rpc().video.generate.$post({ json: body });
+    if (!res.ok) throw new Error(await errorMessage(res, `generate video failed: ${res.status}`));
+    return (await res.json()).job;
+  }
+
+  async videoCapabilities(provider?: string, model?: string): Promise<VideoCapabilitiesResponse> {
+    const res = await this.rpc().video.capabilities.$get({
+      query: {
+        ...(provider !== undefined && provider.length > 0 ? { provider } : {}),
+        ...(model !== undefined && model.length > 0 ? { model } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`video capabilities failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Video providers the workbench can generate with (the picker). */
+  async videoProviders(): Promise<VideoProviderInfo[]> {
+    const res = await this.rpc().video.providers.$get();
+    if (!res.ok) throw new Error(`video providers failed: ${res.status}`);
+    return (await res.json()).providers;
+  }
+
+  async videoGallery(opts: { limit?: number; tags?: string[]; before?: string } = {}): Promise<VideoGalleryPage> {
+    const res = await this.rpc().video.gallery.$get({
+      query: {
+        ...(opts.limit !== undefined ? { limit: String(opts.limit) } : {}),
+        ...(opts.tags !== undefined && opts.tags.length > 0 ? { tags: opts.tags.join(",") } : {}),
+        ...(opts.before !== undefined ? { before: opts.before } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`video gallery failed: ${res.status}`);
+    return res.json();
+  }
+
+  async videoTags(q?: string, limit?: number): Promise<MediaTagCount[]> {
+    const res = await this.rpc().video.tags.$get({
+      query: {
+        ...(q !== undefined && q.length > 0 ? { q } : {}),
+        ...(limit !== undefined ? { limit: String(limit) } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`video tags failed: ${res.status}`);
+    return (await res.json()).tags;
+  }
+
+  async videoRecent(): Promise<VideoRecent> {
+    const res = await this.rpc().video.recent.$get();
+    if (!res.ok) throw new Error(`video recent failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** Video-generation usage analytics (the Analytics page's video card). */
+  async videoUsage(query: MediaUsageQuery = {}): Promise<MediaUsageResponse> {
+    const res = await this.rpc().video.usage.$get({ query: { ...query, kind: "video" } });
+    if (!res.ok) throw new Error(`video usage failed: ${res.status}`);
+    return res.json();
+  }
+
+  /** List stored assets, optionally by kind (the cross-kind reference picker). */
+  async listAssets(opts: { kind?: "image" | "video" | "audio" | "file"; limit?: number; offset?: number } = {}): Promise<Asset[]> {
+    const params = new URLSearchParams();
+    if (opts.kind !== undefined) params.set("kind", opts.kind);
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) params.set("offset", String(opts.offset));
+    const res = await fetch(this.url(`/api/asset?${params.toString()}`), { headers: this.headers });
+    if (!res.ok) throw new Error(`list assets failed: ${res.status}`);
+    return ((await res.json()) as { assets: Asset[] }).assets;
   }
 
   async deleteAsset(id: string): Promise<boolean> {

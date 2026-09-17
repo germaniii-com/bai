@@ -87,6 +87,28 @@ export function MediaParamsForm({
             </Field>
           );
         }
+        if (spec.kind === "list") {
+          const raw = value[spec.key];
+          const items = Array.isArray(raw) ? raw : (spec.default ?? []);
+          return (
+            <Field key={spec.key} label={spec.label} hint={spec.hint}>
+              <textarea
+                className="input param-list"
+                style={{ width: "100%", resize: "vertical" }}
+                rows={Math.min(Math.max(items.length, 2), 8)}
+                aria-label={spec.label}
+                value={items.join("\n")}
+                placeholder="One item per line"
+                onChange={(e) =>
+                  set(
+                    spec.key,
+                    e.target.value.split("\n").map((line) => line.trim()).filter((line) => line.length > 0),
+                  )
+                }
+              />
+            </Field>
+          );
+        }
         return (
           <Field key={spec.key} label={spec.label} hint={spec.hint}>
             <TextInput

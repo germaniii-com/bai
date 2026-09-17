@@ -4722,6 +4722,9 @@ select:focus-visible,
 .media-model-info {
   display: flex;
   flex-wrap: wrap;
+  /* Center each row against the tallest one — a wrapping values row (e.g. the
+     video workflows chips) must not top-align its siblings. */
+  align-items: center;
   gap: var(--space-2) var(--space-4);
   padding: 6px var(--space-3);
   border: 1px solid var(--border);
@@ -4781,6 +4784,304 @@ select:focus-visible,
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* --- Video generation workbench -------------------------------------------- */
+.video-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.video-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: 100%;
+  min-width: 0;
+}
+
+.video-workbench {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: 100%;
+}
+
+.video-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.video-controls-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.video-slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.video-slot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.video-slot-label {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--text-sm);
+}
+
+.video-slot-accepts {
+  font-size: var(--text-xs);
+}
+
+.video-slot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.video-slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+  font-size: var(--text-xs);
+  max-width: 320px;
+}
+
+.video-slot-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.video-url-input {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.video-url-input .input {
+  min-width: 180px;
+}
+
+.video-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.video-gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.video-gallery-filter {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  max-width: 420px;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+/* Video cards extend the shared image-card shell (same `…` menu + settings
+   footer) with a 16:9 media surface and a play/duration overlay. */
+.image-card-media.video-card-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+}
+
+.image-card-media.video-card-media img,
+.image-card-media.video-card-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.video-card-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.image-card-media.video-card-media:hover .video-card-play {
+  opacity: 0.9;
+}
+
+/* No poster yet: keep the play affordance visible over the placeholder. */
+.video-card-play.no-poster {
+  opacity: 0.85;
+}
+
+.video-card-duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: var(--text-xs);
+}
+
+/* Video job placeholders match the video card's 16:9 media, so a failed job
+   never stretches its row taller than the videos beside it. */
+.image-card-job.video-card-job .image-card-job-media {
+  aspect-ratio: 16 / 9;
+}
+
+.video-card-settings {
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Workflow / input-role chips inside the model-info panel. */
+.media-rate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A row whose value is a wrapping chip group aligns on centers, not baselines. */
+.media-rate-stack {
+  align-items: center;
+}
+
+.video-lightbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-lightbox-video {
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: var(--radius-md);
+}
+
+.video-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
+.video-lightbox-nav.prev {
+  left: 8px;
+}
+
+.video-lightbox-nav.next {
+  right: 8px;
+}
+
+.video-lightbox-count {
+  text-align: center;
+}
+
+.video-offline-note {
+  text-align: center;
+}
+
+/* Cross-kind asset picker (video workflow inputs). */
+.asset-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.asset-picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.asset-picker-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+}
+
+.asset-picker-audio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.asset-picker-name {
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-picker-kind {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+/* Multi-line list param (multi-shot shot prompts). */
+.param-list {
+  min-height: 64px;
+  font-family: inherit;
+  padding: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .video-controls-row {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -266,4 +266,11 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_media_events_created ON media_events(created_at);
   CREATE INDEX IF NOT EXISTS idx_media_events_model ON media_events(provider, model, created_at);
   `,
+  // 011 — media_events gains a modality discriminator so image and video usage
+  // aggregate independently (legacy rows default to 'image').
+  `
+  ALTER TABLE media_events ADD COLUMN kind TEXT NOT NULL DEFAULT 'image';
+
+  CREATE INDEX IF NOT EXISTS idx_media_events_kind_created ON media_events(kind, created_at);
+  `,
 ];

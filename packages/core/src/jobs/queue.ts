@@ -5,10 +5,13 @@ import type { Bus } from "../event/bus";
 import type { Store } from "../store/store";
 import type { JobExecutor } from "../workbench/types";
 import { isRetryableJobError } from "../workbench/media/adapter";
+import { extractVideoPoster, posterPathFor } from "./poster";
 
 export interface JobLimits {
   /** Per-attempt wall-clock ceiling for the whole job (ms). */
   timeoutMs: number;
+  /** Per-attempt ceiling for `video.generate` jobs (async renders run minutes). */
+  videoTimeoutMs: number;
   /** Maximum attempts for retryable failures (>= 1). */
   maxAttempts: number;
   /** Base backoff between attempts (ms); doubles per attempt, capped. */
@@ -17,7 +20,13 @@ export interface JobLimits {
   concurrency: number;
 }
 
-const DEFAULT_LIMITS: JobLimits = { timeoutMs: 180_000, maxAttempts: 3, backoffMs: 1500, concurrency: 3 };
+const DEFAULT_LIMITS: JobLimits = {
+  timeoutMs: 180_000,
+  videoTimeoutMs: 900_000,
+  maxAttempts: 3,
+  backoffMs: 1500,
+  concurrency: 3,
+};
 const MAX_BACKOFF_MS = 30_000;
 
 /** Analytics dimensions gathered per job (for the media_events row). */
@@ -26,7 +35,8 @@ interface JobMeta {
   provider?: string;
   model?: string;
   account?: string;
-  mode?: "t2i" | "i2i";
+  /** Image workflow (t2i/i2i) or video workflow (t2v/i2v/…). */
+  mode?: string;
 }
 
 export interface JobQueueDeps {
@@ -67,6 +77,7 @@ export class JobQueue {
     const configured = this.deps.limits?.();
     return {
       timeoutMs: configured?.timeoutMs ?? DEFAULT_LIMITS.timeoutMs,
+      videoTimeoutMs: configured?.videoTimeoutMs ?? DEFAULT_LIMITS.videoTimeoutMs,
       maxAttempts: Math.max(1, configured?.maxAttempts ?? DEFAULT_LIMITS.maxAttempts),
       backoffMs: Math.max(0, configured?.backoffMs ?? DEFAULT_LIMITS.backoffMs),
       concurrency: Math.max(1, configured?.concurrency ?? DEFAULT_LIMITS.concurrency),
@@ -250,10 +261,12 @@ export class JobQueue {
       return;
     }
     const limits = this.limits();
+    // Video renders run minutes at async providers — a per-kind budget.
+    const timeoutMs = job.kind === "video.generate" ? limits.videoTimeoutMs : limits.timeoutMs;
     const ac = new AbortController();
     this.aborters.set(job.id, ac);
     let timedOut = false;
-    const deadline = Date.now() + limits.timeoutMs;
+    const deadline = Date.now() + timeoutMs;
     const started = Date.now();
     const meta: JobMeta = { started };
     this.jobMeta.set(job.id, meta);
@@ -292,13 +305,13 @@ export class JobQueue {
           if (ac.signal.aborted) {
             // Cancelled (or timed out) while the executor was finishing: do
             // NOT persist assets for an aborted job.
-            if (timedOut) this.fail(job, timeoutMessage(limits.timeoutMs), attempt);
+            if (timedOut) this.fail(job, timeoutMessage(timeoutMs), attempt);
             else this.markCancelled(job.id);
             return;
           }
           const assetIds: string[] = [];
           for (const file of result.files) {
-            const asset = this.persistAsset(job, file);
+            const asset = await this.persistAsset(job, file);
             assetIds.push(asset.id);
             this.deps.bus.publish({
               seq: 0,
@@ -330,7 +343,7 @@ export class JobQueue {
           return;
         } catch (err) {
           if (ac.signal.aborted) {
-            if (timedOut) this.fail(job, timeoutMessage(limits.timeoutMs), attempt);
+            if (timedOut) this.fail(job, timeoutMessage(timeoutMs), attempt);
             else this.markCancelled(job.id);
             return;
           }
@@ -350,7 +363,7 @@ export class JobQueue {
             if (updated) this.emit(updated);
             await abortableSleep(backoff, ac.signal);
             if (ac.signal.aborted) {
-              if (timedOut) this.fail(job, timeoutMessage(limits.timeoutMs), attempt);
+              if (timedOut) this.fail(job, timeoutMessage(timeoutMs), attempt);
               else this.markCancelled(job.id);
               return;
             }
@@ -363,17 +376,17 @@ export class JobQueue {
         }
       }
       // Deadline exceeded before the next attempt.
-      this.fail(job, timeoutMessage(limits.timeoutMs), attempt);
+      this.fail(job, timeoutMessage(timeoutMs), attempt);
     } finally {
       this.aborters.delete(job.id);
       this.jobMeta.delete(job.id);
     }
   }
 
-  private persistAsset(
+  private async persistAsset(
     job: Job,
     file: { kind: string; mime: string; ext: string; bytes: Uint8Array; meta?: Record<string, unknown> },
-  ): Asset {
+  ): Promise<Asset> {
     const id = newId.asset();
     const dir = path.join(this.deps.assetsDir, file.kind);
     mkdirSync(dir, { recursive: true });
@@ -386,13 +399,23 @@ export class JobQueue {
       safeUnlink(tmpPath);
       throw err;
     }
+    const meta: Record<string, unknown> = { ...(file.meta ?? {}) };
+    const posterPath = file.kind === "video" ? posterPathFor(finalPath) : undefined;
+    // Videos get a first-frame poster (best-effort; a failure leaves it off).
+    if (posterPath !== undefined) {
+      const poster = await extractVideoPoster(finalPath, posterPath);
+      if (poster !== undefined) {
+        meta.posterPath = poster.path;
+        meta.posterMime = poster.mime;
+      }
+    }
     try {
       const asset = this.deps.store.assets.insert({
         kind: file.kind as Asset["kind"],
         mime: file.mime,
         path: finalPath,
         bytes: file.bytes.byteLength,
-        meta: { ...(file.meta ?? {}) },
+        meta,
         jobId: job.id,
         now: this.clock.iso(),
       });
@@ -402,6 +425,7 @@ export class JobQueue {
     } catch (err) {
       // The file was written but the row failed — never leave an orphan.
       safeUnlink(finalPath);
+      if (posterPath !== undefined) safeUnlink(posterPath);
       throw err;
     }
   }
@@ -437,9 +461,10 @@ export class JobQueue {
     meta: JobMeta | undefined,
     outcome: { ok: boolean; images?: number; costUsd?: number; error?: string },
   ): void {
-    if (job.kind !== "image.generate") return;
+    if (job.kind !== "image.generate" && job.kind !== "video.generate") return;
     try {
       this.deps.store.mediaUsage.insert({
+        kind: job.kind === "video.generate" ? "video" : "image",
         provider: meta?.provider ?? "unknown",
         ...(meta?.account !== undefined ? { account: meta.account } : {}),
         model: meta?.model ?? "unknown",

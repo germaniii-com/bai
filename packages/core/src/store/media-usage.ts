@@ -1,8 +1,10 @@
 import type {
   MediaEventId,
   MediaMode,
+  MediaUsageKind,
   MediaUsageQuery,
   MediaUsageResponse,
+  VideoWorkflow,
 } from "@bai/shared";
 import type { SQLQueryBindings } from "bun:sqlite";
 import { newId } from "@bai/shared";
@@ -16,10 +18,13 @@ import { q, type SqliteDb } from "./db";
  */
 export interface MediaEventRecord {
   id: MediaEventId;
+  /** Modality the event belongs to. */
+  kind: MediaUsageKind;
   provider: string;
   account?: string;
   model: string;
-  mode: MediaMode;
+  /** Image workflow (t2i/i2i) or video workflow (t2v/i2v/…) — see media.ts. */
+  mode: string;
   /** Images produced (0 for failures). */
   images: number;
   /** Reported USD cost (0 when the provider didn't report one). */
@@ -33,6 +38,7 @@ export interface MediaEventRecord {
 
 interface MediaEventRow {
   id: string;
+  kind: string;
   provider: string;
   account: string | null;
   model: string;
@@ -48,10 +54,11 @@ interface MediaEventRow {
 function toRecord(row: MediaEventRow): MediaEventRecord {
   return {
     id: row.id as MediaEventId,
+    kind: row.kind === "video" ? "video" : "image",
     provider: row.provider,
     ...(row.account !== null ? { account: row.account } : {}),
     model: row.model,
-    mode: row.mode as MediaMode,
+    mode: row.mode,
     images: row.images,
     costUsd: row.cost_usd,
     durationMs: row.duration_ms,
@@ -71,10 +78,11 @@ export class MediaUsageRepo {
   constructor(private db: SqliteDb) {}
 
   insert(opts: {
+    kind?: MediaUsageKind;
     provider: string;
     account?: string;
     model: string;
-    mode: MediaMode;
+    mode: string;
     images?: number;
     costUsd?: number;
     durationMs?: number;
@@ -86,11 +94,12 @@ export class MediaUsageRepo {
     this.db
       .query(
         `INSERT INTO media_events (
-           id, provider, account, model, mode, images, cost_usd, duration_ms, ok, error, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           id, kind, provider, account, model, mode, images, cost_usd, duration_ms, ok, error, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
+        opts.kind ?? "image",
         opts.provider,
         opts.account ?? null,
         opts.model,
@@ -141,6 +150,7 @@ export class MediaUsageRepo {
       whereParams.push(query.to);
     }
     for (const [column, value] of [
+      ["kind", query.kind],
       ["provider", query.provider],
       ["account", query.account],
       ["model", query.model],
@@ -247,7 +257,7 @@ export class MediaUsageRepo {
         avgDurationMs: r.avg_duration,
       })),
       byWorkflow: byWorkflow.map((r) => ({
-        mode: r.mode as MediaMode,
+        mode: r.mode as MediaMode | VideoWorkflow,
         requests: r.requests,
         images: r.images,
         spendUsd: r.spend,

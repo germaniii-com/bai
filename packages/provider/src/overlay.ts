@@ -81,6 +81,13 @@ const MEDIA_OVERLAY_IDS = new Set([
   "stability",
   "ideogram",
   "minimax-image",
+  // video-only vendors
+  "runway",
+  "kling",
+  "luma",
+  "minimax-video",
+  "wan",
+  "seedance",
 ]);
 
 const MEDIA_OVERLAY_LIST: CuratedProvider[] = MEDIA_PROVIDER_SPECS.filter((s) =>
@@ -91,7 +98,7 @@ const MEDIA_OVERLAY_LIST: CuratedProvider[] = MEDIA_PROVIDER_SPECS.filter((s) =>
   ...(s.aliases !== undefined ? { aliases: s.aliases } : {}),
   baseUrl: s.baseUrl,
   env: s.env,
-  ...(s.imageOnly ? { mediaOnly: true } : {}),
+  ...(s.mediaOnly ? { mediaOnly: true } : {}),
 }));
 
 const CURATED_LIST: CuratedProvider[] = [

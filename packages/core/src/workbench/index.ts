@@ -14,6 +14,7 @@ import type { Workbench } from "./types";
 import type { MediaGenConfig } from "@bai/shared";
 import type { MediaRuntimeDeps } from "./image";
 import type { MediaProviderDef } from "./media/registry";
+import type { VideoProviderDef } from "./media/video-registry";
 
 /** Per-modality media-gen defaults (config imageGen/videoGen), read live. */
 export interface MediaDefaults {
@@ -31,8 +32,10 @@ export function createDefaultWorkbenches(opts: {
   mediaRuntime?: MediaRuntimeDeps;
   /** Fetch override for the image adapter (tests). */
   mediaFetch?: typeof globalThis.fetch;
-  /** File-defined media providers (`~/.config/bai/providers/`), hot-reloadable. */
+  /** File-defined image providers (`~/.config/bai/providers/`), hot-reloadable. */
   mediaCustom?: () => MediaProviderDef[];
+  /** File-defined video providers (`~/.config/bai/providers/`), hot-reloadable. */
+  mediaCustomVideo?: () => VideoProviderDef[];
 }): Workbench[] {
   mkdirSync(path.join(opts.dataDir, "assets"), { recursive: true });
   return [
@@ -44,6 +47,11 @@ export function createDefaultWorkbenches(opts: {
       ...(opts.mediaFetch !== undefined ? { fetch: opts.mediaFetch } : {}),
       ...(opts.mediaCustom !== undefined ? { custom: opts.mediaCustom } : {}),
     }),
-    new VideoWorkbench(opts.mediaDefaults?.video),
+    new VideoWorkbench({
+      ...(opts.mediaDefaults?.video !== undefined ? { defaults: opts.mediaDefaults.video } : {}),
+      ...(opts.mediaRuntime !== undefined ? { runtime: opts.mediaRuntime } : {}),
+      ...(opts.mediaFetch !== undefined ? { fetch: opts.mediaFetch } : {}),
+      ...(opts.mediaCustomVideo !== undefined ? { custom: opts.mediaCustomVideo } : {}),
+    }),
   ];
 }

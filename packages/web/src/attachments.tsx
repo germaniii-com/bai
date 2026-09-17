@@ -66,13 +66,17 @@ export function formatBytes(bytes: number): string {
 }
 
 /** Auth-aware object URL for one stored asset (revoked on unmount). */
-export function useAssetUrl(client: BaiClient, id: string): string | undefined {
+export function useAssetUrl(client: BaiClient, id: string, enabled = true): string | undefined {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let created: string | undefined;
+    // Abort the download on unmount (or when the card scrolls out of the lazy
+    // window) — a stray multi-MB video fetch must not linger.
+    const ctrl = new AbortController();
     void client
-      .assetContent(id)
+      .assetContent(id, { signal: ctrl.signal })
       .then(async (res) => {
         const blob = await res.blob();
         if (!active) return;
@@ -80,13 +84,14 @@ export function useAssetUrl(client: BaiClient, id: string): string | undefined {
         setUrl(created);
       })
       .catch(() => {
-        // preview unavailable — the chip still shows the name
+        // preview unavailable / aborted — the chip still shows the name
       });
     return () => {
       active = false;
+      ctrl.abort();
       if (created !== undefined) URL.revokeObjectURL(created);
     };
-  }, [client, id]);
+  }, [client, id, enabled]);
   return url;
 }
 

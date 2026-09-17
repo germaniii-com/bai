@@ -35,7 +35,12 @@ const IMAGE_FILE = {
 
 describe("parseProviderFile", () => {
   test("parses JSONC and validates", () => {
-    const ok = parseProviderFile(`{ // comment\n "name":"X","providerType":["video"],"baseUrl":"https://a.b/c" }`, "x");
+    const ok = parseProviderFile(
+      `{ // comment\n "name":"X","providerType":["video"],"baseUrl":"https://a.b/c",` +
+        `"video":{"template":"generic","defaultModel":"m","models":[{"id":"m","workflows":["t2v"]}],` +
+        `"generate":{"path":"/g"},"response":{"videos":"data[*]","base64":"b64"}} }`,
+      "x",
+    );
     expect(ok.ok).toBe(true);
     const bad = parseProviderFile(`{ "name":"X","providerType":["image"],"baseUrl":"https://a.b/c" }`, "x");
     expect(bad.ok).toBe(false);

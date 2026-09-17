@@ -98,6 +98,61 @@ export {
   type PollOptions,
 } from "./workbench/media/http";
 export { imageDimensions, looksLikeImage, type ImageDimensions } from "./workbench/media/dimensions";
+// --- video workbench --------------------------------------------------------
+export {
+  type VideoGenAdapter,
+  type MediaGeneratedVideo,
+  type VideoGenerateResult,
+} from "./workbench/media/video-adapter";
+export { toGeneratedVideo, fetchVideoBytes } from "./workbench/media/video-http";
+export {
+  looksLikeVideo,
+  sniffVideoMime,
+  videoExtForMime,
+  videoProbe,
+  type VideoProbe,
+} from "./workbench/media/video-dimensions";
+export {
+  resolveInputs as resolveVideoInputs,
+  inputsByRole as videoInputsByRole,
+  firstInput as firstVideoInput,
+  requireInput as requireVideoInput,
+  uploadFalFile,
+  uploadRunwayFile,
+  uploadReplicateFile,
+  type ResolvedInput as ResolvedVideoInput,
+} from "./workbench/media/upload";
+export {
+  workflow as videoWorkflowSpec,
+  referenceImages as videoReferenceImages,
+  sourceVideoParam,
+  VIDEO_WORKFLOW_LABELS,
+} from "./workbench/media/workflow-specs";
+export {
+  buildVideoAdapters,
+  videoProviderDef,
+  videoProviderDefs,
+  videoProviderInfos,
+  unionWorkflows,
+  type VideoProviderDef,
+} from "./workbench/media/video-registry";
+export { StubVideoAdapter } from "./workbench/media/video/stub";
+export { OpenRouterVideoAdapter, OPENROUTER_VIDEO_BASE } from "./workbench/media/video/openrouter";
+export { FalVideoAdapter, FAL_VIDEO_BASE } from "./workbench/media/video/fal";
+export { ReplicateVideoAdapter, REPLICATE_VIDEO_BASE } from "./workbench/media/video/replicate";
+export { GeminiVeoAdapter, GEMINI_VEO_BASE_URL } from "./workbench/media/video/gemini-veo";
+export { RunwayVideoAdapter, RUNWAY_BASE_URL } from "./workbench/media/video/runway";
+export { KlingVideoAdapter, KLING_BASE_URL } from "./workbench/media/video/kling";
+export { LumaVideoAdapter, LUMA_BASE_URL } from "./workbench/media/video/luma";
+export { MinimaxVideoAdapter, MINIMAX_VIDEO_BASE } from "./workbench/media/video/minimax";
+export { WanVideoAdapter, WAN_BASE_URL } from "./workbench/media/video/wan";
+export { SeedanceVideoAdapter, SEEDANCE_BASE_URL } from "./workbench/media/video/seedance";
+export { GenericVideoAdapter, type GenericVideoConfig } from "./workbench/media/video/generic";
+export {
+  providerFileToVideoDef,
+  providerFilesToVideoDefs,
+} from "./workbench/media/file-providers";
+export { VideoWorkbench, parseVideoRequest, roleForArg } from "./workbench/video";
 export { JobQueue, type JobLimits } from "./jobs/queue";
 export { AutomationScheduler, type AutomationSchedulerDeps, type AutomationDraft, type AutomationUpdate } from "./automations/scheduler";
 export { RunCoordinator } from "./run";

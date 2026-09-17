@@ -216,6 +216,27 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
     };
   }, [client, granularity, range]);
 
+  // Video-generation activity (the same media_events store, kind='video').
+  const [videoUsage, setVideoUsage] = useState<MediaUsageResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const from = RANGE_DAYS[range];
+        const res = await client.videoUsage({
+          granularity,
+          ...(from !== undefined ? { from: daysAgoIso(from) } : {}),
+        });
+        if (!cancelled) setVideoUsage(res);
+      } catch {
+        if (!cancelled) setVideoUsage(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, granularity, range]);
+
   // Model → color assignment, stable across renders (byModel is spend-sorted).
   const modelColor = useMemo(() => {
     const map = new Map<string, string>();
@@ -235,7 +256,11 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
     );
   }
 
-  if (usage.kpis.requests === 0 && (imageUsage?.kpis.requests ?? 0) === 0) {
+  if (
+    usage.kpis.requests === 0 &&
+    (imageUsage?.kpis.requests ?? 0) === 0 &&
+    (videoUsage?.kpis.requests ?? 0) === 0
+  ) {
     return (
       <div className="analytics">
         <PageHeader title="Analytics" />
@@ -769,6 +794,86 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
               </thead>
               <tbody>
                 {imageUsage.byModel.map((m) => (
+                  <tr key={`${m.provider}/${m.model}`}>
+                    <Td>
+                      {m.model}
+                      <span className="dim"> ({m.provider})</span>
+                    </Td>
+                    <Td>{fmtInt(m.requests)}</Td>
+                    <Td>{fmtInt(m.images)}</Td>
+                    <Td>{fmtUsd(m.spendUsd)}</Td>
+                    <Td>{m.errors > 0 ? <span className="usage-errors">{fmtInt(m.errors)}</span> : "—"}</Td>
+                    <Td>{fmtInt(Math.round(m.avgDurationMs))}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </>
+        )}
+      </Card>
+
+      {/* --- video generation: terminal video jobs (media_events kind='video') --- */}
+      <Card className="chart-card">
+        <SectionHeader title="Video generation" />
+        {videoUsage === null ? (
+          <p className="dim">No video activity data.</p>
+        ) : videoUsage.kpis.requests === 0 ? (
+          <p className="dim empty">
+            No video generations recorded yet — cost, volume, and per-model totals appear here once you generate.
+          </p>
+        ) : (
+          <>
+            <p className="dim">
+              {fmtInt(videoUsage.kpis.requests)} request{videoUsage.kpis.requests === 1 ? "" : "s"} ·{" "}
+              {fmtInt(videoUsage.kpis.images)} video{videoUsage.kpis.images === 1 ? "" : "s"} ·{" "}
+              {fmtUsd(videoUsage.kpis.spendUsd)} spent · avg {fmtUsd(videoUsage.kpis.avgCostPerImage)}/video ·{" "}
+              {fmtInt(videoUsage.kpis.errors)} failed · avg {fmtInt(Math.round(videoUsage.kpis.avgDurationMs))}ms
+            </p>
+            {videoUsage.byWorkflow.length > 0 && (
+              <p className="dim">
+                {videoUsage.byWorkflow
+                  .map((w) => `${w.mode.toUpperCase()}: ${fmtInt(w.images)} vid · ${fmtUsd(w.spendUsd)}`)
+                  .join("  ·  ")}
+              </p>
+            )}
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={videoUsage.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} />
+                <YAxis allowDecimals={false} tick={{ fill: axisColor, fontSize: CHART_TICK_FONT_SIZE }} width={36} />
+                <Tooltip
+                  content={(props: TooltipProps) => (
+                    <ChartTooltip
+                      {...props}
+                      bg={themeColors.surfaceSecondary}
+                      rows={(props.payload ?? []).map((entry) => ({
+                        name: String(entry.dataKey),
+                        text:
+                          String(entry.dataKey) === "spendUsd"
+                            ? fmtUsd(Number(entry.value ?? 0))
+                            : `${fmtInt(Number(entry.value ?? 0))} ${String(entry.dataKey)}`,
+                      }))}
+                    />
+                  )}
+                />
+                <Legend />
+                <Bar dataKey="images" name="Videos" stackId="vid" fill={themeColors.primary} />
+                <Bar dataKey="errors" name="Failed" stackId="vid" fill={themeColors.danger} />
+              </BarChart>
+            </ResponsiveContainer>
+            <Table className="usage-table">
+              <thead>
+                <tr>
+                  <Th>Model</Th>
+                  <Th>Requests</Th>
+                  <Th>Videos</Th>
+                  <Th>Spend</Th>
+                  <Th>Errors</Th>
+                  <Th>Avg ms</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {videoUsage.byModel.map((m) => (
                   <tr key={`${m.provider}/${m.model}`}>
                     <Td>
                       {m.model}

@@ -25,7 +25,8 @@ export interface JobDescribeMeta {
   provider?: string;
   model?: string;
   account?: string;
-  mode?: "t2i" | "i2i";
+  /** Image workflow (t2i/i2i) or video workflow (t2v/i2v/…) — see media.ts. */
+  mode?: string;
 }
 
 /** Avoid importing shared SessionId here to keep the contract dependency-light. */

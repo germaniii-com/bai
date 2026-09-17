@@ -22,6 +22,11 @@ import {
   type MediaProviderInfo,
   type MediaRecent,
   type MediaTagCount,
+  type VideoCapabilitiesResponse,
+  type VideoGalleryPage,
+  type VideoGenRequest,
+  type VideoProviderInfo,
+  type VideoRecent,
   type Message,
   type MessageId,
   type PermissionRequest,
@@ -110,6 +115,7 @@ import { skillsViewTool } from "./tools/skills";
 import { skillsSaveTool, skillsWriteFileTool, skillsPatchTool, skillsDeleteTool } from "./tools/skills-write";
 import { agentViewTool, agentSaveTool } from "./tools/agent-write";
 import { imageGenerateTool } from "./tools/image";
+import { videoGenerateTool } from "./tools/video";
 import { automationListTool, automationSaveTool } from "./tools/automation";
 import { toolCreateTool } from "./tools/tool-create";
 import { workspaceCreateTool } from "./tools/workspace-create";
@@ -120,6 +126,7 @@ import type { SkillRegistry } from "./skills/registry";
 import { resolveLinkedPath } from "./skills/paths";
 import type { Workbench } from "./workbench/types";
 import { ImageWorkbench } from "./workbench/image";
+import { VideoWorkbench } from "./workbench/video";
 
 export interface ServiceDeps {
   store: Store;
@@ -296,6 +303,34 @@ export class Service {
         },
         capabilities: (provider, model) => this.imageCapabilities(provider, model),
         defaults: () => this.deps.config().imageGen,
+        readAsset: (id) => {
+          const asset = this.deps.store.assets.get(id);
+          if (asset === undefined) return undefined;
+          try {
+            return { mime: asset.mime, bytes: new Uint8Array(readFileSync(asset.path)) };
+          } catch {
+            return undefined;
+          }
+        },
+        saveAsset: (bytes, name, mime) => this.attachments.save(bytes, name, mime),
+        assetsByJob: (jobId) => this.deps.store.assets.byJob(jobId),
+        roots: () => {
+          const config = this.deps.config();
+          return registeredRoots(config.workspaces ?? [], config.workspaceFolders);
+        },
+      }),
+      // Agent-facing video generation (the Video workbench): workflow-driven
+      // (t2v/i2v/flf2v/ref2v/v2v/extend/upscale/motion/lipsync/reframe) via the
+      // configured provider/model + Video Generation settings defaults. Raises
+      // a permission ask on first use (fail-closed — it spends real money).
+      videoGenerateTool({
+        enqueue: (kind, sessionId, input) => this.deps.jobs.enqueue(kind, sessionId, input),
+        waitFor: (jobId, signal) => this.deps.jobs.waitFor(jobId, signal),
+        cancel: (jobId) => {
+          this.deps.jobs.cancel(jobId);
+        },
+        capabilities: (provider, model) => this.videoCapabilities(provider, model),
+        defaults: () => this.deps.config().videoGen,
         readAsset: (id) => {
           const asset = this.deps.store.assets.get(id);
           if (asset === undefined) return undefined;
@@ -1367,6 +1402,79 @@ export class Service {
     return { ...(job !== undefined ? { job } : {}), images };
   }
 
+  // --- video generation (the workflow-driven workbench) ---
+
+  private videoWorkbench(): VideoWorkbench | undefined {
+    return this.workbenches.find((wb): wb is VideoWorkbench => wb instanceof VideoWorkbench);
+  }
+
+  /** Adapter model list + workflow/param vocabulary for the page's UI. */
+  async videoCapabilities(provider?: string, model?: string): Promise<VideoCapabilitiesResponse> {
+    const workbench = this.videoWorkbench();
+    if (workbench === undefined) throw new Error("Video workbench is not registered");
+    return workbench.capabilities(provider, model);
+  }
+
+  /** Every video provider, each enriched with its saved accounts. */
+  async videoProviders(): Promise<VideoProviderInfo[]> {
+    const workbench = this.videoWorkbench();
+    if (workbench === undefined) return [];
+    const infos: VideoProviderInfo[] = [];
+    for (const info of await workbench.providers()) {
+      const accounts = await this.deps.providers.accounts(info.id);
+      infos.push({ ...info, accounts, connected: accounts.length > 0 });
+    }
+    return infos;
+  }
+
+  /** Enqueue one video generation (tags normalized before they are persisted). */
+  enqueueVideoGeneration(request: VideoGenRequest): Job {
+    const normalized: VideoGenRequest = {
+      ...request,
+      ...(request.tags !== undefined ? { tags: normalizeTags(request.tags) } : {}),
+    };
+    return this.deps.jobs.enqueue("video.generate", undefined, normalized);
+  }
+
+  /** Tag-filtered, keyset-paged gallery of generated videos (newest first). */
+  videoGallery(limit: number, cursor?: MediaGalleryCursor, tags?: string[]): VideoGalleryPage {
+    const entries = (tags ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+    let exactTags: string[] | undefined;
+    if (entries.length > 0) {
+      const all = this.deps.store.assetTags.list(5000);
+      const matched = new Set<string>();
+      for (const entry of entries) {
+        for (const { tag } of all) {
+          if (fuzzyTagScore(tag, entry) > 0) matched.add(tag);
+        }
+      }
+      if (matched.size === 0) return { videos: [], hasMore: false, total: 0 };
+      exactTags = [...matched];
+    }
+    const page = this.deps.store.assets.listPage(limit, cursor, {
+      kind: "video",
+      ...(exactTags !== undefined ? { tags: exactTags } : {}),
+    });
+    return {
+      videos: page.assets,
+      hasMore: page.hasMore,
+      total: page.total,
+      ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+    };
+  }
+
+  /** Fuzzy tag search shared with the image gallery (tags have no modality). */
+  videoTags(query?: string, limit = 50): MediaTagCount[] {
+    return this.imageTags(query, limit);
+  }
+
+  /** The newest video job + its videos — the output area's seed on reload. */
+  videoRecent(): VideoRecent {
+    const job = this.deps.store.jobs.latestOfKind("video.generate");
+    const videos = job !== undefined ? this.deps.store.assets.byJob(job.id) : [];
+    return { ...(job !== undefined ? { job } : {}), videos };
+  }
+
   /** Replace one image's tags (normalized) and broadcast the change. */
   setAssetTags(id: string, tags: string[]): Asset | undefined {
     const asset = this.deps.store.setAssetTags(id, normalizeTags(tags));
@@ -1382,6 +1490,15 @@ export class Service {
       unlinkSync(removed.asset.path);
     } catch {
       // The row is gone; a missing file is fine.
+    }
+    // Videos carry a generated poster frame beside the file — remove it too.
+    const posterPath = removed.asset.meta["posterPath"];
+    if (typeof posterPath === "string" && posterPath.length > 0) {
+      try {
+        unlinkSync(posterPath);
+      } catch {
+        // A missing poster is fine.
+      }
     }
     this.emitLive("asset.deleted", { assetId: removed.asset.id });
     return true;

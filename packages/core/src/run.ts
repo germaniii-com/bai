@@ -1233,10 +1233,15 @@ export class RunCoordinator {
     const allTask = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "task");
     const allReadOnly =
       readyIdx.length > 1 && readyIdx.every((i) => PARALLEL_READ_ONLY_TOOLS.has(gated[i]?.call.name ?? ""));
-    // Image generations are independent jobs on the media queue (bounded by
-    // config.jobs.concurrency) — a batch of them runs concurrently.
-    const allImage = readyIdx.length > 1 && readyIdx.every((i) => gated[i]?.call.name === "image.generate");
-    const parallel = allTask || allReadOnly || allImage;
+    // Media generations (image/video) are independent jobs on the media queue
+    // (bounded by config.jobs.concurrency) — a batch of them runs concurrently.
+    const allMedia =
+      readyIdx.length > 1 &&
+      readyIdx.every((i) => {
+        const name = gated[i]?.call.name;
+        return name === "image.generate" || name === "video.generate";
+      });
+    const parallel = allTask || allReadOnly || allMedia;
     const executed: Array<
       {
         content: string;
