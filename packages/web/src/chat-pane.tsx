@@ -16,7 +16,7 @@ import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAt
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
-import { Button, Chip, Disclosure, Field, Modal, Textarea, TextInput } from "./components";
+import { Button, Chip, Disclosure, Field, Modal, Textarea } from "./components";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -378,7 +378,10 @@ export function ChatPane({
   const [mention, setMention] = useState<MentionUi>(EMPTY_MENTION);
   const [cursor, setCursor] = useState(0);
   const mentionReq = useRef(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // The composer input is a textarea (Shift+Enter inserts a newline); the
+  // caret/selection APIs are shared with <input>, so mention insertion works
+  // unchanged.
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Maximized image preview (composer thumbnails + transcript thumbnails).
   const [lightbox, setLightbox] = useState<MediaAttachment | null>(null);
   // Composer file drop — enabled only when an attach handler is provided
@@ -417,6 +420,18 @@ export function ChatPane({
   useEffect(() => {
     if (cursor > draft.length) setCursor(draft.length);
   }, [cursor, draft.length]);
+
+  // Auto-grow: the composer textarea starts one line tall and expands with
+  // the draft (Shift+Enter newlines included). CSS max-height caps it; past
+  // the cap the textarea scrolls internally. The border is added back because
+  // box-sizing is border-box while scrollHeight excludes it.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (el === null) return;
+    el.style.height = "auto";
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${el.scrollHeight + border}px`;
+  }, [draft]);
 
   useEffect(() => {
     if (workspaceRoot === undefined || workspaceRoot.length === 0) {
@@ -532,7 +547,7 @@ export function ChatPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingMention?.nonce]);
 
-  const onMentionKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
+  const onMentionKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     if (!mention.open) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -544,7 +559,21 @@ export function ChatPane({
       moveMention(-1);
       return;
     }
-    if (e.key === "Enter" || e.key === "Tab") {
+    if (e.key === "Enter") {
+      if (e.shiftKey) {
+        // Shift+Enter is always a newline: dismiss the picker and let the
+        // textarea insert it (the composer handler also bails while open).
+        setMention(EMPTY_MENTION);
+        return;
+      }
+      // Otherwise the picker owns Enter: pick the highlighted entry, or
+      // swallow the key (no stray newline / submit) when there are none.
+      e.preventDefault();
+      const entry = mention.results[mention.selected];
+      if (entry !== undefined) pickMention(entry);
+      return;
+    }
+    if (e.key === "Tab") {
       const entry = mention.results[mention.selected];
       if (entry !== undefined) {
         e.preventDefault();
@@ -557,6 +586,23 @@ export function ChatPane({
       e.stopPropagation();
       setMention(EMPTY_MENTION);
     }
+  };
+
+  /**
+   * Composer key handling. Plain Enter sends (the textarea no longer submits
+   * the form implicitly); Shift+Enter inserts a newline, as do the other
+   * modifier combinations. The mention picker gets first refusal on every
+   * key while it is open. IME composition is never treated as a submit.
+   */
+  const onComposerKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
+    onMentionKeyDown(e);
+    if (mention.open) return;
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    // Leave composition confirmation (CJK IME) to the browser.
+    if (e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    if (draft.trim().length === 0) return;
+    e.currentTarget.form?.requestSubmit();
   };
 
   return (
@@ -683,8 +729,9 @@ export function ChatPane({
           "updating…" + agent/model pickers right). The workspace chip
           switches to the workspace picker for code sessions. The inline ask
           panel above stays a normal layout child — the composer never
-          moves. All buttons here are type="button": only the form's
-          implicit submit (Enter / the send button) sends. */}
+          moves. All buttons here are type="button": the send button submits,
+          and the textarea's keydown turns plain Enter into a submit while
+          Shift+Enter inserts a newline (a textarea never submits implicitly). */}
       <form
         className={dropActive ? "composer drag-over" : "composer"}
         onDragEnter={onComposerDragEnter}
@@ -718,15 +765,17 @@ export function ChatPane({
           />
         )}
         <div className="composer-input-row">
-          <TextInput
+          <Textarea
             ref={inputRef}
+            className="composer-input"
+            rows={1}
             value={draft}
             placeholder={active === null ? startPlaceholder : "Message…"}
             onChange={(e) => {
               setDraft(e.target.value);
               setCursor(e.target.selectionStart ?? e.target.value.length);
             }}
-            onKeyDown={onMentionKeyDown}
+            onKeyDown={onComposerKeyDown}
             onClick={(e) => {
               if (!mention.open) setCursor(e.currentTarget.selectionStart ?? draft.length);
             }}

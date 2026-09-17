@@ -2481,22 +2481,32 @@ select:focus-visible,
 
 .composer-input-row {
   display: flex;
+  /* Buttons anchor to the bottom as the textarea grows (they keep their own
+     control height instead of stretching to the multi-line input). */
+  align-items: flex-end;
   gap: var(--space-2);
 }
 
-/* The composer input shares the lg control height with its Send/Stop
-   button — one token, so they can never drift apart. */
-.composer-input-row input {
+/* The composer input is a textarea so Shift+Enter can insert a newline
+   (plain Enter sends). It shares the lg control height with its Send/Stop
+   button — one token, so they can never drift apart — starts one line tall,
+   and auto-grows with the draft (scripted height) up to a cap, after which
+   it scrolls internally. */
+.composer-input-row .composer-input {
   flex: 1;
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: var(--radius-lg);
-  height: var(--control-h-lg);
-  padding: 0 var(--space-3);
+  min-height: var(--control-h-lg);
+  max-height: 200px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  resize: none;
+  overflow-y: auto;
 }
 
 /* Status/commands rows: contextual chip left, pickers right (status);
