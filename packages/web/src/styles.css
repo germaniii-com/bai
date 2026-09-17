@@ -1855,15 +1855,54 @@ select:focus-visible,
   padding: 1px 4px;
 }
 
-/* Bordered code block (TUI parity): panel background, dim language label. */
-.md pre.md-code {
+/* Bordered code block (TUI parity): panel background, dim language label.
+   The wrapper owns the outer margin and anchors the copy button so it
+   does not scroll away with long lines inside the <pre>. */
+.md .md-code-block {
   position: relative;
+  margin: 10px 0;
+}
+
+.md pre.md-code {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   padding: 10px 12px;
-  margin: 10px 0;
+  margin: 0;
   overflow-x: auto;
+}
+
+/* Copy affordance for a code block: hover/focus-revealed (opencode web
+   parity with the per-message actions) and always visible on coarse
+   pointers, where there is no hover. Flips to a check via the icon. */
+.md .md-code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.md-code-block:hover .md-code-copy,
+.md-code-block:focus-within .md-code-copy {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (pointer: coarse) {
+  .md .md-code-copy {
+    opacity: 1;
+    pointer-events: auto;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .md pre.md-code code {
