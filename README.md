@@ -158,6 +158,35 @@ means **stopping a run truly cancels the upstream provider request** — on
 until the model finishes, so the provider may bill tokens generated after
 your stop.
 
+## Releases
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml)
+on every `v*` tag (or via **Actions → Release → Run workflow**). The workflow
+cross-compiles all eight Bun targets, embeds the web SPA + bundled skills into
+each binary (Bun ≥ 1.4 `compile.assets`), smoke-tests the native linux-x64
+build, and publishes one OCI artifact per platform to GitHub Container Registry
+via [ORAS](https://oras.land) — no GitHub Release assets.
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Pull a binary with ORAS (packages default to **private**; flip visibility in the
+package settings for anonymous pulls):
+
+```sh
+# linux-x64, linux-arm64, linux-x64-musl, linux-arm64-musl,
+# darwin-arm64, darwin-x64, windows-x64, windows-arm64
+oras pull ghcr.io/germaniii-com/bai/linux-x64:latest -o ./bai
+chmod +x ./bai/bai
+./bai/bai --web --open
+```
+
+Windows users pull `ghcr.io/germaniii-com/bai/windows-x64:latest` and run
+`bai.exe`. To publish a build without pushing (smoke test only), run the
+workflow manually with the `push` input disabled.
+
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).

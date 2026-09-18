@@ -40,7 +40,9 @@ export const serverStatePath = (): string => path.join(stateDir(), "server.json"
  * Built web SPA resolution order:
  *   1. BAI_WEB_DIST env (explicit override)
  *   2. source-tree layout: import.meta.dir/../../web/dist
- *   3. embedded compile assets (bun ≥ 1.4): import.meta.dir/packages/web/dist
+ *   3. embedded compile assets (bun ≥ 1.4): import.meta.dir/dist — directory
+ *      assets are mounted by basename at the standalone root, so
+ *      `packages/web/dist` resolves as <import.meta.dir>/dist
  *   4. sibling of the executable (make build copies dist/web for bun 1.3.x,
  *      whose --compile ignores the assets option)
  * undefined → @bai/api renders the "build the web app" hint page.
@@ -51,6 +53,10 @@ export function webDistDir(): string | undefined {
   }
   const candidates = [
     path.join(import.meta.dir, "..", "..", "web", "dist"),
+    // Bun ≥ 1.4 embedded assets: `packages/web/dist` is mounted by basename
+    // at the standalone root (import.meta.dir/dist). Harmless in source mode
+    // (packages/cli/src/dist does not exist).
+    path.join(import.meta.dir, "dist"),
     path.join(import.meta.dir, "src", "packages", "web", "dist"),
     // Sibling of the executable (dist/web) — used by compiled binaries on
     // bun < 1.4, where --compile ignores the assets option. Harmless in

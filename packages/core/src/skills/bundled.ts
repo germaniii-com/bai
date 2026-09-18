@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -93,6 +93,24 @@ export function dirHash(dir: string): string {
     hash.update(readFileSync(path.join(dir, rel)));
   }
   return hash.digest("hex");
+}
+
+/**
+ * Recursive copy that works for both real directories and Bun's embedded
+ * `/$bunfs` assets. `fs.cpSync` is unusable for embedded assets: it calls
+ * `lstat` on the virtual source path, which Bun does not virtualize (ENOENT),
+ * even though `readdirSync`/`readFileSync` do. Copy the tree manually through
+ * the virtualized primitives. Dotfiles are skipped, matching `dirHash`.
+ */
+function copyDir(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyDir(from, to);
+    else if (entry.isFile()) writeFileSync(to, readFileSync(from));
+  }
 }
 
 /** Read the manifest into a map (malformed lines skipped). */
@@ -189,7 +207,7 @@ export function syncBundledSkills(opts: {
       }
       // New: copy; a failure records no manifest entry (retry next boot).
       try {
-        cpSync(src, dest, { recursive: true });
+        copyDir(src, dest);
         manifest.set(name, bundledHash);
         result.copied.push(name);
       } catch {
@@ -227,7 +245,7 @@ export function syncBundledSkills(opts: {
     try {
       rmSync(backup, { recursive: true, force: true });
       renameSync(dest, backup);
-      cpSync(src, dest, { recursive: true });
+      copyDir(src, dest);
       manifest.set(name, bundledHash);
       rmSync(backup, { recursive: true, force: true });
       result.updated.push(name);
