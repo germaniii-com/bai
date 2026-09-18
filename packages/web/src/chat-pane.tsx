@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
-import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, Undo2, X, Zap } from "lucide-react";
+import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, TriangleAlert, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, MediaAssetRef, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
 import { contextTracker, deriveFolderAliases, mergeExternalResults, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
@@ -66,6 +66,21 @@ interface MentionUi {
 const EMPTY_MENTION: MentionUi = { open: false, raw: "", pathQuery: "", results: [], selected: 0, loading: false };
 
 /**
+ * The learn request's built prompt (`[learn] …`) is an implementation detail:
+ * the transcript shows only the free text the user typed, extracted from the
+ * `THE REQUEST:` block. Anything else passes through untouched.
+ */
+function displayUserText(text: string): string {
+  if (!text.startsWith("[learn]")) return text;
+  const marker = "THE REQUEST:\n";
+  const start = text.indexOf(marker);
+  if (start < 0) return text;
+  const after = text.slice(start + marker.length);
+  const end = after.indexOf("\n\nThe request is open-ended");
+  return (end >= 0 ? after.slice(0, end) : after).trim();
+}
+
+/**
  * A user message's body: plain text runs plus `#file` mention chips. Chips
  * show the leaf (opencode parity), carry the full path in a hover tooltip,
  * and click through to the workspace file viewer when a root is available.
@@ -79,8 +94,9 @@ function MessageText({
   root?: string;
   onOpenFile?: (root: string, path: string) => void;
 }) {
-  const segments = splitMentions(text);
-  if (!segments.some((s) => s.type === "mention")) return <p>{text}</p>;
+  const display = displayUserText(text);
+  const segments = splitMentions(display);
+  if (!segments.some((s) => s.type === "mention")) return <p>{display}</p>;
   return (
     <p className="message-text">
       {segments.map((seg, i) => {
@@ -129,6 +145,8 @@ export function ChatPane({
   client,
   list,
   active,
+  bubbles = false,
+  focusToken,
   configDefault,
   configDefaultAgent,
   preferZdr,
@@ -181,6 +199,17 @@ export function ChatPane({
   /** Null until the first provider engagement fetch lands. */
   list: ProviderListResponse | null;
   active: Session | null;
+  /**
+   * Render the transcript as chat bubbles (user right, assistant left) —
+   * the Chat section. The Workspace section keeps the plain full-width
+   * transcript (pass false).
+   */
+  bubbles?: boolean;
+  /**
+   * Bumped by the sidebar's new-chat button; a change focuses the composer
+   * input (the token, not the value, is what matters).
+   */
+  focusToken?: number;
   /** Default model from GET /api/config — keeps the picker label truthful. */
   configDefault?: string;
   /** Default agent (config agents.default) — keeps the agent label truthful. */
@@ -382,6 +411,19 @@ export function ChatPane({
   // caret/selection APIs are shared with <input>, so mention insertion works
   // unchanged.
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The sidebar's new-chat button bumps `focusToken` — focus the composer on
+  // each change (skip the initial value so a mount doesn't steal focus).
+  const lastFocusToken = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (focusToken === undefined) return;
+    if (lastFocusToken.current === undefined) {
+      lastFocusToken.current = focusToken;
+      return;
+    }
+    if (lastFocusToken.current === focusToken) return;
+    lastFocusToken.current = focusToken;
+    inputRef.current?.focus();
+  }, [focusToken]);
   // Maximized image preview (composer thumbnails + transcript thumbnails).
   const [lightbox, setLightbox] = useState<MediaAttachment | null>(null);
   // Composer file drop — enabled only when an attach handler is provided
@@ -606,7 +648,7 @@ export function ChatPane({
   };
 
   return (
-    <main className="chat">
+    <main className={bubbles ? "chat chat-bubbles" : "chat"}>
       <div
         className="messages"
         role="log"
@@ -713,7 +755,12 @@ export function ChatPane({
           </div>
         )}
       </div>
-      {error !== null && <div className="error" role="alert">{error}</div>}
+      {error !== null && (
+        <div className="error-banner" role="alert">
+          <TriangleAlert size={15} aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      )}
       {pendingAsk !== undefined && (
         // The inline ask panel (opencode's above-the-input placement): a
         // normal layout child between transcript and composer — no overlay,
@@ -986,7 +1033,7 @@ function UserMessageActions({
   const [copied, setCopied] = useState(false);
   const copy = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(messageText(message));
+      await navigator.clipboard.writeText(displayUserText(messageText(message)));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

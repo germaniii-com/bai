@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Bot } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
-import { isValidAgentName, type AgentInfo, type SkillInfo, type ToolListEntry } from "@bai/shared";
+import { isValidAgentName, type AgentInfo, type ProviderListResponse, type SkillInfo, type ToolListEntry } from "@bai/shared";
+import { modelOverrideOptions } from "./provider-utils";
 import { Button, Checkbox, Combobox, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -8,11 +10,10 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
  * Agents section, split for the two-level nav: `AgentsNav` renders the
- * nested sidebar (create button + agent list), the main pane is either the
- * `AgentCreateForm` (name first, file written on submit) or the
- * `AgentForm` editor for the selected agent. Files are written through the
- * API — the server hot-reloads them, so a save is live everywhere
- * immediately.
+ * nested sidebar (create button + agent list); the main pane is the
+ * `AgentForm` editor — for the selected agent, or a not-yet-written draft in
+ * `creating` mode. Files are written through the API — the server
+ * hot-reloads them, so a save is live everywhere immediately.
  */
 
 /** The tools combobox's options: the registered tools + the "*" wildcard. */
@@ -53,7 +54,12 @@ export function AgentsNav({
   });
   return (
     <SubNav>
-      <SubNavCreate label="+ New agent" disabled={busy} onClick={onCreate} />
+      <SubNavCreate
+        icon={<Bot size={15} aria-hidden="true" />}
+        label="New agent"
+        disabled={busy}
+        onClick={onCreate}
+      />
       {sorted.map((a) => (
         <SubNavItem
           key={a.name}
@@ -72,89 +78,22 @@ export function AgentsNav({
   );
 }
 
-/**
- * Creation form: the name is pre-filled (editable) and no file is written
- * until submit — unlike the TUI's instant-template flow. Validates against
- * the shared name rules and the existing set before calling `onSubmit`.
- */
-export function AgentCreateForm({
-  existing,
-  onSubmit,
-  onCancel,
-}: {
-  existing: string[];
-  /** Resolves when the agent file was written; the caller selects + refreshes. */
-  onSubmit: (name: string) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(`agent-${Date.now().toString(36)}`);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (): Promise<void> => {
-    const trimmed = name.trim();
-    if (!isValidAgentName(trimmed)) {
-      setError("Names start with a letter and may contain letters, digits, - and _ (up to 64 characters).");
-      return;
-    }
-    if (existing.includes(trimmed)) {
-      setError(`An agent named "${trimmed}" already exists — pick another name.`);
-      return;
-    }
-    setBusy(true);
-    try {
-      await onSubmit(trimmed);
-      // The parent flips to the editor on success; stay busy until unmount.
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
+/** Seed values for a not-yet-written agent (the create-mode form). */
+function draftAgent(): AgentInfo {
+  return {
+    name: `agent-${Date.now().toString(36)}`,
+    description: "What this agent is for.",
+    tools: ["fs.read", "fs.list"],
+    skills: ["*"],
+    prompt: "Describe the agent's role, tone, and workflow here. The body is the system prompt.",
+    source: "file",
   };
-
-  return (
-    <form
-      className="agent-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <SectionHeader title="New agent" />
-      <Field
-        label="Name"
-        hint="(the filename stem — ~/.config/bai/agents/<name>.md)"
-      >
-        <TextInput
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          autoFocus
-          required
-          maxLength={64}
-          spellCheck={false}
-        />
-      </Field>
-      {error !== null && <div className="error">{error}</div>}
-      <p className="section-lede">
-        Created from a starter template — description, tools, and the system prompt are editable right after creating.
-      </p>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          Create
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
 }
 
 /**
- * Main pane: the selected agent's form editor (description / model override /
- * tool allow-list / system prompt). Saves write the markdown file via the API.
+ * Main pane: the agent editor (description / model override / tool allow-list
+ * / system prompt). In `creating` mode it edits a draft whose name is
+ * editable; Save writes the file, refreshes, and hands the new name back.
  */
 export function AgentsPane({
   client,
@@ -165,6 +104,10 @@ export function AgentsPane({
   activeSessionId,
   refresh,
   onNotice,
+  creating = false,
+  onCreated,
+  onCancel,
+  list = null,
 }: {
   client: BaiClient;
   agents: AgentInfo[];
@@ -176,7 +119,36 @@ export function AgentsPane({
   activeSessionId: string | null;
   refresh: () => Promise<void>;
   onNotice: OnNotice;
+  /** Render the full form for a new agent (name editable) instead of a selection. */
+  creating?: boolean;
+  /** Called with the new agent's name after a successful create. */
+  onCreated?: (name: string) => void;
+  /** Discard the draft (create mode). */
+  onCancel?: () => void;
+  /** Provider list — the model-override combobox's options. */
+  list?: ProviderListResponse | null;
 }) {
+  if (creating) {
+    return (
+      <div className="agents-pane">
+        <AgentForm
+          key="__new_agent__"
+          client={client}
+          agent={draftAgent()}
+          tools={tools}
+          skills={skills}
+          activeSessionId={activeSessionId}
+          refresh={refresh}
+          onNotice={onNotice}
+          creating
+          existing={agents.map((a) => a.name)}
+          {...(onCreated !== undefined ? { onCreated } : {})}
+          {...(onCancel !== undefined ? { onCancel } : {})}
+          list={list}
+        />
+      </div>
+    );
+  }
   const agent = agents.find((a) => a.name === selectedId);
   if (agent === undefined) {
     return (
@@ -196,6 +168,7 @@ export function AgentsPane({
         activeSessionId={activeSessionId}
         refresh={refresh}
         onNotice={onNotice}
+        list={list}
       />
     </div>
   );
@@ -209,6 +182,11 @@ function AgentForm({
   activeSessionId,
   refresh,
   onNotice,
+  creating = false,
+  existing = [],
+  onCreated,
+  onCancel,
+  list = null,
 }: {
   client: BaiClient;
   agent: AgentInfo;
@@ -217,7 +195,13 @@ function AgentForm({
   activeSessionId: string | null;
   refresh: () => Promise<void>;
   onNotice: OnNotice;
+  creating?: boolean;
+  existing?: string[];
+  onCreated?: (name: string) => void;
+  onCancel?: () => void;
+  list?: ProviderListResponse | null;
 }) {
+  const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? "");
   const [model, setModel] = useState(agent.model ?? "");
   const [toolList, setToolList] = useState<string[]>(agent.tools);
@@ -230,9 +214,20 @@ function AgentForm({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const save = async (): Promise<void> => {
+    const trimmed = name.trim();
+    if (creating) {
+      if (!isValidAgentName(trimmed)) {
+        onNotice("Names start with a letter and may contain letters, digits, - and _ (up to 64 characters).", "error");
+        return;
+      }
+      if (existing.includes(trimmed)) {
+        onNotice(`An agent named "${trimmed}" already exists — pick another name.`, "error");
+        return;
+      }
+    }
     setBusy(true);
     try {
-      await client.putAgent(agent.name, {
+      await client.putAgent(creating ? trimmed : agent.name, {
         description: description.trim().length > 0 ? description.trim() : undefined,
         ...(model.trim().length > 0 ? { model: model.trim() } : {}),
         tools: toolList,
@@ -240,6 +235,11 @@ function AgentForm({
         prompt,
       });
       await refresh();
+      if (creating) {
+        onNotice(`created "${trimmed}" — live everywhere`);
+        onCreated?.(trimmed);
+        return;
+      }
       onNotice(`saved "${agent.name}" — live everywhere`);
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err), "error");
@@ -290,19 +290,40 @@ function AgentForm({
     >
       <SectionHeader
         title={
-          <>
-            {agent.name} <span className="dim">({agent.source})</span>
-          </>
+          creating ? (
+            "New agent"
+          ) : (
+            <>
+              {agent.name} <span className="dim">({agent.source})</span>
+            </>
+          )
         }
       />
+      {creating && (
+        <Field label="Name" hint="(the filename stem — ~/.config/bai/agents/<name>.md)">
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            required
+            maxLength={64}
+            spellCheck={false}
+          />
+        </Field>
+      )}
       <Field label="Description">
         <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
       </Field>
-      <Field
-        label="Model override"
-        hint="(catalog id, e.g. anthropic/claude-sonnet-4-5 — optional)"
-      >
-        <TextInput value={model} onChange={(e) => setModel(e.target.value)} placeholder="(session model)" />
+      <Field label="Model override" hint="(optional — inherits the session/agent default when unset)">
+        <Combobox
+          value={model}
+          onChange={setModel}
+          options={modelOverrideOptions(list)}
+          placeholder="(agent/session model)"
+          ariaLabel="Model override"
+          creatable
+          emptyText="No matching model."
+        />
       </Field>
       <Field
         label="Tools"
@@ -341,22 +362,33 @@ function AgentForm({
           />
         )}
       </Field>
-      <Field
-        label="System prompt"
-        hint="(the markdown body)"
-      >
-        <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={14} required />
+      {/* The system prompt is the grow field: it fills the remaining pane
+          height (the page itself does not scroll). */}
+      <Field className="field-grow" label="System prompt" hint="(the markdown body)">
+        <Textarea
+          className="grow-input"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          required
+        />
       </Field>
       <div className="agents-actions">
         <Button type="submit" variant="primary" loading={busy}>
-          Save
+          {creating ? "Create" : "Save"}
         </Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void useInSession()}>
-          {activeSessionId === null ? "Set as default" : "Use in session"}
-        </Button>
-        {agent.source === "file" && (
+        {!creating && (
+          <Button variant="secondary" disabled={busy} onClick={() => void useInSession()}>
+            {activeSessionId === null ? "Set as default" : "Use in session"}
+          </Button>
+        )}
+        {!creating && agent.source === "file" && (
           <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
             Delete
+          </Button>
+        )}
+        {creating && onCancel !== undefined && (
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
           </Button>
         )}
       </div>

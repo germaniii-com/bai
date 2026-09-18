@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FileText, Hammer, Plus, Trash2 } from "lucide-react";
 import { isValidAgentName, type PlanFile } from "@bai/shared";
-import { ConfirmDialog, Disclosure, IconButton, ListItem, SubNavCreate, TextInput } from "./components";
+import { ConfirmDialog, Disclosure, IconButton, ListItem, SubNavCreate, TextInput, usePersistentDisclosure } from "./components";
 
 /**
  * The workspace right-rail Plans panel: the active session's plan files
@@ -29,7 +29,7 @@ export function PlansPanel({
   /** Hand the plan to the build agent to implement (App switches + prompts). */
   onBuild: (name: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [panelOpen, setPanelOpen] = usePersistentDisclosure("bai.wsPanel.plans");
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -82,8 +82,8 @@ export function PlansPanel({
         icon={<FileText size={14} />}
         title="Plans"
         id="plans-body"
-        open={!collapsed}
-        onOpenChange={(open) => setCollapsed(!open)}
+        open={panelOpen}
+        onOpenChange={setPanelOpen}
         count={plans.length > 0 ? plans.length : undefined}
       >
         {creating ? (

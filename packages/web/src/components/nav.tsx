@@ -101,21 +101,32 @@ export function SubNavItem({
   );
 }
 
-/** The "+ new …" create button at the top of a subnav. */
+/** The "+ new …" / action button at the top of a subnav. */
 export function SubNavCreate({
   label,
+  icon,
   disabled = false,
   onClick,
   className,
+  ariaPressed,
 }: {
   label: ReactNode;
+  /** Leading glyph (e.g. the compose / search icons on the sidebar actions). */
+  icon?: ReactNode;
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
+  /** Toggle semantics for a button that reveals something (search). */
+  ariaPressed?: boolean;
 }) {
   const classes = className !== undefined ? `new-session ${className}` : "new-session";
   return (
-    <button type="button" className={classes} disabled={disabled} onClick={onClick}>
+    <button type="button" className={classes} disabled={disabled} onClick={onClick} aria-pressed={ariaPressed}>
+      {icon !== undefined && (
+        <span className="new-session-icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
       {label}
     </button>
   );

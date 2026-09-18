@@ -5,7 +5,7 @@ import { isToolOverride, isValidToolName, type ThemeColors, type ToolListEntry }
 import { defineBaiTheme } from "./monaco-setup";
 import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
 import { OverrideWarning } from "./icons";
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert, Wrench } from "lucide-react";
 import { Button, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -13,10 +13,10 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
  * Tools section, split for the two-level nav: `ToolsNav` renders the nested
- * sidebar (create button + custom/built-in tools), the main pane is either
- * the `ToolCreateForm` (name first, file written on submit) or the
- * `ToolForm` code editor for the selected tool. Saving writes the file via
- * the API — the loader hot-imports it, no restart.
+ * sidebar (create button + custom/built-in tools); the main pane is the
+ * `ToolForm` code editor — for the selected tool, or a not-yet-written draft
+ * in `creating` mode. Saving writes the file via the API — the loader
+ * hot-imports it, no restart.
  */
 
 /** Nested-sidebar tool list: create on top, file tools first, then built-ins. */
@@ -41,7 +41,12 @@ export function ToolsNav({
   });
   return (
     <SubNav>
-      <SubNavCreate label="+ New tool" disabled={busy} onClick={onCreate} />
+      <SubNavCreate
+        icon={<Wrench size={15} aria-hidden="true" />}
+        label="New tool"
+        disabled={busy}
+        onClick={onCreate}
+      />
       {sorted.map((t) => (
         <SubNavItem
           key={t.name}
@@ -58,88 +63,22 @@ export function ToolsNav({
   );
 }
 
-/**
- * Creation form: the name is pre-filled (editable) and no file is written
- * until submit. Validates against the shared name rules and the existing
- * set before calling `onSubmit`.
- */
-export function ToolCreateForm({
-  existing,
-  onSubmit,
-  onCancel,
-}: {
-  existing: string[];
-  /** Resolves when the tool file was written; the caller selects + refreshes. */
-  onSubmit: (name: string) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(`tool_${Date.now().toString(36)}`);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (): Promise<void> => {
-    const trimmed = name.trim();
-    if (!isValidToolName(trimmed)) {
-      setError("Names start with a letter and may contain letters, digits, - and _ (up to 64 characters).");
-      return;
-    }
-    if (existing.includes(trimmed)) {
-      setError(`A tool named "${trimmed}" already exists — pick another name.`);
-      return;
-    }
-    setBusy(true);
-    try {
-      await onSubmit(trimmed);
-      // The parent flips to the editor on success; stay busy until unmount.
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
+/** A not-yet-written custom tool (the create-mode form's draft). */
+function draftTool(): ToolListEntry {
+  return {
+    name: `tool_${Date.now().toString(36)}`,
+    description: "What this tool does.",
+    origin: "file",
+    schema: {},
   };
-
-  return (
-    <form
-      className="agent-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <SectionHeader title="New tool" />
-      <Field label="Name" hint="(the filename stem — ~/.config/bai/tools/<name>.ts)">
-        <TextInput
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          autoFocus
-          required
-          maxLength={64}
-          spellCheck={false}
-        />
-      </Field>
-      {error !== null && <div className="error">{error}</div>}
-      <p className="section-lede">
-        Created from a starter template — the code is editable right after creating and hot-registers on save.
-      </p>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          Create
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
 }
 
 /**
  * Main pane: the selected tool's Monaco code editor. Built-ins show an
  * override template (their real description + schema) — saving writes a
  * tool file that shadows the built-in until it is deleted, which restores
- * the built-in. Saving hot-registers; registration failures toast.
+ * the built-in. Saving hot-registers; registration failures toast. In
+ * `creating` mode it edits a draft name + starter code.
  */
 export function ToolsPane({
   client,
@@ -148,6 +87,9 @@ export function ToolsPane({
   refresh,
   onNotice,
   themeColors,
+  creating = false,
+  onCreated,
+  onCancel,
 }: {
   client: BaiClient;
   tools: ToolListEntry[];
@@ -155,7 +97,31 @@ export function ToolsPane({
   refresh: () => Promise<void>;
   onNotice: OnNotice;
   themeColors: ThemeColors;
+  /** Render the full code form for a new tool (name editable). */
+  creating?: boolean;
+  /** Called with the new tool's name after a successful create. */
+  onCreated?: (name: string) => void;
+  /** Discard the draft (create mode). */
+  onCancel?: () => void;
 }) {
+  if (creating) {
+    return (
+      <div className="agents-pane">
+        <ToolForm
+          key="__new_tool__"
+          client={client}
+          tool={draftTool()}
+          refresh={refresh}
+          onNotice={onNotice}
+          themeColors={themeColors}
+          creating
+          existing={tools.map((t) => t.name)}
+          {...(onCreated !== undefined ? { onCreated } : {})}
+          {...(onCancel !== undefined ? { onCancel } : {})}
+        />
+      </div>
+    );
+  }
   const tool = tools.find((t) => t.name === selectedId);
   if (tool === undefined) {
     return (
@@ -177,14 +143,24 @@ function ToolForm({
   refresh,
   onNotice,
   themeColors,
+  creating = false,
+  existing = [],
+  onCreated,
+  onCancel,
 }: {
   client: BaiClient;
   tool: ToolListEntry;
   refresh: () => Promise<void>;
   onNotice: OnNotice;
   themeColors: ThemeColors;
+  creating?: boolean;
+  existing?: string[];
+  onCreated?: (name: string) => void;
+  onCancel?: () => void;
 }) {
-  const [code, setCode] = useState<string | null>(null);
+  const [name, setName] = useState(tool.name);
+  // Create mode seeds the starter template (no server file to fetch yet).
+  const [code, setCode] = useState<string | null>(() => (creating ? toolTemplateCode(tool.name) : null));
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // Monaco theme name — defined from the palette data (themes.ts), so a
@@ -197,7 +173,9 @@ function ToolForm({
 
   // Fetch the current source: the tool file, or — for a built-in with no
   // override file yet — the generated override template (GET /api/tool/:name).
+  // Create mode has nothing to fetch.
   useEffect(() => {
+    if (creating) return;
     void (async () => {
       try {
         setCode(await client.getToolCode(tool.name));
@@ -207,7 +185,7 @@ function ToolForm({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tool.name keys the form instance
-  }, [client, tool.name]);
+  }, [client, tool.name, creating]);
 
   if (code === null) {
     return (
@@ -217,20 +195,34 @@ function ToolForm({
     );
   }
 
-  const isBuiltin = tool.origin === "builtin";
+  const isBuiltin = !creating && tool.origin === "builtin";
   // A file-origin tool whose name belongs to a built-in: the file is an
   // override — deleting it restores the built-in, so the action reads
   // "reset to default" rather than "delete".
   const isBuiltinOverride = tool.builtin === true && !isBuiltin;
 
   const save = async (): Promise<void> => {
+    const trimmed = name.trim();
+    if (creating) {
+      if (!isValidToolName(trimmed)) {
+        onNotice("Names start with a letter and may contain letters, digits, - and _ (up to 64 characters).", "error");
+        return;
+      }
+      if (existing.includes(trimmed)) {
+        onNotice(`A tool named "${trimmed}" already exists — pick another name.`, "error");
+        return;
+      }
+    }
     setBusy(true);
     try {
-      const result = await client.putTool(tool.name, code);
+      const target = creating ? trimmed : tool.name;
+      const result = await client.putTool(target, code);
       if (!result.registered) onNotice("saved, but the tool failed to register — check the code for errors", "error");
-      else if (isBuiltin) onNotice(`saved "${tool.name}" — built-in overridden`);
-      else onNotice(`saved "${tool.name}" — hot-registered`);
+      else if (creating) onNotice(`created "${target}" — hot-registered`);
+      else if (isBuiltin) onNotice(`saved "${target}" — built-in overridden`);
+      else onNotice(`saved "${target}" — hot-registered`);
       await refresh();
+      if (creating) onCreated?.(target);
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
@@ -270,12 +262,28 @@ function ToolForm({
       )}
       <SectionHeader
         title={
-          <>
-            {tool.name} <span className="dim">({tool.origin})</span>{" "}
-            {isBuiltinOverride && <OverrideWarning kind="tool" />}
-          </>
+          creating ? (
+            "New tool"
+          ) : (
+            <>
+              {tool.name} <span className="dim">({tool.origin})</span>{" "}
+              {isBuiltinOverride && <OverrideWarning kind="tool" />}
+            </>
+          )
         }
       />
+      {creating && (
+        <Field label="Name" hint="(the filename stem — ~/.config/bai/tools/<name>.ts)">
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            required
+            maxLength={64}
+            spellCheck={false}
+          />
+        </Field>
+      )}
       {isBuiltin && (
         <p className="section-lede">
           Built-in tool — editing saves an override that replaces the built-in until the file is deleted (which restores it).
@@ -286,7 +294,11 @@ function ToolForm({
           This file overrides the built-in "{tool.name}" — "Reset to default" deletes it and restores the original.
         </p>
       )}
-      <Field label="Code" hint={`(~/.config/bai/tools/${tool.name}.ts — hot-reloaded on save)`}>
+      <Field
+        className="field-grow"
+        label="Code"
+        hint={`(~/.config/bai/tools/${creating ? name.trim() || tool.name : tool.name}.ts — hot-reloaded on save)`}
+      >
         <div className="tool-editor">
           <Editor
             value={code}
@@ -312,9 +324,9 @@ function ToolForm({
       </Field>
       <div className="agents-actions">
         <Button type="submit" variant="primary" loading={busy}>
-          Save
+          {creating ? "Create" : "Save"}
         </Button>
-        {!isBuiltin && (
+        {!creating && !isBuiltin && (
           <Button
             variant="danger"
             disabled={busy}
@@ -322,6 +334,11 @@ function ToolForm({
             title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
           >
             {isBuiltinOverride ? "Reset to default" : "Delete"}
+          </Button>
+        )}
+        {creating && onCancel !== undefined && (
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
           </Button>
         )}
       </div>

@@ -82,6 +82,12 @@ export function TagInput({
       commit(picked !== undefined ? picked.tag : draft);
       return;
     }
+    // Tab commits the typed tag but keeps its default behaviour (focus moves
+    // on) — no autocomplete required for a plain chip input.
+    if (e.key === "Tab" && draft.trim().length > 0) {
+      commit(draft);
+      return;
+    }
     if (e.key === "Escape") {
       setOpen(false);
       return;

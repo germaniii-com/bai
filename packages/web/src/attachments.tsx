@@ -387,6 +387,7 @@ export function AttachButton({ onFiles, disabled = false }: { onFiles: (files: F
       accept={DOCUMENT_ACCEPT}
       disabled={disabled}
       label="Attach files"
+      hint="Attach files (or drop them here)"
       className="btn btn-outline btn-lg attachment-add"
     >
       <Plus size={16} aria-hidden="true" />

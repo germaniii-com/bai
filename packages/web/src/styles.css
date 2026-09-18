@@ -171,12 +171,29 @@ select {
 }
 
 button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* Text controls get a subtle, non-clipping focus cue instead of the thick
+   global outline — a soft accent halo plus a border tint. The old 3px
+   outline (offset 2px) was clipped by tightly-padded panels (notes, learn
+   modal) and read as an eyesore on the composer. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .skip-link {
@@ -437,6 +454,75 @@ select:focus-visible,
   cursor: pointer;
 }
 
+/* Session sidebars: a single action row (create button + search toggle);
+   the server-side filter input only appears while searching. */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Stacked compact actions (compose, search) — icon + label, one full-width
+   line each. */
+.sidebar-actions .new-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  text-align: left;
+}
+
+.sidebar-actions .new-session .new-session-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.sidebar-actions .new-session:hover .new-session-icon {
+  color: var(--text);
+}
+
+/* The agent/tool/skill/automation/workspace sidebars' create button: same
+   compact icon + label treatment as the chat/session actions. */
+.settings-nav .new-session,
+.workspace-nav .new-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  text-align: left;
+}
+
+.settings-nav .new-session .new-session-icon,
+.workspace-nav .new-session .new-session-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--dim);
+}
+
+.settings-nav .new-session:hover .new-session-icon,
+.workspace-nav .new-session:hover .new-session-icon {
+  color: var(--text);
+}
+
+/* The search action reads as active while its filter input is open. */
+.sidebar-actions .sidebar-search-btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.sidebar-actions .sidebar-search-btn[aria-pressed="true"] .new-session-icon {
+  color: var(--accent);
+}
+
 /* Session sidebar: server-side filter input + paging button. */
 .session-filter {
   border: 1px solid var(--border);
@@ -449,6 +535,30 @@ select:focus-visible,
 }
 .session-filter::placeholder {
   color: var(--dim);
+}
+
+/* Slim session rows (both sidebars): one line, quiet label. The workbench
+   ("chat"/"code") subtitle is gone; activity emphasizes the label instead. */
+.session-list .session-row {
+  padding: 4px 8px;
+}
+
+.session-list .session-row .li-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-normal);
+}
+
+.session-list .session-row.has-updates .li-title {
+  font-weight: var(--font-weight-semibold);
+}
+
+.session-list .session-row .li-head {
+  width: 100%;
+}
+
+.session-list .session-row .li-trailing {
+  margin-left: auto;
+  padding-left: 6px;
 }
 .load-more {
   border: 1px dashed var(--border);
@@ -486,6 +596,13 @@ select:focus-visible,
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   margin-bottom: 4px;
+}
+
+/* The two segments share the width evenly (the old bespoke control's flex:1
+   was lost in the Tabs migration, leaving dead space on the right). */
+.ws-tabs .tab {
+  flex: 1;
+  justify-content: center;
 }
 
 .ws-tab {
@@ -1563,10 +1680,11 @@ select:focus-visible,
   min-height: 0;
 }
 
-/* Monaco wrapper for the tools pane code editor — fixed height inside the
-   scrolling form (the old textarea was rows={22}). */
+/* Monaco wrapper for the tools pane code editor — fills the grow field so the
+   editor takes the remaining pane height. */
 .tool-editor {
-  height: 480px;
+  flex: 1 1 auto;
+  min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -1679,6 +1797,38 @@ select:focus-visible,
 
 .message.user p {
   margin: 0;
+}
+
+/* Chat section only: read as a conversation — both roles render as bubbles,
+   user right-aligned, assistant left-aligned. The Workspace section omits
+   `.chat-bubbles` and keeps the plain full-width transcript. */
+.chat-bubbles .message {
+  max-width: min(80%, 760px);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+}
+
+.chat-bubbles .message.user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.chat-bubbles .message.assistant {
+  align-self: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/* Queued nodes stay visibly pending (dashed + dimmed) inside the bubble view. */
+.chat-bubbles .message.user.queued {
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+/* Assistant bubble bodies flow to the bubble edges (thinking/tool nodes). */
+.chat-bubbles .message.assistant > :first-child {
+  margin-top: 0;
 }
 
 .message p {
@@ -2339,10 +2489,13 @@ select:focus-visible,
 .agents-pane {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   padding: var(--space-3);
-  overflow-y: auto;
+  /* The editor forms fill the pane and their grow input takes the rest —
+     the page itself never scrolls. */
+  overflow: hidden;
 }
 
 /* Toast (agents/tools mutation feedback) — fixed bottom-right, auto-dismiss;
@@ -2403,10 +2556,32 @@ select:focus-visible,
   flex-direction: column;
   gap: var(--space-3);
   width: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .agent-form h3 {
   margin: 0;
+}
+
+/* Only the designated grow field flexes; everything else keeps its size so
+   the form always fits the pane (no page scroll). */
+.agent-form > * {
+  flex: 0 0 auto;
+}
+
+.agent-form > .field-grow {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The grow field's control fills the field's remaining height. */
+.field-grow > .input,
+.field-grow .grow-input,
+.field-grow > .tool-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
 }
 
 .agents-actions {
@@ -2497,6 +2672,34 @@ select:focus-visible,
   color: var(--danger);
   padding: 8px 16px;
   font-size: var(--text-md);
+}
+
+/* Request failure banner: a compact alert strip above the composer (icon +
+   message) instead of bare red text. */
+.error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  flex-shrink: 0;
+}
+
+.error-banner svg {
+  color: var(--danger);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.error-banner span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* The composer hub — the centralized surface (no chat header): column of
@@ -3273,10 +3476,16 @@ select:focus-visible,
 
 /* The model modal's one search bar (TUI SelectDialog parity): sits above
    the flat model list and filters models across every connected provider.
-   `type="search"` gives the native clear affordance. */
+   `type="search"` gives the native clear affordance. The wrapper owns the
+   horizontal padding — the shared .input is width:100%, so margins beside
+   it would overflow the modal and scroll the body sideways. */
+.model-search-wrap {
+  padding: var(--space-3) var(--space-4) 0;
+  flex-shrink: 0;
+}
+
 .model-search {
   display: block;
-  margin: var(--space-3) var(--space-4);
   padding: 6px var(--space-3);
   font-size: var(--text-md);
   color: var(--text);
@@ -3290,8 +3499,27 @@ select:focus-visible,
   color: var(--dim);
 }
 
-.model-search:focus-visible {
-  outline-offset: 0;
+/* Pinned current selection below the search: a labelled row that stays put
+   while the catalog scrolls, so pricing/context can be compared in place. */
+.model-current {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.model-current-label {
+  display: block;
+  padding: var(--space-1) var(--space-2) 2px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.model-current .model-row {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .col-hint {
@@ -4119,14 +4347,24 @@ select:focus-visible,
   display: flex;
   gap: 10px;
   align-items: flex-end;
+  min-width: 0;
 }
 
 .schedule-row > .field {
   flex: 1;
+  min-width: 0;
 }
 
-.schedule-amount {
-  max-width: 110px;
+/* The interval unit select shares the row with the fixed-width amount input
+   (the old width:100% select overflowed the schedule card). */
+.schedule-row > .select {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-row > .schedule-amount {
+  flex: 0 0 auto;
+  width: 110px;
 }
 
 .weekday-toggles {
@@ -4164,10 +4402,54 @@ select:focus-visible,
   font-size: var(--text-sm);
 }
 
+/* Two-column automation editor: inputs left, run history right. */
+.automation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.85fr);
+  gap: var(--space-4);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.automation-form-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+}
+
+.automation-grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+/* The prompt is the bottom-most input: it takes the column's spare height. */
+.automation-form-col > .field-grow {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .automation-runs {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .automation-layout {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .automation-runs {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-3);
+  }
 }
 
 .run-list {
@@ -4178,36 +4460,67 @@ select:focus-visible,
   flex-direction: column;
 }
 
-.run-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+/* A run row is two lines: status + datetime, then the response preview. */
+.run-list .run-row {
   width: 100%;
   padding: 8px 6px;
   border: none;
   border-bottom: 1px solid var(--border);
+  border-radius: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  gap: 2px;
 }
 
-.run-row:disabled {
+.run-list .run-row .li-head {
+  align-items: center;
+}
+
+/* The title slot holds the status chip + datetime — space them apart. */
+.run-list .run-row .li-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.run-list .run-row:disabled {
   cursor: default;
 }
 
-.run-row:not(:disabled):hover {
+.run-list .run-row:not(:disabled):hover {
   background: var(--border);
 }
 
-.run-status {
+/* Run status reads as a small chip (OK / ERROR / RUNNING). */
+.chip.run-status {
   flex: none;
-  display: inline-flex;
-  align-items: center;
+  min-height: 0;
   gap: 4px;
+  padding: 0 6px;
   font-size: var(--text-xs);
+  line-height: 1.5;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+}
+
+.chip.run-status.run-ok {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.chip.run-status.run-error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.chip.run-status.run-running {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 
 .run-indicator,
@@ -4221,18 +4534,6 @@ select:focus-visible,
 /* The live HH:mm:ss readout — tabular figures so it doesn't jitter. */
 .run-clock {
   font-variant-numeric: tabular-nums;
-}
-
-.run-status.run-ok {
-  color: var(--success);
-}
-
-.run-status.run-error {
-  color: var(--danger);
-}
-
-.run-status.run-running {
-  color: var(--warning);
 }
 
 .run-time {
@@ -4252,9 +4553,44 @@ select:focus-visible,
 .run-output {
   color: var(--dim);
   font-size: var(--text-sm);
+  font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Automations sidebar: the name + a red (PAUSED) chip when disabled. */
+.auto-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.auto-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-item .title {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chip.chip-paused {
+  min-height: 0;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  flex-shrink: 0;
 }
 
 /* --- Image generation workbench ----------------------------------------- */

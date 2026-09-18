@@ -12,6 +12,7 @@ export function FileInput({
   multiple = false,
   disabled = false,
   label,
+  hint,
   className = "file-input",
   children,
 }: {
@@ -21,6 +22,8 @@ export function FileInput({
   disabled?: boolean;
   /** Accessible name for the trigger. */
   label: string;
+  /** Hover hint (global tooltip layer); defaults to the label. */
+  hint?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -56,6 +59,7 @@ export function FileInput({
         type="button"
         className={className}
         aria-label={label}
+        data-tooltip={hint ?? label}
         disabled={disabled}
         onClick={open}
         onKeyDown={onKeyDown}

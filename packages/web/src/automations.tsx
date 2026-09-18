@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import { LoaderCircle } from "lucide-react";
+import { Clock, LoaderCircle } from "lucide-react";
 import {
   computeNextRun,
   describeSchedule,
   isValidAutomationName,
   type AgentInfo,
   type Automation,
+  type AutomationId,
   type AutomationRun,
   type AutomationSchedule,
+  type ProviderListResponse,
   type SessionId,
 } from "@bai/shared";
+import { modelOverrideOptions } from "./provider-utils";
 import {
   Button,
+  Chip,
   Combobox,
   ConfirmDialog,
   Field,
@@ -22,9 +26,9 @@ import {
   SubNav,
   SubNavCreate,
   SubNavItem,
+  Switch,
   TextInput,
   Textarea,
-  ToggleRow,
   type ComboboxOption,
 } from "./components";
 
@@ -33,11 +37,12 @@ type OnNotice = (message: string, kind?: "success" | "error" | "info") => void;
 
 /**
  * Automations section, split for the two-level nav: `AutomationsNav` renders
- * the nested sidebar (`+ New Automation` + the list, each titled by name and
- * subtitled by its schedule), the main pane is either the create form or the
- * selected automation's editor (schedule + prompt + agent/workspace + run
- * history). Definitions live on the server; `automations.updated` keeps every
- * surface's list live.
+ * the nested sidebar (`New automation` + the list, each titled by name and
+ * subtitled by its schedule); the main pane is the two-column editor — inputs
+ * (name/enabled, agent/workspace, model override, schedule, prompt) left, run
+ * history right — for the selected automation or a draft in `creating` mode.
+ * Definitions live on the server; `automations.updated` keeps every surface's
+ * list live.
  */
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -104,19 +109,31 @@ export function AutomationsNav({
   const sorted = [...automations].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <SubNav>
-      <SubNavCreate label="+ New Automation" disabled={busy} onClick={onCreate} />
+      <SubNavCreate
+        icon={<Clock size={15} aria-hidden="true" />}
+        label="New automation"
+        disabled={busy}
+        onClick={onCreate}
+      />
       {sorted.map((a) => (
         <SubNavItem
           key={a.id}
-          title={a.name}
+          title={
+            <span className="auto-name-row">
+              <span className="auto-name">{a.name}</span>
+              {!a.enabled && (
+                <Chip className="chip-paused" hint="Paused — does not fire on schedule">
+                  Paused
+                </Chip>
+              )}
+            </span>
+          }
           subtitle={a.scheduleDisplay}
           trailing={
             a.lastStatus === "running" ? (
               <span className="run-indicator" title="Running">
                 <LoaderCircle size={12} className="icon-spin" aria-hidden="true" />
               </span>
-            ) : !a.enabled ? (
-              <span className="dim">paused</span>
             ) : undefined
           }
           selected={selected === a.id}
@@ -258,137 +275,27 @@ export function ScheduleBuilder({
   );
 }
 
-/** Creation form: name + schedule + prompt (+ optional agent/workspace), written on submit. */
-export function AutomationCreateForm({
-  agents,
-  workspaces,
-  existing,
-  onSubmit,
-  onCancel,
-}: {
-  agents: AgentInfo[];
-  workspaces: string[];
-  /** Existing automation names — duplicate guard. */
-  existing: string[];
-  onSubmit: (input: {
-    name: string;
-    prompt: string;
-    schedule: AutomationSchedule;
-    agent?: string;
-    workspace?: string;
-  }) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(`automation-${Date.now().toString(36)}`);
-  const [prompt, setPrompt] = useState("");
-  const [schedule, setSchedule] = useState<AutomationSchedule>({ kind: "interval", minutes: 30 });
-  const [agent, setAgent] = useState("");
-  const [workspace, setWorkspace] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (): Promise<void> => {
-    const trimmed = name.trim();
-    if (!isValidAutomationName(trimmed)) {
-      setError("Names start with a letter or digit and may contain letters, digits, spaces, - and _ (up to 64 characters).");
-      return;
-    }
-    if (existing.includes(trimmed)) {
-      setError(`An automation named "${trimmed}" already exists — pick another name.`);
-      return;
-    }
-    if (prompt.trim().length === 0) {
-      setError("A prompt is required — it is what the agent runs on each fire.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await onSubmit({
-        name: trimmed,
-        prompt: prompt.trim(),
-        schedule,
-        ...(agent.length > 0 ? { agent } : {}),
-        ...(workspace.length > 0 ? { workspace } : {}),
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
+/** A not-yet-written automation (the create-mode form's draft). */
+function draftAutomation(): Automation {
+  return {
+    id: "" as AutomationId,
+    name: `automation-${Date.now().toString(36)}`,
+    prompt: "",
+    schedule: { kind: "interval", minutes: 30 },
+    scheduleDisplay: "Every 30 minutes",
+    enabled: true,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastStatus: "idle",
+    createdAt: "",
+    updatedAt: "",
   };
-
-  return (
-    <form
-      className="agent-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <SectionHeader title="New automation" />
-      <Field label="Name" hint="(shown in the sidebar and used for updates)">
-        <TextInput
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          autoFocus
-          required
-          maxLength={64}
-          spellCheck={false}
-        />
-      </Field>
-      <Field label="Prompt" hint="(what the agent runs on each fire)">
-        <Textarea
-          value={prompt}
-          onChange={(e) => {
-            setPrompt(e.target.value);
-            setError(null);
-          }}
-          rows={6}
-          required
-          placeholder="e.g. Summarize unread email and flag anything urgent."
-        />
-      </Field>
-      <ScheduleBuilder value={schedule} onChange={setSchedule} />
-      <div className="schedule-row">
-        <Field label="Agent" hint="(default when unset)">
-          <Combobox
-            value={agent}
-            onChange={setAgent}
-            options={agentOptions(agents)}
-            ariaLabel="Agent"
-            emptyText="No matching agent."
-          />
-        </Field>
-        <Field label="Workspace" hint="(optional)">
-          <Combobox
-            value={workspace}
-            onChange={setWorkspace}
-            options={workspaceOptions(workspaces)}
-            ariaLabel="Workspace"
-            emptyText="No matching workspace."
-          />
-        </Field>
-      </div>
-      {error !== null && <div className="error">{error}</div>}
-      <p className="section-lede">
-        Automation runs execute unattended with every tool auto-approved. The first run creates a Chat session you can
-        open from the run history.
-      </p>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          Create
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
 }
 
-/** Main pane: the selected automation's editor (or an empty prompt). */
+/**
+ * Main pane: the automation editor (two columns — inputs left, run history
+ * right). In `creating` mode it edits a draft and creates on Save.
+ */
 export function AutomationsPane({
   client,
   automations,
@@ -399,6 +306,10 @@ export function AutomationsPane({
   onNotice,
   onOpenSession,
   onDeleted,
+  creating = false,
+  onCreated,
+  onCancel,
+  list = null,
 }: {
   client: BaiClient;
   automations: Automation[];
@@ -409,7 +320,37 @@ export function AutomationsPane({
   onNotice: OnNotice;
   onOpenSession: (sessionId: SessionId) => void;
   onDeleted: () => void;
+  /** Render the full form for a new automation (name editable). */
+  creating?: boolean;
+  /** Called with the new automation's id after a successful create. */
+  onCreated?: (id: string) => void;
+  /** Discard the draft (create mode). */
+  onCancel?: () => void;
+  /** Provider list — the model-override combobox's options. */
+  list?: ProviderListResponse | null;
 }) {
+  if (creating) {
+    return (
+      <div className="agents-pane">
+        <AutomationForm
+          key="__new_automation__"
+          client={client}
+          automation={draftAutomation()}
+          agents={agents}
+          workspaces={workspaces}
+          refresh={refresh}
+          onNotice={onNotice}
+          onOpenSession={onOpenSession}
+          onDeleted={onDeleted}
+          creating
+          existing={automations.map((a) => a.name)}
+          {...(onCreated !== undefined ? { onCreated } : {})}
+          {...(onCancel !== undefined ? { onCancel } : {})}
+          list={list}
+        />
+      </div>
+    );
+  }
   const automation = automations.find((a) => a.id === selectedId);
   if (automation === undefined) {
     return (
@@ -430,6 +371,7 @@ export function AutomationsPane({
         onNotice={onNotice}
         onOpenSession={onOpenSession}
         onDeleted={onDeleted}
+        list={list}
       />
     </div>
   );
@@ -444,6 +386,11 @@ function AutomationForm({
   onNotice,
   onOpenSession,
   onDeleted,
+  creating = false,
+  existing = [],
+  onCreated,
+  onCancel,
+  list = null,
 }: {
   client: BaiClient;
   automation: Automation;
@@ -453,6 +400,11 @@ function AutomationForm({
   onNotice: OnNotice;
   onOpenSession: (sessionId: SessionId) => void;
   onDeleted: () => void;
+  creating?: boolean;
+  existing?: string[];
+  onCreated?: (id: string) => void;
+  onCancel?: () => void;
+  list?: ProviderListResponse | null;
 }) {
   const [name, setName] = useState(automation.name);
   const [prompt, setPrompt] = useState(automation.prompt);
@@ -479,6 +431,7 @@ function AutomationForm({
   // missed firehose frame (and heals a dropped connection).
   const running = automation.lastStatus === "running";
   useEffect(() => {
+    if (creating) return;
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
@@ -504,17 +457,41 @@ function AutomationForm({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, automation.id, automation.updatedAt, running, refresh]);
+  }, [client, automation.id, automation.updatedAt, running, refresh, creating]);
 
   const save = async (): Promise<void> => {
-    if (!isValidAutomationName(name.trim())) {
+    const trimmed = name.trim();
+    if (!isValidAutomationName(trimmed)) {
       onNotice("Names start with a letter or digit and may contain letters, digits, spaces, - and _.", "error");
+      return;
+    }
+    if (creating && existing.includes(trimmed)) {
+      onNotice(`An automation named "${trimmed}" already exists — pick another name.`, "error");
+      return;
+    }
+    if (prompt.trim().length === 0) {
+      onNotice("A prompt is required — it is what the agent runs on each fire.", "error");
       return;
     }
     setBusy(true);
     try {
+      if (creating) {
+        const created = await client.createAutomation({
+          name: trimmed,
+          prompt: prompt.trim(),
+          schedule,
+          enabled,
+          ...(agent.trim().length > 0 ? { agent: agent.trim() } : {}),
+          ...(model.trim().length > 0 ? { model: model.trim() } : {}),
+          ...(workspace.trim().length > 0 ? { workspace: workspace.trim() } : {}),
+        });
+        await refresh();
+        onNotice(`created "${trimmed}" — live everywhere`);
+        onCreated?.(created.id);
+        return;
+      }
       await client.updateAutomation(automation.id, {
-        name: name.trim(),
+        name: trimmed,
         prompt,
         schedule,
         agent: agent.trim().length > 0 ? agent.trim() : null,
@@ -523,7 +500,7 @@ function AutomationForm({
         enabled,
       });
       await refresh();
-      onNotice(`saved "${name.trim()}" — live everywhere`);
+      onNotice(`saved "${trimmed}" — live everywhere`);
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err), "error");
     } finally {
@@ -557,20 +534,6 @@ function AutomationForm({
     }
   };
 
-  const toggleEnabled = async (next: boolean): Promise<void> => {
-    setEnabled(next);
-    setBusy(true);
-    try {
-      await client.updateAutomation(automation.id, { enabled: next });
-      await refresh();
-    } catch (err) {
-      setEnabled(!next); // revert the optimistic flip
-      onNotice(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const nextRun =
     enabled && automation.nextRunAt !== null
       ? new Date(automation.nextRunAt).toLocaleString()
@@ -588,112 +551,161 @@ function AutomationForm({
     >
       <SectionHeader
         title={
-          <>
-            {automation.name} <span className="dim">· {automation.scheduleDisplay}</span>
-          </>
+          creating ? (
+            "New automation"
+          ) : (
+            <>
+              {automation.name} <span className="dim">· {automation.scheduleDisplay}</span>
+            </>
+          )
         }
         lede={
-          <>
-            {running && (
-              <span className="run-live">
-                <LoaderCircle size={12} className="icon-spin" aria-hidden="true" /> running now
-              </span>
-            )}
-            {running && " · "}Next run: {nextRun}
-            <span className="run-clock"> · now: {clock}</span>
-            {automation.lastRunAt !== null && ` · last: ${new Date(automation.lastRunAt).toLocaleString()}`}
-            {automation.lastStatus === "error" && automation.lastError !== undefined && (
-              <span className="run-error"> · {automation.lastError}</span>
-            )}
-          </>
+          creating ? undefined : (
+            <>
+              {running && (
+                <span className="run-live">
+                  <LoaderCircle size={12} className="icon-spin" aria-hidden="true" /> running now
+                </span>
+              )}
+              {running && " · "}Next run: {nextRun}
+              <span className="run-clock"> · now: {clock}</span>
+              {automation.lastRunAt !== null && ` · last: ${new Date(automation.lastRunAt).toLocaleString()}`}
+              {automation.lastStatus === "error" && automation.lastError !== undefined && (
+                <span className="run-error"> · {automation.lastError}</span>
+              )}
+            </>
+          )
         }
       />
-      <Field label="Name">
-        <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={64} required spellCheck={false} />
-      </Field>
-      <Field label="Prompt" hint="(what the agent runs on each fire)">
-        <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={10} required />
-      </Field>
-      <ScheduleBuilder value={schedule} onChange={setSchedule} />
-      <div className="schedule-row">
-        <Field label="Agent" hint="(default when unset)">
-          <Combobox
-            value={agent}
-            onChange={setAgent}
-            options={agentOptions(agents)}
-            ariaLabel="Agent"
-            emptyText="No matching agent."
-          />
-        </Field>
-        <Field label="Workspace" hint="(optional)">
-          <Combobox
-            value={workspace}
-            onChange={setWorkspace}
-            options={workspaceOptions(workspaces)}
-            ariaLabel="Workspace"
-            emptyText="No matching workspace."
-          />
-        </Field>
+      {/* Two columns: the inputs on the left (Name/Enabled → Agent/Workspace →
+          Model override → Schedule → Prompt), the run history on the right. */}
+      <div className="automation-layout">
+        <div className="automation-form-col">
+          <div className="automation-grid-2">
+            <Field label="Name" hint="(shown in the sidebar and used for updates)">
+              <TextInput
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus={creating}
+                maxLength={64}
+                required
+                spellCheck={false}
+              />
+            </Field>
+            <div className="field">
+              <span className="field-label">Enabled</span>
+              {/* Local state only — the enabled state persists on Save. */}
+              <Switch
+                checked={enabled}
+                onChange={setEnabled}
+                label={enabled ? "Fires on schedule" : "Paused"}
+              />
+            </div>
+          </div>
+          <div className="automation-grid-2">
+            <Field label="Agent" hint="(default when unset)">
+              <Combobox
+                value={agent}
+                onChange={setAgent}
+                options={agentOptions(agents)}
+                ariaLabel="Agent"
+                emptyText="No matching agent."
+              />
+            </Field>
+            <Field label="Workspace" hint="(optional)">
+              <Combobox
+                value={workspace}
+                onChange={setWorkspace}
+                options={workspaceOptions(workspaces)}
+                ariaLabel="Workspace"
+                emptyText="No matching workspace."
+              />
+            </Field>
+          </div>
+          <Field label="Model override" hint="(optional — inherits the agent/session model when unset)">
+            <Combobox
+              value={model}
+              onChange={setModel}
+              options={modelOverrideOptions(list)}
+              placeholder="(agent/session model)"
+              ariaLabel="Model override"
+              creatable
+              emptyText="No matching model."
+            />
+          </Field>
+          <ScheduleBuilder value={schedule} onChange={setSchedule} />
+          {/* Prompt is the bottom-most input and the grow field. */}
+          <Field className="field-grow" label="Prompt" hint="(what the agent runs on each fire)">
+            <Textarea
+              className="grow-input"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              required
+              placeholder="e.g. Summarize unread email and flag anything urgent."
+            />
+          </Field>
+        </div>
+        <aside className="automation-runs" aria-label="Run history">
+          <SectionHeader title="Run history" />
+          {runs.length === 0 ? (
+            <p className="dim">No runs yet.</p>
+          ) : (
+            <ul className="run-list">
+              {runs.map((run) => (
+                <li key={run.id}>
+                  {/* Two lines: status + datetime, then the response preview
+                      (italic, dim) below. Errors keep the red treatment. */}
+                  <ListItem
+                    className="run-row"
+                    disabled={run.sessionId === undefined}
+                    hint={run.sessionId === undefined ? undefined : "Open the run's session"}
+                    onClick={() => run.sessionId !== undefined && onOpenSession(run.sessionId)}
+                    title={
+                      <>
+                        <Chip className={`run-status run-${run.status}`}>
+                          {run.status === "running" ? (
+                            <>
+                              <LoaderCircle size={11} className="icon-spin" aria-hidden="true" /> running
+                            </>
+                          ) : (
+                            run.status
+                          )}
+                        </Chip>
+                        <span className="run-time">{new Date(run.startedAt).toLocaleString()}</span>
+                      </>
+                    }
+                    subtitle={
+                      run.error !== undefined ? (
+                        <span className="run-error">{run.error}</span>
+                      ) : run.output !== undefined ? (
+                        <span className="run-output">{run.output}</span>
+                      ) : undefined
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
       </div>
-      <Field label="Model override" hint="(catalog id — optional)">
-        <TextInput value={model} onChange={(e) => setModel(e.target.value)} placeholder="(agent/session model)" />
-      </Field>
-      <ToggleRow
-        checked={enabled}
-        onChange={(next) => void toggleEnabled(next)}
-        title="Enabled"
-        description="Paused automations do not fire on schedule (Run now still works)."
-      />
-      <p className="section-lede">
-        Runs execute unattended with every tool auto-approved — including a config-level deny, for automation sessions
-        only.
-      </p>
       <div className="agents-actions">
         <Button type="submit" variant="primary" loading={busy}>
-          Save
+          {creating ? "Create" : "Save"}
         </Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void runNow()}>
-          Run now
-        </Button>
-        <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
-          Delete
-        </Button>
-      </div>
-
-      <div className="automation-runs">
-        <SectionHeader title="Run history" />
-        {runs.length === 0 ? (
-          <p className="dim">No runs yet.</p>
-        ) : (
-          <ul className="run-list">
-            {runs.map((run) => (
-              <li key={run.id}>
-                <ListItem
-                  inline
-                  className="run-row"
-                  disabled={run.sessionId === undefined}
-                  hint={run.sessionId === undefined ? undefined : "Open the run's session"}
-                  onClick={() => run.sessionId !== undefined && onOpenSession(run.sessionId)}
-                  title={
-                    <>
-                      <span className={`run-status run-${run.status}`}>
-                        {run.status === "running" ? (
-                          <>
-                            <LoaderCircle size={11} className="icon-spin" aria-hidden="true" /> running
-                          </>
-                        ) : (
-                          run.status
-                        )}
-                      </span>
-                      <span className="run-time">{new Date(run.startedAt).toLocaleString()}</span>
-                      {run.error !== undefined && <span className="run-error">{run.error}</span>}
-                      {run.output !== undefined && <span className="run-output">{run.output}</span>}
-                    </>
-                  }
-                />
-              </li>
-            ))}
-          </ul>
+        {!creating && (
+          <Button variant="secondary" disabled={busy} onClick={() => void runNow()}>
+            Run now
+          </Button>
+        )}
+        {!creating && (
+          <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
+            Delete
+          </Button>
+        )}
+        {creating && onCancel !== undefined && (
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
         )}
       </div>
       <ConfirmDialog

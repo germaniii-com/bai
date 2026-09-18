@@ -15,6 +15,7 @@ export function PickerTrigger({
   trailing,
   disabled = false,
   className,
+  hint,
 }: {
   /** Small dim prefix (e.g. "agent", "model"). */
   label?: ReactNode;
@@ -26,6 +27,8 @@ export function PickerTrigger({
   trailing?: ReactNode;
   disabled?: boolean;
   className?: string;
+  /** Hover hint (global tooltip layer). */
+  hint?: string;
 }) {
   return (
     <button
@@ -35,6 +38,7 @@ export function PickerTrigger({
       disabled={disabled}
       aria-haspopup="dialog"
       aria-label={ariaLabel}
+      data-tooltip={hint}
     >
       {icon !== undefined && (
         <span className="picker-trigger-icon" aria-hidden="true">

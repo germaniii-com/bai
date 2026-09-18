@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, Folder, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Folder, FolderPlus, RotateCcw, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { AddWorkspaceModal } from "./add-workspace-modal";
 import { Button, IconButton, ListItem, Modal, SubNavCreate, Tabs } from "./components";
@@ -108,7 +108,12 @@ export function WorkspaceNav({
       />
       {tab === "active" ? (
         <>
-          <SubNavCreate className="add-workspace-btn" label="+ Add a Workspace" onClick={() => setModalOpen(true)} />
+          <SubNavCreate
+            className="add-workspace-btn"
+            icon={<FolderPlus size={15} aria-hidden="true" />}
+            label="New workspace"
+            onClick={() => setModalOpen(true)}
+          />
           {workspaces.length === 0 && <p className="dim">No workspaces yet.</p>}
           {activeShown.map((w) => (
             <ListItem

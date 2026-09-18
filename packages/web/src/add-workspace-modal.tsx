@@ -34,7 +34,7 @@ export function AddWorkspaceModal({
   onAdd,
   onAddMany,
   onClose,
-  title = "Add a Workspace",
+  title = "New workspace",
   submitLabel = "Add Workspace",
   ariaLabel = "Add a workspace",
   multi = false,

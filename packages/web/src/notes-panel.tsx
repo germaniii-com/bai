@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StickyNote } from "lucide-react";
-import { Disclosure, Textarea } from "./components";
+import { Disclosure, Textarea, usePersistentDisclosure } from "./components";
 
 /** Debounce before an edit is persisted (ms). */
 const SAVE_DEBOUNCE_MS = 800;
@@ -24,7 +24,7 @@ export function NotesPanel({
   onSave: (content: string) => Promise<void>;
   disabled?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [panelOpen, setPanelOpen] = usePersistentDisclosure("bai.wsPanel.notes");
   const [value, setValue] = useState(notes);
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved">("idle");
   const valueRef = useRef(value);
@@ -90,8 +90,8 @@ export function NotesPanel({
         icon={<StickyNote size={14} />}
         title="Notes"
         id="notes-body"
-        open={!collapsed}
-        onOpenChange={(open) => setCollapsed(!open)}
+        open={panelOpen}
+        onOpenChange={setPanelOpen}
         count={label.length > 0 ? <span className="notes-status">{label}</span> : undefined}
       >
         <div className="notes-body">

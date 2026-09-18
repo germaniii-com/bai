@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ListChecks, Plus, X } from "lucide-react";
 import type { TodoItem } from "@bai/shared";
-import { Checkbox, ConfirmDialog, Disclosure, IconButton, TextInput } from "./components";
+import { Checkbox, ConfirmDialog, Disclosure, IconButton, TextInput, usePersistentDisclosure } from "./components";
 
 /**
  * The workspace right-rail checklist: the active session's task list (the
@@ -21,7 +21,7 @@ export function TodosPanel({
   onChange: (todos: TodoItem[]) => void;
   disabled?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [panelOpen, setPanelOpen] = usePersistentDisclosure("bai.wsPanel.checklist");
   const [adding, setAdding] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -67,8 +67,8 @@ export function TodosPanel({
         icon={<ListChecks size={14} />}
         title="Checklist"
         id="checklist-body"
-        open={!collapsed}
-        onOpenChange={(open) => setCollapsed(!open)}
+        open={panelOpen}
+        onOpenChange={setPanelOpen}
         count={
           todos.length > 0 ? (
             <span aria-label={`${done} of ${todos.length} done`}>

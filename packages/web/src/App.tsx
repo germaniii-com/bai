@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, SlidersHorizontal, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
-import type { AttachmentRef, AutomationSchedule, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
+import type { AttachmentRef, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
 import { applyEvent, applyChildAskEvent, applyNotesEvent, applyPermissionEvent, applyPlansEvent, applyQuestionEvent, applyQueuedInputEvent, applyTodosEvent, emptyQueuedInputs, queuedInputsFromSnapshot, todosFromSession, messageText } from "./state";
 import { applyFileWatch, emptyFileWatch, type FileWatchState } from "./state-files";
@@ -17,7 +17,7 @@ import { SettingsNav, SettingsPane, type SettingsSection } from "./settings";
 import { parseRoute, routeToPath, type Route } from "./router";
 import { ThemeProvider } from "./theme";
 import { ThemeSelectorModal } from "./theme-picker";
-import { WorkspaceNav, FolderGlyph } from "./workspace";
+import { WorkspaceNav } from "./workspace";
 import { FileTree } from "./file-tree";
 import { AddWorkspaceModal } from "./add-workspace-modal";
 import { TodosPanel } from "./todos-panel";
@@ -25,10 +25,10 @@ import { PlansPanel } from "./plans-panel";
 import { NotesPanel } from "./notes-panel";
 import { FileView } from "./file-view";
 import { ChatPane } from "./chat-pane";
-import { AgentsNav, AgentsPane, AgentCreateForm } from "./agents";
-import { ToolsNav, ToolsPane, ToolCreateForm, toolTemplateCode } from "./tools";
-import { SkillsNav, SkillsPane, SkillCreateForm, SkillLearnForm } from "./skills";
-import { AutomationsNav, AutomationsPane, AutomationCreateForm } from "./automations";
+import { AgentsNav, AgentsPane } from "./agents";
+import { ToolsNav, ToolsPane } from "./tools";
+import { SkillsNav, SkillsPane, SkillLearnForm } from "./skills";
+import { AutomationsNav, AutomationsPane } from "./automations";
 import { AnalyticsPane } from "./analytics";
 import { ImagePane } from "./image";
 import { VideoPane } from "./video";
@@ -144,6 +144,10 @@ export function App() {
   const [changedFiles, setChangedFiles] = useState<Set<string>>(new Set());
   const [fsRevision, setFsRevision] = useState(0);
   const [active, setActive] = useState<Session | null>(null);
+  // Sessions with unseen activity (new messages, a finished run, an ask) —
+  // their sidebar label renders emphasized ("bold") until opened. Fed by the
+  // global firehose and cleared when the session becomes active.
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set());
   // Deep-linked / popstate-applied session id awaiting resolution via
   // client.getSession (one direct fetch — no waiting for the session
   // lists). Null when nothing is pending; the sync effect holds the URL
@@ -163,6 +167,9 @@ export function App() {
   // Uploaded attachments for the next send (owned here with the draft).
   const [draftAttachments, setDraftAttachments] = useState<AttachmentRef[]>([]);
   const [attachmentsBusy, setAttachmentsBusy] = useState(false);
+  // Bumped by the sidebar's "+ New Chat"/"+ New session" buttons — the
+  // composer hub focuses its input whenever the token changes.
+  const [composerFocusToken, setComposerFocusToken] = useState(0);
   // Attachments are a chat-only affordance (cwd-less sessions) — drop any
   // pending chips when leaving the chat section.
   useEffect(() => {
@@ -446,6 +453,28 @@ export function App() {
           void refreshSessions();
           void refreshWorkspaceSessions();
         }
+        // Unread marker: activity on a session the user is NOT currently
+        // viewing flags its sidebar row (emphasized label) until opened. The
+        // active session is cleared by the effect below. Types are the
+        // meaningful "something happened" signals — metadata edits, new
+        // messages, a finished run, and blocking asks.
+        const activitySessionId = evt.sessionId;
+        if (
+          activitySessionId !== undefined &&
+          activitySessionId !== activeRef.current?.id &&
+          (evt.type === "session.updated" ||
+            evt.type === "message.created" ||
+            evt.type === "run.finished" ||
+            evt.type === "permission.asked" ||
+            evt.type === "question.asked")
+        ) {
+          setUnreadSessions((prev) => {
+            if (prev.has(activitySessionId)) return prev;
+            const next = new Set(prev);
+            next.add(activitySessionId);
+            return next;
+          });
+        }
         // Config changes from ANY surface (TUI, phone) update the header
         // label and the workspace list without a reload.
         if (evt.type === "config.updated") {
@@ -486,6 +515,16 @@ export function App() {
   // The active session's ID — the session stream effect keys on this (not
   // the object reference) so session.updated patches don't tear it down.
   const activeId = active?.id;
+  // Opening a session acknowledges its activity — its row stops emphasizing.
+  useEffect(() => {
+    if (activeId === undefined) return;
+    setUnreadSessions((prev) => {
+      if (!prev.has(activeId)) return prev;
+      const next = new Set(prev);
+      next.delete(activeId);
+      return next;
+    });
+  }, [activeId]);
   // Scroll-back pagination: newest 100 messages first; older pages prepend on
   // demand (chat pane scroll-to-top). Live events still flow through the
   // effect's own reducer into `setMessages`.
@@ -710,8 +749,10 @@ export function App() {
       void refreshWorkspaceSessions();
     }
     if (next === "agents") {
-      // Engagement refetch: agents changed anywhere → fresh list.
+      // Engagement refetch: agents changed anywhere → fresh list. The
+      // provider list feeds the model-override combobox.
       void refreshAgents();
+      void refreshProviders();
     }
     if (next === "tools") {
       // Engagement refetch: tools changed anywhere → fresh list.
@@ -723,8 +764,10 @@ export function App() {
     }
     if (next === "automations") {
       // Engagement refetch: automations changed or fired → fresh list + state.
+      // The provider list feeds the model-override combobox.
       void refreshAutomations();
       void refreshAgents();
+      void refreshProviders();
     }
   }, [refreshProviders, refreshAgents, refreshWorkspaceSessions, refreshTools, refreshSkills, refreshAutomations]);
 
@@ -1349,51 +1392,6 @@ export function App() {
     }
   };
 
-  /** Write a starter agent file for the (form-validated) name, then select it. */
-  const createAgent = async (name: string): Promise<void> => {
-    await client.putAgent(name, {
-      description: "What this agent is for.",
-      prompt: `You are ${name}, an agent inside bai.\n\nDescribe the agent's role, tone, and workflow here. The body is the system prompt.`,
-      tools: ["fs.read", "fs.list"],
-    });
-    // Refresh BEFORE routing: the canonical URL validates the selection
-    // against the live list — routing first would flicker through /agents.
-    await refreshAgents();
-    pushRoute({ section: "agents", name, creating: false });
-  };
-
-  /** Write a starter tool file for the (form-validated) name, then select it. */
-  const createTool = async (name: string): Promise<void> => {
-    await client.putTool(name, toolTemplateCode(name));
-    await refreshTools();
-    pushRoute({ section: "tools", name, creating: false });
-  };
-
-  /** Write a starter SKILL.md for the (form-validated) name, then select it. */
-  const createSkill = async (name: string): Promise<void> => {
-    await client.putSkill(name, {
-      description: `What the ${name} skill does, in one sentence.`,
-      body: `# ${name}\n\nDescribe the workflow here: when to use it, the steps to follow, and how to verify the result.\n\nSupporting files can live in references/, templates/, scripts/, and assets/ — the agent reads them on demand via skills.view(name, path).`,
-    });
-    await refreshSkills();
-    pushRoute({ section: "skills", name, creating: false });
-  };
-
-  /** Create an automation from the (form-validated) draft, then select it. */
-  const createAutomation = async (input: {
-    name: string;
-    prompt: string;
-    schedule: AutomationSchedule;
-    agent?: string;
-    workspace?: string;
-  }): Promise<void> => {
-    const automation = await client.createAutomation(input);
-    // Refresh BEFORE routing: the canonical URL validates the selection
-    // against the live list (the agents pattern).
-    await refreshAutomations();
-    pushRoute({ section: "automations", name: automation.id, creating: false });
-  };
-
   /**
    * Upload picked files for the composer `+` button. Each file goes to the
    * server immediately (so chips can preview), and the returned refs ride the
@@ -1659,6 +1657,8 @@ export function App() {
       client={client}
       list={list}
       active={active}
+      bubbles={section === "chat"}
+      focusToken={composerFocusToken}
       configDefault={configDefault}
       configDefaultAgent={configDefaultAgent}
       preferZdr={configPreferZdr}
@@ -1772,45 +1772,33 @@ export function App() {
         {section === "chat" && (
           <>
             {/* Draft state: no session row exists until the first message is
-                sent (submit() creates it) — opencode's new-chat pattern. */}
-            <SubNavCreate
-              label="+ New session"
-              onClick={() => pushRoute({ section: "chat", sessionId: null })}
-            />
-            {/* Server-side filter: matches sessions beyond the loaded page. */}
-            <TextInput
-              className="session-filter"
-              type="search"
+                sent (submit() creates it) — opencode's new-chat pattern. The
+                action row pairs the create button with a search toggle; the
+                server-side filter input only appears while searching. */}
+            <SidebarActions
+              createLabel="New Chat"
+              onCreate={() => {
+                // Focus the composer hub (the draft's input) on new chat.
+                setComposerFocusToken((n) => n + 1);
+                pushRoute({ section: "chat", sessionId: null });
+              }}
+              searchLabel="Search chats"
+              filter={chatSessionFilter}
+              setFilter={setChatSessionFilter}
               placeholder="Filter sessions…"
-              value={chatSessionFilter}
-              onChange={(e) => setChatSessionFilter(e.target.value)}
-              aria-label="Filter chat sessions"
+              ariaLabel="Filter chat sessions"
             />
             <nav className="session-list">
               {sessions.length === 0 && (
                 <p className="dim">{deferredChatFilter.length > 0 ? "No matches." : "No sessions yet."}</p>
               )}
               {sessions.map((s) => (
-                <ListItem
+                <SessionRow
                   key={s.id}
-                  accentBar
-                  title={s.title.length > 0 ? s.title : "(untitled)"}
-                  subtitle={
-                    typeof s.meta.automationName === "string" ? (
-                      <span className="li-sub-line">
-                        <span>{s.workbench}</span>
-                        <Chip className="chip-automation" hint={`Automation: ${s.meta.automationName}`}>
-                          Automation
-                        </Chip>
-                      </span>
-                    ) : (
-                      s.workbench
-                    )
-                  }
+                  session={s}
                   selected={active?.id === s.id}
-                  hint={s.title.length > 0 ? s.title : "Untitled session"}
+                  unread={unreadSessions.has(s.id)}
                   onClick={() => pushRoute({ section: "chat", sessionId: s.id }, s)}
-                  ariaCurrent={active?.id === s.id ? "page" : undefined}
                 />
               ))}
               {chatSessionsHasMore && (
@@ -1840,7 +1828,6 @@ export function App() {
             <ListItem
               accentBar
               className="workspace-active-head"
-              icon={<FolderGlyph />}
               title={wsBasename(effectiveWorkspacePath)}
               subtitle={effectiveWorkspacePath}
               hint={`${effectiveWorkspacePath} — switch workspace`}
@@ -1852,20 +1839,19 @@ export function App() {
               }
             />
             {/* Draft state: the code session (rooted at this workspace) is
-                created by submit() on the first message. */}
-            <SubNavCreate
-              label="+ New session"
-              onClick={() =>
-                pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null })
-              }
-            />
-            <TextInput
-              className="session-filter"
-              type="search"
+                created by submit() on the first message. Same action row as
+                the chat sidebar (create + search toggle). */}
+            <SidebarActions
+              createLabel="New session"
+              onCreate={() => {
+                setComposerFocusToken((n) => n + 1);
+                pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null });
+              }}
+              searchLabel="Search sessions"
+              filter={wsSessionFilter}
+              setFilter={setWsSessionFilter}
               placeholder="Filter sessions…"
-              value={wsSessionFilter}
-              onChange={(e) => setWsSessionFilter(e.target.value)}
-              aria-label="Filter workspace sessions"
+              ariaLabel="Filter workspace sessions"
             />
             <nav className="session-list">
               {workspaceSessions.length === 0 && (
@@ -1874,12 +1860,11 @@ export function App() {
                 </p>
               )}
               {workspaceSessions.map((s) => (
-                <ListItem
+                <SessionRow
                   key={s.id}
-                  accentBar
-                  title={s.title.length > 0 ? s.title : "(untitled)"}
-                  hint={s.title.length > 0 ? s.title : "Untitled session"}
+                  session={s}
                   selected={active?.id === s.id}
+                  unread={unreadSessions.has(s.id)}
                   onClick={() =>
                     pushRoute(
                       { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: s.id },
@@ -1965,70 +1950,58 @@ export function App() {
         </main>
       ) : section === "agents" ? (
         <main id="main-content" className="agents-pane">
-          {creatingAgent ? (
-            <AgentCreateForm
-              existing={agents.map((a) => a.name)}
-              onSubmit={createAgent}
-              onCancel={() => setCreatingAgent(false)}
-            />
-          ) : (
-            <AgentsPane
-              client={client}
-              agents={agents}
-              tools={tools}
-              skills={skills}
-              selectedId={effectiveAgentId}
-              activeSessionId={active?.id ?? null}
-              refresh={refreshAgents}
-              onNotice={pushNotice}
-            />
-          )}
+          <AgentsPane
+            client={client}
+            agents={agents}
+            tools={tools}
+            skills={skills}
+            selectedId={effectiveAgentId}
+            activeSessionId={active?.id ?? null}
+            refresh={refreshAgents}
+            onNotice={pushNotice}
+            creating={creatingAgent}
+            list={list}
+            onCreated={(name) => {
+              setCreatingAgent(false);
+              pushRoute({ section: "agents", name, creating: false });
+            }}
+            onCancel={() => setCreatingAgent(false)}
+          />
         </main>
       ) : section === "tools" ? (
         <main id="main-content" className="agents-pane">
-          {creatingTool ? (
-            <ToolCreateForm
-              existing={tools.map((t) => t.name)}
-              onSubmit={createTool}
-              onCancel={() => setCreatingTool(false)}
-            />
-          ) : (
-            <ToolsPane
-              client={client}
-              tools={tools}
-              selectedId={effectiveToolId}
-              refresh={refreshTools}
-              onNotice={pushNotice}
-              themeColors={themeColors}
-            />
-          )}
+          <ToolsPane
+            client={client}
+            tools={tools}
+            selectedId={effectiveToolId}
+            refresh={refreshTools}
+            onNotice={pushNotice}
+            themeColors={themeColors}
+            creating={creatingTool}
+            onCreated={(name) => {
+              setCreatingTool(false);
+              pushRoute({ section: "tools", name, creating: false });
+            }}
+            onCancel={() => setCreatingTool(false)}
+          />
         </main>
       ) : section === "skills" ? (
         <main id="main-content" className="agents-pane">
-          {creatingSkill ? (
-            skillLearnOpen ? (
-              <SkillLearnForm
-                client={client}
-                list={list}
-                refreshProviders={refreshProviders}
-                preferZdr={configPreferZdr}
-                configDefault={configDefault}
-                onLearned={async (sessionId) => {
-                  setSkillLearnOpen(false);
-                  setCreatingSkill(false);
-                  pushNotice("learn session started — watch it distill the skill", "info");
-                  pushRoute({ section: "chat", sessionId });
-                }}
-                onBack={() => setSkillLearnOpen(false)}
-              />
-            ) : (
-              <SkillCreateForm
-                existing={skills.map((s) => s.name)}
-                onSubmit={createSkill}
-                onCancel={() => setCreatingSkill(false)}
-                onLearn={() => setSkillLearnOpen(true)}
-              />
-            )
+          {creatingSkill && skillLearnOpen ? (
+            <SkillLearnForm
+              client={client}
+              list={list}
+              refreshProviders={refreshProviders}
+              preferZdr={configPreferZdr}
+              configDefault={configDefault}
+              onLearned={async (sessionId) => {
+                setSkillLearnOpen(false);
+                setCreatingSkill(false);
+                pushNotice("learn session started — watch it distill the skill", "info");
+                pushRoute({ section: "chat", sessionId });
+              }}
+              onBack={() => setSkillLearnOpen(false)}
+            />
           ) : (
             <SkillsPane
               client={client}
@@ -2036,32 +2009,36 @@ export function App() {
               selectedId={effectiveSkillId}
               refresh={refreshSkills}
               onNotice={pushNotice}
+              creating={creatingSkill}
+              onCreated={(name) => {
+                setCreatingSkill(false);
+                pushRoute({ section: "skills", name, creating: false });
+              }}
+              onCancel={() => setCreatingSkill(false)}
+              onLearnInstead={() => setSkillLearnOpen(true)}
             />
           )}
         </main>
       ) : section === "automations" ? (
         <main id="main-content" className="agents-pane">
-          {creatingAutomation ? (
-            <AutomationCreateForm
-              agents={agents}
-              workspaces={workspaces}
-              existing={automations.map((a) => a.name)}
-              onSubmit={createAutomation}
-              onCancel={() => setCreatingAutomation(false)}
-            />
-          ) : (
-            <AutomationsPane
-              client={client}
-              automations={automations}
-              agents={agents}
-              workspaces={workspaces}
-              selectedId={effectiveAutomationId}
-              refresh={refreshAutomations}
-              onNotice={pushNotice}
-              onOpenSession={(sessionId) => pushRoute({ section: "chat", sessionId })}
-              onDeleted={() => pushRoute({ section: "automations", name: null, creating: false })}
-            />
-          )}
+          <AutomationsPane
+            client={client}
+            automations={automations}
+            agents={agents}
+            workspaces={workspaces}
+            selectedId={effectiveAutomationId}
+            refresh={refreshAutomations}
+            onNotice={pushNotice}
+            onOpenSession={(sessionId) => pushRoute({ section: "chat", sessionId })}
+            onDeleted={() => pushRoute({ section: "automations", name: null, creating: false })}
+            creating={creatingAutomation}
+            list={list}
+            onCreated={(id) => {
+              setCreatingAutomation(false);
+              pushRoute({ section: "automations", name: id, creating: false });
+            }}
+            onCancel={() => setCreatingAutomation(false)}
+          />
         </main>
       ) : section === "image" ? (
         <main id="main-content" className="image-main">
@@ -2242,6 +2219,109 @@ export function App() {
       <TooltipLayer />
     </div>
     </ThemeProvider>
+  );
+}
+
+/**
+ * The session sidebars' stacked actions: a compose button, then a search
+ * toggle. The server-side filter input is hidden until the search button is
+ * clicked (keeping the list head compact); collapsing it clears the filter
+ * so no invisible query lingers.
+ */
+function SidebarActions({
+  createLabel,
+  onCreate,
+  searchLabel,
+  filter,
+  setFilter,
+  placeholder,
+  ariaLabel,
+}: {
+  createLabel: string;
+  onCreate: () => void;
+  searchLabel: string;
+  filter: string;
+  setFilter: (value: string) => void;
+  placeholder: string;
+  ariaLabel: string;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (searchOpen) inputRef.current?.focus();
+  }, [searchOpen]);
+  // Leaving the section (unmount) drops any active filter — the input is
+  // hidden then, so an invisible query must not linger.
+  useEffect(() => () => setFilter(""), [setFilter]);
+  return (
+    <>
+      <div className="sidebar-actions">
+        <SubNavCreate icon={<SquarePen size={15} aria-hidden="true" />} label={createLabel} onClick={onCreate} />
+        <SubNavCreate
+          className="sidebar-search-btn"
+          icon={<Search size={15} aria-hidden="true" />}
+          label={searchLabel}
+          ariaPressed={searchOpen}
+          onClick={() => {
+            setSearchOpen((open) => {
+              if (open) setFilter("");
+              return !open;
+            });
+          }}
+        />
+      </div>
+      {searchOpen && (
+        <TextInput
+          ref={inputRef}
+          className="session-filter"
+          type="search"
+          placeholder={placeholder}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label={ariaLabel}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * One session row in either sidebar: a slim single-line list item (no
+ * workbench subtitle — the "chat"/"code" label is gone). Automation-spawned
+ * sessions carry an inline Automation chip. The title emphasizes only when
+ * the session has unseen activity.
+ */
+function SessionRow({
+  session,
+  selected,
+  unread,
+  onClick,
+}: {
+  session: Session;
+  selected: boolean;
+  unread: boolean;
+  onClick: () => void;
+}) {
+  const title = session.title.length > 0 ? session.title : "(untitled)";
+  const automation = typeof session.meta.automationName === "string" ? session.meta.automationName : undefined;
+  return (
+    <ListItem
+      accentBar
+      inline
+      className={unread ? "session-row has-updates" : "session-row"}
+      title={title}
+      selected={selected}
+      hint={title}
+      onClick={onClick}
+      ariaCurrent={selected ? "page" : undefined}
+      trailing={
+        automation !== undefined ? (
+          <Chip className="chip-automation" hint={`Automation: ${automation}`}>
+            Automation
+          </Chip>
+        ) : undefined
+      }
+    />
   );
 }
 

@@ -69,6 +69,7 @@ export function ModelPicker({
         }
         trailing={currentModel !== undefined ? <ModelCapabilityBadges model={currentModel} /> : undefined}
         ariaLabel={`model: ${current}${accountSuffix}`}
+        hint="Choose model — session-scoped; manage accounts in Settings"
         onClick={() => setOpen(true)}
       />
       {open && (
@@ -160,6 +161,9 @@ export function ModelModal({
     preferZdr === true,
   );
   const visibleModels = query.length > 0 ? models.filter(modelMatches) : models;
+  // The current selection is pinned below the search so its pricing/context
+  // stay comparable while the list is scrolled (present only when connected).
+  const currentModel = models.find((m) => m.id === current);
 
   // Scroll the current model row into view — it can sit far down a large
   // catalog. block:"nearest" makes this a no-op when already visible.
@@ -217,6 +221,49 @@ export function ModelModal({
     }
   };
 
+  /** One model row (shared by the pinned current row and the catalog list). */
+  const renderRow = (m: ModelInfo) => {
+    const provider = providerById.get(m.provider);
+    const isCurrent = m.id === current;
+    const parts: string[] = [];
+    if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
+    if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/1M`);
+    return (
+      <ListItem
+        key={m.id}
+        className="model-row"
+        title={
+          <span className="model-row-name">
+            <span className="model-row-label">{m.label}</span>
+            <ModelCapabilityBadges model={m} />
+          </span>
+        }
+        selected={isCurrent}
+        ariaCurrent={isCurrent ? "page" : undefined}
+        disabled={busy}
+        onClick={() => void apply(m)}
+        subtitle={
+          <>
+            {parts.length > 0 && <span className="model-row-meta">{parts.join(" · ")}</span>}
+            <span className="model-row-owner">
+              {provider?.name ?? m.provider} · {accountLabelFor(provider)}
+            </span>
+          </>
+        }
+        trailing={
+          <>
+            {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
+              <span className="li-badge success" title="zero data retention capable">
+                zdr
+              </span>
+            )}
+            {isCurrent && <span className="li-badge accent">current</span>}
+          </>
+        }
+      />
+    );
+  };
+
   return (
     <Modal open onClose={onClose} title="Pick a model" ariaLabel="Pick a model" bodyClassName="unpadded">
       {list === null ? (
@@ -225,61 +272,33 @@ export function ModelModal({
         <>
           {/* The one search bar (TUI type-to-filter parity): free-form text
               matching a model's name/id OR its provider's name/id. Focused
-              on open (`autoFocus`). */}
-          <TextInput
-            className="model-search"
-            type="search"
-            placeholder="Filter models or providers…"
-            value={modelFilter}
-            onChange={(e) => setModelFilter(e.target.value)}
-            aria-label="Filter models or providers"
-            autoFocus
-          />
+              on open (`autoFocus`); wrapped so its 100% width stays inside
+              the modal's horizontal padding (the old margin + width:100%
+              overflowed and scrolled the body sideways). */}
+          <div className="model-search-wrap">
+            <TextInput
+              className="model-search"
+              type="search"
+              placeholder="Filter models or providers…"
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              aria-label="Filter models or providers"
+              autoFocus
+            />
+          </div>
+          {/* Pinned current selection: always visible below the search so its
+              price/context stay comparable while the catalog scrolls. */}
+          {currentModel !== undefined && (
+            <div className="model-current">
+              <span className="model-current-label">Current</span>
+              {renderRow(currentModel)}
+            </div>
+          )}
           <div className="model-list">
             {visibleModels.length === 0 && (
               <p className="dim col-hint">{query.length > 0 ? "No matches." : "No models."}</p>
             )}
-            {visibleModels.map((m) => {
-              const provider = providerById.get(m.provider);
-              const isCurrent = m.id === current;
-              const parts: string[] = [];
-              if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);
-              if (m.inputCost !== undefined) parts.push(`$${m.inputCost}/1M`);
-              return (
-                <ListItem
-                  key={m.id}
-                  className="model-row"
-                  title={
-                    <span className="model-row-name">
-                      <span className="model-row-label">{m.label}</span>
-                      <ModelCapabilityBadges model={m} />
-                    </span>
-                  }
-                  selected={isCurrent}
-                  ariaCurrent={isCurrent ? "page" : undefined}
-                  disabled={busy}
-                  onClick={() => void apply(m)}
-                  subtitle={
-                    <>
-                      {parts.length > 0 && <span className="model-row-meta">{parts.join(" · ")}</span>}
-                      <span className="model-row-owner">
-                        {provider?.name ?? m.provider} · {accountLabelFor(provider)}
-                      </span>
-                    </>
-                  }
-                  trailing={
-                    <>
-                      {preferZdr === true && isZdrCapableModel(m.id, m.provider) && (
-                        <span className="li-badge success" title="zero data retention capable">
-                          zdr
-                        </span>
-                      )}
-                      {isCurrent && <span className="li-badge accent">current</span>}
-                    </>
-                  }
-                />
-              );
-            })}
+            {visibleModels.map((m) => renderRow(m))}
           </div>
         </>
       )}
