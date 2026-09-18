@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -185,6 +185,26 @@ jobs:
           done
           find dist/ghcr -type f -ls
 
+      - name: Package release archives
+        run: |
+          set -euo pipefail
+          OUT="$(pwd)/dist/releases"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          for d in dist/ghcr/*/; do
+            [ -d "$d" ] || continue
+            target="$(basename "$d")"
+            if [[ "$target" == windows-* ]]; then
+              # zip preserves bai.exe; executability is implicit on Windows
+              ( cd "$d" && zip -q "$OUT/bai-${target}.zip" bai.exe )
+            else
+              # tar.gz records the 0755 mode -> stays executable after download
+              tar -czf "$OUT/bai-${target}.tar.gz" -C "$d" bai
+            fi
+          done
+          ( cd "$OUT" && sha256sum ./* > SHA256SUMS )
+          ls -lh "$OUT"
+
       - name: Log in to GHCR
         if: ${{ github.event_name == 'push' || github.event.inputs.push == 'true' }}
         env:
@@ -223,6 +243,26 @@ jobs:
                 "${ref}:${TAGS}" . )
           done
 
+      - name: Publish GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          PRERELEASE=""
+          [[ "${VERSION}" == *-* ]] && PRERELEASE="--prerelease"
+          if ! gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "$TAG" \
+              --generate-notes \
+              ${PRERELEASE}
+          fi
+          gh release upload "$TAG" dist/releases/* \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+
       - name: Summary
         if: always()
         env:
@@ -243,6 +283,11 @@ jobs:
                 echo "| ${target} | \`ghcr.io/${REPO}/${target}:${VERSION}\` |"
               done
               echo
+              if [[ "${{ startsWith(github.ref, 'refs/tags/v') }}" == "true" ]]; then
+                echo "GitHub Release assets: https://github.com/${REPO}/releases/tag/v${VERSION}"
+                echo "(\`bai-<target>.tar.gz\` / \`bai-<target>.zip\`, plus \`SHA256SUMS\`)."
+                echo
+              fi
               echo '```sh'
               echo "oras pull ghcr.io/${REPO}/linux-x64:${VERSION} -o ./bai"
               echo "chmod +x ./bai/bai"

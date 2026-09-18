@@ -164,28 +164,40 @@ Releases are built by [`.github/workflows/release.yml`](.github/workflows/releas
 on every `v*` tag (or via **Actions → Release → Run workflow**). The workflow
 cross-compiles all eight Bun targets, embeds the web SPA + bundled skills into
 each binary (Bun ≥ 1.4 `compile.assets`), smoke-tests the native linux-x64
-build, and publishes one OCI artifact per platform to GitHub Container Registry
-via [ORAS](https://oras.land) — no GitHub Release assets.
+build, and then publishes, for every platform:
+
+- on `v*` tags, a **GitHub Release asset** — `bai-<target>.tar.gz` (macOS/Linux)
+  or `bai-<target>.zip` (Windows), plus `SHA256SUMS` — on the
+  [releases page](https://github.com/germaniii-com/bai/releases); and
+- an **OCI artifact** on GitHub Container Registry via
+  [ORAS](https://oras.land).
 
 ```sh
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Pull a binary with ORAS (packages default to **private**; flip visibility in the
-package settings for anonymous pulls):
+Download from the release page:
 
 ```sh
-# linux-x64, linux-arm64, linux-x64-musl, linux-arm64-musl,
+# e.g. linux-x64, also: linux-arm64, linux-x64-musl, linux-arm64-musl,
 # darwin-arm64, darwin-x64, windows-x64, windows-arm64
+curl -fsSLO https://github.com/germaniii-com/bai/releases/latest/download/bai-linux-x64.tar.gz
+tar -xzf bai-linux-x64.tar.gz
+./bai --web --open
+```
+
+Or pull the same binary with ORAS (GHCR packages default to **private**; flip
+visibility once in the package settings for anonymous pulls):
+
+```sh
 oras pull ghcr.io/germaniii-com/bai/linux-x64:latest -o ./bai
 chmod +x ./bai/bai
 ./bai/bai --web --open
 ```
 
-Windows users pull `ghcr.io/germaniii-com/bai/windows-x64:latest` and run
-`bai.exe`. To publish a build without pushing (smoke test only), run the
-workflow manually with the `push` input disabled.
+Windows users download `bai-windows-x64.zip` and run `bai.exe`. To publish a
+build without pushing, run the workflow manually with the `push` input disabled.
 
 ## License
 
