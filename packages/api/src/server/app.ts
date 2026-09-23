@@ -680,8 +680,21 @@ function buildApi(deps: ApiDeps) {
       if (!slim) return c.json(full);
       return c.json({
         default: full.default,
+        ...(full.catalogUpdatedAt !== undefined ? { catalogUpdatedAt: full.catalogUpdatedAt } : {}),
         providers: full.providers.map((p) => ({ ...p, models: [], modelCount: p.models.length })),
       });
+    })
+
+    // Manual catalog refresh: force a models.dev pull NOW (bypasses the
+    // server's 5-minute TTL) and report the new last-updated stamp. On
+    // success core broadcasts provider.updated, so every other surface
+    // refetches without anyone pressing anything.
+    .post("/provider/refresh", async (c) => {
+      try {
+        return c.json(await deps.core.refreshProviderCatalog());
+      } catch {
+        return c.json({ error: "refresh_failed" }, 502);
+      }
     })
 
     // --- models (flat, paged catalog for UI pickers) ---

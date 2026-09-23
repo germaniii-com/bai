@@ -19,11 +19,28 @@ describe("provider & account API", () => {
     const body = (await res.json()) as {
       providers: { id: string; accounts: unknown[]; connected: boolean; models: { id: string }[] }[];
       default: { model?: string };
+      catalogUpdatedAt?: number;
     };
     expect(body.default.model).toBe("stub/echo");
     const stub = body.providers.find((p) => p.id === "stub");
     expect(stub?.connected).toBe(false);
     expect(stub?.models[0]?.id).toBe("stub/echo");
+    // Catalog freshness stamp (0 = never fetched — offline test harness).
+    expect(typeof body.catalogUpdatedAt).toBe("number");
+  });
+
+  test("POST /provider/refresh forces a catalog refresh and reports the stamp", async () => {
+    const res = await app.request("/api/provider/refresh", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { lastUpdatedAt: number };
+    expect(typeof body.lastUpdatedAt).toBe("number");
+    // Offline harness: no network, so the stamp stays 0 (never fetched).
+    expect(body.lastUpdatedAt).toBe(0);
+
+    // The refreshed stamp is also visible on the list response.
+    const list = await app.request("/api/provider?models=0");
+    const listBody = (await list.json()) as { catalogUpdatedAt?: number };
+    expect(listBody.catalogUpdatedAt).toBe(body.lastUpdatedAt);
   });
 
   test("account CRUD: put → listed (masked) → delete → 404 on re-delete", async () => {

@@ -98,7 +98,8 @@ interface ModelsDevProvider {
  */
 export class CatalogService {
   private memory?: { at: number; providers: CatalogProvider[] };
-  private refreshing = false;
+  /** In-flight fetch (TTL background refresh or an explicit `refresh()`) — single-flight. */
+  private inflight?: Promise<void>;
 
   constructor(
     private opts: {
@@ -116,6 +117,29 @@ export class CatalogService {
   /** Drop the memory cache; the next call re-derives from disk/snapshot. */
   invalidate(): void {
     this.memory = undefined;
+  }
+
+  /**
+   * Epoch-ms stamp of the catalog's last successful models.dev fetch:
+   * the in-memory stamp first, else the disk cache's mtime. `0` = never
+   * fetched from the network (bundled snapshot / fresh install).
+   */
+  lastUpdatedAt(): number {
+    if (this.memory !== undefined) return this.memory.at;
+    return this.readDisk()?.at ?? 0;
+  }
+
+  /**
+   * Force an immediate models.dev fetch, bypassing the TTL — the manual
+   * "update models now" path. Single-flight: concurrent callers (and a
+   * background refresh already running) share one network fetch. Resolves
+   * to the new last-updated stamp; rejects when the fetch fails (the
+   * current catalog is kept). Offline mode (test hook) no-ops.
+   */
+  async refresh(): Promise<number> {
+    if (this.opts.offline) return this.lastUpdatedAt();
+    await this.startFetch();
+    return this.lastUpdatedAt();
   }
 
   /** All providers: models.dev base ⊕ curated overlay ⊕ config ⊕ provider files. Never throws. */
@@ -162,21 +186,32 @@ export class CatalogService {
     // network attempt; failure leaves an empty base (config providers + stub
     // still work).
     if (this.opts.offline) return [];
-    return this.fetchAndCache().catch(() => []);
+    return this.startFetch().then(() => this.memory?.providers ?? []).catch(() => []);
   }
 
   /** TTL-gated fire-and-forget refresh; failures keep the current data. */
   private maybeRefreshInBackground(): void {
-    if (this.refreshing || this.opts.offline) return;
+    if (this.inflight !== undefined || this.opts.offline) return;
     const ttl = this.opts.ttlMs ?? DEFAULT_TTL_MS;
     const at = this.memory?.at ?? this.readDisk()?.at ?? 0;
     if (Date.now() - at < ttl) return;
-    this.refreshing = true;
-    void this.fetchAndCache()
-      .catch(() => {})
+    void this.startFetch().catch(() => {});
+  }
+
+  /**
+   * One shared fetch at a time: a force refresh joins an in-flight background
+   * refresh instead of duplicating it, and vice versa. Returns the in-flight
+   * promise when one exists (callers decide whether failures propagate).
+   */
+  private startFetch(): Promise<void> {
+    if (this.inflight !== undefined) return this.inflight;
+    const p: Promise<void> = this.fetchAndCache()
+      .then(() => undefined)
       .finally(() => {
-        this.refreshing = false;
+        if (this.inflight === p) this.inflight = undefined;
       });
+    this.inflight = p;
+    return p;
   }
 
   private async fetchAndCache(): Promise<CatalogProvider[]> {

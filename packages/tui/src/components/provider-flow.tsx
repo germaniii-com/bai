@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { ModelPageEntry, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
-import { suggestAccountId } from "@bai/shared";
+import { suggestAccountId, formatTimeAgo } from "@bai/shared";
 import { PromptDialog, SelectDialog } from "./dialog";
 import { useTheme } from "../theme";
 import { accountActionOptions, accountListOptions, modelPageOptions, providerOptions } from "../state/providers";
@@ -146,13 +146,31 @@ export function ProviderFlow({
   let dialog: React.ReactNode;
   if (step.kind === "providers") {
     const oauthIds = new Set(oauth.map((o) => o.id));
+    // Catalog freshness in the title ("catalog updated 5m ago") + a manual
+    // force refresh (ctrl+r) — bypasses the server's TTL, then re-derives
+    // this list (the server also broadcasts provider.updated).
+    const catalogAge =
+      list.catalogUpdatedAt !== undefined && list.catalogUpdatedAt > 0
+        ? `updated ${formatTimeAgo(list.catalogUpdatedAt)}`
+        : "not fetched yet";
     dialog = (
       <SelectDialog
         key="providers"
-        title="Providers"
+        title={`Providers · catalog ${catalogAge}`}
         options={providerOptions(list.providers, oauthIds)}
         windowSize={windowSize}
-        actions={[{ key: "n", label: "custom provider", onAction: () => setStep({ kind: "custom-id" }) }]}
+        actions={[
+          { key: "n", label: "custom provider", onAction: () => setStep({ kind: "custom-id" }) },
+          {
+            key: "r",
+            label: "refresh catalog",
+            onAction: () =>
+              guard(async () => {
+                await client.refreshProviderCatalog();
+                onRefresh();
+              }),
+          },
+        ]}
         onPick={(value) => setStep({ kind: "accounts", providerId: value })}
         onClose={onDone}
       />

@@ -59,7 +59,7 @@ import type {
   UpdateAutomationBody,
   WebSearchStatus,
 } from "@bai/shared";
-import type { PutAccountBody, ProviderListResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
+import type { PutAccountBody, ProviderListResponse, ProviderRefreshResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
 import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderFile, ProviderFileInfo } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
@@ -809,6 +809,17 @@ export class BaiClient {
         ? await this.rpc().provider.$get({ query: { models: "0" } })
         : await this.rpc().provider.$get();
     if (!res.ok) throw new Error(`providers failed: ${res.status}`);
+    return res.json();
+  }
+
+  /**
+   * Force a models.dev catalog refresh (bypasses the server's TTL) — the
+   * manual "update models now" action. Resolves to the new last-updated
+   * stamp; the server broadcasts provider.updated on success.
+   */
+  async refreshProviderCatalog(): Promise<ProviderRefreshResponse> {
+    const res = await this.rpc().provider.refresh.$post();
+    if (!res.ok) throw new Error(`refresh catalog failed: ${res.status}`);
     return res.json();
   }
 

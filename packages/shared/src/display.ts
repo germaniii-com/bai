@@ -58,6 +58,23 @@ export function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/**
+ * Compact relative time for "last updated" rows: `just now`, `5m ago`,
+ * `3h ago`, `2d ago`. `ms <= 0`/invalid → `never` (the catalog's stamp for
+ * "never fetched from the network"); future stamps (clock skew) clamp to
+ * `just now`.
+ */
+export function formatTimeAgo(ms: number, now: number = Date.now()): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "never";
+  const s = Math.floor(Math.max(0, now - ms) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 /** Visual severity of the context tracker readout. */
 export type TrackerTone = "dim" | "warning" | "danger";
 

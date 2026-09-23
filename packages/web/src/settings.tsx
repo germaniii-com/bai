@@ -24,6 +24,7 @@ import type {
 } from "@bai/shared";
 import {
   coerceMediaParams,
+  formatTimeAgo,
   isZdrCapableModel,
   sortModelsZdrFirst,
   THEME_OPTIONS,
@@ -620,6 +621,17 @@ function ProvidersPane({
   }, [client]);
   useEffect(reloadProviderFiles, [reloadProviderFiles]);
 
+  // Manual catalog refresh: force the server's models.dev pull (bypasses its
+  // TTL) — `mutate` refetches the list and toasts the outcome.
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const refreshCatalog = useCallback((): void => {
+    if (catalogBusy) return;
+    setCatalogBusy(true);
+    void mutate(() => client.refreshProviderCatalog().then(() => undefined), "Catalog refreshed").finally(() =>
+      setCatalogBusy(false),
+    );
+  }, [catalogBusy, client, mutate]);
+
   return (
     <>
       <PageHeader title="Model Providers" />
@@ -745,6 +757,15 @@ function ProvidersPane({
         Every other provider the catalog knows — connect one by adding an
         account. Connected first.
       </p>
+      <div className="provider-actions">
+        <span className="dim" style={{ alignSelf: "center" }}>
+          models.dev · updated {formatTimeAgo(list.catalogUpdatedAt ?? 0)}
+          {fetching ? " · updating…" : ""}
+        </span>
+        <Button variant="outline" loading={catalogBusy} onClick={refreshCatalog}>
+          Refresh catalog
+        </Button>
+      </div>
       <div className="provider-accordion catalog-scroll">
         {catalog.map((p) => (
           <AccordionProvider

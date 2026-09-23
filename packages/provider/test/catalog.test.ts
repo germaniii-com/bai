@@ -172,6 +172,69 @@ describe("CatalogService", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("refresh() forces a network fetch even inside the TTL", async () => {
+    let calls = 0;
+    const fetchMock = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ anthropic: { ...SAMPLE_DOC.anthropic, name: "Anthropic Fresh" } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+    // TTL an hour out: the background path would never fire — only the
+    // explicit refresh() can pull.
+    const { catalog, dir } = makeCatalog({ doc: SAMPLE_DOC, fetch: fetchMock, ttlMs: 60 * 60 * 1000 });
+
+    const first = await catalog.providers();
+    expect(first.find((p) => p.id === "anthropic")?.name).toBe("Anthropic");
+    expect(calls).toBe(0);
+
+    const at = await catalog.refresh();
+    expect(calls).toBe(1);
+    expect(at).toBeGreaterThan(0);
+    expect(catalog.lastUpdatedAt()).toBe(at);
+
+    const after = await catalog.providers();
+    expect(after.find((p) => p.id === "anthropic")?.name).toBe("Anthropic Fresh");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("refresh() is single-flight: concurrent callers share one fetch", async () => {
+    let calls = 0;
+    const fetchMock = (async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 30));
+      return new Response(JSON.stringify(SAMPLE_DOC), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const { catalog, dir } = makeCatalog({ doc: SAMPLE_DOC, fetch: fetchMock, ttlMs: 60 * 60 * 1000 });
+
+    const [a, b] = await Promise.all([catalog.refresh(), catalog.refresh()]);
+    expect(calls).toBe(1);
+    expect(a).toBe(b);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("lastUpdatedAt() falls back to the cache mtime before any fetch", async () => {
+    const { catalog, dir } = makeCatalog({ doc: SAMPLE_DOC, offline: true });
+    expect(catalog.lastUpdatedAt()).toBeGreaterThan(0); // cache file mtime
+    await catalog.providers();
+    expect(catalog.lastUpdatedAt()).toBeGreaterThan(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("refresh() in offline mode skips the network and keeps the stamp", async () => {
+    let calls = 0;
+    const fetchMock = (async () => {
+      calls++;
+      return new Response(JSON.stringify(SAMPLE_DOC), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const { catalog, dir } = makeCatalog({ doc: SAMPLE_DOC, fetch: fetchMock, offline: true });
+    const at = await catalog.refresh();
+    expect(calls).toBe(0);
+    expect(at).toBeGreaterThan(0); // cache mtime, unchanged
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("well-known base URLs cover providers missing catalog api", () => {
     expect(WELL_KNOWN_BASE_URLS.groq).toBe("https://api.groq.com/openai/v1");
     expect(WELL_KNOWN_BASE_URLS.xai).toBe("https://api.x.ai/v1");

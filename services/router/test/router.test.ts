@@ -88,6 +88,27 @@ describe("router gateway", () => {
     fx.cleanup();
   });
 
+  test("GET /v1/models stamps created with the catalog's last-updated time (epoch seconds)", async () => {
+    const fx = makeFixture();
+    // Offline fixture with no cache file → never fetched → created 0.
+    const first = await createRouterRoutes(fx.deps).request("/v1/models");
+    const firstBody = (await first.json()) as { data: Array<{ created: number }> };
+    expect(firstBody.data.every((m) => m.created === 0)).toBe(true);
+
+    // Seed the disk cache: its mtime becomes the catalog stamp, reported
+    // in OpenAI's epoch-SECONDS convention.
+    writeFileSync(join(fx.dir, "models-cache.json"), JSON.stringify({}));
+    const second = await createRouterRoutes(fx.deps).request("/v1/models");
+    const secondBody = (await second.json()) as { data: Array<{ created: number }> };
+    const nowSec = Math.floor(Date.now() / 1000);
+    expect(secondBody.data.length).toBeGreaterThan(0);
+    for (const m of secondBody.data) {
+      expect(m.created).toBeGreaterThan(nowSec - 60);
+      expect(m.created).toBeLessThanOrEqual(nowSec);
+    }
+    fx.cleanup();
+  });
+
   test("POST /v1/chat/completions (non-stream) returns a completion object", async () => {
     const fx = makeFixture();
     const res = await createRouterRoutes(fx.deps).request("/v1/chat/completions", {

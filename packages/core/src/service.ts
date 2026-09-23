@@ -34,6 +34,7 @@ import {
   type PlanFile,
   type PromptPayload,
   type ProviderListResponse,
+  type ProviderRefreshResponse,
   type QuestionRequest,
   type RevertState,
   type Session,
@@ -1584,6 +1585,17 @@ export class Service {
   /** Merged provider view (catalog ⊕ config ⊕ accounts) for the API layer. */
   providers(): Promise<ProviderListResponse> {
     return this.deps.providers.listResponse();
+  }
+
+  /**
+   * Manual catalog refresh: force a models.dev pull NOW (bypasses the
+   * server's TTL) and broadcast `provider.updated` so every surface
+   * refetches. Rejects when the network fetch fails (current catalog kept).
+   */
+  async refreshProviderCatalog(): Promise<ProviderRefreshResponse> {
+    const lastUpdatedAt = await this.deps.providers.refreshCatalog();
+    this.emitLive("provider.updated", {});
+    return { lastUpdatedAt };
   }
 
   /**

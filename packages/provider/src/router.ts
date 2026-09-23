@@ -88,6 +88,11 @@ export class ModelRouter {
     return this.registry.listProviders();
   }
 
+  /** Epoch-ms stamp of the catalog's last models.dev fetch (0 = never). */
+  catalogUpdatedAt(): number {
+    return this.registry.catalogUpdatedAt();
+  }
+
   listResponse(): Promise<ProviderListResponse> {
     return this.registry.listResponse();
   }

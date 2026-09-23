@@ -95,6 +95,18 @@ export interface ProviderFileListResponse {
 export interface ProviderListResponse {
   providers: ProviderInfo[];
   default: { model?: string; account?: string };
+  /**
+   * Epoch-ms stamp of the catalog's last successful models.dev fetch
+   * (0 = never fetched — bundled snapshot / fresh install). Optional so
+   * older servers without the field still typecheck.
+   */
+  catalogUpdatedAt?: number;
+}
+
+/** POST /api/provider/refresh response. */
+export interface ProviderRefreshResponse {
+  /** Epoch-ms stamp after the refresh attempt (0 = never fetched). */
+  lastUpdatedAt: number;
 }
 
 // --- OAuth logins ---------------------------------------------------------

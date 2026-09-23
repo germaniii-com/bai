@@ -525,7 +525,12 @@ offline snapshot ≤24 h behind) ⊕ user config overrides ⊕ a **curated
 bai-owned overlay** (`provider/overlay.ts`) that adds providers models.dev
 omits (coding plans, gateways, OAuth-only providers) and attaches
 adapter/auth/header metadata. Auth via env vars, config, API-key accounts,
-and **OAuth/subscription logins**.
+and **OAuth/subscription logins**. `CatalogService` refreshes from the
+network in the background whenever the data is older than 5 min (lazy —
+fired by `providers()` calls, never a timer); `POST /api/provider/refresh`
+forces a pull NOW (web Settings → "Refresh catalog", TUI providers dialog
+ctrl+r), and the last successful fetch stamp rides `GET /api/provider` as
+`catalogUpdatedAt` (0 = never fetched).
 
 ### 10.1 OAuth / subscription logins
 

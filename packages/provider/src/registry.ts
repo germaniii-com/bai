@@ -77,6 +77,19 @@ export class ProviderRegistry {
     this.materialized.clear();
   }
 
+  /**
+   * Force a models.dev catalog refresh (bypasses the TTL) — the manual
+   * "update models now" path. Resolves to the new last-updated stamp.
+   */
+  refreshCatalog(): Promise<number> {
+    return this.deps.catalog.refresh();
+  }
+
+  /** Epoch-ms stamp of the catalog's last successful models.dev fetch (0 = never). */
+  catalogUpdatedAt(): number {
+    return this.deps.catalog.lastUpdatedAt();
+  }
+
   /** Builtins/tests win over catalog-derived adapters. */
   register(provider: Provider): void {
     this.registered.set(provider.name(), provider);
@@ -402,6 +415,7 @@ export class ProviderRegistry {
           ? { account: await this.defaultAccount(config.models.default.split("/")[0] ?? "") }
           : {}),
       },
+      catalogUpdatedAt: this.deps.catalog.lastUpdatedAt(),
     };
   }
 
