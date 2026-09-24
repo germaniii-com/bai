@@ -24,6 +24,11 @@ Gemini CLI, GitHub Copilot CLI.
 
 ## Rendering conventions
 
+- Transcripts scroll through `components/virtual-list.tsx`: a variable-height
+  virtualized viewport (adapted from `ink-virtual-list`, with per-item
+  `measureElement` instead of its fixed `itemHeight`). Only the visible items
+  (+ a small overscan) are mounted/measured, and heights are cached by React
+  key — keep item keys stable so a long session stays O(visible) per render.
 - Markdown: parse with `marked`, map blocks to Ink components, highlight
   fenced code with `cli-highlight` (the Claude Code pattern). Avoid stale
   string-renderer shortcuts for interactive views.

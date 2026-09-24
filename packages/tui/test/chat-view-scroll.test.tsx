@@ -8,7 +8,7 @@ import { ChatView } from "../src/views/chat";
 
 /**
  * Integration checks for the chat view's scroll wiring on the vendored
- * ScrollView, inside a replica of app.tsx's real shell nesting (fixed-height
+ * VirtualList, inside a replica of app.tsx's real shell nesting (fixed-height
  * root → flex body with paddingX → footer; the app is headerless — the
  * composer hub owns the context):
  *
@@ -49,7 +49,7 @@ function ChatHarness({
   onLoadOlder?: () => void;
 }) {
   // Mirrors app.tsx's shell (headerless): fixed-height root, flex body with
-  // paddingX, one footer line — the ScrollView must scroll inside THIS
+  // paddingX, one footer line — the VirtualList must scroll inside THIS
   // nesting. footerRows mirrors the footer's line count (hub chip math).
   return (
     <Box flexDirection="column" width={60} height={24}>

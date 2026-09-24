@@ -2,7 +2,7 @@ import { Box, Text, useInput, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followSession, type BaiClient } from "@bai/api/client";
 import type { Message, PermissionRequest } from "@bai/shared";
-import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
+import { VirtualList, type VirtualListRef } from "../components/virtual-list";
 import { PermissionDialog } from "./permission-dialog";
 import { applyDeltaBatch, applyEvent, buildTranscriptItems, createDeltaBuffer, messageText } from "../state/sync";
 import { moveFocus } from "../state/focus";
@@ -205,7 +205,7 @@ export function SubagentDialog({
   };
 
   // ---- scrolling (row-continuous, follow-the-bottom while running) ------
-  const scrollRef = useRef<ScrollViewRef>(null);
+  const scrollRef = useRef<VirtualListRef>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -240,7 +240,10 @@ export function SubagentDialog({
   );
   const scrollBy = useCallback(
     (delta: number): void => {
-      scrollTo(scrollOffsetRef.current + delta);
+      // Effective offset (the list may have folded in an anchor correction) so a
+      // relative scroll never jumps by a pending correction delta.
+      const current = scrollRef.current?.getScrollOffset() ?? scrollOffsetRef.current;
+      scrollTo(current + delta);
     },
     [scrollTo],
   );
@@ -400,9 +403,16 @@ export function SubagentDialog({
           }}
         />
       ) : (
-        <ScrollView
+        <VirtualList
           ref={scrollRef}
           scrollOffset={shownOffset}
+          // Child transcripts are node-dense too; windowed for the same reason
+          // as the main chat (O(visible) instead of O(all nodes)).
+          // Absorb the anchor correction so a relative scroll can't freeze
+          // (same reason as the chat view).
+          onScrollOffsetChange={(next) => {
+            if (!followRef.current) setScrollOffset(next);
+          }}
           onContentHeightChange={handleContentHeightChange}
           onViewportSizeChange={handleViewportSizeChange}
           flexGrow={1}
@@ -485,7 +495,7 @@ export function SubagentDialog({
           })}
           {items.length === 0 && !loadError && <Text color={t.dim}>waiting for the subagent…</Text>}
           {loadError !== null && <Text color={t.danger}>{loadError}</Text>}
-        </ScrollView>
+        </VirtualList>
       )}
 
       <Text color={t.dim}>

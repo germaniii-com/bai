@@ -1,6 +1,6 @@
 import { Box, Text, useInput, usePaste, useStdout, useWindowSize } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, type ScrollViewRef } from "../components/scroll-view";
+import { VirtualList, type VirtualListRef } from "../components/virtual-list";
 import { SelectDialog } from "../components/dialog";
 import type { BaiClient } from "@bai/api/client";
 import type {
@@ -97,13 +97,15 @@ const VIEWPORT_TOP_ROW = 1;
  * `Editor` model (no extra deps); ctrl-prefixed globals are ignored here so
  * typing stays clean.
  *
- * Scrolling is ROW-based and continuous (components/scroll-view.tsx): the
- * transcript renders in full and the container clips at `scrollOffset` rows
- * from the top, so partial messages at the viewport edges are natural — no
- * message snapping. Follow-the-bottom is the sticky policy: while pinned
- * (`followRef`), every content-height change re-snaps to the bottom; scrolled
- * up, the reading window is automatically stable while new content streams in
- * below (the offset is from the top, so new rows appear out of view).
+ * Scrolling is ROW-based and continuous (components/virtual-list.tsx): only
+ * the items in the viewport (plus a small overscan) are mounted and measured,
+ * and the container clips at `scrollOffset` rows from the top — so a long
+ * transcript costs O(visible) per render instead of O(all nodes), while
+ * partial nodes at the viewport edges stay natural (no message snapping).
+ * Follow-the-bottom is the sticky policy: while pinned (`followRef`), every
+ * content-height change re-snaps to the bottom; scrolled up, the reading
+ * window is automatically stable while new content streams in below (the
+ * offset is from the top, so new rows appear out of view).
  */
 export function ChatView({
   client,
@@ -532,9 +534,9 @@ export function ChatView({
   ]);
 
   // ---- Continuous scroll state (terminal rows from the transcript top) ----
-  const scrollRef = useRef<ScrollViewRef>(null);
+  const scrollRef = useRef<VirtualListRef>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
-  // Measured transcript/viewport heights (mirrored from the ScrollView) —
+  // Measured transcript/viewport heights (mirrored from the VirtualList) —
   // drive the indicator, clamping, and the paging distances.
   const [contentHeight, setContentHeight] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -667,7 +669,11 @@ export function ChatView({
 
   const scrollBy = useCallback(
     (delta: number): void => {
-      scrollTo(scrollOffsetRef.current + delta);
+      // Prefer the list's effective offset: the virtualizer may have folded an
+      // anchor correction (measurements above the reading window) into it, and
+      // a relative scroll from the stale state value would jump by that delta.
+      const current = scrollRef.current?.getScrollOffset() ?? scrollOffsetRef.current;
+      scrollTo(current + delta);
     },
     [scrollTo],
   );
@@ -1080,14 +1086,16 @@ export function ChatView({
           // The item whose measured block contains the clicked row acts —
           // thought toggles, a task opens the subagent dialog, any other tool
           // toggles its inline output. Positions are exact per node (each
-          // item is measured).
+          // item is measured). Use the list's effective offset (it may carry
+          // an anchor correction the raw state value hasn't absorbed yet).
+          const hitOffset = scrollRef.current?.getScrollOffset() ?? shownOffset;
           for (let ii = 0; ii < focusItems.length; ii++) {
             const pos = scrollRef.current?.getItemPosition(ii);
             if (pos === null || pos === undefined) continue;
             const gap = ii === 0 ? 0 : 1;
-            const top = VIEWPORT_TOP_ROW + pos.top + gap - shownOffset;
+            const top = VIEWPORT_TOP_ROW + pos.top + gap - hitOffset;
             const bottom =
-              VIEWPORT_TOP_ROW + pos.top + pos.height - shownOffset;
+              VIEWPORT_TOP_ROW + pos.top + pos.height - hitOffset;
             if (row < top || row >= bottom) continue;
             const item = focusItems[ii];
             if (item === undefined) return;
@@ -1467,22 +1475,30 @@ export function ChatView({
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Continuous scroll viewport (components/scroll-view.tsx): the
-          transcript renders in full and the container clips at `scrollOffset`
-          rows from the top — scrolling is row-continuous and partial messages
-          at the edges are natural. bottomAlign keeps short transcripts hugging
-          the composer. The component's overflow-hidden viewport is the
-          deterministic guard: content can never bleed into the composer.
-          Item boxes carry flexShrink 0 so Yoga never compresses them.
+      {/* Continuous scroll viewport (components/virtual-list.tsx): only the
+          items in view (+ overscan) are mounted and measured, and the container
+          clips at `scrollOffset` rows from the top — scrolling is row-continuous
+          and partial nodes at the edges are natural, but a long transcript no
+          longer pays O(all nodes) per render. bottomAlign keeps short
+          transcripts hugging the composer. The component's overflow-hidden
+          viewport is the deterministic guard: content can never bleed into the
+          composer. Item boxes carry flexShrink 0 so Yoga never compresses them.
           The transcript is a flat list of NODES (buildTranscriptItems): a
           user message, a thought, each tool call, and the reply text are
           each their own focusable/clickable/measured item — thought and
           task highlight independently, and every tool call can expand to
           its output. */}
-      <ScrollView
+      <VirtualList
         ref={scrollRef}
         scrollOffset={shownOffset}
         bottomAlign
+        // Absorb the list's anchor correction (measurements above the reading
+        // window) into our offset state so a relative wheel/j/k scroll can't
+        // land on the unchanged raw offset and freeze. While pinned, the
+        // follow-the-bottom snap owns the offset.
+        onScrollOffsetChange={(next) => {
+          if (!followRef.current) setScrollOffset(next);
+        }}
         onContentHeightChange={handleContentHeightChange}
         onViewportSizeChange={handleViewportSizeChange}
         flexGrow={1}
@@ -1853,7 +1869,7 @@ export function ChatView({
             <Spinner label="thinking…" />
           </Box>
         )}
-      </ScrollView>
+      </VirtualList>
 
       {(aboveCount > 0 || historyHasMore === true || loadingOlder === true) && (
         <Box marginBottom={1}>

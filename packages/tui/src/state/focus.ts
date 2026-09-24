@@ -5,7 +5,7 @@
  *
  * Focus is an index into the message list (`0` = oldest, `len - 1` = newest)
  * or null when nothing is focused. The chat view scrolls BY ROWS to reveal
- * the focused message (continuous scroll — components/scroll-view.tsx), so
+ * the focused message (continuous scroll — components/virtual-list.tsx), so
  * there is no message-window snapping math here anymore.
  */
 
