@@ -229,6 +229,12 @@ export interface UiConfig {
    * Only meaningful in advanced mode. Unset = shown.
    */
   showBuiltins?: boolean;
+  /**
+   * Nav sections to hide from the web rail (e.g. `["automations","shell"]`).
+   * Applies in both modes; edited from the advanced-mode Interface list.
+   * Settings/Theme are never hideable. Unset/empty = all shown.
+   */
+  hiddenNav?: string[];
 }
 
 export interface ServerConfig {
@@ -437,6 +443,7 @@ const themeSchema = z.string().min(1).max(100);
 const uiSchema = z.object({
   advancedMode: z.boolean().optional(),
   showBuiltins: z.boolean().optional(),
+  hiddenNav: z.array(z.string().min(1).max(50)).max(50).optional(),
 });
 
 const jobsSchema = z.object({

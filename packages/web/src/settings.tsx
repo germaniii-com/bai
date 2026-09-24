@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, ChevronDown, Copy, FileText, Pencil, Server, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Copy, Eye, EyeOff, FileText, Pencil, Server, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -29,6 +29,7 @@ import {
   sortModelsZdrFirst,
   THEME_OPTIONS,
 } from "@bai/shared";
+import { NAV_ITEMS } from "./nav-items";
 import { partitionProviders, sortProviders } from "./provider-utils";
 import { modelOptionHint, videoModelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
@@ -157,6 +158,7 @@ export function SettingsPane({
   theme,
   advancedMode,
   showBuiltins,
+  hiddenNav,
   onOpenThemePicker,
   onNotice,
 }: {
@@ -187,6 +189,8 @@ export function SettingsPane({
   advancedMode?: boolean;
   /** config ui.showBuiltins — show built-in resources (unset = shown). */
   showBuiltins?: boolean;
+  /** config ui.hiddenNav — nav sections hidden from the rail. */
+  hiddenNav?: string[];
   /** Open the theme picker modal (App-owned). */
   onOpenThemePicker: () => void;
   /** Toast feedback (success/error). */
@@ -248,6 +252,7 @@ export function SettingsPane({
           theme={theme}
           advancedMode={advancedMode}
           showBuiltins={showBuiltins}
+          hiddenNav={hiddenNav}
           onOpenThemePicker={onOpenThemePicker}
           mutate={mutate}
         />
@@ -348,6 +353,7 @@ function GeneralPane({
   theme,
   advancedMode,
   showBuiltins,
+  hiddenNav,
   onOpenThemePicker,
   mutate,
 }: {
@@ -361,10 +367,12 @@ function GeneralPane({
   /** Config display name — the User name card (merged from the old User section). */
   userName?: string;
   theme: string;
-  /** config ui.advancedMode — unset = advanced. */
+  /** config ui.advancedMode — unset = basic. */
   advancedMode?: boolean;
   /** config ui.showBuiltins — show built-in resources (unset = shown). */
   showBuiltins?: boolean;
+  /** config ui.hiddenNav — nav sections hidden from the rail. */
+  hiddenNav?: string[];
   onOpenThemePicker: () => void;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
@@ -377,6 +385,7 @@ function GeneralPane({
         client={client}
         advancedMode={advancedMode}
         showBuiltins={showBuiltins}
+        hiddenNav={hiddenNav}
         mutate={mutate}
       />
       <DefaultAgentCard
@@ -406,15 +415,30 @@ function AdvancedModeCard({
   client,
   advancedMode,
   showBuiltins,
+  hiddenNav,
   mutate,
 }: {
   client: BaiClient;
   advancedMode?: boolean;
   showBuiltins?: boolean;
+  hiddenNav?: string[];
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   // Unset = basic (fresh installs start basic).
   const advanced = advancedMode === true;
+  const hidden = hiddenNav ?? [];
+
+  /** Add/remove one section id from config ui.hiddenNav. */
+  const toggleNav = (id: string, hide: boolean): void => {
+    const next = hide ? [...new Set([...hidden, id])] : hidden.filter((entry) => entry !== id);
+    void mutate(
+      async () => {
+        await client.putConfig({ ui: { hiddenNav: next } });
+      },
+      `${NAV_ITEMS.find((i) => i.id === id)?.label ?? id}: ${hide ? "hidden" : "shown"}`,
+    );
+  };
+
   return (
     <Card>
       <SectionHeader
@@ -434,21 +458,46 @@ function AdvancedModeCard({
           );
         }}
       />
-      {/* Sub-toggle: only meaningful while the machinery sections are shown. */}
+      {/* Sub-toggles + per-item visibility: only meaningful in advanced mode. */}
       {advanced && (
-        <SwitchField
-          checked={showBuiltins !== false}
-          label="Show built-in resources"
-          description="List bai's built-in agents, tools, and bundled skills alongside your own. Off shows only the resources you created."
-          onChange={(on) => {
-            void mutate(
-              async () => {
-                await client.putConfig({ ui: { showBuiltins: on } });
-              },
-              on ? "Built-in resources shown" : "Built-in resources hidden",
-            );
-          }}
-        />
+        <>
+          <SwitchField
+            checked={showBuiltins !== false}
+            label="Show built-in resources"
+            description="List bai's built-in agents, tools, and bundled skills alongside your own. Off shows only the resources you created."
+            onChange={(on) => {
+              void mutate(
+                async () => {
+                  await client.putConfig({ ui: { showBuiltins: on } });
+                },
+                on ? "Built-in resources shown" : "Built-in resources hidden",
+              );
+            }}
+          />
+          <div className="nav-visibility">
+            <span className="field-label">Nav items</span>
+            <p className="section-lede">Show or hide each item in the rail.</p>
+            <div className="nav-visibility-list">
+              {NAV_ITEMS.map((item) => {
+                const shown = !hidden.includes(item.id);
+                return (
+                  <div className="nav-visibility-row" key={item.id}>
+                    <span className="nav-visibility-label">{item.label}</span>
+                    <IconButton
+                      className={shown ? "nav-visibility-eye" : "nav-visibility-eye off"}
+                      label={shown ? `Hide ${item.label}` : `Show ${item.label}`}
+                      hint={shown ? "Visible in the nav" : "Hidden from the nav"}
+                      aria-pressed={shown}
+                      onClick={() => toggleNav(item.id, shown)}
+                    >
+                      {shown ? <Eye size={15} aria-hidden="true" /> : <EyeOff size={15} aria-hidden="true" />}
+                    </IconButton>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
     </Card>
   );

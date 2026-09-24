@@ -760,6 +760,30 @@ UI work.
 
 ---
 
+## 🧭 Navigation modes (basic / advanced) — shipped
+
+The web nav ships two densities, toggled in **Settings → General → Interface**
+(config `ui.advancedMode`) and applied live (no restart) via `config.updated`.
+
+- **Basic (default)** — just the workbenches and utilities: **Chat, Workspace,
+  Image Gen, Video Gen, Theme, Settings**. Fresh installs start here, so the
+  agent machinery doesn't crowd the rail until you ask for it.
+- **Advanced** — adds the agent-machinery sections **Agents, Skills, Tools,
+  Automations, Analytics** and **Shell**. Switching back to basic while on one
+  of those sections falls back to Chat.
+- **Per-item visibility** — in advanced mode the Interface card lists every nav
+  item with an **eye toggle** (`config ui.hiddenNav`): hide any you don't use
+  (e.g. Automations), and it drops out of the rail — in either mode — while the
+  currently-open section falls back to a visible one. Settings and Theme are
+  always shown.
+
+A nested sub-toggle, **Show built-in resources** (`config ui.showBuiltins`,
+advanced only), controls whether bai's own resources appear in the
+Agents/Tools/Skills lists: **on (default)** lists the built-in agents
+(build/chat/plan/learn), built-in tools, and bundled skills alongside yours;
+**off** hides them, leaving only what you created. (Bundled skills are detected
+through the skills dir's bundled manifest and marked `builtin` on the wire.)
+
 ## 🔤 Design system — shipped
 
 The web surface's visual language as a small set of tokens: self-hosted
