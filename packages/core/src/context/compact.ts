@@ -46,6 +46,34 @@ export function shouldCompact(inputTokens: number | undefined, contextWindow: nu
   return inputTokens >= threshold;
 }
 
+/**
+ * The context snapshot recorded on the compaction summary part's metadata
+ * (`payload.context`): the provider-reported input tokens that crossed the
+ * threshold, the model's window when known, the resulting fill fraction, and
+ * the trigger fraction. Lets surfaces and audits see at what size a session
+ * compacted without re-reading the pre-compaction transcript.
+ */
+export interface CompactionContext {
+  /** Provider-reported input tokens that triggered compaction. */
+  inputTokens: number;
+  /** The model's context window when the catalog/provider reported one. */
+  contextWindow?: number;
+  /** inputTokens / contextWindow when the window is known (~0.75+). */
+  percent?: number;
+  /** The trigger fraction (COMPACT_THRESHOLD). */
+  threshold: number;
+}
+
+/** Build the summary part's context metadata from the triggering usage. */
+export function buildCompactionContext(inputTokens: number, contextWindow: number | undefined): CompactionContext {
+  const known = contextWindow !== undefined && contextWindow > 0;
+  return {
+    inputTokens,
+    ...(known ? { contextWindow, percent: inputTokens / contextWindow } : {}),
+    threshold: COMPACT_THRESHOLD,
+  };
+}
+
 /** Flatten the conversation for the summarizer (tool results capped, roles labeled). */
 export function buildSummaryInput(messages: Message[], maxResultChars = 2000): string {
   const lines: string[] = [];

@@ -11,7 +11,7 @@ export { Bus, type Subscription } from "./event";
 export { EventLog } from "./event";
 export { loadConfig, ConfigStore, findProjectConfig, readJsoncFile, atomicWriteJson, stripJsonComments, type LoadedConfig } from "./config";
 export { applyDiscipline, stubIdenticalResults, pruneOldToolResults, estimateTokens, estimateTextTokens, estimateToolDefsTokens, KEEP_RESULTS } from "./context/discipline";
-export { shouldCompact, buildSummaryInput, SUMMARY_SYSTEM_PROMPT, SUMMARY_PREFIX, COMPACT_THRESHOLD, COMPACT_FLOOR_TOKENS } from "./context/compact";
+export { shouldCompact, buildCompactionContext, buildSummaryInput, SUMMARY_SYSTEM_PROMPT, SUMMARY_PREFIX, COMPACT_THRESHOLD, COMPACT_FLOOR_TOKENS, type CompactionContext } from "./context/compact";
 export * from "@bai/provider";
 export { ToolRegistry, OUTPUT_LIMIT, type Tool, type ToolContext, type ToolResult } from "./tools/registry";
 export { evaluatePermission, patternMatches } from "./permissions/engine";

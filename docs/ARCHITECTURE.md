@@ -449,7 +449,11 @@ interrupt: AbortController cancels the drain; admitted-but-unpromoted inputs sta
   model's window (80K floor), the small-model path summarizes the transcript
   into a structured summary (Goal/Progress/Decisions/Next Steps/Critical
   Context + read/modified-files appendix); `session.meta.compactionMessageId`
-  points at it and later drains slice history from that pointer.
+  points at it and later drains slice history from that pointer. The summary
+  part carries `payload.context` — the triggering input tokens, the model
+  window, and the resulting fill fraction — so surfaces and audits see the
+  compaction size, and a bundled `compaction` skill teaches skill-capable
+  agents to keep durable state (notes/plans/todos) so a compaction is lossless.
 - **Revert & fork:** every mutating tool batch snapshots the worktree into a
   shadow git repo (`core/src/snapshot.ts` — one repo per worktree under
   `~/.local/share/bai/snapshot/`, object db borrowed via alternates, ops

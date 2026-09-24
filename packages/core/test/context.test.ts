@@ -10,7 +10,7 @@ import {
   stubIdenticalResults,
   KEEP_RESULTS,
 } from "../src/context/discipline";
-import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, fileRefAppendix } from "../src/context/compact";
+import { buildCompactionContext, buildSummaryInput, shouldCompact, SUMMARY_PREFIX, fileRefAppendix } from "../src/context/compact";
 import type { Provider, ProviderStream, StreamEvent, LlmRequest } from "@bai/provider";
 import type { Message, MessageId, ModelInfo, Part, PartId, SessionId } from "@bai/shared";
 
@@ -99,6 +99,17 @@ describe("compaction helpers", () => {
     expect(shouldCompact(81_000, undefined)).toBe(true); // floor 80k
     expect(shouldCompact(10_000, undefined)).toBe(false);
     expect(shouldCompact(undefined, 200_000)).toBe(false);
+  });
+
+  test("buildCompactionContext records the trigger and fill fraction", () => {
+    expect(buildCompactionContext(96_000, 128_000)).toEqual({
+      inputTokens: 96_000,
+      contextWindow: 128_000,
+      percent: 0.75,
+      threshold: 0.75,
+    });
+    // Unknown window: tokens + threshold only, no percent.
+    expect(buildCompactionContext(90_000, undefined)).toEqual({ inputTokens: 90_000, threshold: 0.75 });
   });
 
   test("buildSummaryInput flattens roles and caps tool results; appendix harvests files", () => {
@@ -197,9 +208,20 @@ describe("compaction flow", () => {
 
     const summaryMessage = t.core.history(session.id).find((m) => m.id === afterMeta.compactionMessageId);
     expect(summaryMessage).toBeDefined();
-    const text = (summaryMessage?.parts[0]?.payload as { text: string }).text;
+    const payload = summaryMessage?.parts[0]?.payload as {
+      text: string;
+      compaction?: boolean;
+      context?: { inputTokens?: number; contextWindow?: number; percent?: number; threshold?: number };
+    };
+    const text = payload.text;
     expect(text.startsWith(SUMMARY_PREFIX)).toBe(true);
     expect(text).toContain("Goal: fix the bug");
+    // The summary part's metadata carries the context that triggered it.
+    expect(payload.compaction).toBe(true);
+    expect(payload.context?.inputTokens).toBe(90_000);
+    expect(payload.context?.threshold).toBe(0.75);
+    expect(payload.context?.contextWindow).toBeUndefined(); // fake provider has no window
+    expect(payload.context?.percent).toBeUndefined();
     // The summary call rode the small model path.
     const summaryReq = summarizer.requests.find((r) => (r.messages[0] as { content?: string })?.content?.startsWith("You are a conversation summarizer"));
     expect(summaryReq).toBeDefined();

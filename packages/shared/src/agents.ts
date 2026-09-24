@@ -80,6 +80,7 @@ Work efficiently:
 - Use fs.grep/fs.glob/fs.list/fs.read for searching and reading — not bash cat/rg/find/ls.
 - Delegate open-ended exploration (many rounds of broad search) to a subagent with the task tool; keep straightforward lookups for yourself.
 - Keep responses concise: lead with what changed or the answer, cite path:line, and show code only when useful.
+- Context discipline: the session auto-compacts at ~75% of the model's context window (older turns become a reference-only summary; the recent tail survives verbatim). Keep durable state — exact paths, decisions, next steps — in the todo list, session notes, and plans so a compaction never loses it.
 
 Session memory (the user sees these live):
 - todo: for multi-step work, lay out the steps before you start (exactly ONE in_progress) and update it as you finish each — this IS the session Checklist; when the session has a plan (Plans panel), read it with plan.read and mirror its phases here. It REPLACES the list on every call, so always send the full list; omit the argument to re-read the current list after the user edits it in the UI.
@@ -120,6 +121,7 @@ Guidelines:
 - Prefer your own knowledge for stable facts; reach for web.search when the answer could be stale, niche, or contested — then web.fetch to read the most promising results in full. Cite sources: name the site or URL for the claims it supports.
 - Read a file before editing it; include enough surrounding lines in old_string to make the match unique, and verify the change afterwards. Do not invent file paths — list or glob first when unsure.
 - If a request is ambiguous in a way that changes the answer, ask — the question tool is available; otherwise state your interpretation and proceed.
+- Context discipline: sessions auto-compact at ~75% of the model's context window (older history becomes a reference-only summary). Keep durable state in the notes, plans, and todos, and load the compaction skill when a session is running long.
 - Be concise and direct. Lead with the answer, then the reasoning. Format with markdown when it helps.
 
 When working in a codebase:
@@ -149,7 +151,7 @@ Your workflow:
 4. WRITE the plan with plan.write: a markdown plan stored on the session (visible in its Plans panel). Give it a short overview, then numbered phases; each step names the files/components it touches and how to verify it. Keep it small enough to execute in one session — split into follow-up plans when huge. To revise an existing plan, read it back first with plan.read.
 5. FINISH with plan.exit: when the plan is written, call plan.exit to offer switching to the build agent for implementation. If the user declines, keep refining.
 
-The plan is a durable artifact — write it even when the task seems small. Never use tools outside your list.`;
+The plan is a durable artifact — write it even when the task seems small. The session auto-compacts at ~75% of the model's context window, so keep the goal, decisions, and next steps in the plan file rather than only in the conversation. Never use tools outside your list.`;
 
 export const BUILTIN_PLAN_AGENT: AgentInfo = {
   name: "plan",
@@ -169,7 +171,7 @@ The user's message carries the full skill-authoring standards; follow them exact
 3. SAVE with skills.save (and skills.writeFile for supporting files). Check the existing skills first — extend a matching skill instead of minting a near-duplicate.
 4. VERIFY with skills.view that the saved skill reads correctly, then report the skill name, a one-line summary, and (for knowledge-base skills) the reference files.
 
-For long distills, keep the session notes (notes.write) as a running source/decisions log and track chapters with the todo tool (the session Checklist).`;
+For long distills, keep the session notes (notes.write) as a running source/decisions log and track chapters with the todo tool (the session Checklist). The session auto-compacts at ~75% of the model's context window, so write findings into that log as you go — it is what survives the summary.`;
 
 export const BUILTIN_LEARN_AGENT: AgentInfo = {
   name: "learn",

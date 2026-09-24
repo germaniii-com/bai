@@ -61,6 +61,26 @@ describe("built-in agent prompts teach phased codebase scanning", () => {
   });
 });
 
+describe("built-in agent prompts teach context compaction", () => {
+  test("every built-in agent names the ~75% auto-compaction threshold", () => {
+    for (const prompt of [BUILD_AGENT_PROMPT, CHAT_AGENT_PROMPT, PLAN_AGENT_PROMPT, LEARN_AGENT_PROMPT]) {
+      expect(prompt).toContain("~75%");
+      expect(prompt).toContain("context window");
+      expect(prompt).toContain("compact");
+    }
+  });
+
+  test("agents keep durable state where compaction cannot reach it", () => {
+    // build: artifacts; chat: notes/plans/todos + the compaction skill.
+    expect(BUILD_AGENT_PROMPT).toContain("session notes");
+    expect(CHAT_AGENT_PROMPT).toContain("compaction skill");
+    // plan: the plan file is the durable artifact.
+    expect(PLAN_AGENT_PROMPT).toContain("plan file");
+    // learn: the notes log is the running source of truth.
+    expect(LEARN_AGENT_PROMPT).toContain("session notes");
+  });
+});
+
 describe("built-in agent tool grants", () => {
   test("plan and chat have web-search access by default", () => {
     expect(BUILTIN_PLAN_AGENT.tools).toContain("web.search");

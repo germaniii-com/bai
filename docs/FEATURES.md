@@ -197,7 +197,10 @@ agents that can actually touch the files.
 - **Token discipline** keeps long agentic sessions affordable: identical
   tool results collapse to stubs, old results prune to one-liners (the full
   transcript stays recoverable), and context auto-compacts at ~75% of the
-  model's window with a structured summary
+  model's window with a structured summary (the summary part's metadata
+  records the triggering context size; a bundled `compaction` skill — for
+  agents with `skills.view` — shows how to keep durable state in the session
+  notes/plans so a compaction is lossless)
 
 **Under the hood**
 

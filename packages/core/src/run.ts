@@ -3,7 +3,7 @@ import { deriveFolderAliases, folderAliasMap } from "@bai/shared";
 import type { AgentRegistry } from "./agent/registry";
 import type { AttachmentStore } from "./attachments";
 import { applyDiscipline, estimateTextTokens, estimateTokens, estimateToolDefsTokens } from "./context/discipline";
-import { buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
+import { buildCompactionContext, buildSummaryInput, shouldCompact, SUMMARY_PREFIX, SUMMARY_SYSTEM_PROMPT } from "./context/compact";
 import type { Bus } from "./event/bus";
 import type { EventLog } from "./event/log";
 import { renderOutbound, isToolCallPayload, isAttachmentPayload, type ResolvedAttachment } from "./run/history";
@@ -899,7 +899,7 @@ export class RunCoordinator {
   ): Promise<void> {
     const recorded = this.readMeta(sessionId).lastUsage as { inputTokens?: number } | undefined;
     const inputTokens = usage?.inputTokens ?? recorded?.inputTokens;
-    if (!shouldCompact(inputTokens, contextWindow)) return;
+    if (inputTokens === undefined || !shouldCompact(inputTokens, contextWindow)) return;
     if (signal.aborted) return;
 
     const history = this.deps.store.messages.history(sessionId);
@@ -956,6 +956,10 @@ export class RunCoordinator {
       const part = this.deps.store.parts.append(message.id, 0, "text", {
         text: `${SUMMARY_PREFIX}\n\n${summary}`,
         compaction: true,
+        // The context snapshot that triggered this compaction (input tokens,
+        // window, fill fraction) — carried on the summary part's metadata and
+        // in the streamed part event, so surfaces and audits can see the size.
+        context: buildCompactionContext(inputTokens, contextWindow),
       });
       this.emitDurable(sessionId, "message.created", { messageId: message.id, role: "user" });
       this.emitDurable(sessionId, "message.part.updated", {
