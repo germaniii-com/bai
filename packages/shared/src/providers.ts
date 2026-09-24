@@ -65,6 +65,12 @@ export interface ProviderInfo {
   /** Configured context window override (custom providers). */
   contextLength?: number;
   /**
+   * True when the user hid this provider from the LLM model pickers
+   * (`config.providers[id].hidden`). The provider is still listed here (and in
+   * Settings) so it can be toggled back; pickers filter it out.
+   */
+  hidden?: boolean;
+  /**
    * Authentication shape: `"api_key"` (default) or an OAuth method
    * (`"device_code" | "paste_code" | "import" | "adc"`).
    */

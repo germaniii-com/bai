@@ -72,6 +72,17 @@ describe("config schema", () => {
     expect(configPatchSchema.parse({})).toEqual({});
   });
 
+  test("parses a provider hidden flag (hide from model pickers)", () => {
+    const parsed = configSchema.parse({ providers: { openrouter: { hidden: true } } });
+    expect(parsed.providers.openrouter?.hidden).toBe(true);
+    // Unset = visible (absent, not false).
+    expect(configSchema.parse({ providers: { openrouter: {} } }).providers.openrouter?.hidden).toBeUndefined();
+    expect(configPatchSchema.parse({ providers: { x: { hidden: false } } })).toEqual({
+      providers: { x: { hidden: false } },
+    });
+    expect(() => configSchema.parse({ providers: { x: { hidden: "yes" } } })).toThrow();
+  });
+
   test("rejects invalid values", () => {
     expect(() => configSchema.parse({ server: { port: -1 } })).toThrow();
     expect(() => configSchema.parse({ permissions: { x: "maybe" } })).toThrow();

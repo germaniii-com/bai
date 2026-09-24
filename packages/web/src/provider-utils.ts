@@ -37,12 +37,14 @@ export interface ProviderPartition {
 /**
  * Model-override combobox options: every model across CONNECTED providers,
  * id-valued with a provider + context/price hint (the Image/Video Gen model
- * selectors' stance). An explicit empty option resets to the inherited model.
+ * selectors' stance). Providers hidden from the pickers
+ * (`config.providers[id].hidden`) are excluded. An explicit empty option
+ * resets to the inherited model.
  */
 export function modelOverrideOptions(list: ProviderListResponse | null): ComboboxOption[] {
   const empty: ComboboxOption = { value: "", label: "(agent/session model)", hint: "no override — inherit" };
   if (list === null) return [empty];
-  const models = sortProviders(list.providers.filter((p) => p.connected)).flatMap((p) =>
+  const models = sortProviders(list.providers.filter((p) => p.connected && p.hidden !== true)).flatMap((p) =>
     p.models.map((m) => {
       const parts: string[] = [p.name];
       if (m.contextWindow !== undefined) parts.push(`${Math.round(m.contextWindow / 1000)}k ctx`);

@@ -20,6 +20,14 @@ export interface ProviderConfig {
   headers?: Record<string, string>;
   /** Context window for config-only models (compaction trigger). */
   contextLength?: number;
+  /**
+   * Hide this provider's models from the LLM model pickers (the chat model
+   * modal, agent/automation model-override comboboxes, and the TUI flat model
+   * list). Listing-only: the provider stays in Settings (so it can be
+   * toggled back) and a session already using one of its models keeps
+   * working. Unset = visible.
+   */
+  hidden?: boolean;
   /** TLS overrides for custom/self-hosted endpoints. */
   tls?: { caCert?: string; verify?: boolean };
   /**
@@ -322,6 +330,7 @@ const providerSchema = z.object({
   models: z.array(z.string().min(1).max(200)).max(1000).optional(),
   headers: z.record(z.string(), z.string()).optional(),
   contextLength: z.number().int().positive().max(10_000_000).optional(),
+  hidden: z.boolean().optional(),
   tls: z
     .object({
       caCert: z.string().max(4096).optional(),

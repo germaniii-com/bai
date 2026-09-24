@@ -182,6 +182,14 @@ describe("provider picker logic", () => {
     expect(opts.map((o) => o.value)).toEqual(["__custom__"]);
   });
 
+  test("allModelOptions: hidden providers contribute nothing", () => {
+    const opts = allModelOptions([
+      provider({ id: "aaa", connected: true, hidden: true, models: [{ id: "aaa/m", provider: "aaa", label: "M" }] }),
+      provider({ id: "openai", connected: true, models: [{ id: "openai/gpt", provider: "openai", label: "GPT" }] }),
+    ]);
+    expect(opts.map((o) => o.value)).toEqual(["openai/gpt", "__custom__"]);
+  });
+
   test("modelOptions: preferZdr floats capable models first with a zdr hint", () => {
     const p = provider({
       id: "openai",

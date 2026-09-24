@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, Copy, Pencil, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Copy, FileText, Pencil, Server, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -45,7 +45,9 @@ import {
   Card,
   Combobox,
   ConfirmDialog,
+  EmptyState,
   Field,
+  FormSection,
   IconButton,
   ListItem,
   MediaParamsForm,
@@ -55,13 +57,20 @@ import {
   Select,
   SubNav,
   SubNavItem,
+  Switch,
+  SwitchField,
+  Tabs,
   TagInput,
   TextInput,
   ToggleRow,
+  Toolbar,
 } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
+
+/** Model Providers category tabs (one list instead of four stacked groups). */
+type ProviderTab = "connected" | "catalog" | "custom" | "oauth" | "files";
 
 /**
  * Settings, divided into sections (the nested sidebar's entries): General,
@@ -190,6 +199,10 @@ export function SettingsPane({
     }
   };
 
+  // Data-heavy sections get a wider column than the form sections.
+  const settingsClass =
+    section === "providers" || section === "integrations" ? "settings settings-wide" : "settings";
+
   if (section === "webSearch") {
     return (
       <div className="settings">
@@ -200,7 +213,7 @@ export function SettingsPane({
 
   if (section === "integrations") {
     return (
-      <div className="settings">
+      <div className={settingsClass}>
         <IntegrationsPane client={client} onNotice={onNotice} />
       </div>
     );
@@ -215,7 +228,7 @@ export function SettingsPane({
   }
 
   return (
-    <div className="settings">
+    <div className={settingsClass}>
       {section === "general" ? (
         <GeneralPane
           client={client}
@@ -575,6 +588,9 @@ function ProvidersPane({
   // Single-expanded accordion: one provider's accounts + add form at a time
   // keeps the 200+ catalog page light (forms mount lazily on expand).
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Category tab + search: one compact list instead of four stacked groups.
+  const [tab, setTab] = useState<ProviderTab>("connected");
+  const [query, setQuery] = useState("");
   const [oauth, setOauth] = useState<OAuthProviderInfo[]>([]);
   // OAuth target + intent: `connect` names/writes the default account, `add`
   // creates a new one, `reconnect` refreshes one specific account id.
@@ -592,6 +608,40 @@ function ProvidersPane({
     oauth: oauthProviders,
     catalog,
   } = partitionProviders(sorted, oauthById.keys());
+
+  const connected = sorted.filter((p) => p.connected);
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (p: ProviderInfo): boolean =>
+    q.length === 0 || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
+  const tabProviders: ProviderInfo[] =
+    tab === "connected"
+      ? connected
+      : tab === "catalog"
+        ? catalog
+        : tab === "custom"
+          ? custom
+          : tab === "oauth"
+            ? oauthProviders
+            : [];
+  const shownProviders = tabProviders.filter(matchesQuery);
+
+  /** Which detail layout a provider gets (definition card vs OAuth vs plain). */
+  const variantFor = (p: ProviderInfo): "custom" | "oauth" | "catalog" =>
+    p.custom === true || p.source === "config" || p.source === "file"
+      ? "custom"
+      : oauthById.has(p.id)
+        ? "oauth"
+        : "catalog";
+
+  /** Toggle a provider's visibility in the LLM model pickers (listing-only). */
+  const setHidden = (p: ProviderInfo, hidden: boolean): void => {
+    void mutate(
+      async () => {
+        await client.putConfig({ providers: { [p.id]: { hidden } } });
+      },
+      hidden ? `${p.name} hidden from model pickers` : `${p.name} shown in model pickers`,
+    );
+  };
 
   const loadOauth = (): void => {
     void client
@@ -629,158 +679,130 @@ function ProvidersPane({
 
   return (
     <>
-      <PageHeader title="Model Providers" />
-      <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
-      <RouterToggle client={client} routerEnabled={routerEnabled} mutate={mutate} />
+      <PageHeader
+        title="Model Providers"
+        lede="Connect providers and manage accounts. Toggle a provider off to keep its models out of the model pickers — it stays here so you can turn it back on."
+      />
 
-      {/* --- Provider files (~/.config/bai/providers/) -------------------- */}
-      <h3 className="settings-subheading">Provider Files</h3>
-      <p className="section-lede">
-        Drop-in JSON files in <code>~/.config/bai/providers/</code>, hot-reloaded.
-        Each file's <code>providerType</code> decides where it appears (chat and/or
-        image).
-      </p>
-      <div className="provider-actions">
-        <Button variant="outline" onClick={() => setFileModal({})}>
-          + Add provider file
-        </Button>
-      </div>
-      {providerFileList.length === 0 ? (
-        <p className="dim provider-empty">No provider files yet.</p>
-      ) : (
-        <ul className="accounts">
-          {providerFileList.map((f) => (
-            <li key={f.id}>
-              <span>
-                {f.name} <span className="dim">({f.id})</span> —{" "}
-                <i>{f.providerType.join(", ")}</i>
-              </span>
-              <span className="key-actions">
-                <IconButton
-                  label={`Edit ${f.name}`}
-                  hint="Edit provider file"
-                  onClick={() => setFileModal({ existing: f })}
-                >
-                  <Pencil size={14} />
-                </IconButton>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Global preferences — one compact card. */}
+      <Card>
+        <FormSection title="Preferences" columns={2}>
+          <ZdrToggle client={client} preferZdr={preferZdr} mutate={mutate} />
+          <RouterToggle client={client} routerEnabled={routerEnabled} mutate={mutate} />
+        </FormSection>
+      </Card>
 
-      {/* --- Custom providers (config-defined endpoints) ------------------- */}
-      <h3 className="settings-subheading">Custom Providers</h3>
-      <p className="section-lede">
-        Your own endpoints — any OpenAI-compatible, Anthropic, or Responses
-        gateway.
-      </p>
-      <div className="provider-actions">
-        <Button variant="outline" onClick={() => setCustomOpen(true)}>
-          + Add a new custom provider
-        </Button>
-      </div>
-      {custom.length === 0 ? (
-        <p className="dim provider-empty">No custom providers yet.</p>
-      ) : (
-        <div className="provider-accordion">
-          {custom.map((p) => (
-            <AccordionProvider
-              key={p.id}
-              provider={p}
-              variant="custom"
-              expanded={expanded === p.id}
-              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
-              client={client}
-              mutate={mutate}
-              {...(oauthById.get(p.id) !== undefined
-                ? { oauth: oauthById.get(p.id) as OAuthProviderInfo }
-                : {})}
-              onConnect={() =>
-                setOauthTarget({ provider: p, intent: "connect" })
-              }
-              onReconnectAccount={(accountId) =>
-                setOauthTarget({ provider: p, intent: "reconnect", accountId })
-              }
-              onAddAccount={() =>
-                setOauthTarget({ provider: p, intent: "add" })
-              }
-              onDeleteCustom={() => setPendingCustom(p)}
-            />
-          ))}
+      {/* One searchable, tabbed list instead of four stacked groups. */}
+      <Toolbar className="settings-toolbar">
+        <TextInput
+          type="search"
+          className="settings-search"
+          value={query}
+          placeholder="Search providers…"
+          aria-label="Search providers"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <Tabs
+          ariaLabel="Provider category"
+          value={tab}
+          onChange={(value) => setTab(value as ProviderTab)}
+          tabs={[
+            { value: "connected", label: connected.length > 0 ? `Connected (${connected.length})` : "Connected" },
+            { value: "catalog", label: catalog.length > 0 ? `Catalog (${catalog.length})` : "Catalog" },
+            { value: "custom", label: custom.length > 0 ? `Custom (${custom.length})` : "Custom" },
+            { value: "oauth", label: "OAuth" },
+            { value: "files", label: "Files" },
+          ]}
+        />
+        <div className="settings-toolbar-actions">
+          <Button variant="outline" size="sm" onClick={() => setCustomOpen(true)}>
+            + Custom provider
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setFileModal({})}>
+            + Provider file
+          </Button>
         </div>
-      )}
+      </Toolbar>
 
-      {/* --- OAuth providers (subscription / local logins) ----------------- */}
-      <h3 className="settings-subheading">OAuth Providers</h3>
-      <p className="section-lede">
-        Sign in with a subscription or local credential — tokens are stored
-        server-side.
-        {fetching ? " updating…" : ""}
-      </p>
-      {oauthProviders.length === 0 ? (
-        <p className="dim provider-empty">No OAuth providers available.</p>
-      ) : (
-        <div className="provider-accordion">
-          {oauthProviders.map((p) => (
-            <AccordionProvider
-              key={p.id}
-              provider={p}
-              variant="oauth"
-              expanded={expanded === p.id}
-              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
-              client={client}
-              mutate={mutate}
-              oauth={oauthById.get(p.id) as OAuthProviderInfo}
-              onConnect={() =>
-                setOauthTarget({ provider: p, intent: "connect" })
-              }
-              onReconnectAccount={(accountId) =>
-                setOauthTarget({ provider: p, intent: "reconnect", accountId })
-              }
-              onAddAccount={() =>
-                setOauthTarget({ provider: p, intent: "add" })
-              }
-            />
-          ))}
-        </div>
-      )}
-
-      {/* --- Catalog list (models.dev ⊕ curated overlay), height-capped ---- */}
-      <h3 className="settings-subheading">Catalog List</h3>
-      <p className="section-lede">
-        Every other provider the catalog knows — connect one by adding an
-        account. Connected first.
-      </p>
-      <div className="provider-actions">
-        <span className="dim" style={{ alignSelf: "center" }}>
-          models.dev · updated {formatTimeAgo(list.catalogUpdatedAt ?? 0)}
-          {fetching ? " · updating…" : ""}
-        </span>
-        <Button variant="outline" loading={catalogBusy} onClick={refreshCatalog}>
-          Refresh catalog
-        </Button>
-      </div>
-      <div className="provider-accordion catalog-scroll">
-        {catalog.map((p) => (
-          <AccordionProvider
-            key={p.id}
-            provider={p}
-            variant="catalog"
-            expanded={expanded === p.id}
-            onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
-            client={client}
-            mutate={mutate}
-            {...(oauthById.get(p.id) !== undefined
-              ? { oauth: oauthById.get(p.id) as OAuthProviderInfo }
-              : {})}
-            onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
-            onReconnectAccount={(accountId) =>
-              setOauthTarget({ provider: p, intent: "reconnect", accountId })
-            }
+      {tab === "files" ? (
+        providerFileList.length === 0 ? (
+          <EmptyState
+            icon={<FileText size={22} aria-hidden="true" />}
+            title="No provider files"
+            description="Drop-in JSON files in ~/.config/bai/providers/ appear here, hot-reloaded."
           />
-        ))}
-      </div>
+        ) : (
+          <div className="provider-list">
+            {providerFileList.map((f) => (
+              <div className="provider-row" key={f.id}>
+                <div className="provider-row-head">
+                  <div className="provider-row-main static">
+                    <FileText size={16} className="provider-row-icon" aria-hidden="true" />
+                    <span className="provider-row-title">{f.name}</span>
+                    <span className="provider-row-meta">
+                      {f.id} · {f.providerType.join(", ")}
+                    </span>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setFileModal({ existing: f })}>
+                    Edit
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <>
+          {tab === "catalog" && (
+            <div className="settings-inline-status">
+              <span className="dim">
+                models.dev · updated {formatTimeAgo(list.catalogUpdatedAt ?? 0)}
+                {fetching ? " · updating…" : ""}
+              </span>
+              <Button variant="ghost" size="sm" loading={catalogBusy} onClick={refreshCatalog}>
+                Refresh catalog
+              </Button>
+            </div>
+          )}
+          {shownProviders.length === 0 ? (
+            <EmptyState
+              icon={<Server size={22} aria-hidden="true" />}
+              title={q.length > 0 ? "No matching providers" : "Nothing here yet"}
+              description={
+                q.length > 0
+                  ? `No providers match “${query.trim()}”.`
+                  : tab === "connected"
+                    ? "Connect a provider to list its models in the pickers."
+                    : "Add one with the buttons above."
+              }
+            />
+          ) : (
+            <div className={tab === "catalog" ? "provider-list catalog-scroll" : "provider-list"}>
+              {shownProviders.map((p) => (
+                <ProviderRow
+                  key={p.id}
+                  provider={p}
+                  variant={variantFor(p)}
+                  expanded={expanded === p.id}
+                  onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+                  onToggleHidden={(hidden) => setHidden(p, hidden)}
+                  client={client}
+                  mutate={mutate}
+                  {...(oauthById.get(p.id) !== undefined
+                    ? { oauth: oauthById.get(p.id) as OAuthProviderInfo }
+                    : {})}
+                  onConnect={() => setOauthTarget({ provider: p, intent: "connect" })}
+                  onReconnectAccount={(accountId) =>
+                    setOauthTarget({ provider: p, intent: "reconnect", accountId })
+                  }
+                  onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
+                  {...(variantFor(p) === "custom" ? { onDeleteCustom: () => setPendingCustom(p) } : {})}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {oauthTarget !== null && (
         <OAuthModal
@@ -848,12 +870,18 @@ function ProvidersPane({
   );
 }
 
-/** One accordion row: provider header + lazily-mounted detail. */
-function AccordionProvider({
+/**
+ * One compact provider row: a header (brand mark · name · status · chevron)
+ * that expands to the detail, plus a trailing "show in model pickers" toggle.
+ * The toggle is a sibling of the header button (a switch can't live inside a
+ * button), so the row is a flex container rather than one big button.
+ */
+function ProviderRow({
   provider,
   variant,
   expanded,
   onToggle,
+  onToggleHidden,
   client,
   mutate,
   oauth,
@@ -866,6 +894,7 @@ function AccordionProvider({
   variant: "custom" | "oauth" | "catalog";
   expanded: boolean;
   onToggle: () => void;
+  onToggleHidden: (hidden: boolean) => void;
   client: BaiClient;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
   oauth?: OAuthProviderInfo;
@@ -874,6 +903,7 @@ function AccordionProvider({
   onReconnectAccount?: (accountId: string) => void;
   onDeleteCustom?: () => void;
 }) {
+  const hidden = provider.hidden === true;
   const hint =
     variant === "oauth" && oauth !== undefined
       ? `${oauth.connected ? "connected" : "not connected"} · ${oauth.hint ?? oauth.method}`
@@ -881,34 +911,41 @@ function AccordionProvider({
         ? `${provider.adapter} · ${provider.baseUrl}`
         : provider.adapter;
   return (
-    <div className="provider-accordion-item">
-      {/* @ui-raw: accordion header needs aria-expanded/aria-controls; SubNavItem
-          does not forward those attributes, so keep the raw button for ARIA. */}
-      <button
-        type="button"
-        className={expanded ? "provider-item active" : "provider-item"}
-        onClick={onToggle}
-        aria-expanded={expanded}
-        aria-controls={`provider-detail-${provider.id}`}
-      >
-        <span className="provider-head">
-          <ProviderIcon
-            id={provider.id}
-            name={provider.name}
-            adapter={provider.adapter}
-            size={16}
+    <div className={hidden ? "provider-row hidden" : "provider-row"}>
+      <div className="provider-row-head">
+        {/* @ui-raw: the header needs aria-expanded/aria-controls; SubNavItem
+            does not forward those attributes, so keep the raw button for ARIA. */}
+        <button
+          type="button"
+          className="provider-row-main"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={`provider-detail-${provider.id}`}
+        >
+          <ProviderIcon id={provider.id} name={provider.name} adapter={provider.adapter} size={16} />
+          <span className="provider-row-title">{provider.name}</span>
+          {provider.connected && (
+            <span className="provider-row-status" title="connected">
+              <Check size={12} aria-hidden="true" />
+            </span>
+          )}
+          <span className="provider-row-meta">{hint}</span>
+          {hidden && <span className="provider-row-badge">hidden</span>}
+          <ChevronDown
+            size={14}
+            className={expanded ? "provider-row-chevron open" : "provider-row-chevron"}
+            aria-hidden="true"
           />
-          <span className="title">{provider.name}</span>
-        </span>
-        <span className="dim">{hint}</span>
-        {provider.connected && (
-          <span className="check" title="connected">
-            <Check size={12} aria-hidden="true" />
-          </span>
-        )}
-      </button>
+        </button>
+        <Switch
+          className="provider-row-toggle"
+          checked={!hidden}
+          ariaLabel={`Show ${provider.name} in model pickers`}
+          onChange={(on) => onToggleHidden(!on)}
+        />
+      </div>
       {expanded && (
-        <div id={`provider-detail-${provider.id}`}>
+        <div id={`provider-detail-${provider.id}`} className="provider-row-detail">
           <ProviderDetail
             provider={provider}
             variant={variant}
@@ -939,13 +976,10 @@ function ZdrToggle({
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   return (
-    <ToggleRow
+    <SwitchField
       checked={preferZdr === true}
-      title="Prefer ZDR models"
-      description={
-        "Sorts zero-data-retention-capable models first in the pickers. Capability is bai's " +
-        "curated list; actual ZDR requires an org-level agreement with the provider."
-      }
+      label="Prefer ZDR models"
+      description="Sort zero-data-retention-capable models first in the pickers (bai's curated list)."
       onChange={(on) => {
         void mutate(
           async () => {
@@ -975,13 +1009,10 @@ function RouterToggle({
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   return (
-    <ToggleRow
+    <SwitchField
       checked={routerEnabled !== false}
-      title="Run as router"
-      description={
-        "Serve the OpenAI-compatible router gateway (/v1) and /api/help from this server. " +
-        "Applies live; bai --router always enables it."
-      }
+      label="Run as router"
+      description="Serve the OpenAI-compatible /v1 gateway and /api/help from this server."
       onChange={(on) => {
         void mutate(
           async () => {
@@ -1343,7 +1374,7 @@ function ImageGenPane({
         imageGen={imageGen}
         mutate={mutate}
       />
-      <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
+      <JobsLimitsForm client={client} jobs={jobs} kind="image" mutate={mutate} />
     </>
   );
 }
@@ -1396,7 +1427,7 @@ function VideoGenPane({
         videoGen={videoGen}
         mutate={mutate}
       />
-      <JobsLimitsForm client={client} jobs={jobs} mutate={mutate} />
+      <JobsLimitsForm client={client} jobs={jobs} kind="video" mutate={mutate} />
     </>
   );
 }
@@ -1583,10 +1614,13 @@ function ImageDefaultsParamsForm({
 function JobsLimitsForm({
   client,
   jobs,
+  kind,
   mutate,
 }: {
   client: BaiClient;
   jobs?: JobsConfig;
+  /** Which pane this renders on — only the relevant timeout field shows. */
+  kind: "image" | "video";
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
   const [concurrency, setConcurrency] = useState(
@@ -1620,8 +1654,8 @@ function JobsLimitsForm({
   return (
     <Card as="form" onSubmit={submit}>
       <SectionHeader
-        title="Concurrent generations"
-        lede="How many image generations run at once, and the per-job reliability envelope (timeout, retries, backoff)."
+        title="Job limits"
+        lede="How many generations run at once, and the per-job reliability envelope (timeout, retries, backoff)."
       />
       <div className="form-grid">
         <Field label="Concurrent generations" hint="(1–10, default 3)">
@@ -1633,26 +1667,29 @@ function JobsLimitsForm({
             onChange={(e) => setConcurrency(e.target.value)}
           />
         </Field>
-        <Field label="Timeout (ms)" hint="(per image job)">
-          <TextInput
-            type="number"
-            min={1000}
-            max={3_600_000}
-            step={1000}
-            value={timeoutMs}
-            onChange={(e) => setTimeoutMs(e.target.value)}
-          />
-        </Field>
-        <Field label="Video timeout (ms)" hint="(per video job)">
-          <TextInput
-            type="number"
-            min={1000}
-            max={3_600_000}
-            step={1000}
-            value={videoTimeoutMs}
-            onChange={(e) => setVideoTimeoutMs(e.target.value)}
-          />
-        </Field>
+        {kind === "image" ? (
+          <Field label="Image timeout (ms)" hint="(per image job)">
+            <TextInput
+              type="number"
+              min={1000}
+              max={3_600_000}
+              step={1000}
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(e.target.value)}
+            />
+          </Field>
+        ) : (
+          <Field label="Video timeout (ms)" hint="(per video job)">
+            <TextInput
+              type="number"
+              min={1000}
+              max={3_600_000}
+              step={1000}
+              value={videoTimeoutMs}
+              onChange={(e) => setVideoTimeoutMs(e.target.value)}
+            />
+          </Field>
+        )}
         <Field label="Max attempts" hint="(retryable failures)">
           <TextInput
             type="number"
@@ -2449,6 +2486,8 @@ function IntegrationsPane({
     | null
   >(null);
   const [catalogQuery, setCatalogQuery] = useState("");
+  // Installed servers vs the catalog — one view at a time (was a long stacked page).
+  const [view, setView] = useState<"installed" | "catalog">("installed");
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
 
   const load = async (): Promise<void> => {
@@ -2658,24 +2697,135 @@ function IntegrationsPane({
         />
       )}
 
-      {/* --- Catalog (first, height-capped so it never buries the servers) --- */}
-      <h3 className="settings-subheading">Catalog</h3>
-      <p className="section-lede">
-        Official vendor-hosted MCP servers, grouped by category. Install writes
-        a drop-in file in ~/.config/bai/mcp/, then starts OAuth where required.
-      </p>
-      <div className="provider-actions">
-        <TextInput
-          value={catalogQuery}
-          placeholder={`Search ${catalog.length} integrations…`}
-          onChange={(e) => setCatalogQuery(e.target.value)}
-          style={{ flex: 1, maxWidth: 420 }}
+      {/* Installed servers vs the catalog — one view at a time. */}
+      <Toolbar className="settings-toolbar">
+        {view === "catalog" && (
+          <TextInput
+            className="settings-search"
+            type="search"
+            value={catalogQuery}
+            placeholder={`Search ${catalog.length} integrations…`}
+            aria-label="Search integrations"
+            onChange={(e) => setCatalogQuery(e.target.value)}
+          />
+        )}
+        <Tabs
+          ariaLabel="Integrations view"
+          value={view}
+          onChange={(value) => setView(value as "installed" | "catalog")}
+          tabs={[
+            { value: "installed", label: `Installed (${servers.length})` },
+            { value: "catalog", label: `Catalog (${catalog.length})` },
+          ]}
         />
-      </div>
-      {catalogGroups.length === 0 ? (
-        <p className="dim provider-empty">
-          No integrations match "{catalogQuery.trim()}".
-        </p>
+        <div className="settings-toolbar-actions">
+          {view === "installed" ? (
+            <Button variant="outline" size="sm" onClick={() => setServerModal({ mode: "add" })}>
+              + MCP server
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setCatalogQuery("")}>
+              Clear
+            </Button>
+          )}
+        </div>
+      </Toolbar>
+
+      {view === "installed" ? (
+        servers.length === 0 ? (
+          <EmptyState
+            icon={<Server size={22} aria-hidden="true" />}
+            title="No MCP servers yet"
+            description="Install one from the Catalog, or add a custom server."
+          />
+        ) : (
+          <div className="provider-accordion">
+            {servers.map((server) => (
+              <div key={server.name} className="mcp-row">
+                <div className="mcp-row-main">
+                  <BrandIcon name={server.name} />
+                  <div>
+                    <span className="mcp-row-title">
+                      <strong>{server.name}</strong>
+                    </span>
+                    <div className="mcp-row-meta">
+                      {MCP_STATE_LABELS[server.state]} · {server.transport} ·{" "}
+                      {server.tools} tool
+                      {server.tools === 1 ? "" : "s"} ·{" "}
+                      {server.source === "file" ? "file" : "config.json"}
+                      {server.error !== undefined ? ` · ${server.error}` : ""}
+                    </div>
+                  </div>
+                </div>
+                <div className="mcp-row-actions">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={() => void openEdit(server.name)}
+                  >
+                    Edit
+                  </Button>
+                  {server.state === "needs_auth" && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy !== null}
+                      onClick={() => void authorize(server.name)}
+                    >
+                      Authorize
+                    </Button>
+                  )}
+                  {server.state === "failed" && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        void run(
+                          server.name,
+                          () => client.reconnectMcpServer(server.name),
+                          "Reconnect requested",
+                        )
+                      }
+                    >
+                      Retry
+                    </Button>
+                  )}
+                  <Switch
+                    className="mcp-row-toggle"
+                    checked={server.state !== "disabled"}
+                    disabled={busy !== null}
+                    ariaLabel={`${server.state === "disabled" ? "Enable" : "Disable"} ${server.name}`}
+                    onChange={(on) =>
+                      void run(
+                        server.name,
+                        () => client.setMcpServerEnabled(server.name, on),
+                        on ? "Enabled" : "Disabled",
+                      )
+                    }
+                  />
+                  {server.source === "file" && (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={busy !== null}
+                      onClick={() => setPendingRemove(server.name)}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : catalogGroups.length === 0 ? (
+        <EmptyState
+          icon={<Server size={22} aria-hidden="true" />}
+          title="No matching integrations"
+          description={`No integrations match “${catalogQuery.trim()}”.`}
+        />
       ) : (
         <div className="provider-accordion mcp-catalog-scroll">
           {catalogGroups.map((group) => (
@@ -2720,113 +2870,6 @@ function IntegrationsPane({
                   }
                 />
               ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* --- Custom MCP servers (files in ~/.config/bai/mcp/ or config.json) --- */}
-      <h3 className="settings-subheading">Custom MCP Servers</h3>
-      <p className="section-lede">
-        Your own servers — files in ~/.config/bai/mcp/ or config.json. Their
-        tools appear as <code>mcp/&lt;server&gt;/&lt;tool&gt;</code>.
-      </p>
-      <div className="provider-actions">
-        <Button
-          variant="outline"
-          onClick={() => setServerModal({ mode: "add" })}
-        >
-          + Add a custom MCP server
-        </Button>
-      </div>
-      {servers.length === 0 ? (
-        <p className="dim provider-empty">
-          No MCP servers yet. Install one above, or drop a file into
-          ~/.config/bai/mcp/.
-        </p>
-      ) : (
-        <div className="provider-accordion">
-          {servers.map((server) => (
-            <div key={server.name} className="mcp-row">
-              <div className="mcp-row-main">
-                <BrandIcon name={server.name} />
-                <div>
-                  <span className="mcp-row-title">
-                    <strong>{server.name}</strong>
-                  </span>
-                  <div className="mcp-row-meta">
-                    {MCP_STATE_LABELS[server.state]} · {server.transport} ·{" "}
-                    {server.tools} tool
-                    {server.tools === 1 ? "" : "s"} ·{" "}
-                    {server.source === "file" ? "file" : "config.json"}
-                    {server.error !== undefined ? ` · ${server.error}` : ""}
-                  </div>
-                </div>
-              </div>
-              <div className="mcp-row-actions">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy !== null}
-                  onClick={() => void openEdit(server.name)}
-                >
-                  Edit
-                </Button>
-                {server.state === "needs_auth" && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={busy !== null}
-                    onClick={() => void authorize(server.name)}
-                  >
-                    Authorize
-                  </Button>
-                )}
-                {server.state === "failed" && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      void run(
-                        server.name,
-                        () => client.reconnectMcpServer(server.name),
-                        "Reconnect requested",
-                      )
-                    }
-                  >
-                    Retry
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy !== null}
-                  onClick={() =>
-                    void run(
-                      server.name,
-                      () =>
-                        client.setMcpServerEnabled(
-                          server.name,
-                          server.state === "disabled",
-                        ),
-                      server.state === "disabled" ? "Enabled" : "Disabled",
-                    )
-                  }
-                >
-                  {server.state === "disabled" ? "Enable" : "Disable"}
-                </Button>
-                {server.source === "file" && (
-                  <Button
-                    type="button"
-                    variant="danger"
-                    disabled={busy !== null}
-                    onClick={() => setPendingRemove(server.name)}
-                  >
-                    Remove
-                  </Button>
-                )}
-              </div>
             </div>
           ))}
         </div>

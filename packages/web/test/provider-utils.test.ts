@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderInfo } from "@bai/shared";
-import { partitionProviders, sortProviders } from "../src/provider-utils";
+import { modelOverrideOptions, partitionProviders, sortProviders } from "../src/provider-utils";
 
 function provider(id: string, connected = false, source: ProviderInfo["source"] = "catalog"): ProviderInfo {
   return {
@@ -35,6 +35,25 @@ describe("sortProviders", () => {
   test("returns a copy, never the input", () => {
     const input = [provider("a")];
     expect(sortProviders(input)).not.toBe(input);
+  });
+});
+
+describe("modelOverrideOptions", () => {
+  function withModel(id: string, hidden = false): ProviderInfo {
+    return { ...provider(id, true), hidden, models: [{ id: `${id}/m`, provider: id, label: "M" }] };
+  }
+
+  test("lists connected providers' models and excludes hidden providers", () => {
+    const list = { providers: [withModel("openai"), withModel("aaa", true)], default: {} };
+    const values = modelOverrideOptions(list).map((o) => o.value);
+    expect(values).toEqual(["", "openai/m"]);
+    expect(values).not.toContain("aaa/m");
+  });
+
+  test("null list returns only the inherit option", () => {
+    expect(modelOverrideOptions(null)).toEqual([
+      { value: "", label: "(agent/session model)", hint: "no override — inherit" },
+    ]);
   });
 });
 

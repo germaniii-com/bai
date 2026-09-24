@@ -11,6 +11,7 @@ export function Switch({
   onChange,
   disabled = false,
   label,
+  ariaLabel,
   className,
 }: {
   checked: boolean;
@@ -18,6 +19,8 @@ export function Switch({
   disabled?: boolean;
   /** Inline label beside the switch (also the accessible name). */
   label?: ReactNode;
+  /** Accessible name when no visible label is rendered (e.g. a compact row). */
+  ariaLabel?: string;
   className?: string;
 }) {
   const id = useId();
@@ -30,6 +33,7 @@ export function Switch({
         className="toggle-switch"
         checked={checked}
         disabled={disabled}
+        aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.checked)}
       />
       {label !== undefined && <span className="switch-label">{label}</span>}

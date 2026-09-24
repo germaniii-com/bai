@@ -316,6 +316,7 @@ export class ProviderRegistry {
         ...(entry.filePath !== undefined ? { filePath: entry.filePath } : {}),
         ...(pc?.headers !== undefined ? { headerCount: Object.keys(pc.headers).length } : {}),
         ...(pc?.contextLength !== undefined ? { contextLength: pc.contextLength } : {}),
+        ...(pc?.hidden === true ? { hidden: true } : {}),
       });
     }
 
@@ -346,6 +347,7 @@ export class ProviderRegistry {
         authType: pc?.authType ?? oauthSpec(id)?.method ?? "api_key",
         ...(pc?.headers !== undefined ? { headerCount: Object.keys(pc.headers).length } : {}),
         ...(pc?.contextLength !== undefined ? { contextLength: pc.contextLength } : {}),
+        ...(pc?.hidden === true ? { hidden: true } : {}),
       });
     }
 
@@ -444,6 +446,7 @@ export class ProviderRegistry {
 
   private async builtinInfo(registered: Provider, entry: CatalogProvider | undefined): Promise<ProviderInfo> {
     const id = registered.name();
+    const pc = this.deps.config().providers[id];
     return {
       id,
       name: entry?.name ?? id,
@@ -452,6 +455,7 @@ export class ProviderRegistry {
       models: (await registered.models()).length > 0 ? await registered.models() : entry !== undefined ? catalogModels(id, entry) : [],
       accounts: await this.accounts(id),
       connected: await this.isConnected(id),
+      ...(pc?.hidden === true ? { hidden: true } : {}),
     };
   }
 

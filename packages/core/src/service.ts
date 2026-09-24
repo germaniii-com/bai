@@ -1613,13 +1613,13 @@ export class Service {
     const all = await this.providers();
     // Scope: an explicit provider (any connection state — the wizard's
     // per-provider step); an exact-id lookup (any provider); else only
-    // connected, non-stub providers (the flat picker).
+    // connected, non-stub providers that are not hidden from the pickers.
     const scoped = all.providers.filter((p) =>
       opts.provider !== undefined
         ? p.id === opts.provider
         : opts.id !== undefined
           ? p.models.length > 0
-          : p.connected && p.id !== "stub",
+          : p.connected && p.id !== "stub" && p.hidden !== true,
     );
     const tagged: { id: string; provider: string; entry: ModelPageEntry }[] = [];
     for (const p of [...scoped].sort((a, b) => a.id.localeCompare(b.id))) {

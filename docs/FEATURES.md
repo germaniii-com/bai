@@ -28,7 +28,12 @@ The conversation modality and bai's default session type.
   ChatGPT/Codex, Anthropic Claude Pro/Max, GitHub Copilot, xAI Grok, Qwen,
   Nous Portal, MiniMax, Vertex — plus API-key accounts and config-defined
   custom providers (name, base URL, adapter, key env, models, headers,
-  context length)
+  context length). **Hide a provider from the model pickers** with the toggle
+  on its row in **Settings → Model Providers** (`config.providers[id].hidden`):
+  its models drop out of the chat model modal, the agent/automation
+  model-override comboboxes, and the TUI flat model list, while the provider
+  stays in Settings (badged *hidden*) and any session already using one of its
+  models keeps working — listing-only, toggle it back to restore
 - Streaming responses with reasoning panels (thinking parts render behind a
   click-to-reveal node in both TUI and web)
 - **Stop generating** mid-stream: double-esc in the TUI, the red stop button
@@ -115,11 +120,17 @@ The conversation modality and bai's default session type.
   OpenAI-images wire template or a **generic request/response mapping**
   (`$prompt`/`$model`/`$param.*` body tokens + a tiny response path syntax like
   `data[*].b64_json`). Files win over same-id config providers; built-in media
-  ids are reserved. Created/edited from Settings → Model Providers (a
-  "Provider Files" section) or Settings → Image Generation → Providers, and
-  also plain files on disk. `providerType` decides placement: `text` shows in
-  chat pickers, `image` in the image workbench, `video` is accepted but inert
+  ids are reserved. Created/edited from Settings → Model Providers (the
+  **Files** tab) or Settings → Image Generation → Providers, and also plain
+  files on disk. `providerType` decides placement: `text` shows in chat
+  pickers, `image` in the image workbench, `video` is accepted but inert
   until the video adapter ships.
+- **Settings → Model Providers** is one searchable, tabbed list —
+  **Connected · Catalog · Custom · OAuth · Files** — with compact rows: each
+  carries a brand mark, connection state, an inline switch to hide the
+  provider from the model pickers, and a chevron to expand accounts/OAuth.
+  The prefer-ZDR and run-as-router preferences sit in one compact card above
+  it. (Integrations is likewise tabbed **Installed · Catalog**.)
 - Everything streams through the same event system as every other feature —
   chat is just the first consumer of the sync machinery
 

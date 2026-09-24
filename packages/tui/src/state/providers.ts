@@ -155,7 +155,7 @@ export function modelPageOptions(models: ModelPageEntry[], preferZdr = false, wi
  */
 export function allModelOptions(providers: ProviderInfo[], preferZdr = false): PickerOption[] {
   const connected = providers
-    .filter((p) => p.connected && p.id !== "stub" && p.models.length > 0)
+    .filter((p) => p.connected && p.id !== "stub" && p.models.length > 0 && p.hidden !== true)
     .sort((a, b) => a.id.localeCompare(b.id));
   const tagged: { id: string; provider: string; opt: PickerOption }[] = [];
   for (const p of connected) {

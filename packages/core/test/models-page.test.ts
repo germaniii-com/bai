@@ -79,4 +79,19 @@ describe("Service.listModelsPage", () => {
     const zdr = await t.core.listModelsPage({ zdr: true });
     expect(zdr.models.map((m) => m.id)).toEqual(["openai/gpt", "aaa/m"]);
   });
+
+  test("hidden providers are excluded from the flat list, kept for explicit scope", async () => {
+    t.providers.register(fakeProvider("aaa", [{ id: "aaa/m", provider: "aaa", label: "M" }]));
+    t.providers.register(fakeProvider("openai", [{ id: "openai/gpt", provider: "openai", label: "GPT" }]));
+    t.accounts.set("aaa", "acc", { key: "k" });
+    t.accounts.set("openai", "acc", { key: "k" });
+
+    // Hide aaa from the pickers (listing-only).
+    t.config.providers = { aaa: { hidden: true } };
+    expect((await t.core.listModelsPage({})).models.map((m) => m.id)).toEqual(["openai/gpt"]);
+    // The wizard's per-provider step still resolves it.
+    expect((await t.core.listModelsPage({ provider: "aaa" })).models.map((m) => m.id)).toEqual(["aaa/m"]);
+    // An exact-id lookup still resolves too (a session already using it).
+    expect((await t.core.listModelsPage({ id: "aaa/m" })).models.map((m) => m.id)).toEqual(["aaa/m"]);
+  });
 });

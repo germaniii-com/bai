@@ -151,9 +151,11 @@ export function ModelModal({
   }, [refreshProviders]);
 
   // Connected providers only (the composer hub picks a model to USE; account
-  // setup lives in Settings → Model Providers). Connected first, stub last —
-  // the shared sort stance.
-  const providers = list === null ? [] : sortProviders(list.providers.filter((p) => p.connected));
+  // setup lives in Settings → Model Providers). Providers the user hid from
+  // the pickers (config.providers[id].hidden) are dropped here — they stay in
+  // Settings so they can be toggled back. Connected first, stub last.
+  const providers =
+    list === null ? [] : sortProviders(list.providers.filter((p) => p.connected && p.hidden !== true));
   const providerById = new Map(providers.map((p) => [p.id, p]));
 
   const query = modelFilter.trim().toLowerCase();

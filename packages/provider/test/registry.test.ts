@@ -108,6 +108,17 @@ describe("ProviderRegistry (dynamic, multi-account)", () => {
     rmSync(f.dir, { recursive: true, force: true });
   });
 
+  test("hidden config projects onto ProviderInfo (provider stays listed)", async () => {
+    const f = makeFixture();
+    f.setConfig({ providers: { openrouter: { hidden: true } } });
+    f.registry.invalidate();
+    const providers = await f.registry.listProviders();
+    // Hidden providers remain in the list (Settings needs them to un-hide).
+    expect(providers.find((p) => p.id === "openrouter")?.hidden).toBe(true);
+    expect(providers.find((p) => p.id === "anthropic")?.hidden).toBeUndefined();
+    rmSync(f.dir, { recursive: true, force: true });
+  });
+
   test("env pseudo-account appears when the provider env var is set", async () => {
     const f = makeFixture({ ANTHROPIC_API_KEY: "env-key" });
     const accounts = await f.registry.accounts("anthropic");

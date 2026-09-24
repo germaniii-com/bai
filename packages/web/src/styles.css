@@ -4004,11 +4004,16 @@ input[type="radio"]:focus-visible {
 }
 
 .settings {
-  max-width: 760px;
+  max-width: 960px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+/* Data-heavy sections (provider list, integrations) use the wider column. */
+.settings-wide {
+  max-width: 1120px;
 }
 
 .provider-head {
@@ -4123,6 +4128,166 @@ input[type="radio"]:focus-visible {
   overscroll-behavior: contain;
 }
 
+/* --- Model Providers: one searchable, tabbed list ------------------------ */
+
+.settings-toolbar {
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.settings-toolbar .settings-search {
+  flex: 1 1 220px;
+  min-width: 160px;
+  max-width: 320px;
+}
+
+.settings-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.settings-inline-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The 200+ catalog scrolls inside the pane instead of one endless page. */
+.provider-list.catalog-scroll {
+  max-height: min(560px, 62dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--space-1);
+}
+
+.provider-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  overflow: hidden;
+  /* Rows keep their height inside the catalog's max-height scroll box (a flex
+     column with default shrink collapses every row to a hairline). */
+  flex-shrink: 0;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.provider-row.hidden {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--panel) 70%, var(--bg));
+}
+
+.provider-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-1);
+}
+
+.provider-row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+  font: inherit;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.provider-row-main:hover {
+  background: var(--border);
+}
+
+.provider-row-main.static {
+  cursor: default;
+}
+.provider-row-main.static:hover {
+  background: transparent;
+}
+
+.provider-row-icon {
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.provider-row-title {
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.provider-row.hidden .provider-row-title {
+  color: var(--dim);
+}
+
+.provider-row-status {
+  color: var(--success);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.provider-row-meta {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-row-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.provider-row-chevron {
+  flex-shrink: 0;
+  color: var(--dim);
+  transition: transform var(--duration-normal) var(--ease-standard);
+}
+.provider-row-chevron.open {
+  transform: rotate(180deg);
+}
+
+.provider-row-toggle {
+  flex-shrink: 0;
+}
+
+.provider-row-detail {
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+@media (pointer: coarse) {
+  .provider-row-head {
+    min-height: 44px;
+  }
+}
+
 /* --- Integrations (MCP servers) ----------------------------------------- */
 
 /* Client-config snippet in the "bai as MCP server" card. */
@@ -4157,8 +4322,16 @@ input[type="radio"]:focus-visible {
 
 .mcp-row-actions {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+}
+
+/* The enable/disable toggle replaces the old text button — keep it from
+   shrinking and give it a little breathing room from the border. */
+.mcp-row-toggle {
+  flex-shrink: 0;
+  padding-inline: var(--space-1);
 }
 
 /* Icon + text block on the left of a server/catalog row. */

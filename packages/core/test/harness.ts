@@ -19,7 +19,7 @@ import {
   ToolRegistry,
   createDefaultWorkbenches,
 } from "../src";
-import { DEFAULT_CONFIG, type Event, type EventType, type MediaGenConfig } from "@bai/shared";
+import { DEFAULT_CONFIG, type Event, type EventType, type MediaGenConfig, type ProviderConfig } from "@bai/shared";
 export interface TestCore {
   dir: string;
   store: Store;
@@ -30,6 +30,7 @@ export interface TestCore {
   accounts: AuthStore;
   /** Mutable config state — tests mutate, the stack reads live. */
   config: {
+    providers: Record<string, ProviderConfig>;
     models: { default?: string; title?: string; preferZdr?: boolean };
     agents: { default?: string; subagentDepth?: number };
     user: { name?: string };
@@ -58,6 +59,7 @@ export function makeCore(): TestCore {
   const bus = new Bus();
   const log = new EventLog(store.events);
   const config: TestCore["config"] = {
+    providers: {},
     models: { default: "stub/echo" },
     agents: {},
     user: {},
@@ -68,6 +70,7 @@ export function makeCore(): TestCore {
   };
   const testConfig = () => ({
     ...DEFAULT_CONFIG,
+    providers: { ...config.providers },
     models: { ...config.models },
     agents: { ...config.agents },
     user: { ...config.user },
