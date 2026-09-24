@@ -37,6 +37,18 @@ export function emptyMentionUi(): MentionUiState {
   return { open: false, raw: "", pathQuery: "", results: [], selected: 0, loading: false };
 }
 
+/**
+ * Close the picker, but return the SAME reference when it is already closed.
+ * Ordinary typing runs the trigger check on every keystroke; without this, it
+ * `setMention(emptyMentionUi())` with a fresh object each time, scheduling a
+ * second full re-render per character even though nothing changed. A closed
+ * state is always an `emptyMentionUi()` shape (only `openedMention`/results set
+ * `open`), so `!open` ⇒ nothing to reset.
+ */
+export function closedMention(current: MentionUiState): MentionUiState {
+  return current.open ? emptyMentionUi() : current;
+}
+
 /** Open (or re-query) the picker for a fresh trigger. */
 export function openedMention(raw: string, pathQuery: string): MentionUiState {
   return { open: true, raw, pathQuery, results: [], selected: 0, loading: true };

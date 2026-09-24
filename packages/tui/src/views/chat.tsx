@@ -49,6 +49,7 @@ import { ToolOutputBody } from "../components/tool-output";
 import { ComposerHub } from "../components/composer";
 import { MentionPicker } from "../components/mention-picker";
 import {
+  closedMention,
   emptyMentionUi,
   moveMention,
   openedMention,
@@ -90,6 +91,24 @@ const WHEEL_ROWS = 3;
  *  hit-testing. Chip hit-testing is bottom-anchored instead (see the mouse
  *  handler): the hub sits at a fixed offset above the App footer. */
 const VIEWPORT_TOP_ROW = 1;
+/** Non-user content (assistant replies, the empty-state line, the thinking
+ *  spinner) shares one inset so the whole non-user column aligns. */
+const ASSISTANT_INSET = { paddingLeft: 2, paddingRight: 3 };
+/** Tool-call nodes drop the right inset: their headers/args are the longest
+ *  single-line content in the transcript, so they use the full terminal width
+ *  (and wrap) instead of being clipped at the edge. */
+const TOOL_INSET = { paddingLeft: 2 };
+/**
+ * Stable empty defaults. Default parameters are re-evaluated every render, so
+ * array/object literals (`= []`, `= emptySubagentState`) hand this component a
+ * fresh reference per keystroke — which busts the memo dependencies of the
+ * transcript children (via `focusItems` / `resolveTaskChild`) and forces an
+ * O(nodes) rebuild on every input event.
+ */
+const EMPTY_ASKS: PermissionRequest[] = [];
+const EMPTY_QUESTIONS: QuestionRequest[] = [];
+const EMPTY_INPUTS: Input[] = [];
+const EMPTY_IDS: string[] = [];
 
 /**
  * Chat view: continuous-scroll message history + inline composer. The
@@ -129,9 +148,9 @@ export function ChatView({
   onOpenSessions,
   onCycleAgent,
   subagents = emptySubagentState,
-  pendingAsks = [],
-  pendingChildAsks = [],
-  pendingQuestions = [],
+  pendingAsks = EMPTY_ASKS,
+  pendingChildAsks = EMPTY_ASKS,
+  pendingQuestions = EMPTY_QUESTIONS,
   askUi,
   setAskUi,
   onPermissionDone,
@@ -140,8 +159,8 @@ export function ChatView({
   onForkCreated,
   composerSeed,
   onComposerSeedConsumed,
-  queuedInputs = [],
-  sendingIds = [],
+  queuedInputs = EMPTY_INPUTS,
+  sendingIds = EMPTY_IDS,
   onSendQueued,
   onCancelQueued,
   onEditQueued,
@@ -472,12 +491,12 @@ export function ChatView({
       mentionRoot === undefined ||
       mentionRoot.length === 0
     ) {
-      setMention(emptyMentionUi());
+      setMention(closedMention); // reference-preserving: no re-render when already closed
       return;
     }
     const trigger = mentionTrigger(editor.text, editor.cursor);
     if (trigger === null) {
-      setMention(emptyMentionUi());
+      setMention(closedMention); // reference-preserving: no re-render when already closed
       return;
     }
     const { pathQuery } = splitMentionQuery(trigger.raw);
@@ -843,17 +862,18 @@ export function ChatView({
   };
 
   /** The tracked child a tool item's task spawned (exact via title/link). */
-  const resolveTaskChild = (
-    item: Extract<TranscriptItem, { kind: "tool" }>,
-  ): SubagentActivity | undefined => {
-    if (item.call.name !== "task") return undefined;
-    const message = visibleMessages[item.messageIndex];
-    return findChildForTask(
-      subagents.children,
-      item.rawArgs,
-      taskChildId(message, item.call.callId),
-    );
-  };
+  const resolveTaskChild = useCallback(
+    (item: Extract<TranscriptItem, { kind: "tool" }>): SubagentActivity | undefined => {
+      if (item.call.name !== "task") return undefined;
+      const message = visibleMessages[item.messageIndex];
+      return findChildForTask(
+        subagents.children,
+        item.rawArgs,
+        taskChildId(message, item.call.callId),
+      );
+    },
+    [visibleMessages, subagents],
+  );
 
   // ---- message actions (opencode's DialogMessage parity) -----------------
   /** The message the modal is open for — looked up from the FULL history:
@@ -1408,14 +1428,6 @@ export function ChatView({
     aboveCount = seen.size;
   }
 
-  // Non-user content (assistant replies, the empty-state line, the thinking
-  // spinner) shares one inset so the whole non-user column aligns.
-  const assistantInset = { paddingLeft: 2, paddingRight: 3 };
-  // Tool-call nodes drop the right inset: their headers/args are the longest
-  // single-line content in the transcript, so they use the full terminal
-  // width (and wrap) instead of being clipped at the edge.
-  const toolInset = { paddingLeft: 2 };
-
   // Composer hub status row: pure column math over the inner width (the
   // composer box spans the padded body; border + paddingX eat 4 columns).
   // Recomputed per render — cheap, and it must track mode/session/labels.
@@ -1473,41 +1485,13 @@ export function ChatView({
     { value: "cancel", label: "Cancel queue", hint: "drop it — it never runs" },
   ];
 
-  return (
-    <Box flexDirection="column" flexGrow={1}>
-      {/* Continuous scroll viewport (components/virtual-list.tsx): only the
-          items in view (+ overscan) are mounted and measured, and the container
-          clips at `scrollOffset` rows from the top — scrolling is row-continuous
-          and partial nodes at the edges are natural, but a long transcript no
-          longer pays O(all nodes) per render. bottomAlign keeps short
-          transcripts hugging the composer. The component's overflow-hidden
-          viewport is the deterministic guard: content can never bleed into the
-          composer. Item boxes carry flexShrink 0 so Yoga never compresses them.
-          The transcript is a flat list of NODES (buildTranscriptItems): a
-          user message, a thought, each tool call, and the reply text are
-          each their own focusable/clickable/measured item — thought and
-          task highlight independently, and every tool call can expand to
-          its output. */}
-      <VirtualList
-        ref={scrollRef}
-        scrollOffset={shownOffset}
-        bottomAlign
-        // Absorb the list's anchor correction (measurements above the reading
-        // window) into our offset state so a relative wheel/j/k scroll can't
-        // land on the unchanged raw offset and freeze. While pinned, the
-        // follow-the-bottom snap owns the offset.
-        onScrollOffsetChange={(next) => {
-          if (!followRef.current) setScrollOffset(next);
-        }}
-        onContentHeightChange={handleContentHeightChange}
-        onViewportSizeChange={handleViewportSizeChange}
-        flexGrow={1}
-        flexShrink={1}
-        flexBasis={0}
-        minHeight={0}
-        marginBottom={1}
-      >
-        {focusItems.map((item, ii) => {
+  // The transcript element array is memoized on transcript-affecting data
+  // only: typing (editor / mention state) must NOT rebuild it — element
+  // creation and the list's Children traversal are O(nodes) and dominated
+  // input latency.
+  const transcriptChildren = useMemo(
+    () =>
+      focusItems.map((item, ii) => {
           // Per-item gap row (replaces the old container gap): rendered
           // INSIDE the measured item so measured positions stay exact.
           const gap = ii === 0 ? 0 : 1;
@@ -1520,7 +1504,7 @@ export function ChatView({
                 key="load-more"
                 marginTop={gap}
                 flexShrink={0}
-                {...assistantInset}
+                {...ASSISTANT_INSET}
               >
                 <Text color={focused ? t.accent : t.dim}>
                   {focused ? "❯ " : "  "}
@@ -1539,7 +1523,7 @@ export function ChatView({
                 key="revert-banner"
                 marginTop={gap}
                 flexShrink={0}
-                {...assistantInset}
+                {...ASSISTANT_INSET}
               >
                 <Text color={focused ? t.accent : t.dim}>
                   {focused ? "❯ " : "  "}↩ {revertedCount} message
@@ -1645,7 +1629,7 @@ export function ChatView({
                 marginTop={gap}
                 flexShrink={0}
               >
-                <Box {...assistantInset} flexShrink={0}>
+                <Box {...ASSISTANT_INSET} flexShrink={0}>
                   {expanded ? (
                     <Box flexDirection="column">
                       <Text color={t.dim}>{marker}── thought ──</Text>
@@ -1693,7 +1677,7 @@ export function ChatView({
                   marginTop={gap}
                   flexShrink={0}
                 >
-                  <Box {...toolInset} flexShrink={0}>
+                  <Box {...TOOL_INSET} flexShrink={0}>
                     <Text wrap="wrap" italic>
                       {marker}
                       <Text color={focused ? t.accent : statusColor}>
@@ -1763,7 +1747,7 @@ export function ChatView({
                 marginTop={gap}
                 flexShrink={0}
               >
-                <Box {...toolInset} flexDirection="column" flexShrink={0}>
+                <Box {...TOOL_INSET} flexDirection="column" flexShrink={0}>
                   <Text wrap="wrap" italic>
                     {marker}
                     <Text color={focused ? t.accent : color}>{glyph} </Text>
@@ -1853,19 +1837,68 @@ export function ChatView({
           // the marker hangs as a column so wrapped lines align under it.
           return (
             <Box key={`${item.messageId}:text`} marginTop={gap} flexShrink={0}>
-              <Box {...assistantInset} flexShrink={0}>
+              <Box {...ASSISTANT_INSET} flexShrink={0}>
                 <Markdown text={messageText(m)} marker={marker ?? undefined} />
               </Box>
             </Box>
           );
-        })}
+      }),
+    [
+      focusItems,
+      focus,
+      loadingOlder,
+      revertedCount,
+      t,
+      visibleMessages,
+      expandedThinking,
+      expandedTools,
+      expandedToolsFull,
+      resolveTaskChild,
+    ],
+  );
+
+  return (
+    <Box flexDirection="column" flexGrow={1}>
+      {/* Continuous scroll viewport (components/virtual-list.tsx): only the
+          items in view (+ overscan) are mounted and measured, and the container
+          clips at `scrollOffset` rows from the top — scrolling is row-continuous
+          and partial nodes at the edges are natural, but a long transcript no
+          longer pays O(all nodes) per render. bottomAlign keeps short
+          transcripts hugging the composer. The component's overflow-hidden
+          viewport is the deterministic guard: content can never bleed into the
+          composer. Item boxes carry flexShrink 0 so Yoga never compresses them.
+          The transcript is a flat list of NODES (buildTranscriptItems): a
+          user message, a thought, each tool call, and the reply text are
+          each their own focusable/clickable/measured item — thought and
+          task highlight independently, and every tool call can expand to
+          its output. */}
+      <VirtualList
+        ref={scrollRef}
+        scrollOffset={shownOffset}
+        bottomAlign
+        // Absorb the list's anchor correction (measurements above the reading
+        // window) into our offset state so a relative wheel/j/k scroll can't
+        // land on the unchanged raw offset and freeze. While pinned, the
+        // follow-the-bottom snap owns the offset.
+        onScrollOffsetChange={(next) => {
+          if (!followRef.current) setScrollOffset(next);
+        }}
+        onContentHeightChange={handleContentHeightChange}
+        onViewportSizeChange={handleViewportSizeChange}
+        flexGrow={1}
+        flexShrink={1}
+        flexBasis={0}
+        minHeight={0}
+        marginBottom={1}
+      >
+        {transcriptChildren}
         {len === 0 && !waiting && (
-          <Box {...assistantInset}>
+          <Box {...ASSISTANT_INSET}>
             <Text color={t.dim}>No messages yet — say something.</Text>
           </Box>
         )}
         {waiting && (
-          <Box marginTop={len > 0 ? 1 : 0} {...assistantInset}>
+          <Box marginTop={len > 0 ? 1 : 0} {...ASSISTANT_INSET}>
             <Spinner label="thinking…" />
           </Box>
         )}

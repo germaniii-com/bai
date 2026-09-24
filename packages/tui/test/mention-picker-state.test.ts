@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { applyMention, expandMentionPaths, mentionDisplayToken, mentionTrigger, parseMentions, splitMentionQuery } from "@bai/shared";
-import { browsedFolder, emptyMentionUi, moveMention, openedMention, selectedMention, withMentionResults } from "../src/state/mention";
+import { browsedFolder, closedMention, emptyMentionUi, moveMention, openedMention, selectedMention, withMentionResults } from "../src/state/mention";
 
 /**
  * A folder that has children could never be referenced from the composer:
@@ -88,6 +88,23 @@ describe("withMentionResults", () => {
       { path: "s/b.ts", type: "file" },
     ]);
     expect(state.results.map((entry) => entry.path)).toEqual(["s", "s/a.ts", "s/b.ts"]);
+  });
+});
+
+describe("closedMention", () => {
+  test("is reference-preserving when already closed", () => {
+    // The per-keystroke trigger check must not schedule a re-render when there
+    // is nothing to close (the input-lag fix).
+    const closed = emptyMentionUi();
+    expect(closedMention(closed)).toBe(closed);
+  });
+
+  test("closes an open picker to a fresh empty state", () => {
+    const open = openedMention("src/", "src/");
+    const next = closedMention(open);
+    expect(next.open).toBe(false);
+    expect(next).toEqual(emptyMentionUi());
+    expect(next).not.toBe(open);
   });
 });
 
