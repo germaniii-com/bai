@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { followSession, type BaiClient } from "@bai/api/client";
 import type { Message, PermissionRequest } from "@bai/shared";
 import { VirtualList, type VirtualListRef } from "../components/virtual-list";
+import { Panel } from "../components/ui";
 import { PermissionDialog } from "./permission-dialog";
 import { applyDeltaBatch, applyEvent, buildTranscriptItems, createDeltaBuffer, messageText } from "../state/sync";
 import { moveFocus } from "../state/focus";
@@ -366,11 +367,9 @@ export function SubagentDialog({
 
   if (current === undefined) {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
-        <Text bold color={t.accent}>subagent</Text>
+      <Panel title="subagent" titleTone="accent" hint="↑/esc back">
         <Text color={t.dim}>no subagents yet</Text>
-        <Text color={t.dim}>↑/esc back</Text>
-      </Box>
+      </Panel>
     );
   }
 
@@ -381,7 +380,10 @@ export function SubagentDialog({
       : { glyph: "✓", text: "done", color: t.success };
 
   return (
-    <Box flexDirection="column" height={rows > 0 ? rows : undefined} borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
+    <Panel
+      height={rows > 0 ? rows : undefined}
+      hint={`${children.length > 1 ? "←/→ subagent · " : ""}ctrl+j/k node · space output · j/k scroll · ↑ (at top) / esc back`}
+    >
       <Text wrap="truncate">
         <Text bold color={t.accent}>subagent </Text>
         <Text color={t.warning}>@{current.agent}</Text>
@@ -497,11 +499,7 @@ export function SubagentDialog({
           {loadError !== null && <Text color={t.danger}>{loadError}</Text>}
         </VirtualList>
       )}
-
-      <Text color={t.dim}>
-        {children.length > 1 ? "←/→ subagent · " : ""}ctrl+j/k node · space output · j/k scroll · ↑ (at top) / esc back
-      </Text>
-    </Box>
+    </Panel>
   );
 }
 

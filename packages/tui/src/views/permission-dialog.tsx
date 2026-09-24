@@ -2,7 +2,9 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { PermissionRequest } from "@bai/shared";
+import { Panel } from "../components/ui";
 import { deleteWord } from "../state/composer";
+import { diffStat } from "../state/diff";
 import { useTheme } from "../theme";
 
 /** Diff lines rendered before eliding with a counter. */
@@ -87,13 +89,15 @@ export function PermissionDialog({
   const detail = request.detail;
   const diffLines = detail?.diff !== undefined ? detail.diff.split("\n") : [];
   const hidden = Math.max(0, diffLines.length - DIFF_WINDOW);
+  const stat = detail?.diff !== undefined ? diffStat(detail.diff) : undefined;
   const t = useTheme();
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.warning} borderBackgroundColor={t.background} paddingX={1}>
-      <Text bold color={t.warning}>
-        permission requested
-      </Text>
+    <Panel
+      tone="warning"
+      title="permission requested"
+      hint={stage === "choose" ? "a allow once · s allow always (session) · d reject with feedback" : undefined}
+    >
       {context !== undefined && <Text color={t.secondary}>{context}</Text>}
       <Text color={t.text}>
         tool: <Text bold>{request.tool}</Text>
@@ -101,7 +105,14 @@ export function PermissionDialog({
       {detail?.summary !== undefined && <Text wrap="wrap" color={t.text}>{detail.summary}</Text>}
 
       {diffLines.length > 0 && (
-        <Box flexDirection="column" marginTop={0}>
+        <Box flexDirection="column" marginTop={0} backgroundColor={t.inset}>
+          {stat !== undefined && (stat.file !== undefined || stat.added + stat.removed > 0) && (
+            <Text wrap="truncate">
+              {stat.file !== undefined && <Text color={t.text}>{stat.file} </Text>}
+              <Text color={t.success}>+{stat.added}</Text>
+              <Text color={t.danger}> −{stat.removed}</Text>
+            </Text>
+          )}
           {diffLines.slice(0, DIFF_WINDOW).map((line, i) => (
             <Text key={i} wrap="truncate">
               {line.startsWith("+++") || line.startsWith("---") ? (
@@ -121,9 +132,7 @@ export function PermissionDialog({
         </Box>
       )}
 
-      {stage === "choose" ? (
-        <Text color={t.dim}>a allow once · s allow always (session) · d reject with feedback</Text>
-      ) : (
+      {stage !== "choose" && (
         <Box flexDirection="column" marginTop={0}>
           <Text color={t.warning}>reject — why? (optional; the model sees this message)</Text>
           <Text>
@@ -133,6 +142,6 @@ export function PermissionDialog({
           <Text color={t.dim}>enter reject · esc reject without message</Text>
         </Box>
       )}
-    </Box>
+    </Panel>
   );
 }

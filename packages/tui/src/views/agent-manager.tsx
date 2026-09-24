@@ -1,9 +1,10 @@
-import { Box, Text, useInput } from "ink";
+import { Text, useInput } from "ink";
 import { useCallback, useEffect, useState } from "react";
 import { spawnSync } from "node:child_process";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, Session, ToolListEntry } from "@bai/shared";
 import { listWindow } from "../components/dialog";
+import { HintRow, ListRow, Panel } from "../components/ui";
 import { useTheme } from "../theme";
 
 /** List rows shown around the cursor (SelectDialog parity). */
@@ -193,10 +194,14 @@ export function AgentManager({
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
-      <Text bold color={t.text}>
-        agents &amp; tools <Text color={t.dim}>({tab === "agents" ? "agents" : "tools"} · t to switch · esc close)</Text>
-      </Text>
+    <Panel
+      title="agents & tools"
+      titleTone="accent"
+      titleSuffix={`(${tab} · t to switch · esc close)`}
+      hint={`n new · e edit ($EDITOR) · d delete ·${
+        tab === "agents" ? ` enter/u ${active !== null ? "use in session" : "set as default"} ·` : ""
+      } j/k move · t tab · esc close`}
+    >
       {/* Sliding window around the cursor — long agent/tool lists scroll
           instead of overflowing the terminal. */}
       {(() => {
@@ -204,7 +209,7 @@ export function AgentManager({
         const windowed = items.slice(start, end);
         return (
           <>
-            {start > 0 && <Text color={t.dim}>  ↑ {start} more</Text>}
+            {start > 0 && <HintRow>{`  ↑ ${start} more`}</HintRow>}
             {windowed.map((item, i) => {
               const absolute = start + i;
               if (tab === "agents") {
@@ -215,38 +220,31 @@ export function AgentManager({
                 if (sessionAgent === a.name) marks.push("session");
                 if (defaultAgent === a.name) marks.push("default");
                 return (
-                  <Text key={a.name} color={absolute === index ? t.accent : t.text}>
-                    {absolute === index ? "❯ " : "  "}
-                    {a.name} <Text color={t.dim}>({a.source}{a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})</Text>
+                  <ListRow
+                    key={a.name}
+                    selected={absolute === index}
+                    hint={`(${a.source}${a.tools.length > 0 ? ` · ${a.tools.join(", ")}` : " · no tools"})`}
+                  >
+                    {a.name}
                     {marks.length > 0 && <Text color={t.success}> · {marks.join(" · ")}</Text>}
-                  </Text>
+                  </ListRow>
                 );
               }
               const tool = item as ToolListEntry;
               return (
-                <Text key={tool.name} color={absolute === index ? t.accent : t.text}>
-                  {absolute === index ? "❯ " : "  "}
-                  {tool.name} <Text color={t.dim}>({tool.origin})</Text>
-                </Text>
+                <ListRow key={tool.name} selected={absolute === index} hint={`(${tool.origin})`}>
+                  {tool.name}
+                </ListRow>
               );
             })}
-            {end < items.length && (
-              <Text color={t.dim}>  ↓ {items.length - end} more</Text>
-            )}
+            {end < items.length && <HintRow>{`  ↓ ${items.length - end} more`}</HintRow>}
           </>
         );
       })()}
       {items.length === 0 && <Text color={t.dim}>  (empty — n to create)</Text>}
-      <Text color={t.dim}> </Text>
-      <Text color={t.dim}>
-        n new · e edit ($EDITOR) · d delete ·{" "}
-        {tab === "agents"
-          ? `enter/u ${active !== null ? "use in session" : "set as default"} · `
-          : ""}j/k move · t tab · esc close
-      </Text>
       {confirmDelete !== null && <Text color={t.warning}>delete "{confirmDelete}"? y/n</Text>}
       {notice !== null && <Text color={t.warning}>{notice}</Text>}
-    </Box>
+    </Panel>
   );
 }
 

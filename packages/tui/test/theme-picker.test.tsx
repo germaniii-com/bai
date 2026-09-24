@@ -23,8 +23,8 @@ describe("ThemePicker", () => {
       />,
     );
     await tick();
-    // Seeded on Dracula (not the top of the list).
-    expect(lastFrame() ?? "").toContain("❯ Dracula");
+    // Seeded on Dracula (not the top of the list); the row carries a swatch.
+    expect(lastFrame() ?? "").toContain("❯ ● Dracula");
     // Mount fires the initial preview (the active theme — a no-op apply).
     expect(previews[0]).toBe("dracula");
 
@@ -33,7 +33,7 @@ describe("ThemePicker", () => {
     await tick();
     const moved = lastFrame() ?? "";
     unmount();
-    expect(moved).toContain("❯ Nord");
+    expect(moved).toContain("❯ ● Nord");
     expect(previews).toContain("nord");
   });
 
@@ -50,7 +50,7 @@ describe("ThemePicker", () => {
     await tick();
     const frame = lastFrame() ?? "";
     unmount();
-    expect(frame).toContain("❯ Dark");
+    expect(frame).toContain("❯ ● Dark");
     expect(previews[0]).toBe("dark");
   });
 

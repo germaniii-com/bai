@@ -50,7 +50,7 @@ describe("DialogOverlay", () => {
     expect(frame).toContain("Beta");
     // The panel is width-capped (72 < 80 terminal): its border spans exactly
     // the panel, not the terminal.
-    const borderLine = frame.split("\n").find((l) => l.includes("╭")) ?? "";
+    const borderLine = frame.split("\n").find((l) => l.includes("┌")) ?? "";
     expect(borderLine.trim().length).toBe(72);
   });
 

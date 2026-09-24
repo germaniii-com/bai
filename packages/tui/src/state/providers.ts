@@ -10,6 +10,8 @@ export interface PickerOption {
   value: string;
   label: string;
   hint?: string;
+  /** Colored swatch dot before the label (theme picker — the theme's accent). */
+  swatch?: string;
   /** Left-gutter mark (✓ for connected providers, · for accounts). */
   gutter?: string;
   /** Right-side warning badge (e.g. "△ 1" — a session's pending asks). */

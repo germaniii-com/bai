@@ -1,5 +1,5 @@
 import { SelectDialog } from "../components/dialog";
-import { resolveThemeId, THEME_OPTIONS, type CustomTheme } from "@bai/shared";
+import { resolveThemeId, THEME_COLORS, THEME_OPTIONS, type CustomTheme } from "@bai/shared";
 
 /**
  * Theme picker — a SelectDialog over the theme catalog with
@@ -34,8 +34,21 @@ export function ThemePicker({
   windowSize?: number;
 }) {
   const options = [
-    ...THEME_OPTIONS.map((t) => ({ value: t.value, label: t.label, hint: t.mode })),
-    ...customThemes.map((t) => ({ value: t.id, label: t.name, hint: `custom · ${t.mode}` })),
+    // A swatch dot carries each theme's own accent (not the active one), so
+    // the list reads as a palette preview while the live-preview applies the
+    // highlighted row.
+    ...THEME_OPTIONS.map((t) => ({
+      value: t.value,
+      label: t.label,
+      hint: t.mode,
+      swatch: THEME_COLORS[t.value].primary,
+    })),
+    ...customThemes.map((t) => ({
+      value: t.id,
+      label: t.name,
+      hint: `custom · ${t.mode}`,
+      swatch: t.colors.primary,
+    })),
   ];
   // Seed the cursor on the active theme — a custom id seeds on its own row
   // when loaded; otherwise resolved through the same fallback the App

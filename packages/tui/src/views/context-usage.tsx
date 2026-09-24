@@ -1,5 +1,6 @@
-import { Box, Text, useInput, useWindowSize } from "ink";
+import { Text, useInput, useWindowSize } from "ink";
 import type { ReactNode } from "react";
+import { Panel } from "../components/ui";
 import type { SessionUsage } from "@bai/shared";
 import {
   contextBreakdownRows,
@@ -58,23 +59,10 @@ export function ContextUsageDialog({
     { isActive: !deferInput },
   );
 
-  // Opaque surface: as an overlay panel it must paint over the chat behind
-  // it (Ink has no alpha).
   const shell = (children: ReactNode) => (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      backgroundColor={t.background}
-      paddingX={1}
-    >
-      <Text bold color={t.accent}>
-        context usage
-      </Text>
+    <Panel title="context usage" titleTone="accent" hint="esc close">
       {children}
-      <Text color={t.dim}>esc close</Text>
-    </Box>
+    </Panel>
   );
 
   if (usage === null) {

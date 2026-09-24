@@ -1060,7 +1060,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
               // First open before the (on-demand) provider list has landed.
               <Box
                 flexDirection="column"
-                borderStyle="round"
+                borderStyle="single"
                 borderColor={theme.border}
                 borderBackgroundColor={theme.background}
                 backgroundColor={theme.background}

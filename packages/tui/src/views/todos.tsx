@@ -1,6 +1,7 @@
-import { Box, Text, useInput } from "ink";
+import { Text, useInput } from "ink";
 import type { TodoItem } from "@bai/shared";
 import { isMouseInput, listWindow } from "../components/dialog";
+import { HintRow, Panel } from "../components/ui";
 import { useTheme } from "../theme";
 
 /** Render rows shown around the top of a long list. */
@@ -53,21 +54,9 @@ export function TodosDialog({
   const windowed = todos.slice(start, end);
 
   return (
-    // Opaque surface: as an overlay panel it must paint over the chat behind
-    // it (Ink has no alpha).
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      backgroundColor={t.background}
-      paddingX={1}
-    >
-      <Text bold color={t.accent}>
-        todos
-      </Text>
+    <Panel title="todos" titleTone="accent" hint="esc close">
       <Text color={t.dim}>{summary}</Text>
-      {start > 0 && <Text color={t.dim}>  ↑ more</Text>}
+      {start > 0 && <HintRow>{"  ↑ more"}</HintRow>}
       {windowed.map((item, i) => {
         const glyph =
           item.status === "completed"
@@ -94,8 +83,7 @@ export function TodosDialog({
           </Text>
         );
       })}
-      {end < todos.length && <Text color={t.dim}>  ↓ more</Text>}
-      <Text color={t.dim}>esc close</Text>
-    </Box>
+      {end < todos.length && <HintRow>{"  ↓ more"}</HintRow>}
+    </Panel>
   );
 }

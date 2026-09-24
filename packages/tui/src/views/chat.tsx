@@ -308,6 +308,13 @@ export function ChatView({
     if (runActive || hasVisibleReply) setSentPending(false);
   }, [runActive, hasVisibleReply]);
   const waiting = (sentPending || runActive) && !hasVisibleReply;
+  // The tail assistant message currently streaming: its text node renders a
+  // static caret (▌) so the transcript shows liveness while tokens arrive.
+  // Static on purpose — a blink timer would re-render the transcript.
+  const streamingTailId =
+    runActive && last !== undefined && last.role === "assistant"
+      ? (last.id as string)
+      : undefined;
 
   // Thinking nodes (opencode parity): every assistant message's reasoning
   // renders as its own transcript node — collapsed by default, each toggled
@@ -1543,11 +1550,13 @@ export function ChatView({
                 flexShrink={0}
               >
                 <Box
-                  borderStyle="round"
-                  // Dim border at rest; the accent is reserved for the
-                  // focus highlight (user-bubble parity).
+                  borderStyle="single"
+                  // Pending input: a recessed `inset` well (distinct from a
+                  // committed user card, which is raised on `panel`). Dim
+                  // border at rest; accent on focus.
                   borderColor={focused ? t.accent : t.border}
-                  borderBackgroundColor={t.background}
+                  borderBackgroundColor={t.inset}
+                  backgroundColor={t.inset}
                   paddingX={1}
                   flexShrink={0}
                 >
@@ -1574,11 +1583,13 @@ export function ChatView({
                 flexShrink={0}
               >
                 <Box
-                  borderStyle="round"
-                  // Neutral outline at rest; the accent is reserved for the
-                  // focus highlight so it stands out.
+                  borderStyle="single"
+                  // The user turn is a raised card (`panel`) — the transcript's
+                  // only user-authored surface, so the role rhythm reads at a
+                  // glance. Neutral outline at rest; accent on focus.
                   borderColor={focused ? t.accent : t.border}
-                  borderBackgroundColor={t.background}
+                  borderBackgroundColor={t.panel}
+                  backgroundColor={t.panel}
                   paddingX={1}
                   flexShrink={0}
                   flexDirection="column"
@@ -1751,7 +1762,9 @@ export function ChatView({
                   <Text wrap="wrap" italic>
                     {marker}
                     <Text color={focused ? t.accent : color}>{glyph} </Text>
-                    <Text color={focused ? t.accent : t.dim}>{c.name}</Text>
+                    {/* Tool name leads (bold, text tone); args recede (dim) so
+                        the status column scans vertically. */}
+                    <Text bold color={focused ? t.accent : t.text}>{c.name}</Text>
                     {c.argsPreview.length > 0 && (
                       <Text color={t.dim}> {c.argsPreview}</Text>
                     )}
@@ -1838,7 +1851,11 @@ export function ChatView({
           return (
             <Box key={`${item.messageId}:text`} marginTop={gap} flexShrink={0}>
               <Box {...ASSISTANT_INSET} flexShrink={0}>
-                <Markdown text={messageText(m)} marker={marker ?? undefined} />
+                <Markdown
+                  // A streaming tail carries the caret at the end of its text.
+                  text={item.messageId === streamingTailId ? `${messageText(m)}▌` : messageText(m)}
+                  marker={marker ?? undefined}
+                />
               </Box>
             </Box>
           );
@@ -1854,6 +1871,7 @@ export function ChatView({
       expandedTools,
       expandedToolsFull,
       resolveTaskChild,
+      streamingTailId,
     ],
   );
 
@@ -1893,13 +1911,20 @@ export function ChatView({
       >
         {transcriptChildren}
         {len === 0 && !waiting && (
-          <Box {...ASSISTANT_INSET}>
-            <Text color={t.dim}>No messages yet — say something.</Text>
+          // Welcome state (draft session): a calm lead-in instead of a bare
+          // "no messages" line. The hub already carries workspace context.
+          <Box {...ASSISTANT_INSET} flexDirection="column" marginTop={1}>
+            <Text bold color={t.text}>
+              Ready when you are.
+            </Text>
+            <Text color={t.dim}>
+              Ask a question, or type # to reference a file.
+            </Text>
           </Box>
         )}
         {waiting && (
           <Box marginTop={len > 0 ? 1 : 0} {...ASSISTANT_INSET}>
-            <Spinner label="thinking…" />
+            <Spinner label="thinking" interruptHint={runActive} />
           </Box>
         )}
       </VirtualList>

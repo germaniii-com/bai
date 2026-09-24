@@ -24,6 +24,12 @@ Gemini CLI, GitHub Copilot CLI.
 
 ## Rendering conventions
 
+- Chrome goes through `components/ui.tsx` (`Panel`, `ListRow`, `HintRow`,
+  `EmptyState`). Surfaces follow the shared elevation triad: `surface` = page
+  (root), `panel` = raised (dialogs, composer, user turns, selected rows),
+  `inset` = recessed (code/tool-output/diff/pending wells). Selection is a
+  full-width `selection` bar + accent `❯` — never an accent fill. See
+  [DESIGN-SYSTEM.md §8](../../docs/DESIGN-SYSTEM.md) (TUI mapping).
 - Transcripts scroll through `components/virtual-list.tsx`: a variable-height
   virtualized viewport (adapted from `ink-virtual-list`, with per-item
   `measureElement` instead of its fixed `itemHeight`). Only the visible items

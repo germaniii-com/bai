@@ -61,9 +61,13 @@ export function ComposerHub({
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
+      borderStyle="single"
+      // Raised control surface (the shared `panel` tone): the hub reads as a
+      // distinct control, not another paragraph on the page. INPUT keeps the
+      // green border as its focused state.
       borderColor={mode === "input" ? t.success : t.border}
-      borderBackgroundColor={t.background}
+      borderBackgroundColor={t.panel}
+      backgroundColor={t.panel}
       paddingX={1}
     >
       {/* Row 1 — the draft. INPUT keeps the green border and › prompt; ▌

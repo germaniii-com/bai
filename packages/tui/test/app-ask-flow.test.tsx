@@ -204,7 +204,7 @@ describe("App inline ask flow (end-to-end)", () => {
       // The composer hub's status row shows the draft label ("new session").
       const draftFrame = await waitForAnyFrame(
         () => frames.slice(markN),
-        (f) => f.includes("No messages yet") && f.includes("new session"),
+        (f) => f.includes("Ready when you are") && f.includes("new session"),
       );
       expect(draftFrame).not.toContain("done running");
       expect(draftFrame).not.toContain("Echo: run the bash tool");

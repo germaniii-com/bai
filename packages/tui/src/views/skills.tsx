@@ -5,6 +5,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { Session, SkillInfo, SkillUsageTotals } from "@bai/shared";
 import { listWindow, PromptDialog } from "../components/dialog";
 import { Markdown } from "../components/markdown";
+import { HintRow, ListRow, Panel } from "../components/ui";
 import { useTheme } from "../theme";
 
 /** List rows shown around the cursor (SelectDialog parity). */
@@ -220,35 +221,40 @@ export function SkillsDialog({
   const highlighted = skills[index];
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1}>
-      <Text bold color={t.text}>
-        skills <Text color={t.dim}>(enter view · e edit · n new · d delete · l learn · esc close)</Text>
-      </Text>
+    <Panel
+      title="skills"
+      titleTone="accent"
+      hint={
+        detail === null
+          ? "n new · e edit ($EDITOR) · d delete · l learn (spawn a learn session) · r refresh · j/k move · esc close"
+          : "enter back · e edit ($EDITOR) · d delete · esc close"
+      }
+    >
       {detail === null &&
         (() => {
           const { start, end } = listWindow(index, skills.length, WINDOW);
           const windowed = skills.slice(start, end);
           return (
             <>
-              {start > 0 && <Text color={t.dim}>  ↑ {start} more</Text>}
+              {start > 0 && <HintRow>{`  ↑ ${start} more`}</HintRow>}
               {windowed.map((skill, i) => {
                 const absolute = start + i;
+                const meta = `(${skill.tags !== undefined && skill.tags.length > 0 ? skill.tags.slice(0, 3).join(", ") : "skill"}${
+                  skill.linkedFiles.length > 0
+                    ? ` · ${skill.linkedFiles.length} file${skill.linkedFiles.length === 1 ? "" : "s"}`
+                    : ""
+                })`;
                 return (
-                  <Text key={skill.name} color={absolute === index ? t.accent : t.text}>
-                    {absolute === index ? "❯ " : "  "}
-                    {skill.name}{" "}
-                    <Text color={t.dim}>
-                      ({skill.tags !== undefined && skill.tags.length > 0 ? skill.tags.slice(0, 3).join(", ") : "skill"}
-                      {skill.linkedFiles.length > 0 ? ` · ${skill.linkedFiles.length} file${skill.linkedFiles.length === 1 ? "" : "s"}` : ""})
-                    </Text>
-                  </Text>
+                  <ListRow key={skill.name} selected={absolute === index} hint={meta}>
+                    {skill.name}
+                  </ListRow>
                 );
               })}
               {end < total && (
-                <Text color={t.dim}>
+                <HintRow>
                   {"  ↓ "}
                   {total - end} more{hasMore && end >= skills.length ? " · loading…" : ""}
-                </Text>
+                </HintRow>
               )}
               {skills.length === 0 && <Text color={t.dim}>  (no skills yet — n to create, l to learn one)</Text>}
             </>
@@ -283,15 +289,7 @@ export function SkillsDialog({
               );
             })()}
           </Box>
-          <Text color={t.dim}> </Text>
-          <Text color={t.dim}>enter back · e edit ($EDITOR) · d delete · esc close</Text>
         </Box>
-      )}
-      {detail === null && (
-        <Text color={t.dim}> </Text>
-      )}
-      {detail === null && (
-        <Text color={t.dim}>n new · e edit ($EDITOR) · d delete · l learn (spawn a learn session) · r refresh · j/k move · esc close</Text>
       )}
       {confirmDelete !== null && <Text color={t.warning}>delete "{confirmDelete}"? y/n</Text>}
       {notice !== null && <Text color={t.warning}>{notice}</Text>}
@@ -303,9 +301,6 @@ export function SkillsDialog({
           onClose={() => setLearnOpen(false)}
         />
       )}
-      {highlighted === undefined && detail === null && !learnOpen && confirmDelete === null && (
-        <Text color={t.dim}> </Text>
-      )}
-    </Box>
+    </Panel>
   );
 }

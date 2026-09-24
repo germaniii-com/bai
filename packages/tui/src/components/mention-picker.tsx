@@ -1,6 +1,7 @@
-import { Box, Text } from "ink";
+import { Text } from "ink";
 import type { MentionEntry } from "../state/mention";
 import { useTheme } from "../theme";
+import { ListRow, Panel } from "./ui";
 
 /**
  * The composer's `#file` mention picker — a compact list rendered directly
@@ -31,13 +32,7 @@ export function MentionPicker({
   const rows = results.slice(start, start + windowSize);
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      paddingX={1}
-    >
+    <Panel hint="↑/↓ select · enter/tab insert · esc close">
       {error !== undefined ? (
         <Text color={t.danger} wrap="truncate">
           # {error}
@@ -55,21 +50,17 @@ export function MentionPicker({
           const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
           const isDir = entry.type === "dir" || entry.type === "dir-select";
           return (
-            <Text key={`${entry.type}:${entry.path}`} wrap="truncate" color={active ? t.accent : t.text}>
-              {active ? "❯ " : "  "}
+            <ListRow key={`${entry.type}:${entry.path}`} selected={active}>
               <Text color={active ? t.accent : t.dim}>{dir}</Text>
               <Text bold={active} color={active ? t.accent : t.text}>
                 {base}
               </Text>
               {isDir ? <Text color={t.dim}>/</Text> : null}
               {entry.type === "dir-select" ? <Text color={t.dim}> this folder</Text> : null}
-            </Text>
+            </ListRow>
           );
         })
       )}
-      <Text color={t.dim} wrap="truncate">
-        {"  "}↑/↓ select · enter/tab insert · esc close
-      </Text>
-    </Box>
+    </Panel>
   );
 }

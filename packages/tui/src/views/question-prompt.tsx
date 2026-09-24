@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { QuestionRequest } from "@bai/shared";
+import { ListRow, Panel } from "../components/ui";
 import { deleteWord } from "../state/composer";
 import { typedChar, type AskUiState } from "../state/asks";
 import { useTheme } from "../theme";
@@ -198,11 +199,13 @@ export function QuestionPrompt({
   if (request.path !== undefined) {
     const value = ui.custom ?? "";
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
-        <Text wrap="truncate">
-          <Text bold color={t.accent}>△ workspace</Text>
-          {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
-        </Text>
+      <Panel
+        title="△ workspace"
+        titleTone="accent"
+        titleSuffix={queued > 0 ? `· ${queued} more queued` : undefined}
+        hint={`enter confirm · esc${ui.dismissArmed ? " again dismiss" : " dismiss"}`}
+        flexShrink={0}
+      >
         <Text wrap="wrap" color={t.text}>{request.path.prompt}</Text>
         {request.path.hint !== undefined && <Text wrap="wrap" color={t.dim}>{request.path.hint}</Text>}
         <Box flexDirection="column" marginTop={1}>
@@ -212,35 +215,40 @@ export function QuestionPrompt({
             <Text color={t.accent}>▌</Text>
           </Text>
         </Box>
-        <Text color={t.dim} wrap="truncate">enter confirm · esc{ui.dismissArmed ? " again dismiss" : " dismiss"}</Text>
         {ui.dismissArmed && <Text color={t.warning}>press esc again to dismiss (nothing will be created)</Text>}
-      </Box>
+      </Panel>
     );
   }
 
   if (q === undefined) return null;
+  const dismissHint = `esc${ui.dismissArmed ? " again dismiss" : " dismiss"}`;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={t.border} borderBackgroundColor={t.background} paddingX={1} flexShrink={0}>
-      <Text wrap="truncate">
-        <Text bold color={t.accent}>
-          △ question{total > 1 ? ` (${ui.qIndex + 1}/${total})` : ""} · {q.header}
-        </Text>
-        {queued > 0 && <Text color={t.dim}> · {queued} more queued</Text>}
-      </Text>
+    <Panel
+      title={`△ question${total > 1 ? ` (${ui.qIndex + 1}/${total})` : ""} · ${q.header}`}
+      titleTone="accent"
+      titleSuffix={queued > 0 ? `· ${queued} more queued` : undefined}
+      hint={
+        ui.custom === null
+          ? q.multiple === true
+            ? `space toggle · enter confirm · c custom · ${dismissHint}`
+            : `space/enter pick · c custom · ${dismissHint}`
+          : undefined
+      }
+      flexShrink={0}
+    >
       <Text wrap="wrap" color={t.text}>{q.question}</Text>
       {q.options.map((opt, i) => {
         const picked = selected.includes(opt.label);
-        const cursor = ui.custom === null && i === ui.highlight ? "❯ " : "  ";
+        const active = ui.custom === null && i === ui.highlight;
         return (
-          <Text key={opt.label} wrap="truncate" color={i === ui.highlight && ui.custom === null ? t.accent : t.text}>
-            {cursor}
+          <ListRow key={opt.label} selected={active}>
             {q.multiple === true ? (picked ? "[x] " : "[ ] ") : picked ? "● " : ""}
             {opt.label}
-            {i === ui.highlight && ui.custom === null ? <Text color={t.dim}> — {opt.description}</Text> : null}
-          </Text>
+            {active ? <Text color={t.dim}> — {opt.description}</Text> : null}
+          </ListRow>
         );
       })}
-      {ui.custom !== null ? (
+      {ui.custom !== null && (
         <Box flexDirection="column">
           <Text color={t.accent}>custom answer:</Text>
           <Text wrap="truncate">
@@ -249,15 +257,8 @@ export function QuestionPrompt({
           </Text>
           <Text color={t.dim}>enter submit · esc back</Text>
         </Box>
-      ) : (
-        <Text color={t.dim} wrap="truncate">
-          {q.multiple === true
-            ? "space toggle · enter confirm · c custom · "
-            : "space/enter pick · c custom · "}
-          esc{ui.dismissArmed ? " again dismiss" : " dismiss"}
-        </Text>
       )}
       {ui.dismissArmed && ui.custom === null && <Text color={t.warning}>press esc again to dismiss all questions</Text>}
-    </Box>
+    </Panel>
   );
 }

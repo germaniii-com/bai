@@ -1,6 +1,7 @@
-import { Box, Text, useInput } from "ink";
+import { Text, useInput } from "ink";
 import { useState } from "react";
 import { isMouseInput, listWindow } from "../components/dialog";
+import { HintRow, ListRow, Panel } from "../components/ui";
 import { deleteWord } from "../state/composer";
 import { flattenSections, paletteSections, type CommandSpec } from "../state/commands";
 import { useTheme } from "../theme";
@@ -122,25 +123,15 @@ export function CommandPalette({
   const windowed = entries.slice(start, end);
 
   return (
-    // Opaque surface: as an overlay panel the palette must paint over the
-    // chat behind it (Ink has no alpha).
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      backgroundColor={t.background}
-      paddingX={1}
-    >
-      <Text bold color={t.accent}>
-        commands
-      </Text>
+    // Raised panel over the live chat (the `panel` surface), transparent
+    // backdrop — opencode's overlay model.
+    <Panel title="commands" titleTone="accent" hint="↑/↓ or ctrl+j/k navigate · enter run · esc back">
       <Text color={t.dim}>
         {query.length > 0 ? `filter: ${query}` : "type to filter"}
         {query.length > 0 ? ` · ${flat.length}/${specs.length}` : ""}
       </Text>
       {flat.length === 0 && <Text color={t.dim}> (no matches)</Text>}
-      {start > 0 && <Text color={t.dim}>  ↑ more</Text>}
+      {start > 0 && <HintRow>{"  ↑ more"}</HintRow>}
       {windowed.map((entry, i) => {
         const absolute = start + i;
         if (entry.kind === "header") {
@@ -151,14 +142,12 @@ export function CommandPalette({
           );
         }
         return (
-          <Text key={absolute} color={absolute === cursorEntry ? t.accent : t.text} wrap="truncate">
-            {absolute === cursorEntry ? "❯ " : "  "}
+          <ListRow key={absolute} selected={absolute === cursorEntry}>
             {entry.cmd.title}
-          </Text>
+          </ListRow>
         );
       })}
-      {end < entries.length && <Text color={t.dim}>  ↓ more</Text>}
-      <Text color={t.dim}>↑/↓ or ctrl+j/k navigate · enter run · esc back</Text>
-    </Box>
+      {end < entries.length && <HintRow>{"  ↓ more"}</HintRow>}
+    </Panel>
   );
 }

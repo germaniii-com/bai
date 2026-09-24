@@ -184,7 +184,7 @@ function renderBlocks(
       case "code": {
         const code = token as Tokens.Code;
         return [
-          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="round" borderColor={t.dim} borderBackgroundColor={t.background} paddingX={1}>
+          <Box key={key} marginTop={mt} flexShrink={0} flexDirection="column" borderStyle="single" borderColor={t.border} borderBackgroundColor={t.inset} backgroundColor={t.inset} paddingX={1}>
             {code.lang !== undefined && code.lang.length > 0 && <Text color={t.dim}>{code.lang}</Text>}
             <Text wrap="wrap" color={t.text}>{code.text.replace(/\n$/, "")}</Text>
           </Box>,

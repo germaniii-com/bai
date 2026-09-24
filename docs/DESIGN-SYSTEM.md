@@ -251,6 +251,35 @@ The slot → variable mapping (documented at the top of `styles.css`):
 Monaco derives its editor theme from the same palette data at call time
 (`monaco-setup.ts`), so a theme switch re-skins the editor on the fly.
 
+### TUI (terminal) mapping
+
+Ink has no alpha, shadows, radii, or blending, so the TUI expresses the same
+language with **tone + border**. The elevation triad maps directly
+(`packages/tui/src/theme.tsx`):
+
+| Design role | Theme slot | TUI token | Applied to |
+|---|---|---|---|
+| Page surface | `surface` | `background` | Full-terminal root (painted across the alt-screen) |
+| Raised surface | `surfaceSecondary` | `panel` | Dialog panels, composer hub, user-turn cards, selected rows |
+| Recessed well | `background` | `inset` | Code blocks, tool-output bodies, diff bodies, pending/queued wells |
+| Selection bar | `color-mix(accent 14%, panel)` | `selection` | Full-width highlighted row in pickers/lists |
+| Accent | `primary` | `accent` | Focus markers (`❯`), titles, active borders |
+| Decorative accent | `accent` | `accentAlt` | Markdown headings and secondary flourishes |
+
+Rules for TUI contributors:
+
+1. **Never hardcode a color** — read roles from `useTheme()` (`TuiTheme`).
+2. **Elevation, not shadow**: raised surfaces use `panel`; recessed wells use
+   `inset`; every panel uses a square (`single`) border (color = the surface's
+   tone) — rounded corners clash with the rectangular surface fills.
+3. **Selection is a bar, not a fill**: a full-width `Box` with the `selection`
+   background plus an accent `❯`/label — never an accent-filled row
+   (`onAccent` is not part of `ThemeColors`).
+4. **Typography is semantic only** (`bold`/`italic`/`dimColor`/
+   `strikethrough`) — fonts come from the terminal emulator (§13.1).
+5. **No transcript animation** (a static `▌` streaming cursor; only the
+   spinner ticks) so input latency stays flat.
+
 ---
 
 ## 9. Rules for contributors

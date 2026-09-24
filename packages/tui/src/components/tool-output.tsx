@@ -33,7 +33,9 @@ export const ToolOutputBody = memo(function ToolOutputBody({
   );
   const lines = useMemo(() => view.preview.split("\n"), [view.preview]);
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    // Recessed well: tool output reads as a distinct inset block under the
+    // tool line, not more body text.
+    <Box flexDirection="column" paddingLeft={2} paddingRight={2} backgroundColor={t.inset}>
       {lines.map((line, li) => (
         <Text key={li} color={t.dim} wrap="wrap">
           {line.length > 0 ? line : " "}

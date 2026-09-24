@@ -1,8 +1,9 @@
-import { Box, Text, useInput, usePaste } from "ink";
+import { Text, useInput, usePaste } from "ink";
 import { useEffect, useRef, useState } from "react";
 import type { PickerOption } from "../state/providers";
 import { deleteWord } from "../state/composer";
 import { useTheme } from "../theme";
+import { HintRow, ListRow, Panel } from "./ui";
 
 /** Options rendered around the highlight when the list is longer than this. */
 const WINDOW = 12;
@@ -240,20 +241,10 @@ export function SelectDialog({
   ];
 
   return (
-    // Opaque surface: as an overlay panel the dialog must paint over the
-    // chat behind it (Ink has no alpha — an unpainted interior would let
-    // the transcript bleed through).
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      backgroundColor={t.background}
-      paddingX={1}
-    >
-      <Text bold color={t.accent}>
-        {title}
-      </Text>
+    // Raised panel over the live chat: the `panel` surface (ui.tsx) is what
+    // lifts it off the page — the backdrop stays transparent (opencode's
+    // overlay model), and the opaque interior never lets the transcript bleed.
+    <Panel title={title} titleTone="accent" hint={hints.join(" · ")}>
       <Text color={t.dim}>
         {filter.length > 0 ? `filter: ${filter}` : "type to filter"}
         {visible.length !== options.length ? ` · ${visible.length}/${options.length}` : ""}
@@ -261,28 +252,30 @@ export function SelectDialog({
       {visible.length === 0 && (
         <Text color={t.dim}>{options.length === 0 ? ` (${emptyHint})` : " (no matches)"}</Text>
       )}
-      {start > 0 && <Text color={t.dim}>  ↑ {start} more</Text>}
+      {start > 0 && <HintRow>{`  ↑ ${start} more`}</HintRow>}
       {windowed.map((opt, i) => {
         const absolute = start + i;
         return (
-          <Text key={opt.value} color={absolute === clamped ? t.accent : t.text} wrap="truncate">
-            {absolute === clamped ? "❯ " : "  "}
-            {opt.gutter !== undefined ? <Text color={t.success}>{opt.gutter} </Text> : null}
+          <ListRow
+            key={opt.value}
+            selected={absolute === clamped}
+            {...(opt.gutter !== undefined ? { gutter: opt.gutter } : {})}
+            {...(opt.badge !== undefined ? { badge: opt.badge } : {})}
+            {...(opt.hint !== undefined ? { hint: opt.hint } : {})}
+          >
+            {opt.swatch !== undefined && <Text color={opt.swatch}>● </Text>}
             {opt.label}
             {opt.caps !== undefined && <Text color={t.secondary}> {opt.caps}</Text>}
-            {opt.badge !== undefined && <Text color={t.warning}> {opt.badge}</Text>}
-            {opt.hint !== undefined && <Text color={t.dim}> {opt.hint}</Text>}
-          </Text>
+          </ListRow>
         );
       })}
       {end < (total ?? visible.length) && (
-        <Text color={t.dim}>
+        <HintRow>
           {"  ↓ "}
           {(total ?? visible.length) - end} more{hasMore && end >= visible.length ? " · loading…" : ""}
-        </Text>
+        </HintRow>
       )}
-      <Text color={t.dim}>{hints.join(" · ")}</Text>
-    </Box>
+    </Panel>
   );
 }
 
@@ -357,23 +350,16 @@ export function PromptDialog({
   );
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={t.border}
-      borderBackgroundColor={t.background}
-      backgroundColor={t.background}
-      paddingX={1}
+    <Panel
+      title={title}
+      titleTone="accent"
+      hint={`enter confirm${optional ? " (empty = skip)" : ""} · esc cancel`}
     >
-      <Text bold color={t.accent}>
-        {title}
-      </Text>
       {description !== undefined && <Text color={t.dim}>{description}</Text>}
       <Text>
         <Text color={text.length === 0 ? t.dim : t.text}>{text.length > 0 ? text : (placeholder ?? "")}</Text>
         <Text color={t.dim}>▌</Text>
       </Text>
-      <Text color={t.dim}>enter confirm{optional ? " (empty = skip)" : ""} · esc cancel</Text>
-    </Box>
+    </Panel>
   );
 }
