@@ -74,11 +74,24 @@ Five sizes. **These are the only font sizes components may use.**
 
 | Token | Value | Role |
 |---|---|---|
-| `--text-xs` | 11px | captions, badges, column heads, nav labels |
+| `--text-xs` | 11px* | captions, badges, column heads, nav labels |
 | `--text-sm` | 12px | meta, labels, hints |
 | `--text-md` | 13px | controls, dense body, code |
 | `--text-lg` | 15px | body, section headings |
 | `--text-xl` | 20px | page titles, KPI values |
+
+\* **Touch floor:** under `@media (pointer: coarse)` (phones/tablets) the scale
+shifts so no caption falls below 12px and no text-entry control falls below
+16px (iOS Safari focus-zooms anything under 16px):
+
+| Token / alias | Fine pointer | `pointer: coarse` |
+|---|---|---|
+| `--text-xs` | 11px | **12px** |
+| `--control-text` (inputs, buttons, selects) | `--text-md` (13px) | **16px** |
+| `--text-min` (em-relative floors, e.g. `.md code`) | 12px | 12px |
+
+`html { text-size-adjust: 100% }` disables WebKit font boosting; pinch-zoom
+stays unlocked (`no maximum-scale` / `user-scalable=no` — WCAG 1.4.4).
 
 There is **no sub-11px tier**: micro labels that used to be 8/9/10px collapse
 onto `--text-xs`. Legacy semantic aliases (`--text-caption`, `--text-meta`,
@@ -86,9 +99,10 @@ onto `--text-xs`. Legacy semantic aliases (`--text-caption`, `--text-meta`,
 rules can migrate one at a time.
 
 **Exceptions (intentional, not debt):** the markdown renderer uses
-`em`-relative sizes (`.md h1` `1.3em`, `.md code` `0.9em`, …) so headings and
-inline code scale with their surrounding text. These are the only non-token
-sizes in the stylesheet.
+`em`-relative sizes (`.md h1` `1.3em`, `.md code` `max(var(--text-min), 0.9em)`, …)
+so headings and inline code scale with their surrounding text but never drop
+below `--text-min` (12px). These are the only non-token sizes in the
+stylesheet.
 
 ---
 
@@ -158,6 +172,20 @@ bumps to meet the 44px target.
 | `--control-h-sm` | 28px | 36px |
 | `--control-h-md` | 34px | 40px |
 | `--control-h-lg` | 40px | 44px |
+
+Secondary chrome that isn't a named size (`.master-item`, `.new-session`,
+`.provider-item`, `.attachment-remove`, `.image-card-menu-btn`, `.key-bar-key`)
+also floors to **44×44** under `pointer: coarse`, and lists of them scroll
+horizontally (`overflow-x: auto`) rather than crushing targets on a 320px
+phone. Hover-only affordances (card menu buttons) become always-visible under
+`@media (hover: none)`.
+
+**Composer status row**: session/workspace, context, Learn, and locked-chat
+chips sit beside the agent/model pickers. Chips alone default to `sm` /
+`--text-sm` while pickers use `md` / `--control-text`, so `.composer-status`
+forces every child (and its plain-text hints) onto **`--control-h-md` +
+`--control-text`** — one height and one type for the whole hub row. Icons in
+that row are 13px (matching the picker Bot/Cpu glyphs).
 
 ---
 
@@ -257,4 +285,8 @@ Monaco derives its editor theme from the same palette data at call time
 | Monaco/xterm font config | `packages/web/src/editor-font.ts` |
 | Monaco theme derivation | `packages/web/src/monaco-setup.ts` |
 | Theme catalog (shared data) | `packages/shared/src/themes.ts` |
-| Contract tests | `packages/web/test/theme-css.test.ts` |
+| Coarse-pointer / autofocus helpers | `packages/web/src/pointer.ts` |
+| `visualViewport` keyboard refit | `packages/web/src/viewport.ts` |
+| Long-press → context menu | `packages/web/src/use-long-press.ts` |
+| Mobile shell key bar | `packages/web/src/components/KeyBar.tsx` |
+| Contract tests | `packages/web/test/theme-css.test.ts`, `test/mobile-css.test.ts` |

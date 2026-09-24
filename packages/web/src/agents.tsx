@@ -3,6 +3,7 @@ import { Bot } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { isValidAgentName, type AgentInfo, type ProviderListResponse, type SkillInfo, type ToolListEntry } from "@bai/shared";
 import { modelOverrideOptions } from "./provider-utils";
+import { shouldAutoFocus } from "./pointer";
 import { Button, Checkbox, Combobox, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -304,7 +305,7 @@ function AgentForm({
           <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus
+            autoFocus={shouldAutoFocus()}
             required
             maxLength={64}
             spellCheck={false}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ListChecks, Plus, X } from "lucide-react";
 import type { TodoItem } from "@bai/shared";
+import { shouldAutoFocus } from "./pointer";
 import { Checkbox, ConfirmDialog, Disclosure, IconButton, TextInput, usePersistentDisclosure } from "./components";
 
 /**
@@ -98,7 +99,7 @@ export function TodosPanel({
                     <TextInput
                       className="todo-edit"
                       value={draft}
-                      autoFocus
+                      autoFocus={shouldAutoFocus()}
                       disabled={disabled}
                       onChange={(e) => setDraft(e.target.value)}
                       onBlur={() => commitEdit(index)}

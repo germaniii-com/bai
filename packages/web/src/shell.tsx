@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as TerminalIcon } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
-import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
+import { useEditorFontSize, EDITOR_FONT_FAMILY } from "./editor-font";
+import { KeyBar } from "./components";
 
 /**
  * The web shell pane: one xterm.js terminal over a WebSocket to the
@@ -51,9 +52,17 @@ export function ShellPane({
   // bumps it (after backoff) to tear down and reconnect; status changes
   // alone never re-run the effect (they'd kill the live socket).
   const [connectEpoch, setConnectEpoch] = useState(0);
+  // 13px on desktop, 16px on touch — readable phone terminal, and the
+  // effect re-runs (one reconnect) if the pointer capability ever flips.
+  const fontSize = useEditorFontSize();
+  // Live terminal handle for KeyBar → xterm writes (same path as WS onData).
+  const termRef = useRef<Terminal | null>(null);
+  const sendKey = useCallback((data: string): void => {
+    termRef.current?.input(data, true);
+  }, []);
 
   // The terminal + WebSocket live in one effect keyed on the reconnect
-  // epoch (bumped by the close handler's retry timer).
+  // epoch (bumped by the close handler's retry timer) + the font size.
   useEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
@@ -63,7 +72,7 @@ export function ShellPane({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: EDITOR_FONT_SIZE,
+      fontSize,
       // Ligatures are off: xterm needs @xterm/addon-ligatures for them, which
       // is not a dependency. The family still matches Monaco.
       fontFamily: EDITOR_FONT_FAMILY,
@@ -87,6 +96,7 @@ export function ShellPane({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    termRef.current = term;
     try {
       fit.fit();
     } catch {
@@ -144,13 +154,15 @@ export function ShellPane({
       if (retryTimer !== null) clearTimeout(retryTimer);
       ro.disconnect();
       ws?.close();
+      termRef.current = null;
       term.dispose();
     };
     // connectEpoch is the reconnect key; connectEpoch only feeds the
     // backoff math above (stale-in-closure is fine — it's the epoch this
-    // connection was born in).
+    // connection was born in). fontSize is in the deps so a pointer-capability
+    // change rebuilds the terminal at the new size (rare).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, themeColors, connectEpoch]);
+  }, [client, themeColors, connectEpoch, fontSize]);
 
   return (
     <div className="shell-pane">
@@ -176,7 +188,12 @@ export function ShellPane({
           </p>
         </div>
       ) : (
-        <div ref={hostRef} className="shell-terminal" />
+        <>
+          <div ref={hostRef} className="shell-terminal" />
+          {/* Touch-only strip (CSS-hidden on fine pointers) for keys the
+              mobile keyboard doesn't expose. */}
+          <KeyBar onKey={sendKey} disabled={status !== "open"} />
+        </>
       )}
     </div>
   );

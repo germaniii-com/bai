@@ -213,7 +213,11 @@
   border-radius: var(--radius-modal);
   box-shadow: var(--shadow-modal);
   width: min(720px, 100%);
-  max-height: min(560px, 90vh);
+  /* Never let a wide child (a long model id, an unbreakable account label)
+     push the dialog past the viewport — it's a flex item in the overlay. */
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(560px, 90dvh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -227,7 +231,7 @@
 .modal-sm { width: min(520px, 100%); }
 .modal-lg {
   width: min(880px, 100%);
-  max-height: min(640px, 90vh);
+  max-height: min(640px, 90dvh);
 }
 
 .modal-head {
@@ -253,10 +257,12 @@
 .modal-body {
   padding: var(--space-3) var(--space-4);
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   min-height: 0;
+  min-width: 0;
 }
 
 /* Full-bleed bodies (picker columns, explorer panes) opt out of padding. */
@@ -317,12 +323,190 @@
   .modal-sm,
   .modal-lg {
     width: 100%;
-    max-height: 85vh;
+    max-height: 85dvh;
   }
   /* Footer actions get full touch targets and wrap. */
   .modal-foot .btn {
     flex: 1 1 auto;
   }
+}
+
+/* --- Drawer (right slide-over: mobile workspace rail) ---------------------- */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-bg);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  z-index: var(--z-modal);
+  animation: overlay-in var(--duration-normal) var(--ease-out);
+}
+
+.drawer-overlay.exiting {
+  animation: overlay-out var(--duration-fast) var(--ease-standard) forwards;
+}
+
+.drawer {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  border-radius: var(--radius-modal) 0 0 var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+  width: min(360px, 92vw);
+  max-height: 100%;
+  /* Clears the home indicator when the drawer is full-bleed to the bottom. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: drawer-in var(--duration-normal) var(--ease-out);
+}
+
+.drawer.drawer-exiting {
+  animation: drawer-out var(--duration-fast) var(--ease-standard) forwards;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes drawer-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  padding-top: calc(var(--space-3) + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.drawer-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.drawer-tab {
+  flex: 1 0 auto;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.drawer-tab:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.drawer-tab.active {
+  color: var(--text);
+  background: var(--border);
+  border-color: var(--border);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  /* Never taller than the dynamic viewport (keyboard / toolbars). */
+  max-height: 45dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.drawer-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Workspace rail affordance — icon-only (hamburger/Menu), phones only
+   (desktop keeps the column). Square-ish target next to the Chat/Files tabs. */
+.pane-switch-header .drawer-open-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-inline: var(--space-2);
+  min-width: var(--control-h-md);
+}
+
+@media (min-width: 641px) {
+  .pane-switch-header .drawer-open-btn {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Full-height right sheet on phones (matches Modal's 85dvh feel). */
+  .drawer {
+    width: min(400px, 100vw);
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .drawer-body {
+    /* Plan: 45dvh-safe internal scrolling under the header+tabs. */
+    max-height: calc(100dvh - 140px);
+  }
+}
+
+/* Full-bleed panel (mobile file tree): the tree replaces the body chrome —
+   no padding, no gap, and the tree fills the width instead of keeping its
+   desktop 240px column + left border. */
+.drawer-body.drawer-body-flush {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.drawer-body.drawer-body-flush > .file-tree {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  border-left: 0;
+  background: transparent;
+}
+
+/* The Drawer already carries the panel title + tabs, so the tree's own root
+   collapse header is redundant here — start at the toolbar. */
+.drawer-body.drawer-body-flush .file-tree-head {
+  display: none;
 }
 
 /* --- Field / TextInput / Textarea ------------------------------------------ */
@@ -365,7 +549,7 @@
   flex-shrink: 0;
   padding: 0 var(--space-3);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   transition: border-color var(--duration-fast) var(--ease-standard);
 }
 
@@ -392,7 +576,7 @@ textarea.input {
 
 .input.mono {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--control-text);
   white-space: pre;
   overflow-x: auto;
 }
@@ -418,7 +602,7 @@ textarea.input {
   height: var(--control-h-md);
   padding: 0 calc(var(--space-4) + var(--space-3)) 0 var(--space-3);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   cursor: pointer;
   text-overflow: ellipsis;
   transition: border-color var(--duration-fast) var(--ease-standard);
@@ -485,7 +669,7 @@ textarea.input {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   height: calc(var(--control-h-md) - 6px);
   padding: 0;
 }
@@ -515,7 +699,7 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-popover);
-  max-height: min(300px, 40vh);
+  max-height: min(300px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: var(--space-1);
@@ -589,7 +773,7 @@ textarea.input {
   /* The dropdown anchors to the field, which is full-width on phones —
      it can never overflow the viewport. */
   .combobox-pop {
-    max-height: min(260px, 45vh);
+    max-height: min(260px, 45dvh);
   }
 }
 
@@ -616,6 +800,12 @@ textarea.input {
   font: inherit;
   font-size: var(--text-md);
   min-width: 0;
+  /* Rows keep their natural height inside a scrolling flex column. On coarse
+     pointers the 44px touch floor (`min-height`) REPLACES the automatic
+     min-content minimum, so without this a long list (e.g. the 400+ model
+     catalog) flex-shrinks every row to 44px while its content stays ~83px —
+     titles paint over the next row's description. The list scrolls instead. */
+  flex-shrink: 0;
   transition: background var(--duration-fast) var(--ease-standard);
 }
 
@@ -657,10 +847,13 @@ textarea.input {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
+  /* Full width so .li-trailing can push to the row's right edge. */
+  width: 100%;
 }
 
 .list-item .li-title {
   font-weight: var(--font-weight-medium);
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -677,10 +870,11 @@ textarea.input {
   white-space: nowrap;
 }
 
+/* In the head row (never absolute): badges sit beside the title so they
+   can't paint over long names or the description lines below. */
 .list-item .li-trailing {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
   color: var(--success);
   font-weight: var(--font-weight-bold);
   display: inline-flex;
@@ -725,9 +919,8 @@ textarea.input {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* Inline rows keep the trailing slot in-flow (no absolute overlap). */
+/* Inline rows already keep the trailing slot in-flow (same rule as stacked). */
 .list-item.inline .li-trailing {
-  position: static;
   margin-left: auto;
 }
 
@@ -737,23 +930,8 @@ textarea.input {
   }
 }
 
-/* Mobile: list items inside the horizontal strip containers become
-   single-line rows (replaces the per-class rules that used to live in
-   styles.css's media query). */
-@media (max-width: 640px) {
-  .session-list .list-item,
-  .workspace-nav .list-item,
-  .settings-nav .list-item {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  /* The workspace strip drops the path subtitle (the old .path rule). */
-  .workspace-nav .list-item .li-sub {
-    display: none;
-  }
-}
+/* Subnav lists live in the mobile Drawer (vertical sheet) — no horizontal
+   strip layout. Rows stay full-width; subtitles stay visible. */
 
 /* --- Card ------------------------------------------------------------------- */
 
@@ -936,7 +1114,9 @@ textarea.input {
   height: 16px;
   border-radius: var(--radius-full);
   background: var(--panel);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Role token, not a raw rgba shadow — the elevation contract only
+     permits raw px elevations inside :root. */
+  box-shadow: var(--shadow-sm);
   transition: transform var(--duration-fast) var(--ease-standard);
 }
 
@@ -1312,7 +1492,7 @@ textarea.input {
   height: var(--control-h-md);
   padding: 0 var(--space-3);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   cursor: pointer;
   max-width: 320px;
   transition: border-color var(--duration-fast) var(--ease-standard);
@@ -1504,7 +1684,7 @@ textarea.input {
   padding: 0 var(--space-2);
   height: var(--control-h-sm);
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--control-text);
   transition: color var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard);
 }

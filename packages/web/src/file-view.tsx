@@ -5,7 +5,7 @@ import { FileCode, FileText, FileVideo, Image as ImageIcon, RotateCw, X } from "
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
-import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
+import { EDITOR_FONT_FAMILY, useEditorFontSize } from "./editor-font";
 import { Markdown } from "./markdown";
 import { PlanView, type PlanSaveStatus } from "./plan-view";
 import { Button, IconButton, Tabs } from "./components";
@@ -144,6 +144,7 @@ export function FileView({
   onSelectPlan?: (name: string) => void;
   onClosePlan?: (name: string) => void;
 }) {
+  const editorFontSize = useEditorFontSize();
   const [entries, setEntries] = useState<Map<string, FileEntry>>(new Map());
   // Per-file markdown view mode (Preview ⇄ Raw) — preserved across tab
   // switches, defaults to Preview, reset with the cache on workspace switch.
@@ -488,7 +489,7 @@ export function FileView({
                   domReadOnly: true,
                   minimap: { enabled: false },
                   fontFamily: EDITOR_FONT_FAMILY,
-                  fontSize: EDITOR_FONT_SIZE,
+                  fontSize: editorFontSize,
                   fontLigatures: true,
                   lineNumbers: "on",
                   scrollBeyondLastLine: false,

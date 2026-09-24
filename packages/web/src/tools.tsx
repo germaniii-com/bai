@@ -3,8 +3,9 @@ import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
 import { isToolOverride, isValidToolName, type ThemeColors, type ToolListEntry } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
-import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
+import { EDITOR_FONT_FAMILY, useEditorFontSize } from "./editor-font";
 import { OverrideWarning } from "./icons";
+import { shouldAutoFocus } from "./pointer";
 import { TriangleAlert, Wrench } from "lucide-react";
 import { Button, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
@@ -167,6 +168,7 @@ function ToolForm({
   // theme switch re-skins the live editor with no CSS-read race (the
   // file-view pattern).
   const [monacoTheme, setMonacoTheme] = useState(() => defineBaiTheme(themeColors));
+  const editorFontSize = useEditorFontSize();
   useEffect(() => {
     setMonacoTheme(defineBaiTheme(themeColors));
   }, [themeColors]);
@@ -277,7 +279,7 @@ function ToolForm({
           <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus
+            autoFocus={shouldAutoFocus()}
             required
             maxLength={64}
             spellCheck={false}
@@ -309,7 +311,7 @@ function ToolForm({
             options={{
               minimap: { enabled: false },
               fontFamily: EDITOR_FONT_FAMILY,
-              fontSize: EDITOR_FONT_SIZE,
+              fontSize: editorFontSize,
               fontLigatures: true,
               lineNumbers: "on",
               scrollBeyondLastLine: false,

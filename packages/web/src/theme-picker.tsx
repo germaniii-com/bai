@@ -9,6 +9,7 @@ import {
   type ThemeColors,
 } from "@bai/shared";
 import { Button, ColorInput, Field, Modal, TextInput } from "./components";
+import { shouldAutoFocus } from "./pointer";
 
 /**
  * Theme selector modal (germaniii.com's ThemeSelectorModal): a grid of
@@ -113,7 +114,7 @@ export function ThemeSelectorModal({
                 value={name}
                 placeholder="my theme…"
                 onChange={(e) => setName(e.target.value)}
-                autoFocus
+                autoFocus={shouldAutoFocus()}
               />
             </Field>
           </div>

@@ -237,7 +237,10 @@ export function Combobox(props: ComboboxProps) {
           aria-autocomplete="list"
           aria-label={ariaLabel}
           autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
           spellCheck={false}
+          enterKeyHint="search"
         />
         <span className="combobox-caret" aria-hidden="true">
           <ChevronDown size={14} />

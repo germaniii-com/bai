@@ -43,6 +43,16 @@
   --text-lg: 15px;   /* body, section headings */
   --text-xl: 20px;   /* page titles, KPI values */
 
+  /* Text-entry control size. iOS Safari zooms any input/textarea/select
+     whose computed font-size is below 16px — desktop keeps the dense
+     --text-md step; the pointer:coarse block below overrides to 16px.
+     (Never name a token with the substring `font-size:` — the CSS
+     contract test treats it as a raw px size.) */
+  --control-text: var(--text-md);
+  /* Floor for em-relative text (0.9em inside a 12px box would drop to
+     10.8px); components write max(var(--text-min), 0.9em). */
+  --text-min: 12px;
+
   /* Font weights — the only weights components may use. */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
@@ -110,12 +120,15 @@
   --focus-ring: var(--accent);
 }
 
-/* Touch: every control meets the 44px target on coarse pointers (HIG). */
+/* Touch: every control meets the 44px target on coarse pointers (HIG), text
+   entry sits at 16px (no iOS focus-zoom), captions floor at 12px. */
 @media (pointer: coarse) {
   :root {
     --control-h-sm: 36px;
     --control-h-md: 40px;
     --control-h-lg: 44px;
+    --control-text: 16px;
+    --text-xs: 12px;
   }
 }
 
@@ -155,6 +168,15 @@ body,
   margin: 0;
 }
 
+html {
+  /* Disable WebKit/iOS text inflation — the layout owns text size.
+     Pinch-zoom and Safari page zoom stay available (WCAG 1.4.4). */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* No OS tap-highlight flash on touch chrome. */
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -168,6 +190,19 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+/* Touch chrome: allow pan/pinch, skip the double-tap zoom delay on
+   buttons, links, and pickers. Free text entry keeps default gestures
+   (double-tap-to-zoom into a paragraph still works). */
+button,
+a,
+select,
+[role="button"],
+[role="option"],
+[role="menuitem"],
+[role="tab"] {
+  touch-action: manipulation;
 }
 
 button:focus-visible,
@@ -281,6 +316,39 @@ input[type="radio"]:focus-visible {
   border-radius: var(--radius-control);
 }
 
+/* Scroll region for the nav targets (desktop: fills the rail so the
+   master-spacer can pin Theme/Shell/Settings to the bottom; mobile: the
+   only overflow-x surface — brand-mark sits outside and never pans). */
+.master-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: 4px;
+}
+
+/* Right-edge section-menu toggle (mobile only — desktop keeps the nested
+   column and has no subnavToggle). Sits opposite the brand mark; group
+   carries the | separator + content-sized button. */
+.subnav-toggle-group,
+.subnav-toggle {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .subnav-toggle {
+    display: flex;
+  }
+
+  .subnav-toggle-group {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+}
+
 .master-items {
   display: flex;
   flex-direction: column;
@@ -311,6 +379,15 @@ input[type="radio"]:focus-visible {
   padding: 8px;
   cursor: pointer;
   font: inherit;
+}
+
+/* Touch: every primary nav target clears 44×44 (the mobile row's padding
+   alone would leave ~32px). Desktop rail keeps the dense 36px hit. */
+@media (pointer: coarse) {
+  .master-item {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .master-item:hover:not(:disabled) {
@@ -397,6 +474,14 @@ input[type="radio"]:focus-visible {
   font: inherit;
 }
 
+/* Touch: settings/provider rows clear HIG's 44px. */
+@media (pointer: coarse) {
+  .provider-item {
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
 .provider-item:hover {
   background: var(--border);
 }
@@ -452,6 +537,13 @@ input[type="radio"]:focus-visible {
   border-radius: var(--radius-control);
   padding: 8px;
   cursor: pointer;
+}
+
+/* Touch: New Chat / New Session / strip actions need a 44px row. */
+@media (pointer: coarse) {
+  .new-session {
+    min-height: 44px;
+  }
 }
 
 /* Session sidebars: a single action row (create button + search toggle);
@@ -832,7 +924,7 @@ input[type="radio"]:focus-visible {
   color: var(--text);
   border-radius: var(--radius-md);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
 }
 
 .ws-newname:focus {
@@ -1045,7 +1137,7 @@ input[type="radio"]:focus-visible {
 .workspace-sidebar > .file-tree {
   width: auto;
   flex: 0 0 auto;
-  max-height: 50vh;
+  max-height: 50dvh;
   border-left: 0;
   min-height: 0;
 }
@@ -1281,6 +1373,7 @@ input[type="radio"]:focus-visible {
   flex: 1;
   min-width: 0;
   font: inherit;
+  font-size: var(--control-text);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1343,7 +1436,7 @@ input[type="radio"]:focus-visible {
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--control-text);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1487,7 +1580,7 @@ input[type="radio"]:focus-visible {
   max-height: 220px;
   resize: vertical;
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--control-text);
   line-height: 1.45;
   color: var(--text);
   background: var(--bg);
@@ -1757,6 +1850,9 @@ input[type="radio"]:focus-visible {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Wide tables/code scroll themselves (.md pre / .md table); the transcript
+     must not pan sideways as a whole (breaks vertical scroll feel on iOS). */
+  overflow-x: hidden;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -1918,6 +2014,8 @@ input[type="radio"]:focus-visible {
   align-items: center;
   gap: 6px;
   margin-top: 6px;
+  /* Chip + actions on one line desktop; wrap so actions stay tappable at 320px. */
+  flex-wrap: wrap;
 }
 
 .queued-spacer {
@@ -1998,7 +2096,7 @@ input[type="radio"]:focus-visible {
 
 .md code {
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: max(var(--text-min), 0.9em);
   color: var(--user);
   background: color-mix(in srgb, var(--user) 12%, transparent);
   border-radius: var(--radius-sm);
@@ -2503,7 +2601,8 @@ input[type="radio"]:focus-visible {
 .toast-stack {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  /* Home-indicator safe area (viewport-fit=cover): keep toasts above it. */
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -2590,6 +2689,51 @@ input[type="radio"]:focus-visible {
   flex-wrap: wrap;
 }
 
+/* Touch: form action rows (Save / Delete / Create) clear HIG and stack. */
+@media (pointer: coarse) {
+  .agents-actions .btn,
+  .agents-actions > * {
+    min-height: var(--control-h-lg);
+  }
+}
+
+@media (max-width: 640px) {
+  /* CRUD pages: list is a horizontal strip above; the form gets full width
+     below (no 50/50 split — .app already stacks into a column). */
+  .agents-pane {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .agents-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .agents-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: var(--control-h-lg);
+  }
+
+  /* Settings forms: single column, comfortable field rhythm. */
+  .settings-pane {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .theme-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .theme-form-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: var(--control-h-lg);
+  }
+}
+
 /* Skill form: the linked-files list (references/templates/scripts/assets). */
 .skill-linked-files {
   display: flex;
@@ -2665,7 +2809,7 @@ input[type="radio"]:focus-visible {
 
 .empty {
   text-align: center;
-  margin-top: 40vh;
+  margin-top: 40dvh;
 }
 
 .error {
@@ -2709,6 +2853,8 @@ input[type="radio"]:focus-visible {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
+  /* Home-indicator safe area: the send row sits above it with viewport-fit=cover. */
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: var(--panel);
   /* The composer keeps its height while the transcript above scrolls. */
@@ -2727,6 +2873,9 @@ input[type="radio"]:focus-visible {
      control height instead of stretching to the multi-line input). */
   align-items: flex-end;
   gap: var(--space-2);
+  /* Narrow panes: the send button drops under the input instead of crushing it. */
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* The composer input is a textarea so Shift+Enter can insert a newline
@@ -2745,7 +2894,7 @@ input[type="radio"]:focus-visible {
   max-height: 200px;
   padding: var(--space-2) var(--space-3);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   line-height: var(--leading-normal);
   resize: none;
   overflow-y: auto;
@@ -2764,6 +2913,177 @@ input[type="radio"]:focus-visible {
 
 .composer-spacer {
   flex: 1;
+}
+
+/* --- composer hub status row ------------------------------------------------
+ * Two groups: CONTEXT (workspace/session, queue, context usage — quiet and
+ * informational) and CONTROLS (Learn, agent, model — the actionable pickers).
+ * Desktop: one row, the groups sit side by side (adjacent — never pushed to
+ * opposite ends). Phones: context on top (pans if long), controls beneath.
+ * Everything is a soft pill at ONE height/type so the hub reads as a single,
+ * even strip.
+ *
+ * Items that mount when a session becomes active (the context tracker, Learn,
+ * the agent picker) fade/slide in instead of popping; empty groups collapse so
+ * a hidden group never leaves a gap. */
+.composer-status {
+  gap: 6px;
+}
+
+.composer-context,
+.composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer-context:empty,
+.composer-controls:empty {
+  display: none;
+}
+
+@keyframes hub-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* One height + type for every control in the row (chips default to
+   sm/text-sm, pickers to md/control-text — side by side the hub looks
+   uneven). Scoped to .composer-status so settings chips stay compact. */
+.composer-status .chip,
+.composer-status .picker-trigger {
+  height: var(--control-h-md);
+  min-height: var(--control-h-md);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-inline: var(--space-3);
+  font-size: var(--control-text);
+  line-height: var(--leading-tight);
+  gap: 6px;
+  border-radius: var(--radius-full);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  animation: hub-item-in var(--duration-normal) var(--ease-out) both;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Context is quiet: dim label + glyphs, brighter only on hover. */
+.composer-context .chip,
+.composer-context .chip svg {
+  color: var(--dim);
+}
+
+.composer-context .chip.interactive:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.composer-context .chip.interactive:hover svg {
+  color: var(--text);
+}
+
+/* Controls read as actionable: full-strength label, accent wash on hover. */
+.composer-controls .chip,
+.composer-controls .picker-trigger {
+  color: var(--text);
+}
+
+.composer-controls .picker-trigger-icon {
+  color: var(--dim);
+}
+
+.composer-controls .picker-trigger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: transparent;
+}
+
+.composer-controls .picker-trigger:hover .picker-trigger-icon {
+  color: var(--accent);
+}
+
+.composer-controls .chip.interactive:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* Tone chips (queued warning, tracker thresholds) keep their tint but drop the
+   hard border to match the soft pills. */
+.composer-status .chip.warning,
+.composer-status .chip.danger,
+.composer-status .chip.sending {
+  border-color: transparent;
+}
+
+.composer-status .hint,
+.composer-status .dim {
+  font-size: var(--control-text);
+  line-height: var(--leading-tight);
+}
+
+/* Match the hub's folder glyph to the picker icons (Bot/Cpu are 13px). */
+.composer-status .chip .ws-item-icon {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 640px) {
+  /* Stack: context above, controls below — no ragged 3-line wrap. */
+  .composer-status {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Context pans horizontally if it can't fit; never wraps, never hides a
+     control. max-width keeps the flex item from being sized by its content
+     (which would push the whole hub wider than the viewport). */
+  .composer-context {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .composer-context::-webkit-scrollbar {
+    display: none;
+  }
+
+  .composer-context > * {
+    flex-shrink: 0;
+  }
+
+  /* Controls hug the left, under the context row — so [new session] and the
+     model picker read as one cluster instead of being flung apart. */
+  .composer-controls {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
+  /* The model trigger keeps its truncation whether or not the modal overlay is
+     mounted beside it. A `:last-child` selector broke the instant the modal
+     (an out-of-flow sibling rendered inside the same group) appeared — the
+     trigger lost its flex/overflow rules and expanded past the viewport.
+     Target a stable class instead. */
+  .composer-controls .model-picker-trigger {
+    max-width: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .composer-controls .model-picker-trigger .picker-trigger-value {
+    min-width: 0;
+    overflow: hidden;
+  }
 }
 
 /* --- attachments (composer chips + transcript previews) --- */
@@ -2790,7 +3110,7 @@ input[type="radio"]:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--dim);
-  font-size: 0.85em;
+  font-size: max(var(--text-min), 0.85em);
 }
 
 .attachment-chip.clickable {
@@ -2816,6 +3136,16 @@ input[type="radio"]:focus-visible {
   font-size: var(--text-lg);
   line-height: 1;
   padding: 0 2px;
+}
+
+/* Finger-sized remove (chip itself stays compact; the hit area grows). */
+@media (pointer: coarse) {
+  .attachment-remove {
+    min-width: 44px;
+    min-height: 44px;
+    margin: -10px -6px;
+    padding: 0 10px;
+  }
 }
 
 .attachment-remove:hover {
@@ -2900,7 +3230,7 @@ input[type="radio"]:focus-visible {
 
 .image-lightbox-img {
   max-width: 100%;
-  max-height: 82vh;
+  max-height: 82dvh;
   object-fit: contain;
   border-radius: var(--radius-sm);
 }
@@ -2966,7 +3296,7 @@ input[type="radio"]:focus-visible {
   /* Never let the composer column shrink the popover — it caps itself and
      scrolls instead (the transcript above absorbs the space). */
   flex: 0 0 auto;
-  max-height: min(260px, 40vh);
+  max-height: min(260px, 40dvh);
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -3223,6 +3553,7 @@ input[type="radio"]:focus-visible {
   color: var(--text);
   padding: 8px 10px;
   font: inherit;
+  font-size: var(--control-text);
   resize: vertical;
 }
 
@@ -3403,41 +3734,73 @@ input[type="radio"]:focus-visible {
 
 /* The single scrollable model column (one row per model across every
    connected provider): fills the unpadded modal body and scrolls on its own
-   so the search bar stays pinned above it. */
+   so the search bar stays pinned above it. Rows sit on a looser rhythm than
+   nav lists — name + two description lines need air. */
 .model-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 0 var(--space-2) var(--space-3);
+  /* Air between rows — 1–2px hairlines make the picker read as one block. */
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-3);
 }
 
 /* Each row is a model: name, then `ctx · $/1M`, then `provider · account`
-   (the shared ListItem's single subtitle slot carries both meta lines). */
-.model-row .li-sub {
+   (the shared ListItem's single subtitle slot carries both meta lines).
+
+   Cascade note: main.tsx imports styles.css THEN components.css, so the
+   shared `.list-item .li-sub` (nowrap+ellipsis, single-line) beats an
+   equal-specificity `.model-row .li-sub` override. These rules use
+   `.list-item.model-row` so the two-line layout and wrap win. */
+.list-item.model-row {
+  align-items: stretch;
+  /* Three text lines need room so cost/provider don't read as one block. */
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.list-item.model-row .li-head,
+.list-item.model-row .li-sub {
+  width: 100%;
+  align-self: stretch;
+  min-width: 0;
+}
+
+/* Trailing badges are in the head (see list.tsx) — no absolute overlay, so
+   long model ids never paint under current/zdr. */
+.list-item.model-row .li-sub {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-1);
+  /* Full text, not a clipped single line: cost + provider may wrap. */
   white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: var(--leading-normal);
+  font-size: var(--text-md);
 }
 
-.model-row .model-row-meta,
-.model-row .model-row-owner {
+.list-item.model-row .model-row-meta,
+.list-item.model-row .model-row-owner {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
+  /* Show the full cost/provider text — wrap rather than ellipsis-clip
+     (shrink-wrapped width + nowrap was cutting these off). */
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  line-height: var(--leading-normal);
 }
 
-.model-row .model-row-owner {
+.list-item.model-row .model-row-owner {
   opacity: 0.8;
 }
 
 /* Model name + inline capability glyphs (think/vision). The label keeps the
    truncation so the glyphs never clip on long ids. */
-.model-row .model-row-name {
+.list-item.model-row .model-row-name {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3445,7 +3808,7 @@ input[type="radio"]:focus-visible {
   max-width: 100%;
 }
 
-.model-row .model-row-label {
+.list-item.model-row .model-row-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3504,13 +3867,13 @@ input[type="radio"]:focus-visible {
 .model-current {
   position: relative;
   flex-shrink: 0;
-  padding: 0 var(--space-2) var(--space-2);
+  padding: 0 var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 
 .model-current-label {
   display: block;
-  padding: var(--space-1) var(--space-2) 2px;
+  padding: var(--space-2) var(--space-2) var(--space-1);
   font-size: var(--text-xs);
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
@@ -3535,7 +3898,7 @@ input[type="radio"]:focus-visible {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-3);
 }
 
@@ -3673,7 +4036,7 @@ input[type="radio"]:focus-visible {
 /* The catalog is 200+ providers — cap its height and scroll internally so the
    page never becomes one endless list. */
 .provider-accordion.catalog-scroll {
-  max-height: min(420px, 50vh);
+  max-height: min(420px, 50dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3739,7 +4102,7 @@ input[type="radio"]:focus-visible {
    flush at the top with no transparent gap while scrolling. */
 .provider-accordion.mcp-catalog-scroll {
   padding: 0 0 6px;
-  max-height: min(420px, 50vh);
+  max-height: min(420px, 50dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -4111,20 +4474,37 @@ input[type="radio"]:focus-visible {
 @media (max-width: 640px) {
   .settings-pane {
     padding: 10px;
-  }
-
-  .model-button {
-    max-width: 200px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Composer hub: tighter padding, smaller chips, rows wrap. */
   .composer {
     padding: var(--space-2) var(--space-3);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
     gap: var(--space-2);
   }
 
   .composer .chip {
     max-width: 160px;
+  }
+
+  /* Ask / permission actions go full-width stacked so every choice is an
+     easy tap on a phone (and they wrap above the home indicator). */
+  .ask-panel .perm-actions {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .ask-panel .perm-actions > * {
+    width: 100%;
+    min-height: var(--control-h-lg);
+  }
+
+  .ask-panel {
+    /* Don't run under the home indicator / keyboard. */
+    margin: 0 12px 8px;
+    max-height: min(340px, 45dvh);
   }
 }
 
@@ -4133,29 +4513,58 @@ input[type="radio"]:focus-visible {
     flex-direction: column;
   }
 
-  /* Master rail becomes a compact top icon row. */
+  /* Master rail becomes a compact top icon row under the status bar.
+     The nav itself does not scroll — only .master-scroll (the items) does,
+     so the bai brand mark stays pinned at the left edge. */
   .master-nav {
     width: 100%;
     flex-direction: row;
     align-items: center;
     border-right: 0;
     border-bottom: 1px solid var(--border);
-    padding: 6px 10px;
+    /* Safe-area top: with viewport-fit=cover the row sits under the notch. */
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 6px;
+    overflow: hidden;
   }
 
   .brand-mark {
     width: 24px;
     height: 24px;
     margin: 0 8px 0 0;
+    flex-shrink: 0;
+  }
+
+  /* Only the nav targets pan; brand-mark and the subnav toggle are
+     siblings outside this box. flex grows into the space the content-sized
+     toggle frees up. */
+  .master-scroll {
+    flex-direction: row;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 0;
+    /* 13 icon targets × ~44px > 320 — scroll rather than crush below HIG. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .master-scroll::-webkit-scrollbar {
+    display: none;
   }
 
   .master-items {
     flex-direction: row;
     flex: 1;
+    /* Keep the free-standing Theme/Shell/Settings items in the same scroll. */
+    min-width: min-content;
   }
 
+  /* Each nav target clears 44×44 (HIG) without shrinking below content. */
   .master-item {
-    flex: 1;
+    flex: 1 0 auto;
+    min-width: 44px;
+    min-height: 44px;
     padding: 6px;
   }
 
@@ -4168,59 +4577,40 @@ input[type="radio"]:focus-visible {
     height: auto;
     align-self: stretch;
     margin: 4px 6px;
+    flex-shrink: 0;
   }
 
-  /* Nested panel becomes a horizontal scroll strip beneath the rail. */
+  /* Right-edge section-menu group: vertical | + content-sized toggle.
+     Opposite the brand mark; opens the subnav Drawer (hidden on desktop). */
+  .subnav-toggle-group {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    margin-left: var(--space-2);
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .subnav-toggle-group .nav-divider {
+    margin: 6px 8px 6px 0;
+    align-self: stretch;
+  }
+
+  .subnav-toggle {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Nested panel is not rendered under 640px (useMediaQuery → Drawer).
+     Keep a hard hide so a stray mount can never flash the old strip. */
   .nested-panel {
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 12px;
-    overflow-x: auto;
-  }
-
-  .nested-title {
     display: none;
   }
 
   .new-session {
     white-space: nowrap;
-  }
-
-  .session-list {
-    flex-direction: row;
-    overflow-x: auto;
-    flex: 1;
-  }
-
-  .settings-nav {
-    flex-direction: row;
-    flex: 1;
-    overflow-y: visible;
-    overflow-x: auto;
-  }
-
-  .provider-item {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-
-  .provider-item .check {
-    position: static;
-  }
-
-  /* Workspace: nav becomes part of the horizontal strip; the file tree is
-     a desktop affordance — hidden on phones for v1. (The list items inside
-     the strips get their mobile layout from components.css.) */
-  .workspace-nav {
-    flex-direction: row;
-    flex: 1;
-    overflow-x: auto;
-    align-items: center;
+    min-height: 44px;
   }
 
   /* Add-workspace modal: keep the two columns side by side, tighter. */
@@ -4228,11 +4618,8 @@ input[type="radio"]:focus-visible {
     min-height: 200px;
   }
 
-  .file-tree {
-    display: none;
-  }
-
-  /* The whole right rail (tree + todos) is hidden on phones. */
+  /* The whole right rail (tree + todos) is hidden on phones — the Drawer
+     mounts its own .file-tree, so only hide it *inside* the sidebar. */
   .workspace-sidebar {
     display: none;
   }
@@ -4330,6 +4717,61 @@ input[type="radio"]:focus-visible {
   font-size: var(--text-md);
   line-height: var(--leading-normal);
   text-align: center;
+}
+
+/* --- mobile key bar (shell / terminal chrome) ------------------------------ */
+/* Always in the DOM (stable layout); hidden on fine pointers. Each key is
+   ≥44px tall and the strip sticks above the home indicator / keyboard. */
+.key-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+  /* Pin above the iOS keyboard when visualViewport reports it. */
+  margin-bottom: calc(-1 * var(--keyboard-inset, 0px));
+  z-index: 2;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .key-bar {
+    display: none;
+  }
+}
+
+.key-bar-key {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--control-text);
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.key-bar-key:active:not(:disabled) {
+  background: var(--border);
+}
+
+.key-bar-key.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.key-bar-key:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* --- Automations: schedule builder + run history ----------------------- */
@@ -4898,6 +5340,25 @@ input[type="radio"]:focus-visible {
   backdrop-filter: blur(2px);
 }
 
+/* Touch: the 28px visual stays (card real-estate), but the hit area clears
+   HIG via a padded pseudo-extension (doesn't shift layout). */
+@media (pointer: coarse) {
+  .image-card-menu-btn {
+    width: 44px;
+    height: 44px;
+    top: var(--space-1);
+    right: var(--space-1);
+  }
+}
+
+/* No hover on touch — keep the menu button always visible. */
+@media (hover: none) {
+  .image-card-menu-btn {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
 .image-card-menu-btn:hover,
 .image-card-menu-btn[aria-expanded="true"] {
   border-color: var(--accent);
@@ -5003,7 +5464,7 @@ input[type="radio"]:focus-visible {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--control-text);
   padding: 2px 4px;
 }
 
@@ -5057,7 +5518,7 @@ input[type="radio"]:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: min(240px, 40vh);
+  max-height: min(240px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: var(--space-1);
@@ -5395,7 +5856,7 @@ input[type="radio"]:focus-visible {
 
 .video-lightbox-video {
   width: 100%;
-  max-height: 70vh;
+  max-height: 70dvh;
   background: #000;
   border-radius: var(--radius-md);
 }
@@ -5428,7 +5889,7 @@ input[type="radio"]:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--space-3);
-  max-height: 60vh;
+  max-height: 60dvh;
   overflow-y: auto;
 }
 

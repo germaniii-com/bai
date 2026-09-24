@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Bot, ChartColumn, Clock, FileText, Folder, Image, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, Clock, FileText, Folder, Image, Menu, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -36,7 +36,9 @@ import { ShellPane } from "./shell";
 import { AskPanel, type PendingAsk } from "./ask-panel";
 import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
-import { Button, Chip, ContextMenu, ListItem, NavItem, SubNavCreate, Tabs, TextInput, type ContextMenuItem } from "./components";
+import { useLongPress } from "./use-long-press";
+import { useMediaQuery } from "./use-media-query";
+import { Button, Chip, ContextMenu, Drawer, ListItem, NavItem, SubNavCreate, SubNavToggle, Tabs, TextInput, type ContextMenuItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -84,8 +86,9 @@ export function App() {
   // exact screen (route-based navigation — src/router.ts).
   const [bootRoute] = useState(() => parseRoute(window.location.pathname, window.location.search));
   const [section, setSection] = useState<Section>(bootRoute.section);
-  // The settings section (User | General | Model Providers) — the nested
+  // The settings section (General | Model Providers | …) — the nested
   // sidebar's entries; each renders one scrollable heading-content page.
+  // User name lives under General (no separate User section).
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(
     bootRoute.section === "settings" ? bootRoute.settingsSection : "general",
   );
@@ -96,6 +99,17 @@ export function App() {
   const [addFoldersOpen, setAddFoldersOpen] = useState(false);
   // File-tree right-click menu + the pending "Add to Chat" mention insert.
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; abs: string; kind: "file" | "dir" | "root" } | null>(null);
+  // Session-row long-press menu (iOS has no reliable contextmenu).
+  const [sessionMenu, setSessionMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  // Mobile workspace rail drawer (replaces the hidden right column on phones).
+  const [railOpen, setRailOpen] = useState(false);
+  const [railTab, setRailTab] = useState<"files" | "todos" | "notes" | "plans">("files");
+  // Mobile subnav drawer (sessions / settings / agents list…) — replaces the
+  // horizontal strip under the master row; toggled from the right edge of
+  // MasterNav (opposite the brand mark).
+  const [subnavOpen, setSubnavOpen] = useState(false);
+  // One content tree: desktop keeps the nested column; ≤640px uses the Drawer.
+  const isNarrow = useMediaQuery("(max-width: 640px)");
   const [pendingMention, setPendingMention] = useState<{ path: string; type: "file" | "dir"; nonce: number } | null>(null);
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<string[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string | null>(
@@ -1100,6 +1114,29 @@ export function App() {
           },
         ];
 
+  /** Session long-press menu: Open (click already does this — explicit for a11y). */
+  const sessionMenuItems: ContextMenuItem[] =
+    sessionMenu === null
+      ? []
+      : [
+          {
+            label: "Open session",
+            icon: <MessageCircle size={14} />,
+            onSelect: () => {
+              const s = sessions.find((x) => x.id === sessionMenu.id) ?? workspaceSessions.find((x) => x.id === sessionMenu.id);
+              if (s !== undefined) {
+                pushRoute(
+                  section === "workspace"
+                    ? { section: "workspace", wsPath: effectiveWorkspacePath, sessionId: s.id, view: workspaceView }
+                    : { section: "chat", sessionId: s.id },
+                  s,
+                );
+              }
+              setSessionMenu(null);
+            },
+          },
+        ];
+
   /**
    * Transcript `#file` chip click: make the owning workspace active (the
    * chip can be clicked from anywhere the session is rendered), then open
@@ -1614,6 +1651,228 @@ export function App() {
   // unreachable there.
   const showNestedPanel = !SIDEBAR_HIDDEN.includes(section);
 
+  // Section switch or widen → dismiss the mobile subnav drawer (content
+  // returns to the desktop column; the open flag must not stick).
+  useEffect(() => {
+    setSubnavOpen(false);
+  }, [section]);
+  useEffect(() => {
+    if (!isNarrow) setSubnavOpen(false);
+  }, [isNarrow]);
+
+  const nestedTitle =
+    section === "settings"
+      ? "Settings"
+      : section === "workspace"
+        ? "Workspace"
+        : section === "agents"
+          ? "Agents"
+          : section === "tools"
+            ? "Tools"
+            : section === "skills"
+              ? "Skills"
+              : section === "automations"
+                ? "Automations"
+                : "Chat";
+
+  /** Shared by the desktop column and the mobile Drawer (one content tree). */
+  const nestedBody = (
+    <>
+        {section === "chat" && (
+          <>
+            {/* Draft state: no session row exists until the first message is
+                sent (submit() creates it) — opencode's new-chat pattern.
+                The action row pairs the create button with a search toggle;
+                the server-side filter input only appears while searching. */}
+            <SidebarActions
+              createLabel="New Chat"
+              onCreate={() => {
+                // Focus the composer hub (the draft's input) on new chat.
+                setComposerFocusToken((n) => n + 1);
+                pushRoute({ section: "chat", sessionId: null });
+                setSubnavOpen(false);
+              }}
+              searchLabel="Search chats"
+              filter={chatSessionFilter}
+              setFilter={setChatSessionFilter}
+              placeholder="Filter sessions…"
+              ariaLabel="Filter chat sessions"
+            />
+            <nav className="session-list">
+              {sessions.length === 0 && (
+                <p className="dim">{deferredChatFilter.length > 0 ? "No matches." : "No sessions yet."}</p>
+              )}
+              {sessions.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  selected={active?.id === s.id}
+                  unread={unreadSessions.has(s.id)}
+                  onClick={() => {
+                    pushRoute({ section: "chat", sessionId: s.id }, s);
+                    setSubnavOpen(false);
+                  }}
+                  onLongPress={(x, y) => setSessionMenu({ x, y, id: s.id })}
+                />
+              ))}
+              {chatSessionsHasMore && (
+                <Button variant="ghost" size="sm" onClick={loadMoreChatSessions} disabled={chatSessionsLoadingMore}>
+                  {chatSessionsLoadingMore ? "Loading…" : "Load more"}
+                </Button>
+              )}
+            </nav>
+          </>
+        )}
+        {section === "workspace" && effectiveWorkspacePath === null && (
+          <WorkspaceNav
+            client={client}
+            workspaces={workspaces}
+            archivedWorkspaces={archivedWorkspaces}
+            selected={effectiveWorkspacePath}
+            onSelect={(path) => {
+              selectWorkspace(path);
+              setSubnavOpen(false);
+            }}
+            onAdd={addWorkspace}
+            onRemove={removeWorkspace}
+            onRestore={restoreWorkspace}
+          />
+        )}
+        {section === "workspace" && effectiveWorkspacePath !== null && (
+          <>
+            {/* Active-mode head: the selected workspace's title + path.
+                Clicking it swaps the panel back to the picker list. */}
+            <ListItem
+              accentBar
+              className="workspace-active-head"
+              title={wsBasename(effectiveWorkspacePath)}
+              subtitle={effectiveWorkspacePath}
+              hint={`${effectiveWorkspacePath} — switch workspace`}
+              onClick={() => selectWorkspace(null)}
+              trailing={
+                <span className="switch" aria-hidden="true">
+                  ⇄
+                </span>
+              }
+            />
+            {/* Draft state: the code session (rooted at this workspace) is
+                created by submit() on the first message. Same action row as
+                the chat sidebar (create + search toggle). */}
+            <SidebarActions
+              createLabel="New session"
+              onCreate={() => {
+                setComposerFocusToken((n) => n + 1);
+                pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null });
+                setSubnavOpen(false);
+              }}
+              searchLabel="Search sessions"
+              filter={wsSessionFilter}
+              setFilter={setWsSessionFilter}
+              placeholder="Filter sessions…"
+              ariaLabel="Filter workspace sessions"
+            />
+            <nav className="session-list">
+              {workspaceSessions.length === 0 && (
+                <p className="dim">
+                  {deferredWsFilter.length > 0 ? "No matches." : "No sessions in this workspace yet."}
+                </p>
+              )}
+              {workspaceSessions.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  selected={active?.id === s.id}
+                  unread={unreadSessions.has(s.id)}
+                  onClick={() => {
+                    pushRoute(
+                      { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: s.id },
+                      s,
+                    );
+                    setSubnavOpen(false);
+                  }}
+                  onLongPress={(x, y) => setSessionMenu({ x, y, id: s.id })}
+                />
+              ))}
+              {wsSessionsHasMore && (
+                <Button variant="ghost" size="sm" onClick={loadMoreWsSessions} disabled={wsSessionsLoadingMore}>
+                  {wsSessionsLoadingMore ? "Loading…" : "Load more"}
+                </Button>
+              )}
+            </nav>
+          </>
+        )}
+        {section === "settings" && (
+          <SettingsNav
+            selected={settingsSection}
+            onSelect={(next) => {
+              pushRoute({ section: "settings", settingsSection: next });
+              setSubnavOpen(false);
+            }}
+          />
+        )}
+        {section === "agents" && (
+          <AgentsNav
+            agents={agents}
+            selected={effectiveAgentId}
+            onSelect={(name) => {
+              pushRoute({ section: "agents", name, creating: false });
+              setSubnavOpen(false);
+            }}
+            onCreate={() => {
+              pushRoute({ section: "agents", name: null, creating: true });
+              setSubnavOpen(false);
+            }}
+            busy={false}
+          />
+        )}
+        {section === "tools" && (
+          <ToolsNav
+            tools={tools}
+            selected={effectiveToolId}
+            onSelect={(name) => {
+              pushRoute({ section: "tools", name, creating: false });
+              setSubnavOpen(false);
+            }}
+            onCreate={() => {
+              pushRoute({ section: "tools", name: null, creating: true });
+              setSubnavOpen(false);
+            }}
+            busy={false}
+          />
+        )}
+        {section === "skills" && (
+          <SkillsNav
+            skills={skills}
+            selected={effectiveSkillId}
+            onSelect={(name) => {
+              pushRoute({ section: "skills", name, creating: false });
+              setSubnavOpen(false);
+            }}
+            onCreate={() => {
+              pushRoute({ section: "skills", name: null, creating: true });
+              setSubnavOpen(false);
+            }}
+            busy={false}
+          />
+        )}
+        {section === "automations" && (
+          <AutomationsNav
+            automations={automations}
+            selected={effectiveAutomationId}
+            onSelect={(id) => {
+              pushRoute({ section: "automations", name: id, creating: false });
+              setSubnavOpen(false);
+            }}
+            onCreate={() => {
+              pushRoute({ section: "automations", name: null, creating: true });
+              setSubnavOpen(false);
+            }}
+            busy={false}
+          />
+        )}
+    </>
+  );
+
   // Effective theme: a custom theme (config id matching a loaded theme
   // file) applies its palette inline; built-ins resolve through the catalog
   // (unknown ids fall back to the default). ThemeProvider applies it to
@@ -1745,184 +2004,28 @@ export function App() {
           Chat nav item carries a count badge when the user is elsewhere. */}
       <MasterNav
         section={section}
-        onNavigate={navigate}
+        onNavigate={(s) => {
+          navigate(s);
+          setSubnavOpen(false);
+        }}
         askBadge={askPanelVisible ? 0 : askTotal}
         onThemePicker={() => setThemePickerOpen(true)}
+        subnavToggle={
+          showNestedPanel
+            ? {
+                open: subnavOpen,
+                onToggle: () => setSubnavOpen((v) => !v),
+              }
+            : undefined
+        }
       />
 
-      {/* Shell and Analytics are single-pane sections — no nested nav
-          content, so the sidebar is hidden and the pane gets the width. */}
-      {showNestedPanel && (
+      {/* Desktop: nested column. Mobile: same body lives in the subnav Drawer
+          (opened from MasterNav's right-edge toggle) — never both. */}
+      {showNestedPanel && !isNarrow && (
       <aside className="nested-panel">
-        <div className="nested-title">
-          {section === "settings"
-            ? "Settings"
-            : section === "workspace"
-              ? "Workspace"
-              : section === "agents"
-                ? "Agents"
-                : section === "tools"
-                  ? "Tools"
-                  : section === "skills"
-                    ? "Skills"
-                    : section === "automations"
-                      ? "Automations"
-                      : "Chat"}
-         </div>
-        {section === "chat" && (
-          <>
-            {/* Draft state: no session row exists until the first message is
-                sent (submit() creates it) — opencode's new-chat pattern. The
-                action row pairs the create button with a search toggle; the
-                server-side filter input only appears while searching. */}
-            <SidebarActions
-              createLabel="New Chat"
-              onCreate={() => {
-                // Focus the composer hub (the draft's input) on new chat.
-                setComposerFocusToken((n) => n + 1);
-                pushRoute({ section: "chat", sessionId: null });
-              }}
-              searchLabel="Search chats"
-              filter={chatSessionFilter}
-              setFilter={setChatSessionFilter}
-              placeholder="Filter sessions…"
-              ariaLabel="Filter chat sessions"
-            />
-            <nav className="session-list">
-              {sessions.length === 0 && (
-                <p className="dim">{deferredChatFilter.length > 0 ? "No matches." : "No sessions yet."}</p>
-              )}
-              {sessions.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  selected={active?.id === s.id}
-                  unread={unreadSessions.has(s.id)}
-                  onClick={() => pushRoute({ section: "chat", sessionId: s.id }, s)}
-                />
-              ))}
-              {chatSessionsHasMore && (
-                <Button variant="ghost" size="sm" onClick={loadMoreChatSessions} disabled={chatSessionsLoadingMore}>
-                  {chatSessionsLoadingMore ? "Loading…" : "Load more"}
-                </Button>
-              )}
-            </nav>
-          </>
-        )}
-        {section === "workspace" && effectiveWorkspacePath === null && (
-          <WorkspaceNav
-            client={client}
-            workspaces={workspaces}
-            archivedWorkspaces={archivedWorkspaces}
-            selected={effectiveWorkspacePath}
-            onSelect={selectWorkspace}
-            onAdd={addWorkspace}
-            onRemove={removeWorkspace}
-            onRestore={restoreWorkspace}
-          />
-        )}
-        {section === "workspace" && effectiveWorkspacePath !== null && (
-          <>
-            {/* Active-mode head: the selected workspace's title + path.
-                Clicking it swaps the panel back to the picker list. */}
-            <ListItem
-              accentBar
-              className="workspace-active-head"
-              title={wsBasename(effectiveWorkspacePath)}
-              subtitle={effectiveWorkspacePath}
-              hint={`${effectiveWorkspacePath} — switch workspace`}
-              onClick={() => selectWorkspace(null)}
-              trailing={
-                <span className="switch" aria-hidden="true">
-                  ⇄
-                </span>
-              }
-            />
-            {/* Draft state: the code session (rooted at this workspace) is
-                created by submit() on the first message. Same action row as
-                the chat sidebar (create + search toggle). */}
-            <SidebarActions
-              createLabel="New session"
-              onCreate={() => {
-                setComposerFocusToken((n) => n + 1);
-                pushRoute({ section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: null });
-              }}
-              searchLabel="Search sessions"
-              filter={wsSessionFilter}
-              setFilter={setWsSessionFilter}
-              placeholder="Filter sessions…"
-              ariaLabel="Filter workspace sessions"
-            />
-            <nav className="session-list">
-              {workspaceSessions.length === 0 && (
-                <p className="dim">
-                  {deferredWsFilter.length > 0 ? "No matches." : "No sessions in this workspace yet."}
-                </p>
-              )}
-              {workspaceSessions.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  selected={active?.id === s.id}
-                  unread={unreadSessions.has(s.id)}
-                  onClick={() =>
-                    pushRoute(
-                      { section: "workspace", wsPath: effectiveWorkspacePath, view: workspaceView, sessionId: s.id },
-                      s,
-                    )
-                  }
-                />
-              ))}
-              {wsSessionsHasMore && (
-                <Button variant="ghost" size="sm" onClick={loadMoreWsSessions} disabled={wsSessionsLoadingMore}>
-                  {wsSessionsLoadingMore ? "Loading…" : "Load more"}
-                </Button>
-              )}
-            </nav>
-          </>
-        )}
-        {section === "settings" && (
-          <SettingsNav
-            selected={settingsSection}
-            onSelect={(next) => pushRoute({ section: "settings", settingsSection: next })}
-          />
-        )}
-        {section === "agents" && (
-          <AgentsNav
-            agents={agents}
-            selected={effectiveAgentId}
-            onSelect={(name) => pushRoute({ section: "agents", name, creating: false })}
-            onCreate={() => pushRoute({ section: "agents", name: null, creating: true })}
-            busy={false}
-          />
-        )}
-        {section === "tools" && (
-          <ToolsNav
-            tools={tools}
-            selected={effectiveToolId}
-            onSelect={(name) => pushRoute({ section: "tools", name, creating: false })}
-            onCreate={() => pushRoute({ section: "tools", name: null, creating: true })}
-            busy={false}
-          />
-        )}
-        {section === "skills" && (
-          <SkillsNav
-            skills={skills}
-            selected={effectiveSkillId}
-            onSelect={(name) => pushRoute({ section: "skills", name, creating: false })}
-            onCreate={() => pushRoute({ section: "skills", name: null, creating: true })}
-            busy={false}
-          />
-        )}
-        {section === "automations" && (
-          <AutomationsNav
-            automations={automations}
-            selected={effectiveAutomationId}
-            onSelect={(id) => pushRoute({ section: "automations", name: id, creating: false })}
-            onCreate={() => pushRoute({ section: "automations", name: null, creating: true })}
-            busy={false}
-          />
-        )}
+        <div className="nested-title">{nestedTitle}</div>
+        {nestedBody}
       </aside>
       )}
 
@@ -2094,6 +2197,18 @@ export function App() {
                     { value: "files", label: "Files" },
                   ]}
                 />
+                {/* Phones: the right rail is a Drawer (sidebar is display:none).
+                    Hamburger affordance, matching the subnav/menu language. */}
+                <Button
+                  className="drawer-open-btn"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Open workspace menu"
+                  data-tooltip="Workspace menu"
+                  onClick={() => setRailOpen(true)}
+                >
+                  <Menu size={16} aria-hidden="true" />
+                </Button>
               </div>
               {workspaceView === "files" && effectiveWorkspacePath !== null ? (
                 <FileView
@@ -2201,7 +2316,7 @@ export function App() {
         />
       )}
 
-      {/* File-tree right-click menu (Open / Add to Chat). */}
+      {/* File-tree right-click / long-press menu (Open / Add to Chat). */}
       {treeMenu !== null && (
         <ContextMenu
           x={treeMenu.x}
@@ -2211,6 +2326,90 @@ export function App() {
           onClose={() => setTreeMenu(null)}
         />
       )}
+
+      {/* Session-row long-press menu (iOS: contextmenu is unreliable). */}
+      {sessionMenu !== null && (
+        <ContextMenu
+          x={sessionMenu.x}
+          y={sessionMenu.y}
+          items={sessionMenuItems}
+          ariaLabel="Session actions"
+          onClose={() => setSessionMenu(null)}
+        />
+      )}
+
+      {/* Mobile subnav: sessions / settings / agents list as a right Drawer
+          (the nested column is not rendered under 640px). */}
+      <Drawer
+        open={showNestedPanel && isNarrow && subnavOpen}
+        onClose={() => setSubnavOpen(false)}
+        title={nestedTitle}
+        ariaLabel={`${nestedTitle} navigation`}
+      >
+        {nestedBody}
+      </Drawer>
+
+      {/* Mobile workspace rail: slide-over Drawer with Files/Todos/Notes/Plans. */}
+      <Drawer
+        open={railOpen}
+        onClose={() => setRailOpen(false)}
+        title="Workspace rail"
+        ariaLabel="Workspace rail"
+        // Files tab is a full-bleed panel (the tree owns its own scroll/edges).
+        bodyClassName={railTab === "files" ? "drawer-body-flush" : undefined}
+        tabs={[
+          { id: "files", label: "Files" },
+          { id: "todos", label: "Todos" },
+          { id: "notes", label: "Notes" },
+          { id: "plans", label: "Plans" },
+        ]}
+        activeTab={railTab}
+        onTabChange={(id) => setRailTab(id as "files" | "todos" | "notes" | "plans")}
+      >
+        {section === "workspace" && effectiveWorkspacePath !== null && (
+          <>
+            {railTab === "files" && (
+              <FileTree
+                client={client}
+                root={effectiveWorkspacePath}
+                onOpenFile={(path) => {
+                  openFile(path);
+                  setRailOpen(false);
+                }}
+                activePath={workspaceView === "files" ? activeFile : null}
+                refreshToken={fsRevision}
+                onUpload={uploadDropped}
+                folders={workspaceFolderNodes}
+                onAddFolder={() => setAddFoldersOpen(true)}
+                onRemoveFolder={(path) => void removeWorkspaceFolder(path)}
+                onItemContextMenu={(abs, kind, e) => setTreeMenu({ x: e.clientX, y: e.clientY, abs, kind })}
+              />
+            )}
+            {railTab === "todos" && (
+              <TodosPanel todos={todos} onChange={changeTodos} disabled={active === null} />
+            )}
+            {railTab === "plans" && (
+              <PlansPanel
+                plans={plans}
+                activePlan={activePlan}
+                disabled={active === null}
+                onOpen={openPlan}
+                onCreate={createPlan}
+                onDelete={deletePlan}
+                onBuild={(name) => void buildPlan(name)}
+              />
+            )}
+            {railTab === "notes" && (
+              <NotesPanel
+                key={active?.id ?? "none"}
+                notes={notes}
+                onSave={saveNotes}
+                disabled={active === null}
+              />
+            )}
+          </>
+        )}
+      </Drawer>
 
       {/* Agents/tools mutation feedback — bottom-right toast. */}
       <Toast notice={notice} onDismiss={() => setNotice(null)} />
@@ -2296,14 +2495,19 @@ function SessionRow({
   selected,
   unread,
   onClick,
+  onLongPress,
 }: {
   session: Session;
   selected: boolean;
   unread: boolean;
   onClick: () => void;
+  /** iOS long-press → ContextMenu (contextmenu is unreliable on WebKit touch). */
+  onLongPress?: (clientX: number, clientY: number) => void;
 }) {
   const title = session.title.length > 0 ? session.title : "(untitled)";
   const automation = typeof session.meta.automationName === "string" ? session.meta.automationName : undefined;
+  const bindLongPress = useLongPress();
+  const longPress = onLongPress !== undefined ? bindLongPress(onLongPress) : null;
   return (
     <ListItem
       accentBar
@@ -2312,7 +2516,15 @@ function SessionRow({
       title={title}
       selected={selected}
       hint={title}
-      onClick={onClick}
+      onClick={(e) => {
+        longPress?.onClick(e);
+        if (e.defaultPrevented) return;
+        onClick();
+      }}
+      onPointerDown={longPress?.onPointerDown}
+      onPointerUp={longPress?.onPointerUp}
+      onPointerCancel={longPress?.onPointerCancel}
+      onPointerMove={longPress?.onPointerMove}
       ariaCurrent={selected ? "page" : undefined}
       trailing={
         automation !== undefined ? (
@@ -2335,6 +2547,7 @@ function MasterNav({
   onNavigate,
   askBadge = 0,
   onThemePicker,
+  subnavToggle,
 }: {
   section: Section;
   onNavigate: (s: Section) => void;
@@ -2342,11 +2555,20 @@ function MasterNav({
   askBadge?: number;
   /** Open the theme picker modal (the palette button above Settings). */
   onThemePicker: () => void;
+  /**
+   * Mobile-only control on the right edge (opposite the brand mark): opens
+   * the section subnav Drawer. Omitted on single-pane sections
+   * (SIDEBAR_HIDDEN) — nothing to show. Hidden on desktop via CSS.
+   */
+  subnavToggle?: { open: boolean; onToggle: () => void };
 }) {
   return (
       <nav className="master-nav" aria-label="Primary">
-        {/* Same asset as the favicon (public/icon.svg) — one logo, one truth. */}
+        {/* Same asset as the favicon (public/icon.svg) — one logo, one truth.
+            Outside .master-scroll so the brand stays pinned on mobile while
+            only the nav items pan. */}
         <img src="/icon.svg" alt="bai" className="brand-mark" />
+      <div className="master-scroll">
       <div className="master-items">
         <NavItem
           icon={<MessageCircle className="nav-icon" aria-hidden="true" />}
@@ -2377,10 +2599,14 @@ function MasterNav({
         label="Choose a theme"
         onClick={onThemePicker}
       />
-      
+
       {/* Shell sits directly above Settings — a pinned utility like Theme. */}
       <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
       <NavItem icon={<SlidersHorizontal className="nav-icon" aria-hidden="true" />} label="Settings" active={section === "settings"} onClick={() => onNavigate("settings")} />
+      </div>
+      {subnavToggle !== undefined && (
+        <SubNavToggle open={subnavToggle.open} onToggle={subnavToggle.onToggle} />
+      )}
     </nav>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Plus } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
+import { shouldAutoFocus } from "./pointer";
 import { Button, Checkbox, Field, IconButton, ListItem, Modal, TextInput } from "./components";
 
 interface Completion {
@@ -306,7 +307,7 @@ export function AddWorkspaceModal({
           className="ws-newname"
           value={newName}
           placeholder="folder name"
-          autoFocus
+          autoFocus={shouldAutoFocus()}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -429,7 +430,7 @@ export function AddWorkspaceModal({
           }}
           aria-label="workspace folder path"
           autoComplete="off"
-          autoFocus
+          autoFocus={shouldAutoFocus()}
         />
       </Field>
       <div className="ws-explorer-bar">

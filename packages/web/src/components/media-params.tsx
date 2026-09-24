@@ -99,6 +99,9 @@ export function MediaParamsForm({
                 aria-label={spec.label}
                 value={items.join("\n")}
                 placeholder="One item per line"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 onChange={(e) =>
                   set(
                     spec.key,

@@ -4,6 +4,7 @@ import type { BaiClient } from "@bai/api/client";
 import type { ProviderListResponse, SkillInfo, SkillUsageTotals } from "@bai/shared";
 import { isValidSkillName } from "@bai/shared";
 import { ModelModal } from "./model-picker";
+import { shouldAutoFocus } from "./pointer";
 import { Button, Chip, ConfirmDialog, Field, PickerTrigger, SectionHeader, SubNav, SubNavCreate, SubNavItem, TagInput, TextInput, Textarea } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
@@ -323,7 +324,7 @@ function SkillForm({
           <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus
+            autoFocus={shouldAutoFocus()}
             required
             maxLength={64}
             spellCheck={false}
@@ -574,7 +575,7 @@ export function SkillLearnForm({
             setError(null);
           }}
           rows={6}
-          autoFocus
+          autoFocus={shouldAutoFocus()}
           required
           maxLength={8000}
           placeholder="e.g. the REST client in ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api, skip the deprecated endpoints"

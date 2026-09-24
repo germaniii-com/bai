@@ -81,7 +81,8 @@ describe("parseRoute", () => {
 
   test("settings subsections; unknown → general", () => {
     expect(parseRoute("/settings", "")).toEqual({ section: "settings", settingsSection: "general" });
-    expect(parseRoute("/settings/user", "")).toEqual({ section: "settings", settingsSection: "user" });
+    // Legacy /settings/user folded into General (User section removed).
+    expect(parseRoute("/settings/user", "")).toEqual({ section: "settings", settingsSection: "general" });
     expect(parseRoute("/settings/general", "")).toEqual({ section: "settings", settingsSection: "general" });
     expect(parseRoute("/settings/providers", "")).toEqual({ section: "settings", settingsSection: "providers" });
     expect(parseRoute("/settings/image", "")).toEqual({ section: "settings", settingsSection: "image" });
@@ -143,7 +144,6 @@ describe("routeToPath", () => {
     roundTrip({ section: "chat", sessionId: "ses_01ABC" });
     roundTrip({ section: "workspace", wsPath: null, view: "chat", sessionId: null });
     roundTrip({ section: "workspace", wsPath: "/Users/german/My Projects/日本語", view: "files", sessionId: "ses_x" });
-    roundTrip({ section: "settings", settingsSection: "user" });
     roundTrip({ section: "settings", settingsSection: "general" });
     roundTrip({ section: "settings", settingsSection: "providers" });
     roundTrip({ section: "settings", settingsSection: "image" });

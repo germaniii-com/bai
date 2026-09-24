@@ -17,6 +17,7 @@ import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
 import { Button, Chip, Disclosure, Field, Modal, Textarea } from "./components";
+import { shouldAutoFocus } from "./pointer";
 
 /**
  * Contextual hub label — the composer status row's left chip (TUI parity):
@@ -818,6 +819,8 @@ export function ChatPane({
             rows={1}
             value={draft}
             placeholder={active === null ? startPlaceholder : "Message…"}
+            enterKeyHint="send"
+            autoCapitalize="sentences"
             onChange={(e) => {
               setDraft(e.target.value);
               setCursor(e.target.selectionStart ?? e.target.value.length);
@@ -858,84 +861,91 @@ export function ChatPane({
           )}
         </div>
         <div className="composer-row composer-status">
-          {active !== null && typeof active.cwd === "string" && active.cwd.length > 0 ? (
-            <Chip interactive hint={`${active.cwd} — switch workspace`} onClick={onSwitchWorkspace}>
-              <FolderGlyph />
-              <span className="chip-label">{hubContextLabel(active)}</span>
-            </Chip>
-          ) : (
-            <Chip
-              hint={active === null ? "Draft — the session is created with your first message" : undefined}
-            >
-              <FolderGlyph />
-              <span className="chip-label">{hubContextLabel(active)}</span>
-            </Chip>
-          )}
-          {queuedInputs.length > sendingIds.length && (
-            // The queued indicator (message-queue feature): a count chip in
-            // the hub status row — the nodes themselves live at the
-            // transcript tail. Send-now flips don't count (they're leaving
-            // the queue).
-            <Chip className="warning" hint="Messages waiting in the queue">
-              <Hourglass size={11} aria-hidden="true" />
-              <span className="chip-label">{queuedInputs.length - sendingIds.length} queued</span>
-            </Chip>
-          )}
-          {tracker !== undefined && (
-            // The context tracker (pi/opencode parity): the session's live
-            // context usage as a clickable chip — `45k/200k (23%)`, tone-
-            // shifted at the 70/90% thresholds. Click opens the per-category
-            // breakdown modal; the tooltip carries the exact numbers.
-            <Chip
-              interactive
-              className={tracker.tone !== "dim" ? tracker.tone : undefined}
-              hint={`${contextChipTitle(usage)} — click for the breakdown`}
-              onClick={() => setContextOpen(true)}
-            >
-              <Gauge size={11} aria-hidden="true" />
-              <span className="chip-label">{tracker.label}</span>
-            </Chip>
-          )}
-          <span className="composer-spacer" />
-          {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
-            <span className="hint">no provider connected</span>
-          )}
-          {providersFetching && <span className="dim">updating…</span>}
-          {onLearn !== undefined && (
-            <Chip
-              interactive
-              hint="Learn a skill — distill a workflow, docs, or this conversation into a reusable skill"
-              onClick={() => setLearnOpen(true)}
-            >
-              <GraduationCap size={11} aria-hidden="true" />
-              <span className="chip-label">Learn</span>
-            </Chip>
-          )}
-          {agentLocked ? (
-            // Webui Chat section: the chat agent is pinned (creation + next
-            // message) — a static chip replaces the picker. The Workspace
-            // section keeps the live picker.
-            <Chip hint="The Chat section always runs the chat agent — the all-in-one orchestrator">
-              <Bot size={11} aria-hidden="true" />
-              <span className="chip-label">chat</span>
-            </Chip>
-          ) : (
-            <AgentPicker
+          {/* Two groups: context (where am I / what's running — quiet) and
+              controls (what I can change — the actionable pickers). Desktop
+              lays them on one row with the controls pushed right; phones stack
+              context above controls. */}
+          <div className="composer-context">
+            {active !== null && typeof active.cwd === "string" && active.cwd.length > 0 ? (
+              <Chip interactive hint={`${active.cwd} — switch workspace`} onClick={onSwitchWorkspace}>
+                <FolderGlyph />
+                <span className="chip-label">{hubContextLabel(active)}</span>
+              </Chip>
+            ) : (
+              <Chip
+                hint={active === null ? "Draft — the session is created with your first message" : undefined}
+              >
+                <FolderGlyph />
+                <span className="chip-label">{hubContextLabel(active)}</span>
+              </Chip>
+            )}
+            {queuedInputs.length > sendingIds.length && (
+              // The queued indicator (message-queue feature): a count chip in
+              // the hub status row — the nodes themselves live at the
+              // transcript tail. Send-now flips don't count (they're leaving
+              // the queue).
+              <Chip className="warning" hint="Messages waiting in the queue">
+                <Hourglass size={13} aria-hidden="true" />
+                <span className="chip-label">{queuedInputs.length - sendingIds.length} queued</span>
+              </Chip>
+            )}
+            {tracker !== undefined && (
+              // The context tracker (pi/opencode parity): the session's live
+              // context usage as a clickable chip — `45k/200k (23%)`, tone-
+              // shifted at the 70/90% thresholds. Click opens the per-category
+              // breakdown modal; the tooltip carries the exact numbers.
+              <Chip
+                interactive
+                className={tracker.tone !== "dim" ? tracker.tone : undefined}
+                hint={`${contextChipTitle(usage)} — click for the breakdown`}
+                onClick={() => setContextOpen(true)}
+              >
+                <Gauge size={13} aria-hidden="true" />
+                <span className="chip-label">{tracker.label}</span>
+              </Chip>
+            )}
+          </div>
+          <div className="composer-controls">
+            {list !== null && !list.providers.some((p) => p.connected && p.id !== "stub") && (
+              <span className="hint">no provider connected</span>
+            )}
+            {providersFetching && <span className="dim">updating…</span>}
+            {onLearn !== undefined && (
+              <Chip
+                interactive
+                hint="Learn a skill — distill a workflow, docs, or this conversation into a reusable skill"
+                onClick={() => setLearnOpen(true)}
+              >
+                <GraduationCap size={13} aria-hidden="true" />
+                <span className="chip-label">Learn</span>
+              </Chip>
+            )}
+            {agentLocked ? (
+              // Webui Chat section: the chat agent is pinned (creation + next
+              // message) — a static chip replaces the picker. The Workspace
+              // section keeps the live picker.
+              <Chip hint="The Chat section always runs the chat agent — the all-in-one orchestrator">
+                <Bot size={13} aria-hidden="true" />
+                <span className="chip-label">chat</span>
+              </Chip>
+            ) : (
+              <AgentPicker
+                client={client}
+                agents={agents}
+                active={active}
+                configDefaultAgent={configDefaultAgent}
+                refreshAgents={refreshAgents}
+              />
+            )}
+            <ModelPicker
               client={client}
-              agents={agents}
+              list={list}
               active={active}
-              configDefaultAgent={configDefaultAgent}
-              refreshAgents={refreshAgents}
+              configDefault={configDefault}
+              preferZdr={preferZdr}
+              refreshProviders={refreshProviders}
             />
-          )}
-          <ModelPicker
-            client={client}
-            list={list}
-            active={active}
-            configDefault={configDefault}
-            preferZdr={preferZdr}
-            refreshProviders={refreshProviders}
-          />
+          </div>
         </div>
       </form>
       {learnOpen && onLearn !== undefined && (
@@ -993,7 +1003,7 @@ function LearnModal({
             value={request}
             onChange={(e) => setRequest(e.target.value)}
             rows={5}
-            autoFocus
+            autoFocus={shouldAutoFocus()}
             maxLength={8000}
             placeholder="e.g. the release workflow we just did — or ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api"
           />

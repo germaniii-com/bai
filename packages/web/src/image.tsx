@@ -53,6 +53,7 @@ import { ImageLightbox, useAssetUrl } from "./attachments";
 import { galleryNavState } from "./image-nav";
 import { modeLabel, modelOptionHint } from "./media-model-hint";
 import { useImageGallery } from "./use-image-gallery";
+import { useInView } from "./use-in-view";
 
 type OnNotice = (message: string, kind?: "success" | "error" | "info") => void;
 
@@ -147,6 +148,15 @@ export function ImagePane({
 
   const gallery = useImageGallery(client, galleryApplied);
   const galleryRefresh = gallery.refresh;
+  // Infinite scroll: when the end sentinel enters view, fetch the next page
+  // (phones otherwise never reach the "Load more" button under PAGE_SIZE=60).
+  const [gallerySentinelRef, gallerySentinelInView] = useInView<HTMLDivElement>("200px");
+  const galleryLoadMore = gallery.loadMore;
+  const galleryHasMore = gallery.hasMore;
+  const galleryLoadingMore = gallery.loadingMore;
+  useEffect(() => {
+    if (gallerySentinelInView && galleryHasMore && !galleryLoadingMore) galleryLoadMore();
+  }, [gallerySentinelInView, galleryHasMore, galleryLoadingMore, galleryLoadMore]);
 
   // Lightbox traversal bookkeeping: a "Next" that fired at the loaded end waits
   // here until its page arrives; `prefetchedAt` guards the near-end auto-load so
@@ -835,14 +845,22 @@ export function ImagePane({
           </div>
         )}
         {gallery.hasMore && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={gallery.loadMore}
-            disabled={gallery.loadingMore}
-          >
-            {gallery.loadingMore ? "Loading…" : "Load more"}
-          </Button>
+          <>
+            {/* Intersection sentinel — auto-loads the next page when scrolled near. */}
+            <div
+              ref={gallerySentinelRef}
+              aria-hidden="true"
+              style={{ height: 1, width: "100%" }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={gallery.loadMore}
+              disabled={gallery.loadingMore}
+            >
+              {gallery.loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </>
         )}
       </div>
 

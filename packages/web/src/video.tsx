@@ -50,6 +50,7 @@ import {
 } from "./components";
 import { useAssetUrl } from "./attachments";
 import { galleryNavState } from "./image-nav";
+import { useInView } from "./use-in-view";
 import { videoModelOptionHint } from "./media-model-hint";
 import { useVideoGallery } from "./use-video-gallery";
 import { useVideoPoster } from "./use-video-poster";
@@ -105,6 +106,14 @@ export function VideoPane({
   const [submitting, setSubmitting] = useState(false);
 
   const gallery = useVideoGallery(client, galleryApplied);
+  // Infinite scroll: end sentinel auto-fetches the next page (PAGE_SIZE=24).
+  const [gallerySentinelRef, gallerySentinelInView] = useInView<HTMLDivElement>("200px");
+  const galleryLoadMore = gallery.loadMore;
+  const galleryHasMore = gallery.hasMore;
+  const galleryLoadingMore = gallery.loadingMore;
+  useEffect(() => {
+    if (gallerySentinelInView && galleryHasMore && !galleryLoadingMore) galleryLoadMore();
+  }, [gallerySentinelInView, galleryHasMore, galleryLoadingMore, galleryLoadMore]);
 
   // Debounce the gallery tag search.
   useEffect(() => {
@@ -617,9 +626,16 @@ export function VideoPane({
             </div>
           )}
           {gallery.hasMore && (
-            <Button variant="secondary" onClick={() => gallery.loadMore()} disabled={gallery.loadingMore}>
-              {gallery.loadingMore ? "loading…" : "Load more"}
-            </Button>
+            <>
+              <div
+                ref={gallerySentinelRef}
+                aria-hidden="true"
+                style={{ height: 1, width: "100%" }}
+              />
+              <Button variant="secondary" onClick={() => gallery.loadMore()} disabled={gallery.loadingMore}>
+                {gallery.loadingMore ? "loading…" : "Load more"}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -859,34 +875,6 @@ function VideoErrorJobModal({
       <pre className="image-error-detail">{job.error ?? "Unknown error"}</pre>
     </Modal>
   );
-}
-
-/**
- * True once the element has scrolled within `rootMargin` of the viewport (and
- * stays true). Video cards defer their multi-MB blob download + frame capture
- * until visible, so entering/leaving the page never saturates the connection
- * pool.
- */
-function useInView<T extends Element>(rootMargin = "400px"): [RefObject<T | null>, boolean] {
-  const ref = useRef<T>(null);
-  const [inView, setInView] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (el === null || inView) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setInView(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setInView(true);
-      },
-      { rootMargin },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [inView, rootMargin]);
-  return [ref, inView];
 }
 
 function VideoCard({

@@ -800,7 +800,39 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
   target, not an afterthought). The token system — self-hosted fonts (Inter +
   JetBrains Mono), the type scale, weights, spacing, radii, control heights —
   is documented in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) and enforced by
-  `packages/web/test/theme-css.test.ts`.
+  `packages/web/test/theme-css.test.ts` + `packages/web/test/mobile-css.test.ts`.
+  Mobile/iOS specifics:
+  - **One width breakpoint** (`max-width: 640px`) collapses layout: the
+    master row keeps a **pinned brand mark** with only `.master-scroll`
+    panning; the **section subnav** (sessions / settings / agents list) is a
+    right-edge **Drawer** opened from a toggle on the far right of the master
+    row (opposite the icon) — not a second horizontal strip; the workspace
+    right rail is its own Drawer (Files/Todos/Notes/Plans). Touch affordances
+    (44px targets, 16px input text, 12px caption floor) key off
+    **`pointer: coarse`** and **`hover: none`** — independent of width, so a
+    trackpad laptop keeps its dense desktop chrome while a tablet gets
+    finger-sized controls.
+  - **iOS focus-zoom:** every text-entry control sizes via `--control-text`
+    (16px on coarse) so Safari does not zoom the viewport on focus. Pinch-zoom
+    stays unlocked (WCAG 1.4.4); `text-size-adjust: 100%` kills WebKit font
+    boosting.
+  - **Keyboard refit:** `src/viewport.ts` subscribes to `visualViewport`
+    resize/scroll and writes `--vvh` / `--keyboard-inset` on `:root`
+    (`interactive-widget=resizes-content` helps, but WebKit ignores it in
+    standalone/PWA mode). Fixed chrome (composer, shell `KeyBar`) pins above
+    the keyboard via the inset.
+  - **Shell KeyBar** (`components/KeyBar.tsx`): a touch-only strip under the
+    xterm pane for Esc/Tab/Ctrl/arrows/`|`/Enter/Backspace — keys mobile
+    keyboards do not expose. Sticky Ctrl/Esc latch for multi-key sequences;
+    hidden on fine pointers.
+  - **Long-press context menus** (`use-long-press.ts`, 450ms pointer timer):
+    iOS Safari does not reliably fire `contextmenu` on long-press, so file-tree
+    rows and session rows bind `pointerdown` timers alongside `onContextMenu`.
+  - **Infinite galleries:** image/video pages auto-load the next page via an
+    in-view sentinel (`use-in-view.ts`) with a manual "Load more" fallback.
+  - **Safe areas:** top strip pads `env(safe-area-inset-top)`; bottom-fixed
+    chrome (composer, toasts, key bar) pads `env(safe-area-inset-bottom)`.
+    `viewport-fit=cover` is set in `index.html`.
 - Routing: a dependency-free client router (`router.ts` — pure
   `parseRoute`/`routeToPath` over the History API; no hash routing, which is
   reserved for `#pair=` pairing tokens). React state stays the source of
@@ -816,7 +848,7 @@ _and_ phones (PWA via `vite-plugin-pwa`) from the same bundle.
   | `/chat/{sessionId}` | Chat, session active |
   | `/workspace` | Workspace picker |
   | `/workspace?w={slug}` | Workspace, chat view (`&view=files` → files view, `&s={sessionId}` → session; combinable) |
-  | `/settings/{user\|general\|providers\|image\|webSearch}` | Settings subsection |
+  | `/settings/{general\|providers\|image\|webSearch}` | Settings subsection (`/settings/user` → general) |
   | `/agents`, `/agents/new`, `/agents/{name}` | Agents list / create form / detail |
   | `/tools`, `/tools/new`, `/tools/{name}` | Tools (same shape) |
   | anything else | Chat draft (fallback) |
@@ -836,6 +868,11 @@ Serving contract (owned by `@bai/api`):
   `/api`, `/mcp`, `/v1`, `/wb` — otherwise opening `/api/help` in a browser
   serves the cached app shell and the SPA lands on chat (curl can't catch this;
   only navigations are intercepted).
+- **PWA install / iOS home screen**: `vite.config.ts` manifest ships
+  `icon-192.png`, `icon-512.png`, and `icon-maskable-512.png` (opaque full-bleed,
+  glyph in the 80% safe zone) alongside `icon.svg`. `index.html` carries the
+  Apple meta tags (`apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`,
+  `apple-touch-icon`) because Safari ignores the Web App Manifest for those.
 - `hasAssets()` guard: friendly "run the web build" hint page instead of a
   blank 404 when dist is missing.
 - Cache headers: immutable for hashed `/assets/*`, `no-cache` for index.html.

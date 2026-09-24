@@ -9,7 +9,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg"],
+      // Precache the PWA icon set (SVG + raster) for offline install/home screen.
+      includeAssets: ["icon.svg", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"],
       // The locally-bundled Monaco editor (index chunk + ts worker) exceeds
       // the 2 MiB default — precache it anyway so the PWA works offline.
       workbox: {
@@ -28,8 +29,11 @@ export default defineConfig({
         name: "bai",
         short_name: "bai",
         description: "One runtime, every surface, every modality.",
-        theme_color: "#0b0e14",
-        background_color: "#0b0e14",
+        // Match index.html's theme-color + the default [data-theme=dark] --bg.
+        // (icon.svg paints its rounded rect #0b0e14 — the ayu-dark surface —
+        // only as a pre-boot fallback; the install splash uses these tokens.)
+        theme_color: "#09090b",
+        background_color: "#09090b",
         display: "standalone",
         start_url: "/",
         icons: [
@@ -38,6 +42,24 @@ export default defineConfig({
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any",
+          },
+          {
+            src: "/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any",
+          },
+          {
+            src: "/icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
           },
         ],
       },

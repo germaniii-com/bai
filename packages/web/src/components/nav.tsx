@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
+import { PanelRight } from "lucide-react";
 
 /**
  * Navigation components. These wrap the app's established rail/subnav class
  * names (.master-item, .settings-nav, .provider-item, .new-session) so the
- * existing responsive rules in styles.css (rail → top row, subnav →
- * horizontal strip on ≤640px) keep working unchanged — the components
+ * existing responsive rules in styles.css keep working — the components
  * enforce the structure, the CSS stays the single source of truth.
+ *
+ * On ≤640px the nested panel is not a horizontal strip: it lives in a
+ * right-edge Drawer opened from MasterNav's section-menu toggle
+ * (App.tsx `useMediaQuery` + `subnavOpen`).
  */
 
 /**
@@ -65,7 +69,31 @@ export function NavItem({
   );
 }
 
-/** The nested-panel list container (vertical on desktop, scroll strip on mobile). */
+/**
+ * Right-edge section-menu toggle (MasterNav, opposite the brand mark).
+ * Opens the mobile subnav Drawer; CSS hides it above 640px. Rendered after
+ * a `.nav-divider` so the | sits between the scroll region and the control.
+ */
+export function SubNavToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <div className="subnav-toggle-group">
+      <div className="nav-divider" role="separator" aria-label="section menu" />
+      <button
+        type="button"
+        className="master-item subnav-toggle"
+        aria-label={open ? "Close section menu" : "Open section menu"}
+        aria-expanded={open}
+        data-tooltip="Section menu"
+        data-tooltip-placement="left"
+        onClick={onToggle}
+      >
+        <PanelRight className="nav-icon" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** The nested-panel list container (vertical column; Drawer body on phones). */
 export function SubNav({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={className !== undefined ? `settings-nav ${className}` : "settings-nav"}>{children}</div>;
 }

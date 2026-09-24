@@ -64,14 +64,14 @@ import {
 type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /**
- * Settings, divided into sections (the nested sidebar's entries): User,
- * General, Model Providers, Image Generation, Web Search, Integrations. Each
- * section renders one scrollable heading-content page in the main pane:
+ * Settings, divided into sections (the nested sidebar's entries): General,
+ * Model Providers, Image Generation, Web Search, Integrations. Each section
+ * renders one scrollable heading-content page in the main pane:
  *
- * - User — display name (injected into every agent's <env> block).
- * - General — theme, default agent + default model (what new sessions
- *   resolve) — both picked through the SAME modals the chat header uses
- *   (AgentModal / ModelModal), so one picker everywhere.
+ * - General — display name (injected into every agent's <env> block), theme,
+ *   default agent + default model (what new sessions resolve) — both picked
+ *   through the SAME modals the chat header uses (AgentModal / ModelModal),
+ *   so one picker everywhere. (Formerly a separate User section.)
  * - Model Providers — the prefer-ZDR preference, ALL catalog providers as
  *   expandable cards (accounts, remove, add-account), and the Video Gen
  *   defaults (provider · account · model).
@@ -87,7 +87,6 @@ type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /** The settings sections (the nested sidebar's entries). */
 export type SettingsSection =
-  | "user"
   | "general"
   | "providers"
   | "image"
@@ -104,8 +103,7 @@ export function SettingsNav({
   onSelect: (section: SettingsSection) => void;
 }) {
   const entries: { id: SettingsSection; title: string; dim: string }[] = [
-    { id: "user", title: "User", dim: "who bai works for" },
-    { id: "general", title: "General", dim: "default agent · model" },
+    { id: "general", title: "General", dim: "name · agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
     { id: "image", title: "Image Generation", dim: "defaults · concurrency" },
     { id: "video", title: "Video Generation", dim: "workflows · defaults" },
@@ -152,7 +150,7 @@ export function SettingsPane({
   onNotice,
 }: {
   client: BaiClient;
-  /** Null until the first engagement fetch lands (User works without it). */
+  /** Null until the first engagement fetch lands (General/providers need it). */
   list: ProviderListResponse | null;
   refresh: () => Promise<void>;
   /** True while a provider-list refetch is in flight (list already shown). */
@@ -192,14 +190,6 @@ export function SettingsPane({
     }
   };
 
-  if (section === "user") {
-    return (
-      <div className="settings">
-        <UserPane client={client} userName={userName} mutate={mutate} />
-      </div>
-    );
-  }
-
   if (section === "webSearch") {
     return (
       <div className="settings">
@@ -235,6 +225,7 @@ export function SettingsPane({
           refreshAgents={refreshAgents}
           defaultAgent={defaultAgent}
           preferZdr={preferZdr}
+          userName={userName}
           theme={theme}
           onOpenThemePicker={onOpenThemePicker}
           mutate={mutate}
@@ -273,7 +264,7 @@ export function SettingsPane({
   );
 }
 
-/** User section: the display name (agents see it via the <env> block). */
+/** Display name card (folded into General): agents see it via the <env> block. */
 function UserPane({
   client,
   userName,
@@ -295,35 +286,35 @@ function UserPane({
   };
 
   return (
-    <>
-      <PageHeader title="User" />
-      <Card as="form" onSubmit={submit}>
-        <SectionHeader
-          title="User name"
-          lede="Injected into every agent's env block — agents address you by it."
-        />
-        <div className="form-grid">
-          <Field label="Display name">
-            <TextInput
-              value={name}
-              placeholder="your name…"
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-        </div>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={name.trim().length === 0}
-        >
-          Save name
-        </Button>
-      </Card>
-    </>
+    <Card as="form" onSubmit={submit}>
+      <SectionHeader
+        title="User name"
+        lede="Injected into every agent's env block — agents address you by it."
+      />
+      <div className="form-grid">
+        <Field label="Display name">
+          <TextInput
+            value={name}
+            placeholder="your name…"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+      </div>
+      <Button
+        type="submit"
+        variant="primary"
+        disabled={name.trim().length === 0}
+      >
+        Save name
+      </Button>
+    </Card>
   );
 }
 
-/** General section: the defaults new sessions resolve (agent, then model) + the UI theme. */
+/**
+ * General section: display name (was its own User section), the UI theme,
+ * and the defaults new sessions resolve (agent, then model).
+ */
 function GeneralPane({
   client,
   list,
@@ -332,6 +323,7 @@ function GeneralPane({
   refreshAgents,
   defaultAgent,
   preferZdr,
+  userName,
   theme,
   onOpenThemePicker,
   mutate,
@@ -343,6 +335,8 @@ function GeneralPane({
   refreshAgents: () => Promise<void>;
   defaultAgent?: string;
   preferZdr?: boolean;
+  /** Config display name — the User name card (merged from the old User section). */
+  userName?: string;
   theme: string;
   onOpenThemePicker: () => void;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
@@ -350,6 +344,7 @@ function GeneralPane({
   return (
     <>
       <PageHeader title="General" />
+      <UserPane client={client} userName={userName} mutate={mutate} />
       <ThemeCard theme={theme} onOpenThemePicker={onOpenThemePicker} />
       <DefaultAgentCard
         client={client}

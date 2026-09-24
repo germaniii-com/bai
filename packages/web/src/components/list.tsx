@@ -28,7 +28,7 @@ export function ListItem({
   title: ReactNode;
   subtitle?: ReactNode;
   icon?: ReactNode;
-  /** Top-right slot (check mark, badge). Absolute when stacked, in-flow when inline. */
+  /** Trailing slot (check mark, badge) — always in the head row, right of the title. */
   trailing?: ReactNode;
   selected?: boolean;
   /** Nav-style inset accent bar when selected (sessions, workspace items). */
@@ -36,12 +36,12 @@ export function ListItem({
   /** Single-row layout (explorer/tree style) instead of stacked. */
   inline?: boolean;
   disabled?: boolean;
-  onClick?: () => void;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   /** Hover hint (e.g. a full path on a truncated row). */
   hint?: string;
   className?: string;
   ariaCurrent?: "page";
-} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "title" | "onClick" | "className" | "disabled">) {
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "title" | "className" | "disabled">) {
   const classes = [
     "list-item",
     inline ? "inline" : "",
@@ -61,6 +61,9 @@ export function ListItem({
       data-tooltip={hint}
       {...rest}
     >
+      {/* Trailing lives in the head row (in-flow, margin-left: auto) for both
+          stacked and inline layouts — absolute top-right badges overlapped
+          long model titles / description lines. */}
       <span className="li-head">
         {icon !== undefined && (
           <span className="li-icon" aria-hidden="true">
@@ -68,10 +71,9 @@ export function ListItem({
           </span>
         )}
         <span className="li-title">{title}</span>
-        {inline && trailing !== undefined && <span className="li-trailing">{trailing}</span>}
+        {trailing !== undefined && <span className="li-trailing">{trailing}</span>}
       </span>
       {subtitle !== undefined && <span className="li-sub">{subtitle}</span>}
-      {!inline && trailing !== undefined && <span className="li-trailing">{trailing}</span>}
     </button>
   );
 }

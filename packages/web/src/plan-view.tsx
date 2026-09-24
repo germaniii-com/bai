@@ -3,7 +3,7 @@ import { Editor } from "@monaco-editor/react";
 import type { BaiClient } from "@bai/api/client";
 import type { ThemeColors } from "@bai/shared";
 import { defineBaiTheme } from "./monaco-setup";
-import { EDITOR_FONT_FAMILY, EDITOR_FONT_SIZE } from "./editor-font";
+import { EDITOR_FONT_FAMILY, useEditorFontSize } from "./editor-font";
 
 /** Debounce before an edit is persisted (ms) — mirrors the Notes panel. */
 const SAVE_DEBOUNCE_MS = 800;
@@ -45,6 +45,7 @@ export function PlanView({
   const [status, setStatus] = useState<PlanSaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [monacoTheme, setMonacoTheme] = useState(() => defineBaiTheme(themeColors));
+  const editorFontSize = useEditorFontSize();
   const loadedNameRef = useRef<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const savedTimerRef = useRef<number | null>(null);
@@ -193,7 +194,7 @@ export function PlanView({
             options={{
               minimap: { enabled: false },
               fontFamily: EDITOR_FONT_FAMILY,
-              fontSize: EDITOR_FONT_SIZE,
+              fontSize: editorFontSize,
               fontLigatures: true,
               lineNumbers: "on",
               scrollBeyondLastLine: false,

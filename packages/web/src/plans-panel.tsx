@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FileText, Hammer, Plus, Trash2 } from "lucide-react";
 import { isValidAgentName, type PlanFile } from "@bai/shared";
+import { shouldAutoFocus } from "./pointer";
 import { ConfirmDialog, Disclosure, IconButton, ListItem, SubNavCreate, TextInput, usePersistentDisclosure } from "./components";
 
 /**
@@ -97,7 +98,7 @@ export function PlansPanel({
             <TextInput
               className="todos-add"
               value={name}
-              autoFocus
+              autoFocus={shouldAutoFocus()}
               disabled={busy}
               placeholder="plan-name"
               aria-label="New plan name"

@@ -107,8 +107,8 @@ export function parseRoute(pathname: string, search: string): Route {
     }
     case "settings": {
       const sub = next;
+      // Legacy /settings/user folded into General (User is no longer a section).
       const settingsSection: RouteSettingsSection =
-        sub === "user" ||
         sub === "providers" ||
         sub === "image" ||
         sub === "video" ||

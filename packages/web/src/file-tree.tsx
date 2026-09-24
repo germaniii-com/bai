@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent as ReactDragEv
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, FolderPlus, Upload, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import { Checkbox, ConfirmDialog, FileInput, IconButton, ListItem } from "./components";
+import { useLongPress } from "./use-long-press";
 
 interface FsEntry {
   name: string;
@@ -60,6 +61,8 @@ export function FileTree({
   const [dropDir, setDropDir] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+  // iOS long-press → same callback as right-click (contextmenu is flaky on WebKit).
+  const bindLongPress = useLongPress();
   // Current extra folders readable from the stable `load` callback.
   const foldersRef = useRef(folders);
   foldersRef.current = folders;
@@ -259,6 +262,16 @@ export function FileTree({
           <ul className="tree-entries tree-external">
             {folders.map((folder) => {
               const isOpen = expanded.has(folder.path);
+              const folderLongPress =
+                onItemContextMenu !== undefined
+                  ? bindLongPress((x, y) => {
+                      onItemContextMenu(folder.path, "root", {
+                        clientX: x,
+                        clientY: y,
+                        preventDefault: () => undefined,
+                      } as ReactMouseEvent<HTMLElement>);
+                    })
+                  : null;
               return (
                 <li key={folder.path}>
                   <ListItem
@@ -266,7 +279,15 @@ export function FileTree({
                     icon={<FolderIcon open={isOpen} />}
                     title={basename(folder.path)}
                     hint={`${folder.path}  ·  #${folder.alias}/`}
-                    onClick={() => toggle(folder.path)}
+                    onClick={(e) => {
+                      folderLongPress?.onClick(e);
+                      if (e.defaultPrevented) return;
+                      toggle(folder.path);
+                    }}
+                    onPointerDown={folderLongPress?.onPointerDown}
+                    onPointerUp={folderLongPress?.onPointerUp}
+                    onPointerCancel={folderLongPress?.onPointerCancel}
+                    onPointerMove={folderLongPress?.onPointerMove}
                     className={dropDir === folder.path ? "drop-target" : undefined}
                     onDragOver={(e) => dragOver(folder.path, e)}
                     onDragLeave={(e) => dragLeave(folder.path, e)}
@@ -372,6 +393,7 @@ function DirEntries({
   dropOn: (dir: string, e: ReactDragEvent<HTMLElement>) => void;
   onItemContextMenu?: (abs: string, kind: "file" | "dir" | "root", e: ReactMouseEvent<HTMLElement>) => void;
 }) {
+  const bindLongPress = useLongPress();
   const state = dirs.get(dir);
   if (state === undefined) return null;
   // Unreadable directory (permission denied, vanished, …): show the reason
@@ -395,6 +417,16 @@ function DirEntries({
         const path = joinPath(dir, entry.name);
         if (entry.type === "dir") {
           const isOpen = expanded.has(path);
+          const dirLongPress =
+            onItemContextMenu !== undefined
+              ? bindLongPress((x, y) => {
+                  onItemContextMenu(path, "dir", {
+                    clientX: x,
+                    clientY: y,
+                    preventDefault: () => undefined,
+                  } as ReactMouseEvent<HTMLElement>);
+                })
+              : null;
           return (
             <li key={path}>
               {/* No caret — the folder icon carries the state: FolderOpen
@@ -405,7 +437,15 @@ function DirEntries({
                 icon={<FolderIcon open={isOpen} />}
                 title={entry.name}
                 hint={path}
-                onClick={() => onToggle(path)}
+                onClick={(e) => {
+                  dirLongPress?.onClick(e);
+                  if (e.defaultPrevented) return;
+                  onToggle(path);
+                }}
+                onPointerDown={dirLongPress?.onPointerDown}
+                onPointerUp={dirLongPress?.onPointerUp}
+                onPointerCancel={dirLongPress?.onPointerCancel}
+                onPointerMove={dirLongPress?.onPointerMove}
                 className={dropDir === path ? "drop-target" : undefined}
                 onDragOver={(e) => dragOver(path, e)}
                 onDragLeave={(e) => dragLeave(path, e)}
@@ -454,6 +494,16 @@ function DirEntries({
                 onItemContextMenu(path, "file", e);
               }
             : undefined;
+        const fileLongPress =
+          onItemContextMenu !== undefined
+            ? bindLongPress((x, y) => {
+                onItemContextMenu(path, "file", {
+                  clientX: x,
+                  clientY: y,
+                  preventDefault: () => undefined,
+                } as ReactMouseEvent<HTMLElement>);
+              })
+            : null;
         return (
           <li key={path}>
             {onOpenFile !== undefined ? (
@@ -462,7 +512,15 @@ function DirEntries({
                 icon={<FileIcon />}
                 title={entry.name}
                 selected={active}
-                onClick={() => onOpenFile(path)}
+                onClick={(e) => {
+                  fileLongPress?.onClick(e);
+                  if (e.defaultPrevented) return;
+                  onOpenFile(path);
+                }}
+                onPointerDown={fileLongPress?.onPointerDown}
+                onPointerUp={fileLongPress?.onPointerUp}
+                onPointerCancel={fileLongPress?.onPointerCancel}
+                onPointerMove={fileLongPress?.onPointerMove}
                 aria-current={active ? "true" : undefined}
                 hint={`Open ${path}`}
                 onContextMenu={fileContextMenu}

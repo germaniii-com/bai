@@ -102,6 +102,8 @@ export function NotesPanel({
             placeholder="Session notes…"
             aria-label="Session notes"
             spellCheck
+            autoCapitalize="sentences"
+            enterKeyHint="enter"
             onChange={(e) => onChange(e.target.value)}
           />
         </div>

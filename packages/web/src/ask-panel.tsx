@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
 import type { PermissionRequest, QuestionRequest } from "@bai/shared";
+import { shouldAutoFocus } from "./pointer";
 import { Button, Checkbox, Field, RadioGroup, Textarea, TextInput } from "./components";
 
 /**
@@ -151,7 +152,7 @@ function PermissionAsk({
               onChange={(e) => setMessage(e.target.value)}
               placeholder="e.g. wrong file, use the other module…"
               rows={3}
-              autoFocus
+              autoFocus={shouldAutoFocus()}
             />
           </Field>
           <div className="perm-actions">
@@ -277,7 +278,7 @@ function PathAsk({
               if (value.trim().length > 0) void confirm();
             }
           }}
-          autoFocus
+          autoFocus={shouldAutoFocus()}
           onFocus={(e) => e.currentTarget.select()}
           spellCheck={false}
           autoComplete="off"

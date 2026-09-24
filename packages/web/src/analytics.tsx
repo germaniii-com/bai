@@ -22,6 +22,7 @@ import type {
   UsageGranularity,
 } from "@bai/shared";
 import { useUsage } from "./use-usage";
+import { isCoarsePointer } from "./pointer";
 import { Button, Card, Combobox, PageHeader, SectionHeader, Select, Table, Tabs, Td, Th, type ComboboxOption } from "./components";
 
 /**
@@ -36,9 +37,10 @@ import { Button, Card, Combobox, PageHeader, SectionHeader, Select, Table, Tabs,
 /**
  * Chart tick label size (px). Recharts renders SVG text, so it needs a
  * concrete number rather than the CSS `--text-xs` token — this mirrors that
- * token's 11px value.
+ * token's 11px value, floored to 12px on touch devices (coarse pointers
+ * never render captions below 12px).
  */
-const CHART_TICK_FONT_SIZE = 11;
+const CHART_TICK_FONT_SIZE = isCoarsePointer() ? 12 : 11;
 
 /** Stable per-model palette: the theme's six accent roles, cycled. */
 function palette(colors: ThemeColors): string[] {

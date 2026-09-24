@@ -135,7 +135,10 @@ export function TagInput({
           aria-autocomplete="list"
           aria-expanded={open && matches.length > 0}
           autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
           spellCheck={false}
+          enterKeyHint="done"
         />
       </div>
       {open && !full && matches.length > 0 && (

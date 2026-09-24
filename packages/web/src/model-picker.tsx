@@ -5,6 +5,7 @@ import type { ModelInfo, ProviderInfo, ProviderListResponse, Session } from "@ba
 import { isZdrCapableModel, sortModelsZdrFirst } from "@bai/shared";
 import { sortProviders } from "./provider-utils";
 import { ModelCapabilityBadges } from "./model-capabilities";
+import { shouldAutoFocus, useCoarsePointer } from "./pointer";
 import { ListItem, Modal, PickerTrigger, TextInput } from "./components";
 
 /**
@@ -54,22 +55,33 @@ export function ModelPicker({
   const accountSuffix = accountLabel(list, current, meta) ?? "";
   // Resolve the current model's catalog entry so the trigger can show the
   // same capability glyphs as the picker rows (absent while the list loads).
+  const compact = useCoarsePointer();
   const currentModel =
     list === null ? undefined : list.providers.flatMap((p) => p.models).find((m) => m.id === current);
+  // Phones: the full "provider/model" id + account is far too wide for the hub
+  // row (it overflows / ellipsizes to a useless stub). Show the friendly label
+  // (or the model slug) instead — the modal, aria-label, and tooltip carry the
+  // full id + account.
+  const displayLabel = currentModel?.label ?? current.split("/").pop() ?? current;
 
   return (
     <>
       <PickerTrigger
+        className="model-picker-trigger"
         icon={<Cpu size={13} aria-hidden="true" />}
         value={
-          <>
-            {current}
-            {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
-          </>
+          compact ? (
+            displayLabel
+          ) : (
+            <>
+              {current}
+              {accountSuffix.length > 0 && <span className="dim"> · {accountSuffix}</span>}
+            </>
+          )
         }
         trailing={currentModel !== undefined ? <ModelCapabilityBadges model={currentModel} /> : undefined}
         ariaLabel={`model: ${current}${accountSuffix}`}
-        hint="Choose model — session-scoped; manage accounts in Settings"
+        hint={`Choose model — ${current}${accountSuffix.length > 0 ? ` · ${accountSuffix}` : ""}`}
         onClick={() => setOpen(true)}
       />
       {open && (
@@ -272,9 +284,9 @@ export function ModelModal({
         <>
           {/* The one search bar (TUI type-to-filter parity): free-form text
               matching a model's name/id OR its provider's name/id. Focused
-              on open (`autoFocus`); wrapped so its 100% width stays inside
-              the modal's horizontal padding (the old margin + width:100%
-              overflowed and scrolled the body sideways). */}
+              on open only for fine pointers (`shouldAutoFocus`) — iOS pops
+              (and zooms) the keyboard on mount-time focus. Wrapped so its
+              100% width stays inside the modal's horizontal padding. */}
           <div className="model-search-wrap">
             <TextInput
               className="model-search"
@@ -283,7 +295,7 @@ export function ModelModal({
               value={modelFilter}
               onChange={(e) => setModelFilter(e.target.value)}
               aria-label="Filter models or providers"
-              autoFocus
+              autoFocus={shouldAutoFocus()}
             />
           </div>
           {/* Pinned current selection: always visible below the search so its

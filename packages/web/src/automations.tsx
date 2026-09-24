@@ -14,6 +14,7 @@ import {
   type SessionId,
 } from "@bai/shared";
 import { modelOverrideOptions } from "./provider-utils";
+import { shouldAutoFocus } from "./pointer";
 import {
   Button,
   Chip,
@@ -586,7 +587,7 @@ function AutomationForm({
               <TextInput
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                autoFocus={creating}
+                autoFocus={creating && shouldAutoFocus()}
                 maxLength={64}
                 required
                 spellCheck={false}
