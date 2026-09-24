@@ -309,6 +309,20 @@ input[type="radio"]:focus-visible {
   gap: 4px;
 }
 
+/* Desktop: a transparent column that just lets the rail fill (the chevrons
+   are mobile-only). Mobile turns it into the positioned scroll region. */
+.master-scroll-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.master-scroll-btn {
+  display: none;
+}
+
 /* Right-edge section-menu toggle (mobile only — desktop keeps the nested
    column and has no subnavToggle). Sits opposite the brand mark; group
    carries the | separator + content-sized button. */
@@ -4816,6 +4830,71 @@ input[type="radio"]:focus-visible {
 
   .master-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Positioned wrapper so the edge affordances can float over the scroll
+     region without taking layout space. */
+  .master-scroll-wrap {
+    position: relative;
+    flex-direction: row;
+    flex: 1 1 auto;
+  }
+
+  /* Edge fades — the only scroll cue: the row content fades out at an
+     overflowing edge (toggled by .has-left/.has-right). */
+  .master-scroll-wrap::before,
+  .master-scroll-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 44px;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+  .master-scroll-wrap::before {
+    left: 0;
+    background: linear-gradient(to right, var(--panel) 55%, transparent);
+  }
+  .master-scroll-wrap::after {
+    right: 0;
+    background: linear-gradient(to left, var(--panel) 55%, transparent);
+  }
+  .master-scroll-wrap.has-left::before,
+  .master-scroll-wrap.has-right::after {
+    opacity: 1;
+  }
+
+  /* A plain, dim chevron sits over the fade — no chip, border, or elevation.
+     Higher specificity than `.icon-button` so none of its skin leaks in. */
+  .master-nav .master-scroll-btn {
+    display: inline-flex;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 3;
+    width: 30px;
+    height: var(--control-h-lg);
+    min-width: 30px;
+    min-height: var(--control-h-lg);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dim);
+  }
+  .master-nav .master-scroll-btn:hover,
+  .master-nav .master-scroll-btn:focus-visible {
+    background: transparent;
+    color: var(--text);
+  }
+  .master-nav .master-scroll-btn.left {
+    left: 0;
+  }
+  .master-nav .master-scroll-btn.right {
+    right: 0;
   }
 
   .master-items {

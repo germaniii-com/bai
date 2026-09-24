@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Bot, ChartColumn, Clock, FileText, Folder, Image, Menu, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, ChartColumn, ChevronLeft, ChevronRight, Clock, FileText, Folder, Image, Menu, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -38,7 +38,7 @@ import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
 import { useLongPress } from "./use-long-press";
 import { useMediaQuery } from "./use-media-query";
-import { Button, Chip, ContextMenu, Drawer, ListItem, NavItem, SubNavCreate, SubNavToggle, Tabs, TextInput, type ContextMenuItem } from "./components";
+import { Button, Chip, ContextMenu, Drawer, IconButton, ListItem, NavItem, SubNavCreate, SubNavToggle, Tabs, TextInput, type ContextMenuItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
@@ -2562,13 +2562,71 @@ function MasterNav({
    */
   subnavToggle?: { open: boolean; onToggle: () => void };
 }) {
+  // Mobile-only: the icon row scrolls horizontally. Track whether content
+  // overflows each edge so the scroll affordances show only when useful.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  const updateEdges = useCallback((): void => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    updateEdges();
+    el.addEventListener("scroll", updateEdges, { passive: true });
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(updateEdges);
+      observer.observe(el);
+    }
+    window.addEventListener("resize", updateEdges);
+    return () => {
+      el.removeEventListener("scroll", updateEdges);
+      observer?.disconnect();
+      window.removeEventListener("resize", updateEdges);
+    };
+  }, [updateEdges]);
+
+  /** Nudge the row one comfortable step in `dir` (-1 left, 1 right). */
+  const nudge = (dir: -1 | 1): void => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.6), behavior: "smooth" });
+  };
+
   return (
       <nav className="master-nav" aria-label="Primary">
         {/* Same asset as the favicon (public/icon.svg) — one logo, one truth.
             Outside .master-scroll so the brand stays pinned on mobile while
             only the nav items pan. */}
         <img src="/icon.svg" alt="bai" className="brand-mark" />
-      <div className="master-scroll">
+      {/* The scroll region + its edge affordances (mobile). The wrappers carry
+          the gradients; the buttons nudge the row and only appear at an edge
+          that actually has hidden items. */}
+      <div
+        className={
+          "master-scroll-wrap" +
+          (edges.left ? " has-left" : "") +
+          (edges.right ? " has-right" : "")
+        }
+      >
+        {edges.left && (
+          <IconButton
+            className="master-scroll-btn left"
+            label="Scroll navigation left"
+            hint="Scroll left"
+            onClick={() => nudge(-1)}
+          >
+            <ChevronLeft size={18} aria-hidden="true" />
+          </IconButton>
+        )}
+      <div className="master-scroll" ref={scrollRef}>
       <div className="master-items">
         <NavItem
           icon={<MessageCircle className="nav-icon" aria-hidden="true" />}
@@ -2603,6 +2661,17 @@ function MasterNav({
       {/* Shell sits directly above Settings — a pinned utility like Theme. */}
       <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
       <NavItem icon={<SlidersHorizontal className="nav-icon" aria-hidden="true" />} label="Settings" active={section === "settings"} onClick={() => onNavigate("settings")} />
+      </div>
+        {edges.right && (
+          <IconButton
+            className="master-scroll-btn right"
+            label="Scroll navigation right"
+            hint="Scroll right"
+            onClick={() => nudge(1)}
+          >
+            <ChevronRight size={18} aria-hidden="true" />
+          </IconButton>
+        )}
       </div>
       {subnavToggle !== undefined && (
         <SubNavToggle open={subnavToggle.open} onToggle={subnavToggle.onToggle} />
