@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, TriangleAlert, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, MediaAssetRef, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
@@ -17,6 +17,7 @@ import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
 import { Button, Chip, Disclosure, EmptyState, Field, Modal, Textarea } from "./components";
+import { clipboardImageFiles } from "./clipboard";
 import { shouldAutoFocus } from "./pointer";
 
 /**
@@ -457,6 +458,17 @@ export function ChatPane({
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length > 0) onAddAttachments?.(files);
   };
+  // Paste an image straight into the composer (screenshots, copied images) —
+  // the same path as the `+` button and drag-drop. Text-only pastes are left
+  // to the textarea. Scoped to the form via React's onPaste so a paste into an
+  // unrelated field/dialog never attaches here.
+  const onComposerPaste = (e: ReactClipboardEvent<HTMLFormElement>): void => {
+    if (!canDropFiles) return;
+    const images = clipboardImageFiles(e.clipboardData);
+    if (images.length === 0) return;
+    e.preventDefault();
+    onAddAttachments?.(images);
+  };
 
   // External seeds (revert/fork/edit) replace the draft out from under the
   // tracked cursor — keep it in range so mention detection isn't confused.
@@ -792,6 +804,7 @@ export function ChatPane({
         onDragOver={onComposerDragOver}
         onDragLeave={onComposerDragLeave}
         onDrop={onComposerDrop}
+        onPaste={onComposerPaste}
         onSubmit={(e) => {
           e.preventDefault();
           // Leaf mention tokens expand to full paths for the server.

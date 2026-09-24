@@ -59,6 +59,7 @@ import {
   Toolbar,
 } from "./components";
 import { ImageLightbox, useAssetUrl } from "./attachments";
+import { clipboardImageFiles } from "./clipboard";
 import { galleryNavState } from "./image-nav";
 import { modeLabel, modelOptionHint } from "./media-model-hint";
 import { useImageGallery } from "./use-image-gallery";
@@ -392,28 +393,20 @@ export function ImagePane({
     if (file !== undefined) void uploadReference(file);
   };
 
-  // Paste an image from the clipboard (Ctrl/Cmd+V) while on Image to Image.
-  // Ignored when the paste targets a text field (the prompt, tags, …).
+  // Paste an image from the clipboard (Ctrl/Cmd+V) anywhere on the Image page:
+  // it becomes the reference and the workflow switches to Image to Image so it
+  // is actually used. Text-only pastes fall through to the prompt/tag fields.
   useEffect(() => {
-    if (workflow !== "i2i") return;
     const onPaste = (e: ClipboardEvent): void => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target !== null &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
-      ) {
-        return;
-      }
-      const item = Array.from(e.clipboardData?.items ?? []).find((it) => it.type.startsWith("image/"));
-      const file = item?.getAsFile();
-      if (file !== undefined && file !== null) {
-        e.preventDefault();
-        void uploadReference(file);
-      }
+      const images = clipboardImageFiles(e.clipboardData);
+      if (images.length === 0) return;
+      e.preventDefault();
+      setWorkflow("i2i");
+      void uploadReference(images[0]!);
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [workflow, uploadReference]);
+  }, [uploadReference]);
 
   const generate = async (): Promise<void> => {
     const text = prompt.trim();

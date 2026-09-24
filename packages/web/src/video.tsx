@@ -58,6 +58,7 @@ import {
   Toolbar,
 } from "./components";
 import { useAssetUrl } from "./attachments";
+import { clipboardImageFiles } from "./clipboard";
 import { galleryNavState } from "./image-nav";
 import { useInView } from "./use-in-view";
 import { videoModelOptionHint } from "./media-model-hint";
@@ -328,6 +329,22 @@ export function VideoPane({
     [client, addInput, onNotice],
   );
 
+  // Paste an image from the clipboard (Ctrl/Cmd+V) into the workflow's first
+  // image-accepting reference slot (first/last frame, reference image, …).
+  // Text-only pastes fall through; a workflow with no image slot is a no-op.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent): void => {
+      const images = clipboardImageFiles(e.clipboardData);
+      if (images.length === 0) return;
+      const slot = activeSpec?.inputs.find((s) => s.accepts.includes("image"));
+      if (slot === undefined) return;
+      e.preventDefault();
+      for (const file of images) void uploadToSlot(slot, file);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [activeSpec, uploadToSlot]);
+
   const generate = useCallback(async (): Promise<void> => {
     if (activeSpec === undefined) return;
     const missing = activeSpec.inputs.find((slot) => {
@@ -511,7 +528,10 @@ export function VideoPane({
                       {slot.label}
                       {slot.required === true ? " *" : ""}
                     </span>
-                    <span className="dim video-slot-accepts">{slot.accepts.join(" / ")}</span>
+                    <span className="dim video-slot-accepts">
+                    {slot.accepts.join(" / ")}
+                    {slot.accepts.includes("image") ? " · or paste (Ctrl/Cmd+V)" : ""}
+                  </span>
                   </div>
                   {(inputs[slot.role] ?? []).length > 0 && (
                     <div className="video-slot-chips">

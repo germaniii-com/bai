@@ -87,7 +87,8 @@ The conversation modality and bai's default session type.
   matching opencode2's project-scoped completion. `/commands` are not
   implemented yet
 - **Attachments (chat only)**: the web composer's **`+`** button (beside
-  Send) or a **file drag-and-drop onto the composer** uploads a local
+  Send), a **file drag-and-drop onto the composer**, or **pasting an image from
+  the clipboard** (Ctrl/Cmd+V — screenshots and copied images) uploads a local
   image/PDF/text file. Cwd-less chat sessions have no `#file` picker, so this
   is how files reach a chat prompt. Bytes are stored under
   `~/.local/share/bai/assets/attachment/` (asset table, no blobs in SQLite or
@@ -577,8 +578,10 @@ browse a tag-searchable gallery. Images are standalone, self-describing assets
 **What you can do today**
 
 - **Text to Image and Image to Image.** Image-to-image takes a reference image
-  (drop or pick — **PNG, JPG, GIF, or WebP, up to 10 MB**; uploaded once,
-  stored as an asset, lowered to the provider's `input_references` data URL).
+  (drop, pick, or **paste from the clipboard** — Ctrl/Cmd+V; **PNG, JPG, GIF, or
+  WebP, up to 10 MB**; uploaded once, stored as an asset, lowered to the
+  provider's `input_references` data URL). Pasting from any workflow switches to
+  Image to Image and sets the reference.
 - **Multi-provider.** `imageGen.provider` picks an adapter from a
   data-driven registry. The Image page shows a single **model** picker that
   aggregates the models of every provider you've connected (provider selection
@@ -701,8 +704,9 @@ UI work.
 - **Role-tagged references.** Each workflow declares its input slots
   (`first_frame`, `last_frame`, `reference_image`, `reference_video`,
   `reference_audio`, `source_video`). A slot accepts a **stored bai asset**
-  (picked from any gallery, any kind), an **upload**, or a **hosted URL** — so
-  a generated video can seed a later extend/v2v/upscale job.
+  (picked from any gallery, any kind), an **upload**, a **pasted image**
+  (Ctrl/Cmd+V fills the workflow's first image-accepting slot), or a **hosted
+  URL** — so a generated video can seed a later extend/v2v/upscale job.
 - **Multi-provider.** `videoGen.provider` picks an adapter from a data-driven
   registry. The Video page shows one **model** picker aggregating every
   connected provider's models, filtered to the workflows each model supports;
