@@ -44,6 +44,12 @@ export interface SkillInfo {
   /** The markdown body of SKILL.md (the skill's instructions). */
   body: string;
   source: SkillSource;
+  /**
+   * True for a skill that ships with bai (synced from the bundled skills dir
+   * and tracked in the user skills dir's bundled manifest). Lets a surface
+   * separate bai's resources from the user's own (config ui.showBuiltins).
+   */
+  builtin?: boolean;
   /** Absolute path of the SKILL.md file. */
   path: string;
   /** Relative paths of supporting files (references/, templates/, scripts/, assets/). */

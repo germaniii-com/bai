@@ -54,6 +54,12 @@ type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automatio
  */
 const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics", "image", "video"];
 
+/**
+ * Sections hidden from the nav in basic mode (config ui.advancedMode off).
+ * Navigating to one while basic is on falls back to Chat.
+ */
+const BASIC_HIDDEN_SECTIONS: Section[] = ["agents", "tools", "skills", "automations", "analytics", "shell"];
+
 /** Workspace right-rail resize bounds + per-device persistence key. */
 const WORKSPACE_SIDEBAR_MIN = 180;
 const WORKSPACE_SIDEBAR_MAX = 560;
@@ -296,6 +302,10 @@ export function App() {
   const [configPreferZdr, setConfigPreferZdr] = useState<boolean | undefined>(undefined);
   /** config router.enabled — the Model Providers "Run as router" toggle. */
   const [configRouterEnabled, setConfigRouterEnabled] = useState<boolean | undefined>(undefined);
+  /** config ui.advancedMode — the General pane's nav toggle (unset = basic). */
+  const [configAdvancedMode, setConfigAdvancedMode] = useState<boolean | undefined>(undefined);
+  /** config ui.showBuiltins — show built-in agents/tools/skills in their lists. */
+  const [configShowBuiltins, setConfigShowBuiltins] = useState<boolean | undefined>(undefined);
   const [configImageGen, setConfigImageGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configVideoGen, setConfigVideoGen] = useState<MediaGenConfig | undefined>(undefined);
   const [configJobs, setConfigJobs] = useState<JobsConfig | undefined>(undefined);
@@ -364,6 +374,8 @@ export function App() {
       setConfigUserName(config.user?.name);
       setConfigPreferZdr(config.models.preferZdr);
       setConfigRouterEnabled(config.router?.enabled);
+      setConfigAdvancedMode(config.ui?.advancedMode);
+      setConfigShowBuiltins(config.ui?.showBuiltins);
       setConfigImageGen(config.imageGen);
       setConfigVideoGen(config.videoGen);
       setConfigJobs(config.jobs);
@@ -729,6 +741,12 @@ export function App() {
   const effectiveToolId = tools.some((t) => t.name === selectedTool) ? selectedTool : null;
   const effectiveSkillId = skills.some((s) => s.name === selectedSkill) ? selectedSkill : null;
   const effectiveAutomationId = automations.some((a) => a.id === selectedAutomation) ? selectedAutomation : null;
+  // config ui.showBuiltins (unset = shown): hide bai's built-in agents/tools/
+  // bundled skills from the section lists, leaving the user's own resources.
+  const showBuiltins = configShowBuiltins !== false;
+  const navAgents = showBuiltins ? agents : agents.filter((a) => a.source !== "builtin");
+  const navTools = showBuiltins ? tools : tools.filter((t) => t.origin !== "builtin");
+  const navSkills = showBuiltins ? skills : skills.filter((s) => s.builtin !== true);
   // The active session's resolved agent (meta → config default → build) —
   // the learn chip's in-session-vs-spawn decision.
   const activeAgentName =
@@ -939,6 +957,17 @@ export function App() {
         break;
     }
   };
+
+  // Basic mode (the default — config ui.advancedMode unset or false) hides the
+  // agent-machinery sections and Shell. If the user is on one when advanced
+  // turns off (or lands there via a stale deep link), fall back to Chat so the
+  // nav and the pane agree.
+  useEffect(() => {
+    if (configAdvancedMode === true) return;
+    if (!BASIC_HIDDEN_SECTIONS.includes(section)) return;
+    const keep = activeRef.current?.workbench === "chat" ? activeRef.current : null;
+    pushRoute({ section: "chat", sessionId: keep?.id ?? null }, keep);
+  }, [configAdvancedMode, section, pushRoute]);
 
   // Deep-linked / popstate-applied session ids resolve here — one direct
   // fetch (no waiting for the session lists). A hit activates the session
@@ -1812,7 +1841,7 @@ export function App() {
         )}
         {section === "agents" && (
           <AgentsNav
-            agents={agents}
+            agents={navAgents}
             selected={effectiveAgentId}
             onSelect={(name) => {
               pushRoute({ section: "agents", name, creating: false });
@@ -1827,7 +1856,7 @@ export function App() {
         )}
         {section === "tools" && (
           <ToolsNav
-            tools={tools}
+            tools={navTools}
             selected={effectiveToolId}
             onSelect={(name) => {
               pushRoute({ section: "tools", name, creating: false });
@@ -1842,7 +1871,7 @@ export function App() {
         )}
         {section === "skills" && (
           <SkillsNav
-            skills={skills}
+            skills={navSkills}
             selected={effectiveSkillId}
             onSelect={(name) => {
               pushRoute({ section: "skills", name, creating: false });
@@ -2010,6 +2039,7 @@ export function App() {
         }}
         askBadge={askPanelVisible ? 0 : askTotal}
         onThemePicker={() => setThemePickerOpen(true)}
+        advancedMode={configAdvancedMode === true}
         subnavToggle={
           showNestedPanel
             ? {
@@ -2047,6 +2077,8 @@ export function App() {
             videoGen={configVideoGen}
             jobs={configJobs}
             theme={theme}
+            advancedMode={configAdvancedMode}
+            showBuiltins={configShowBuiltins}
             onOpenThemePicker={() => setThemePickerOpen(true)}
             onNotice={pushNotice}
           />
@@ -2548,6 +2580,7 @@ function MasterNav({
   askBadge = 0,
   onThemePicker,
   subnavToggle,
+  advancedMode = false,
 }: {
   section: Section;
   onNavigate: (s: Section) => void;
@@ -2555,6 +2588,11 @@ function MasterNav({
   askBadge?: number;
   /** Open the theme picker modal (the palette button above Settings). */
   onThemePicker: () => void;
+  /**
+   * Advanced mode shows the agent-machinery sections (Agents/Skills/Tools/
+   * Automations/Analytics) and Shell. Basic hides them. Unset = basic.
+   */
+  advancedMode?: boolean;
   /**
    * Mobile-only control on the right edge (opposite the brand mark): opens
    * the section subnav Drawer. Omitted on single-pane sections
@@ -2643,13 +2681,18 @@ function MasterNav({
         />
         <NavItem icon={<Image className="nav-icon" aria-hidden="true" />} label="Image Gen" active={section === "image"} onClick={() => onNavigate("image")} />
         <NavItem icon={<Video className="nav-icon" aria-hidden="true" />} label="Video Gen" active={section === "video"} onClick={() => onNavigate("video")} />
-        {/* Workbenches above the line, agent machinery below it. */}
-        <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
-        <NavItem icon={<Bot className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
-        <NavItem icon={<Wrench className="nav-icon" aria-hidden="true" />} label="Tools" active={section === "tools"} onClick={() => onNavigate("tools")} />
-        <NavItem icon={<Zap className="nav-icon" aria-hidden="true" />} label="Skills" active={section === "skills"} onClick={() => onNavigate("skills")} />
-        <NavItem icon={<Clock className="nav-icon" aria-hidden="true" />} label="Automations" active={section === "automations"} onClick={() => onNavigate("automations")} />
-        <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
+        {/* Workbenches above the line, agent machinery below it. The machinery
+            + Shell are advanced-mode only (config ui.advancedMode). */}
+        {advancedMode && (
+          <>
+            <div className="nav-divider" role="separator" aria-label="workbenches / agents" />
+            <NavItem icon={<Bot className="nav-icon" aria-hidden="true" />} label="Agents" active={section === "agents"} onClick={() => onNavigate("agents")} />
+            <NavItem icon={<Wrench className="nav-icon" aria-hidden="true" />} label="Tools" active={section === "tools"} onClick={() => onNavigate("tools")} />
+            <NavItem icon={<Zap className="nav-icon" aria-hidden="true" />} label="Skills" active={section === "skills"} onClick={() => onNavigate("skills")} />
+            <NavItem icon={<Clock className="nav-icon" aria-hidden="true" />} label="Automations" active={section === "automations"} onClick={() => onNavigate("automations")} />
+            <NavItem icon={<ChartColumn className="nav-icon" aria-hidden="true" />} label="Analytics" active={section === "analytics"} onClick={() => onNavigate("analytics")} />
+          </>
+        )}
       </div>
       <div className="master-spacer" />
       <NavItem
@@ -2658,8 +2701,10 @@ function MasterNav({
         onClick={onThemePicker}
       />
 
-      {/* Shell sits directly above Settings — a pinned utility like Theme. */}
-      <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
+      {/* Shell sits directly above Settings — advanced mode only. */}
+      {advancedMode && (
+        <NavItem icon={<Terminal className="nav-icon" aria-hidden="true" />} label="Shell" active={section === "shell"} onClick={() => onNavigate("shell")} />
+      )}
       <NavItem icon={<SlidersHorizontal className="nav-icon" aria-hidden="true" />} label="Settings" active={section === "settings"} onClick={() => onNavigate("settings")} />
       </div>
         {edges.right && (

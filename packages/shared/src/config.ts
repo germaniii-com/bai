@@ -213,6 +213,24 @@ export function interpolateEnv<T>(value: T, env: Record<string, string | undefin
   return value;
 }
 
+/** Web-surface interface preferences (nav density etc.). */
+export interface UiConfig {
+  /**
+   * Advanced mode shows the agent-machinery sections in the web nav — Agents,
+   * Skills, Tools, Automations, Analytics — plus Shell. Off (basic) keeps the
+   * nav to the workbenches (Chat, Workspace, Image Gen, Video Gen) + Theme +
+   * Settings. **Unset = basic** (fresh installs start basic). Web-only; applies
+   * live via config.updated.
+   */
+  advancedMode?: boolean;
+  /**
+   * Show bai's built-in resources — the built-in agents (build/chat/plan/learn),
+   * built-in tools, and bundled skills — in the Agents/Tools/Skills lists.
+   * Only meaningful in advanced mode. Unset = shown.
+   */
+  showBuiltins?: boolean;
+}
+
 export interface ServerConfig {
   port?: number;
   token?: string;
@@ -291,6 +309,8 @@ export interface Config {
   archivedWorkspaces: string[];
   server: ServerConfig;
   tools: ToolsConfig;
+  /** Web-surface interface preferences (advanced vs basic nav). */
+  ui: UiConfig;
   /** Media job-runtime limits (timeout/retries/backoff). */
   jobs: JobsConfig;
   /** Router gateway (`/v1/*` + `/api/help`) settings. Default on. */
@@ -316,6 +336,7 @@ export const DEFAULT_CONFIG: Config = {
   archivedWorkspaces: [],
   server: {},
   tools: {},
+  ui: {},
   jobs: {},
   router: {},
   mcpServer: {},
@@ -413,6 +434,11 @@ const toolsSchema = z.object({
 
 const themeSchema = z.string().min(1).max(100);
 
+const uiSchema = z.object({
+  advancedMode: z.boolean().optional(),
+  showBuiltins: z.boolean().optional(),
+});
+
 const jobsSchema = z.object({
   timeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
   videoTimeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
@@ -448,6 +474,7 @@ export const configSchema = z.object({
     })
     .default({}),
   tools: toolsSchema.default({}),
+  ui: uiSchema.default({}),
   jobs: jobsSchema.default({}),
   router: routerSchema.default({}),
   mcpServer: mcpServerRoleSchema.default({}),
@@ -476,6 +503,7 @@ export const configPatchSchema = z.object({
     })
     .optional(),
   tools: toolsSchema.optional(),
+  ui: uiSchema.optional(),
   jobs: jobsSchema.optional(),
   router: routerSchema.optional(),
   mcpServer: mcpServerRoleSchema.optional(),

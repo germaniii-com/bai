@@ -113,6 +113,15 @@ function copyDir(src: string, dest: string): void {
   }
 }
 
+/**
+ * Names of the skills bai bundles (from the user skills dir's manifest). The
+ * registry uses this to mark bundled skills `builtin` so surfaces can separate
+ * bai's resources from the user's own.
+ */
+export function bundledSkillNames(skillsDir: string): Set<string> {
+  return new Set(readManifest(path.join(skillsDir, MANIFEST_NAME)).keys());
+}
+
 /** Read the manifest into a map (malformed lines skipped). */
 function readManifest(file: string): Map<string, string> {
   const map = new Map<string, string>();

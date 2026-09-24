@@ -155,6 +155,8 @@ export function SettingsPane({
   videoGen,
   jobs,
   theme,
+  advancedMode,
+  showBuiltins,
   onOpenThemePicker,
   onNotice,
 }: {
@@ -181,6 +183,10 @@ export function SettingsPane({
   jobs?: JobsConfig;
   /** Active theme id (built-in or custom file stem) — the General pane's theme card. */
   theme: string;
+  /** config ui.advancedMode — the General pane's nav toggle (unset = advanced). */
+  advancedMode?: boolean;
+  /** config ui.showBuiltins — show built-in resources (unset = shown). */
+  showBuiltins?: boolean;
   /** Open the theme picker modal (App-owned). */
   onOpenThemePicker: () => void;
   /** Toast feedback (success/error). */
@@ -240,6 +246,8 @@ export function SettingsPane({
           preferZdr={preferZdr}
           userName={userName}
           theme={theme}
+          advancedMode={advancedMode}
+          showBuiltins={showBuiltins}
           onOpenThemePicker={onOpenThemePicker}
           mutate={mutate}
         />
@@ -338,6 +346,8 @@ function GeneralPane({
   preferZdr,
   userName,
   theme,
+  advancedMode,
+  showBuiltins,
   onOpenThemePicker,
   mutate,
 }: {
@@ -351,6 +361,10 @@ function GeneralPane({
   /** Config display name — the User name card (merged from the old User section). */
   userName?: string;
   theme: string;
+  /** config ui.advancedMode — unset = advanced. */
+  advancedMode?: boolean;
+  /** config ui.showBuiltins — show built-in resources (unset = shown). */
+  showBuiltins?: boolean;
   onOpenThemePicker: () => void;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
@@ -359,6 +373,12 @@ function GeneralPane({
       <PageHeader title="General" />
       <UserPane client={client} userName={userName} mutate={mutate} />
       <ThemeCard theme={theme} onOpenThemePicker={onOpenThemePicker} />
+      <AdvancedModeCard
+        client={client}
+        advancedMode={advancedMode}
+        showBuiltins={showBuiltins}
+        mutate={mutate}
+      />
       <DefaultAgentCard
         client={client}
         agents={agents}
@@ -374,6 +394,63 @@ function GeneralPane({
         mutate={mutate}
       />
     </>
+  );
+}
+
+/**
+ * Interface preferences (config ui): advanced vs basic navigation. Applies live
+ * — the App reads config.ui.advancedMode and the nav re-renders on the
+ * config.updated event.
+ */
+function AdvancedModeCard({
+  client,
+  advancedMode,
+  showBuiltins,
+  mutate,
+}: {
+  client: BaiClient;
+  advancedMode?: boolean;
+  showBuiltins?: boolean;
+  mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
+}) {
+  // Unset = basic (fresh installs start basic).
+  const advanced = advancedMode === true;
+  return (
+    <Card>
+      <SectionHeader
+        title="Interface"
+        lede="Basic keeps the nav focused on the workbenches; advanced adds the agent machinery."
+      />
+      <SwitchField
+        checked={advanced}
+        label="Advanced mode"
+        description="Show Agents, Skills, Tools, Automations, Analytics, and Shell in the nav. Off (default) keeps just Chat, Workspace, Image Gen, Video Gen, Theme, and Settings."
+        onChange={(on) => {
+          void mutate(
+            async () => {
+              await client.putConfig({ ui: { advancedMode: on } });
+            },
+            on ? "Advanced mode: on" : "Basic mode: on",
+          );
+        }}
+      />
+      {/* Sub-toggle: only meaningful while the machinery sections are shown. */}
+      {advanced && (
+        <SwitchField
+          checked={showBuiltins !== false}
+          label="Show built-in resources"
+          description="List bai's built-in agents, tools, and bundled skills alongside your own. Off shows only the resources you created."
+          onChange={(on) => {
+            void mutate(
+              async () => {
+                await client.putConfig({ ui: { showBuiltins: on } });
+              },
+              on ? "Built-in resources shown" : "Built-in resources hidden",
+            );
+          }}
+        />
+      )}
+    </Card>
   );
 }
 

@@ -125,6 +125,15 @@ describe("skill registry", () => {
     expect(registry.get("mac-tool")).toBeUndefined();
   });
 
+  test("bundled skills (in the manifest) are marked builtin", () => {
+    writeSkill("bundled-one", "---\ndescription: d\n---\nBody");
+    writeSkill("mine", "---\ndescription: d\n---\nBody");
+    writeFileSync(join(dir, ".bundled_manifest"), "bundled-one:deadbeef\n");
+    registry.scan();
+    expect(registry.get("bundled-one")?.builtin).toBe(true);
+    expect(registry.get("mine")?.builtin).toBeUndefined();
+  });
+
   test("linked files are collected from the support directories", () => {
     const skillDir = writeSkill("packaged", "---\ndescription: d\n---\nBody");
     mkdirSync(join(skillDir, "references", "nested"), { recursive: true });

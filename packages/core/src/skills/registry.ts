@@ -10,6 +10,7 @@ import {
   type SkillInfo,
   type SkillsPage,
 } from "@bai/shared";
+import { bundledSkillNames } from "./bundled";
 
 /**
  * Frontmatter delimiter plan for one SKILL.md file:
@@ -145,6 +146,9 @@ export class SkillRegistry {
   /** Rescan the directory; returns true when the skill set changed. */
   scan(): boolean {
     const next = new Map<string, SkillInfo>();
+    // Names bai bundles (tracked in the user skills dir's manifest) — marked
+    // `builtin` so surfaces can hide bai's own resources.
+    const builtins = bundledSkillNames(this.opts.dir);
     let entries: Dirent[] = [];
     try {
       entries = readdirSync(this.opts.dir, { withFileTypes: true });
@@ -183,6 +187,7 @@ export class SkillRegistry {
       // Platform gate (hermes skill_matches_platform): a skill that declares
       // platforms and doesn't include this one is intentionally hidden.
       if (skill.platforms !== undefined && !skill.platforms.includes(this.platform)) continue;
+      if (builtins.has(name)) skill = { ...skill, builtin: true };
       next.set(name, skill);
     }
     const signature = JSON.stringify([...next.entries()]);

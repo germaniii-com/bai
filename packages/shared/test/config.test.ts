@@ -67,6 +67,17 @@ describe("config schema", () => {
     expect(() => configSchema.parse({ router: { enabled: "yes" } })).toThrow();
   });
 
+  test("parses the ui section (advanced mode + built-in resources)", () => {
+    const parsed = configSchema.parse({ ui: { advancedMode: false, showBuiltins: false } });
+    expect(parsed.ui).toEqual({ advancedMode: false, showBuiltins: false });
+    // Defaults stay empty — both unset mean "on" at the surface.
+    expect(configSchema.parse({}).ui).toEqual({});
+    expect(configSchema.parse({}).ui.advancedMode).toBeUndefined();
+    expect(configPatchSchema.parse({ ui: { advancedMode: true } })).toEqual({ ui: { advancedMode: true } });
+    expect(() => configSchema.parse({ ui: { advancedMode: "yes" } })).toThrow();
+    expect(() => configSchema.parse({ ui: { showBuiltins: 1 } })).toThrow();
+  });
+
   test("configPatchSchema accepts a partial router patch", () => {
     expect(configPatchSchema.parse({ router: { enabled: false } })).toEqual({ router: { enabled: false } });
     expect(configPatchSchema.parse({})).toEqual({});
