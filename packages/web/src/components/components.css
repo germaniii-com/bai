@@ -147,6 +147,13 @@
   cursor: default;
 }
 
+/* Destructive affordance (delete rows, dismiss-with-danger). */
+.icon-button.danger:hover,
+.icon-button.danger:focus-visible {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 @media (pointer: coarse) {
   .icon-button {
     min-width: 44px;
@@ -279,6 +286,14 @@
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  justify-content: flex-start;
+}
+
+.modal-foot-end {
+  justify-content: flex-end;
+}
+.modal-foot-between {
+  justify-content: space-between;
 }
 
 /* Pushes following actions to the right (ConfirmDialog uses this). */
@@ -522,6 +537,12 @@
   font-size: var(--text-sm);
   color: var(--dim);
   line-height: var(--leading-tight);
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+/* Focusing a control lifts its label — a small, cheap hierarchy cue. */
+.field:focus-within > .field-label {
+  color: var(--text);
 }
 
 .field-hint {
@@ -749,6 +770,17 @@ textarea.input {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+/* The option label reuses the .li-title class name; scope its look here so
+   it gets the row treatment (medium weight, truncation) instead of inheriting
+   nothing (the .list-item .li-title selector doesn't match). */
+.combobox-option .li-title {
+  font-weight: var(--font-weight-medium);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .combobox-option .co-sub {
   color: var(--dim);
   font-size: var(--text-sm);
@@ -938,16 +970,28 @@ textarea.input {
 .card {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: var(--space-3);
+  padding: var(--space-4);
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
 }
 
 .card.connected {
   border-color: var(--success);
+}
+
+/* Soft surface lift (workbench panels, primary cards). */
+.card-raised {
+  box-shadow: var(--shadow-card);
+}
+
+.card-pad-sm {
+  padding: var(--space-2);
+}
+.card-pad-lg {
+  padding: var(--space-5);
 }
 
 /* --- Chip ------------------------------------------------------------------- */
@@ -982,6 +1026,17 @@ textarea.input {
 .chip.selected {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chip.sm {
+  min-height: 0;
+  padding: 1px var(--space-2);
+  font-size: var(--text-xs);
 }
 
 .chip.add {
@@ -1040,6 +1095,26 @@ textarea.input {
   background: var(--panel);
   cursor: pointer;
   font: inherit;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.toggle-row:hover {
+  border-color: var(--dim);
+}
+
+.toggle-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.toggle-row:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toggle-row:has(input:disabled):hover {
+  border-color: var(--border);
 }
 
 .toggle-row input[type="checkbox"] {
@@ -1348,6 +1423,15 @@ textarea.input {
   color: var(--text);
 }
 
+.disclosure-head:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.disclosure-head:disabled:hover {
+  color: var(--dim);
+}
+
 .disclosure-icon {
   display: inline-flex;
   flex-shrink: 0;
@@ -1473,6 +1557,30 @@ textarea.input {
   background: transparent;
   color: inherit;
   cursor: pointer;
+}
+
+/* A bare dropdown trigger (no card-menu skin) gets a real hit target + state.
+   `.image-card-menu-btn` supplies its own sizing/positioning, so exclude it. */
+.dropdown-trigger:not(.image-card-menu-btn) {
+  min-width: 32px;
+  min-height: 32px;
+  padding: var(--space-1);
+  border-radius: var(--radius-control);
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.dropdown-trigger:not(.image-card-menu-btn):hover,
+.dropdown-trigger:not(.image-card-menu-btn):focus-visible {
+  background: var(--border);
+  color: var(--text);
+}
+
+@media (pointer: coarse) {
+  .dropdown-trigger:not(.image-card-menu-btn) {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .dropdown-menu {
@@ -1705,6 +1813,21 @@ textarea.input {
   border-radius: var(--radius-control);
   background: var(--bg);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.color-input:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+
+.color-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.color-input:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* --- PageHeader / SectionHeader --------------------------------------------- */
@@ -1715,6 +1838,12 @@ textarea.input {
   gap: var(--space-2);
   margin: var(--space-1) 0;
   flex-wrap: wrap;
+}
+
+.page-header-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
 }
 
 .page-header h2 {
@@ -1778,4 +1907,298 @@ textarea.input {
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* --- FormSection (titled field group) --------------------------------------- */
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.form-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.form-section-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text);
+  line-height: var(--leading-tight);
+}
+
+.form-section-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--dim);
+  line-height: var(--leading-normal);
+}
+
+.form-section-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.form-section-body-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.form-section-body-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.form-section-body-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.form-section-body-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .form-section-body-2,
+  .form-section-body-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- ActionRow -------------------------------------------------------------- */
+
+.action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.action-row-start {
+  justify-content: flex-start;
+}
+.action-row-end {
+  justify-content: flex-end;
+}
+.action-row-between {
+  justify-content: space-between;
+}
+
+/* Cluster related actions inside an ActionRow (primary group / danger group). */
+.action-row-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .action-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .action-row-group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .action-row-group .btn {
+    width: 100%;
+  }
+}
+
+/* --- Slider ----------------------------------------------------------------- */
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.slider.disabled {
+  opacity: 0.45;
+}
+
+.slider-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h-sm);
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+}
+.slider-input::-moz-range-track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+}
+
+.slider-input::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+.slider-input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.slider-input:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+.slider-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.slider-input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.slider-input:disabled {
+  cursor: default;
+}
+
+.slider-value {
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* --- Stat / StatRow --------------------------------------------------------- */
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stat-label {
+  color: var(--dim);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A stat whose value is a wrapping chip group aligns on centers. */
+.stat-stack {
+  align-items: center;
+}
+
+.stat-success .stat-value {
+  color: var(--success);
+}
+.stat-danger .stat-value {
+  color: var(--danger);
+}
+.stat-warning .stat-value {
+  color: var(--warning);
+}
+.stat-accent .stat-value {
+  color: var(--accent);
+}
+
+/* --- Toolbar ---------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* --- SwitchField (form-row switch) ------------------------------------------ */
+
+.switch-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-h-lg);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.switch-field:hover {
+  background: color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.switch-field:focus-within {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.switch-field-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.switch-field-title {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.switch-field-desc {
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+.switch-field .toggle-switch {
+  flex-shrink: 0;
+}
+
+.switch-field:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
 }

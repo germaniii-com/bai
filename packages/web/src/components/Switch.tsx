@@ -36,3 +36,43 @@ export function Switch({
     </label>
   );
 }
+
+/**
+ * A form-row switch: title (+ optional description) on the left, the switch
+ * on the right. Unlike `ToggleRow` (a standalone bordered panel), this reads
+ * as one field among many and is the right control inside a params grid.
+ */
+export function SwitchField({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+  className,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: ReactNode;
+  description?: ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <label className={className !== undefined ? `switch-field ${className}` : "switch-field"} htmlFor={id}>
+      <span className="switch-field-text">
+        <span className="switch-field-title">{label}</span>
+        {description !== undefined && <span className="switch-field-desc">{description}</span>}
+      </span>
+      <input
+        id={id}
+        type="checkbox"
+        role="switch"
+        className="toggle-switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+    </label>
+  );
+}

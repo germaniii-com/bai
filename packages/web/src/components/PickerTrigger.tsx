@@ -49,7 +49,7 @@ export function PickerTrigger({
       <span className="picker-trigger-value">{value}</span>
       {trailing}
       <span className="picker-trigger-caret" aria-hidden="true">
-        <ChevronDown size={12} />
+        <ChevronDown size={14} />
       </span>
     </button>
   );

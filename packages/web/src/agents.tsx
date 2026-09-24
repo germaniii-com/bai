@@ -4,7 +4,7 @@ import type { BaiClient } from "@bai/api/client";
 import { isValidAgentName, type AgentInfo, type ProviderListResponse, type SkillInfo, type ToolListEntry } from "@bai/shared";
 import { modelOverrideOptions } from "./provider-utils";
 import { shouldAutoFocus } from "./pointer";
-import { Button, Checkbox, Combobox, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
+import { ActionRow, Button, Checkbox, Combobox, ConfirmDialog, EmptyState, Field, FormSection, PageHeader, SubNav, SubNavCreate, SubNavItem, TextInput, Textarea, type ComboboxOption } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -131,7 +131,7 @@ export function AgentsPane({
 }) {
   if (creating) {
     return (
-      <div className="agents-pane">
+      <div className="pane-inner">
         <AgentForm
           key="__new_agent__"
           client={client}
@@ -153,13 +153,17 @@ export function AgentsPane({
   const agent = agents.find((a) => a.name === selectedId);
   if (agent === undefined) {
     return (
-      <div className="agents-pane">
-        <p className="dim empty">Select or create an agent.</p>
+      <div className="pane-inner">
+        <EmptyState
+          icon={<Bot size={22} aria-hidden="true" />}
+          title="No agent selected"
+          description="Pick an agent from the list, or create a new one to get started."
+        />
       </div>
     );
   }
   return (
-    <div className="agents-pane">
+    <div className="pane-inner">
       <AgentForm
         key={agent.name}
         client={client}
@@ -289,110 +293,113 @@ function AgentForm({
         void save();
       }}
     >
-      <SectionHeader
-        title={
-          creating ? (
-            "New agent"
-          ) : (
-            <>
-              {agent.name} <span className="dim">({agent.source})</span>
-            </>
-          )
-        }
+      <PageHeader
+        title={creating ? "New agent" : agent.name}
+        lede={creating ? undefined : `Source: ${agent.source}`}
       />
-      {creating && (
-        <Field label="Name" hint="(the filename stem — ~/.config/bai/agents/<name>.md)">
-          <TextInput
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus={shouldAutoFocus()}
-            required
-            maxLength={64}
-            spellCheck={false}
+      <FormSection title="Identity" columns={2}>
+        {creating && (
+          <Field label="Name" hint="(the filename stem — ~/.config/bai/agents/<name>.md)">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus={shouldAutoFocus()}
+              required
+              maxLength={64}
+              spellCheck={false}
+            />
+          </Field>
+        )}
+        <Field label="Description">
+          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
+        </Field>
+        <Field label="Model override" hint="(optional — inherits the session/agent default when unset)">
+          <Combobox
+            value={model}
+            onChange={setModel}
+            options={modelOverrideOptions(list)}
+            placeholder="(agent/session model)"
+            ariaLabel="Model override"
+            creatable
+            emptyText="No matching model."
           />
         </Field>
-      )}
-      <Field label="Description">
-        <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
-      </Field>
-      <Field label="Model override" hint="(optional — inherits the session/agent default when unset)">
-        <Combobox
-          value={model}
-          onChange={setModel}
-          options={modelOverrideOptions(list)}
-          placeholder="(agent/session model)"
-          ariaLabel="Model override"
-          creatable
-          emptyText="No matching model."
-        />
-      </Field>
-      <Field
-        label="Tools"
-        hint="(type to search; empty = no tools; “*” = all)"
-      >
-        <Combobox
-          multiple
-          values={toolList}
-          onValuesChange={setToolList}
-          options={toolOptions(tools)}
-          placeholder="Add tool…"
-          ariaLabel="Allowed tools"
-          emptyText="No matching tool."
-        />
-      </Field>
-      {/* Skills whitelist: the checkbox is its own labelled control. Checked =
-          ["*"]; unchecked = the picked list. */}
-      <Field
-        label="Skills"
-        hint="(what this agent can load — authoring follows the tools list)"
-      >
-        <Checkbox
-          label="Allow all skills (*)"
-          checked={allSkills}
-          onChange={(e) => setAllSkills(e.target.checked)}
-        />
-        {!allSkills && (
+      </FormSection>
+      <FormSection title="Capabilities" columns={2}>
+        <Field
+          label="Tools"
+          hint="(type to search; empty = no tools; “*” = all)"
+        >
           <Combobox
             multiple
-            values={skillList}
-            onValuesChange={setSkillList}
-            options={skillOptions(skills)}
-            placeholder="Add skill…"
-            ariaLabel="Allowed skills"
-            emptyText="No matching skill."
+            values={toolList}
+            onValuesChange={setToolList}
+            options={toolOptions(tools)}
+            placeholder="Add tool…"
+            ariaLabel="Allowed tools"
+            emptyText="No matching tool."
           />
-        )}
-      </Field>
-      {/* The system prompt is the grow field: it fills the remaining pane
-          height (the page itself does not scroll). */}
-      <Field className="field-grow" label="System prompt" hint="(the markdown body)">
-        <Textarea
-          className="grow-input"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          required
-        />
-      </Field>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          {creating ? "Create" : "Save"}
-        </Button>
-        {!creating && (
-          <Button variant="secondary" disabled={busy} onClick={() => void useInSession()}>
-            {activeSessionId === null ? "Set as default" : "Use in session"}
+        </Field>
+        {/* Skills whitelist: the checkbox is its own labelled control. Checked =
+            ["*"]; unchecked = the picked list. */}
+        <Field
+          label="Skills"
+          hint="(what this agent can load — authoring follows the tools list)"
+        >
+          <Checkbox
+            label="Allow all skills (*)"
+            checked={allSkills}
+            onChange={(e) => setAllSkills(e.target.checked)}
+          />
+          {!allSkills && (
+            <Combobox
+              multiple
+              values={skillList}
+              onValuesChange={setSkillList}
+              options={skillOptions(skills)}
+              placeholder="Add skill…"
+              ariaLabel="Allowed skills"
+              emptyText="No matching skill."
+            />
+          )}
+        </Field>
+      </FormSection>
+      {/* The instructions section is the grow field: it fills the remaining
+          pane height (the page itself does not scroll). */}
+      <FormSection title="Instructions" flow="stack" className="field-grow">
+        <Field label="System prompt" hint="(the markdown body)">
+          <Textarea
+            className="grow-input"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            required
+          />
+        </Field>
+      </FormSection>
+      <ActionRow align="between">
+        <div className="action-row-group">
+          <Button type="submit" variant="primary" loading={busy}>
+            {creating ? "Create" : "Save"}
           </Button>
-        )}
-        {!creating && agent.source === "file" && (
-          <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
-        )}
-        {creating && onCancel !== undefined && (
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-      </div>
+          {!creating && (
+            <Button variant="secondary" disabled={busy} onClick={() => void useInSession()}>
+              {activeSessionId === null ? "Set as default" : "Use in session"}
+            </Button>
+          )}
+        </div>
+        <div className="action-row-group">
+          {!creating && agent.source === "file" && (
+            <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              Delete
+            </Button>
+          )}
+          {creating && onCancel !== undefined && (
+            <Button variant="ghost" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      </ActionRow>
       <ConfirmDialog
         open={confirmDelete}
         title="Delete agent?"

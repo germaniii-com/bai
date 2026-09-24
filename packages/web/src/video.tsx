@@ -5,11 +5,11 @@ import {
   MessageSquare,
   MoreVertical,
   Play,
-  Plus,
   RotateCcw,
   SlidersHorizontal,
   Tags,
   Trash2,
+  Video as VideoIcon,
   X,
 } from "lucide-react";
 import { eventMux, type BaiClient } from "@bai/api/client";
@@ -33,20 +33,29 @@ import {
   type VideoWorkflowSpec,
 } from "@bai/shared";
 import {
+  ActionRow,
+  Banner,
   Button,
+  Card,
   Chip,
   Combobox,
   ConfirmDialog,
   DropdownMenu,
+  EmptyState,
   Field,
+  FormSection,
   IconButton,
   MediaParamsForm,
   Modal,
+  PageHeader,
   SectionHeader,
   Select,
+  Stat,
+  StatRow,
   TagInput,
   TextInput,
   Textarea,
+  Toolbar,
 } from "./components";
 import { useAssetUrl } from "./attachments";
 import { galleryNavState } from "./image-nav";
@@ -452,11 +461,14 @@ export function VideoPane({
 
   return (
     <div className="video-pane">
-      <SectionHeader title="Video Gen" lede="Generate or transform a clip — pick a workflow, attach its references, and go." />
+      <PageHeader
+        title="Video"
+        lede="Generate or transform a clip — pick a workflow, attach its references, and go."
+      />
 
       <div className="video-workbench">
-        <div className="video-controls">
-          <div className="video-controls-row">
+        <Card variant="raised" className="workbench-panel">
+          <FormSection title="Model" columns={2}>
             <Field label="Model" hint={activeProviders.find((p) => p.id === provider)?.label}>
               <Combobox
                 value={model}
@@ -486,95 +498,107 @@ export function VideoPane({
                 ).map((w) => ({ value: w.id, label: w.label }))}
               />
             </Field>
-          </div>
+          </FormSection>
 
           {selectedModel !== undefined && <VideoModelInfo model={selectedModel} />}
 
-          {activeSpec !== undefined &&
-            activeSpec.inputs.map((slot) => (
-              <div className="video-slot" key={slot.role}>
-                <div className="video-slot-head">
-                  <span className="video-slot-label">
-                    {slot.label}
-                    {slot.required === true ? " *" : ""}
-                  </span>
-                  <span className="dim video-slot-accepts">{slot.accepts.join(" / ")}</span>
-                </div>
-                {(inputs[slot.role] ?? []).length > 0 && (
-                  <div className="video-slot-chips">
-                    {(inputs[slot.role] ?? []).map((input, index) => (
-                      <span className="video-slot-chip" key={`${input.assetId ?? input.url}-${index}`}>
-                        <span className="video-slot-chip-name">{input.assetId ?? input.url}</span>
-                        <IconButton label={`Remove ${slot.label}`} hint="Remove" onClick={() => removeInput(slot.role, index)}>
-                          <X size={12} aria-hidden="true" />
-                        </IconButton>
-                      </span>
-                    ))}
+          {activeSpec !== undefined && activeSpec.inputs.length > 0 && (
+            <FormSection title="References" flow="stack">
+              {activeSpec.inputs.map((slot) => (
+                <div className="video-slot" key={slot.role}>
+                  <div className="video-slot-head">
+                    <span className="video-slot-label">
+                      {slot.label}
+                      {slot.required === true ? " *" : ""}
+                    </span>
+                    <span className="dim video-slot-accepts">{slot.accepts.join(" / ")}</span>
                   </div>
-                )}
-                {slot.multiple !== true || (inputs[slot.role] ?? []).length < (slot.maxCount ?? 4) ? (
-                  <div className="video-slot-actions">
-                    {/* @ui-raw: hidden file input driven by a styled label (FileInput renders its own button). */}
-                    <label className="btn btn-secondary btn-sm">
-                      Upload
-                      <input
-                        type="file"
-                        hidden
-                        accept={acceptFor(slot.accepts)}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file !== undefined) void uploadToSlot(slot, file);
-                          e.target.value = "";
-                        }}
+                  {(inputs[slot.role] ?? []).length > 0 && (
+                    <div className="video-slot-chips">
+                      {(inputs[slot.role] ?? []).map((input, index) => (
+                        <span className="video-slot-chip" key={`${input.assetId ?? input.url}-${index}`}>
+                          <span className="video-slot-chip-name">{input.assetId ?? input.url}</span>
+                          <IconButton label={`Remove ${slot.label}`} hint="Remove" onClick={() => removeInput(slot.role, index)}>
+                            <X size={12} aria-hidden="true" />
+                          </IconButton>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {slot.multiple !== true || (inputs[slot.role] ?? []).length < (slot.maxCount ?? 4) ? (
+                    <div className="video-slot-actions">
+                      {/* @ui-raw: hidden file input driven by a styled label (FileInput renders its own button). */}
+                      <label className="btn btn-secondary btn-sm">
+                        Upload
+                        <input
+                          type="file"
+                          hidden
+                          accept={acceptFor(slot.accepts)}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file !== undefined) void uploadToSlot(slot, file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      <Button variant="secondary" size="sm" onClick={() => setPickerSlot(slot)}>
+                        Pick asset
+                      </Button>
+                      <UrlInput
+                        label={slot.label}
+                        onAdd={(url) => addInput(slot.role, { role: slot.role, url })}
                       />
-                    </label>
-                    <Button variant="secondary" size="sm" onClick={() => setPickerSlot(slot)}>
-                      Pick asset
-                    </Button>
-                    <UrlInput
-                      label={slot.label}
-                      onAdd={(url) => addInput(slot.role, { role: slot.role, url })}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ))}
-
-          <MediaParamsForm
-            specs={[...(caps?.capabilities.params ?? []), ...(activeSpec?.params ?? [])]}
-            value={params}
-            onChange={setParams}
-          />
-
-          <Field label="Tags">
-            <TagInput value={tags} onChange={setTags} suggestions={tagOptions} />
-          </Field>
-
-          {workflow !== "upscale" && (
-            <Field label="Prompt">
-              <Textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe the video (camera, subject, motion, mood)…"
-              />
-            </Field>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </FormSection>
           )}
 
-          <div className="video-actions">
-            <Button onClick={() => void generate()} disabled={busy || !canGenerate}>
-              Generate
-            </Button>
+          <FormSection title="Parameters" flow="stack">
+            <MediaParamsForm
+              specs={[...(caps?.capabilities.params ?? []), ...(activeSpec?.params ?? [])]}
+              value={params}
+              onChange={setParams}
+            />
+          </FormSection>
+
+          <FormSection title="Content" flow="stack">
+            {workflow !== "upscale" && (
+              <Field label="Prompt">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={4}
+                  placeholder="Describe the video (camera, subject, motion, mood)…"
+                />
+              </Field>
+            )}
+            <Field label="Tags" hint="(applied to every video; autocompletes from history)">
+              <TagInput value={tags} onChange={setTags} suggestions={tagOptions} />
+            </Field>
+          </FormSection>
+
+          <ActionRow align="end">
             {activeJob !== undefined && (
-              <Button variant="secondary" onClick={() => void cancel()}>
+              <Button variant="ghost" onClick={() => void cancel()}>
                 Cancel
               </Button>
             )}
-          </div>
-        </div>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void generate()}
+              disabled={busy || !canGenerate}
+            >
+              Generate
+            </Button>
+          </ActionRow>
+        </Card>
 
         <div className="video-gallery-section">
           <SectionHeader title="Gallery" lede={`${gallery.total} video${gallery.total === 1 ? "" : "s"}`} />
-          <div className="video-gallery-filter">
+          <Toolbar className="video-gallery-filter">
             <TextInput
               value={galleryQuery}
               placeholder="Filter by tag…"
@@ -582,11 +606,11 @@ export function VideoPane({
               onChange={(e) => setGalleryQuery(e.target.value)}
             />
             {galleryQuery.length > 0 && (
-              <Button variant="secondary" size="sm" onClick={() => setGalleryQuery("")}>
+              <Button variant="ghost" size="sm" onClick={() => setGalleryQuery("")}>
                 Clear
               </Button>
             )}
-          </div>
+          </Toolbar>
           {gallerySuggestions.length > 0 && (
             <div className="tag-suggestions">
               {gallerySuggestions.map((s) => (
@@ -600,7 +624,11 @@ export function VideoPane({
           {gallery.loading && gallery.videos.length === 0 ? (
             <p className="dim">loading…</p>
           ) : gallery.videos.length === 0 && jobs.length === 0 ? (
-            <p className="dim empty">No videos yet — generate one above.</p>
+            <EmptyState
+              icon={<VideoIcon size={22} aria-hidden="true" />}
+              title="No videos yet"
+              description="Generated clips land here — generate one above to get started."
+            />
           ) : (
             <div className="video-grid">
               {jobs.map((job) => (
@@ -692,7 +720,10 @@ export function VideoPane({
         />
       )}
       {providersLoaded && providers.length === 0 && (
-        <p className="dim video-offline-note">No video provider connected — using the offline stub.</p>
+        <Banner tone="info" title="Offline stub">
+          No video provider connected — using the offline stub. Add a key in Settings → Video
+          Generation to generate real clips.
+        </Banner>
       )}
     </div>
   );
@@ -701,26 +732,22 @@ export function VideoPane({
 /** The selected model's full workflow/pricing summary. */
 function VideoModelInfo({ model }: { model: VideoModelInfo }) {
   return (
-    <div className="media-model-info" aria-label="Model information">
-      <span className="media-rate">
-        <span className="media-rate-label">Model</span>
-        <span className="media-rate-value">{model.label ?? model.id}</span>
-      </span>
-      <span className="media-rate media-rate-stack">
-        <span className="media-rate-label">Workflows</span>
-        <span className="media-rate-value media-rate-tags">
+    <StatRow className="media-model-info" ariaLabel="Model information">
+      <Stat label="Model" value={model.label ?? model.id} />
+      <span className="stat stat-stack">
+        <span className="stat-label">Workflows</span>
+        <span className="stat-value media-rate-tags">
           {model.workflows.map((w) => (
-            <Chip key={w}>{w}</Chip>
+            <Chip key={w} size="sm">
+              {w}
+            </Chip>
           ))}
         </span>
       </span>
       {model.rates?.map((rate) => (
-        <span className="media-rate" key={rate.label}>
-          <span className="media-rate-label">{rate.label}</span>
-          <span className="media-rate-value">{rate.value}</span>
-        </span>
+        <Stat key={rate.label} label={rate.label} value={rate.value} />
       ))}
-    </div>
+    </StatRow>
   );
 }
 
@@ -1085,16 +1112,24 @@ function EditTagsModal({
 }) {
   const [tags, setTags] = useState<string[]>(() => readVideoGen(asset.meta)?.tags ?? []);
   return (
-    <Modal open title="Edit tags" onClose={onClose}>
-      <TagInput value={tags} onChange={setTags} suggestions={suggestions} />
-      <div className="video-actions">
-        <Button onClick={() => onSave(tags)}>
-          <Plus size={14} aria-hidden="true" /> Save
-        </Button>
-        <Button variant="secondary" onClick={onClose}>
-          Cancel
-        </Button>
-      </div>
+    <Modal
+      open
+      title="Edit tags"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => onSave(tags)}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <Field label="Tags" hint="(autocompletes from history)">
+        <TagInput value={tags} onChange={setTags} suggestions={suggestions} />
+      </Field>
     </Modal>
   );
 }

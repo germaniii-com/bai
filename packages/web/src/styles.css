@@ -96,9 +96,11 @@
   --shadow-lg: 0 6px 24px rgb(0 0 0 / 0.3);
 
   /* Component-role elevation: floating surfaces (menus, popovers, dropdowns,
-     toasts) share one shadow; dialogs get the larger one. */
+     toasts) share one shadow; dialogs get the larger one; cards get the
+     softest lift so a raised panel reads as a surface without shouting. */
   --shadow-popover: var(--shadow-md);
   --shadow-modal: var(--shadow-lg);
+  --shadow-card: var(--shadow-sm);
 
   /* Motion — subtle, functional durations and easings. Every animated
      component references these; a single prefers-reduced-motion block at the
@@ -246,26 +248,9 @@ input[type="radio"]:focus-visible {
 
 .skip-link:focus { transform: translateY(0); }
 
-.icon-button {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  min-height: 32px;
-  padding: 4px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-}
+/* `.icon-button` lives in components/components.css (the library reference) —
+   it is NOT redefined here, so there is exactly one source of truth. */
 
-.icon-button:hover,
-.icon-button:focus-visible { color: var(--text); background: var(--panel); }
-.icon-button:disabled { opacity: .45; cursor: default; }
-.icon-button.danger:hover,
-.icon-button.danger:focus-visible { color: var(--danger); }
 /* Global tooltip layer (web/src/tooltip.tsx) — fixed to the viewport, so it
    is never clipped by scroll/overflow ancestors, and above everything. */
 .app-tooltip {
@@ -283,10 +268,6 @@ input[type="radio"]:focus-visible {
   pointer-events: none;
   white-space: normal;
   overflow-wrap: anywhere;
-}
-
-@media (pointer: coarse) {
-  .icon-button { min-width: 44px; min-height: 44px; }
 }
 
 .app {
@@ -402,6 +383,7 @@ input[type="radio"]:focus-visible {
 
 .master-item:disabled {
   cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .nav-icon {
@@ -537,6 +519,19 @@ input[type="radio"]:focus-visible {
   border-radius: var(--radius-control);
   padding: 8px;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.new-session:hover:not(:disabled) {
+  background: var(--border);
+  border-color: var(--dim);
+}
+
+.new-session:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Touch: New Chat / New Session / strip actions need a 44px row. */
@@ -1134,12 +1129,14 @@ input[type="radio"]:focus-visible {
   overflow-x: hidden;
 }
 
+/* The tree takes the rail's free height (no dead space below a short tree);
+   it scrolls internally, and the panels below keep their natural size. */
 .workspace-sidebar > .file-tree {
   width: auto;
-  flex: 0 0 auto;
-  max-height: 50dvh;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 120px;
   border-left: 0;
-  min-height: 0;
 }
 
 /* Collapsed tree shrinks to its header so the panels below move up. */
@@ -1895,6 +1892,12 @@ input[type="radio"]:focus-visible {
   margin: 0;
 }
 
+/* Workspace transcript (no `.chat-bubbles`): a user turn still caps its width
+   so a long prompt doesn't stretch edge-to-edge across the pane. */
+.chat:not(.chat-bubbles) .message.user {
+  max-width: min(85%, 760px);
+}
+
 /* Chat section only: read as a conversation — both roles render as bubbles,
    user right-aligned, assistant left-aligned. The Workspace section omits
    `.chat-bubbles` and keeps the plain full-width transcript. */
@@ -2590,10 +2593,21 @@ input[type="radio"]:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--space-3);
+  padding: var(--space-4);
   /* The editor forms fill the pane and their grow input takes the rest —
      the page itself never scrolls. */
   overflow: hidden;
+}
+
+/* The inner wrapper inside <main class="agents-pane"> — provides the flex
+   chain (no second padding) so the editor forms can grow to fill. */
+.pane-inner {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 /* Toast (agents/tools mutation feedback) — fixed bottom-right, auto-dismiss;
@@ -2611,15 +2625,44 @@ input[type="radio"]:focus-visible {
 }
 
 .toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
   font-size: var(--text-md);
+  line-height: var(--leading-normal);
   color: var(--text);
   text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-popover);
   animation: toast-in var(--duration-normal) var(--ease-out);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.toast:hover {
+  border-color: var(--dim);
+}
+
+.toast.exiting {
+  animation: toast-out var(--duration-fast) var(--ease-standard) forwards;
+}
+
+.toast-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.toast-success .toast-icon {
+  color: var(--success);
+}
+.toast-error .toast-icon {
+  color: var(--danger);
+}
+.toast-info .toast-icon {
+  color: var(--secondary);
 }
 
 .toast-success {
@@ -2647,6 +2690,17 @@ input[type="radio"]:focus-visible {
   }
 }
 
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
 /* Agents & tools editors (main pane; the lists render in the nested
    sidebar using the shared settings-nav/provider-item styles). Controls
    come from the shared component library (.field/.input/.btn). */
@@ -2669,15 +2723,27 @@ input[type="radio"]:focus-visible {
   flex: 0 0 auto;
 }
 
-.agent-form > .field-grow {
+.agent-form > .field-grow,
+.agent-form > .form-section.field-grow {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-/* The grow field's control fills the field's remaining height. */
+/* A grow FormSection's body, its inner Field, and a bare grow Field all flex
+   to fill the remaining height. */
+.form-section.field-grow > .form-section-body,
+.form-section-body-stack > .field-grow,
+.form-section.field-grow .form-section-body > .field {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The grow field's control fills the field's remaining height. The control may
+   be a direct child (bare Field) or nested inside a grow FormSection. */
 .field-grow > .input,
 .field-grow .grow-input,
-.field-grow > .tool-editor {
+.field-grow > .tool-editor,
+.field-grow .tool-editor {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
@@ -2745,6 +2811,18 @@ input[type="radio"]:focus-visible {
   font-family: var(--font-mono);
 }
 
+/* Inline linked-file editor / creator — a recessed sub-card so it reads as a
+   distinct step, not another row of the parent form. */
+.linked-file-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+}
+
 .typing .dot {
   width: 7px;
   height: 7px;
@@ -2809,12 +2887,21 @@ input[type="radio"]:focus-visible {
 
 .empty {
   text-align: center;
-  margin-top: 40dvh;
+  /* Auto margins center the message in its flex pane (the old 40dvh pushed
+     it arbitrarily far down in short panes). */
+  margin: auto;
+}
+
+/* The transcript's bottom-anchor rule would pin an empty state to the floor —
+   center it instead when it is the only content. */
+.messages > .empty,
+.messages > .empty-state {
+  margin: auto;
 }
 
 .error {
   color: var(--danger);
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   font-size: var(--text-md);
 }
 
@@ -2823,9 +2910,9 @@ input[type="radio"]:focus-visible {
 .error-banner {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin: 0 12px 8px;
-  padding: 8px 12px;
+  gap: var(--space-2);
+  margin: 0 var(--space-4) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-radius: var(--radius-control);
@@ -2851,10 +2938,10 @@ input[type="radio"]:focus-visible {
 .composer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-2);
+  padding: var(--space-4);
   /* Home-indicator safe area: the send row sits above it with viewport-fit=cover. */
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: var(--panel);
   /* The composer keeps its height while the transcript above scrolls. */
@@ -3976,27 +4063,22 @@ input[type="radio"]:focus-visible {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-3);
 }
 
-.form-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--dim);
-}
+/* Labels are the `Field` component's job (.field-label in components.css) —
+   no duplicate raw-label rule here, so a `.form-grid` of `Field`s and one of
+   `FormSection`s stay visually identical. */
 
 /* --- settings sections (User / General / Model Providers) ---------------- */
 
+/* Section group heading — matches FormSection's title for one hierarchy. */
 .settings-subheading {
   margin: var(--space-5) 0 var(--space-1);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: var(--font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dim);
+  color: var(--text);
 }
 
 .provider-accordion {
@@ -4049,7 +4131,7 @@ input[type="radio"]:focus-visible {
   padding: var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface-2, var(--surface));
+  background: var(--inset);
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -4199,21 +4281,31 @@ input[type="radio"]:focus-visible {
   min-width: 0;
 }
 
+/* The Toolbar base supplies the flex row; filters get labeled, compact fields
+   so each control is identifiable without opening it. */
 .analytics-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  align-items: flex-end;
+  gap: var(--space-3);
 }
 
-/* Filter dropdowns are compact controls, not form fields — the shared
-   components default to width: 100% (right for forms, wrong here). A fixed
-   shrinkable basis keeps the whole filter row on one line on desktop. */
-.analytics-filters .select,
-.analytics-filters .combobox {
-  width: auto;
+.analytics-filters .field {
   flex: 0 1 180px;
   min-width: 140px;
+}
+
+.analytics-filters .select,
+.analytics-filters .combobox {
+  width: 100%;
+}
+
+/* The granularity Tabs isn't a form control — a plain labeled wrapper keeps
+   valid label semantics (no interactive element inside a <label>). */
+.analytics-filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 0 0 auto;
 }
 
 /* Chart titles (the Card provides the box). */
@@ -5052,53 +5144,36 @@ input[type="radio"]:focus-visible {
   min-width: 0;
 }
 
-/* The controls (the gallery below is the single output view). Fills the pane. */
+/* Controls panel (left) + gallery (right) on wide screens; stacked below. The
+   gallery is the single output view. */
 .image-workbench {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
   width: 100%;
-}
-
-.image-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
   min-width: 0;
 }
 
-.image-controls-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--space-3);
+.workbench-panel {
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .image-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
 }
 
 .media-params {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-3);
-  padding: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--panel);
-}
-
-.param-range {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.param-range input[type="range"] {
-  flex: 1;
-  min-width: 0;
-  accent-color: var(--accent);
-}
-
-.param-range-value {
-  min-width: 3ch;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--dim);
-  font-size: var(--text-sm);
+  border-radius: var(--radius-card);
+  background: var(--bg);
 }
 
 .image-ref {
@@ -5107,18 +5182,25 @@ input[type="radio"]:focus-visible {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-4);
+  padding: var(--space-5);
   border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--panel);
-  min-height: 140px;
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  min-height: 150px;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.image-ref:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
 }
 
 .image-ref-preview {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   width: 100%;
 }
 
@@ -5126,7 +5208,7 @@ input[type="radio"]:focus-visible {
 .image-ref-placeholder {
   max-width: 100%;
   max-height: 220px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   object-fit: contain;
   background: var(--inset);
@@ -5151,13 +5233,6 @@ input[type="radio"]:focus-visible {
   font-size: var(--text-xs);
 }
 
-.image-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
 .image-job {
   margin: 0;
   font-size: var(--text-sm);
@@ -5170,7 +5245,7 @@ input[type="radio"]:focus-visible {
 .image-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .image-card {
@@ -5178,9 +5253,17 @@ input[type="radio"]:focus-visible {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   background: var(--panel);
   min-width: 0;
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard);
+}
+
+.image-card:hover {
+  border-color: var(--dim);
+  box-shadow: var(--shadow-card);
 }
 
 .image-card-media {
@@ -5188,7 +5271,7 @@ input[type="radio"]:focus-visible {
   width: 100%;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 0;
   background: var(--inset);
   cursor: pointer;
   aspect-ratio: 1 / 1;
@@ -5221,7 +5304,7 @@ input[type="radio"]:focus-visible {
   border: 0;
   font: inherit;
   cursor: default;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 0;
   background: var(--inset);
   color: var(--accent);
 }
@@ -5413,14 +5496,11 @@ input[type="radio"]:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-4);
+  min-width: 0;
 }
 
+/* Toolbar base supplies the flex row; the filter caps its width. */
 .image-gallery-filter {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
   max-width: 640px;
 }
 
@@ -5445,10 +5525,17 @@ input[type="radio"]:focus-visible {
   align-items: center;
   gap: var(--space-1);
   min-height: var(--control-h-md);
-  padding: 3px 6px;
+  padding: 2px var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--bg);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Match the shared Combobox field's hover cue so the two chip inputs read
+   as the same control family. */
+.tag-input-field:hover {
+  border-color: var(--dim);
 }
 
 /* Highlight the WHOLE field (chips + input), not the bare text input. */
@@ -5478,12 +5565,13 @@ input[type="radio"]:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 4px 1px 8px;
+  padding: 1px 2px 1px var(--space-2);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   font-size: var(--text-xs);
+  line-height: var(--leading-tight);
   white-space: nowrap;
 }
 
@@ -5523,9 +5611,11 @@ input[type="radio"]:focus-visible {
   overscroll-behavior: contain;
   padding: var(--space-1);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: var(--panel);
   box-shadow: var(--shadow-popover);
+  animation: pop-in var(--duration-fast) var(--ease-out);
+  transform-origin: top center;
 }
 
 .tag-input-option {
@@ -5536,7 +5626,7 @@ input[type="radio"]:focus-visible {
   width: 100%;
   padding: 6px var(--space-2);
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -5665,29 +5755,29 @@ input[type="radio"]:focus-visible {
 }
 
 .video-workbench {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
   gap: var(--space-5);
+  align-items: start;
   width: 100%;
-}
-
-.video-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
   min-width: 0;
 }
 
-.video-controls-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--space-3);
+@media (max-width: 1024px) {
+  .video-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
 }
 
 .video-slot {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
 }
 
 .video-slot-head {
@@ -5695,6 +5785,7 @@ input[type="radio"]:focus-visible {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .video-slot-label {
@@ -5717,8 +5808,9 @@ input[type="radio"]:focus-visible {
   align-items: center;
   gap: var(--space-1);
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--panel);
   font-size: var(--text-xs);
   max-width: 320px;
 }
@@ -5746,22 +5838,15 @@ input[type="radio"]:focus-visible {
   min-width: 180px;
 }
 
-.video-actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
 .video-gallery-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  min-width: 0;
 }
 
+/* Toolbar base supplies the flex row; the filter caps its width. */
 .video-gallery-filter {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
   max-width: 420px;
 }
 
@@ -5812,8 +5897,8 @@ input[type="radio"]:focus-visible {
   position: absolute;
   right: 6px;
   bottom: 6px;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  border-radius: var(--radius-control);
   background: rgba(0, 0, 0, 0.72);
   color: #fff;
   font-size: var(--text-xs);
@@ -5842,11 +5927,6 @@ input[type="radio"]:focus-visible {
   gap: var(--space-1);
 }
 
-/* A row whose value is a wrapping chip group aligns on centers, not baselines. */
-.media-rate-stack {
-  align-items: center;
-}
-
 .video-lightbox {
   position: relative;
   display: flex;
@@ -5858,7 +5938,7 @@ input[type="radio"]:focus-visible {
   width: 100%;
   max-height: 70dvh;
   background: #000;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
 }
 
 .video-lightbox-nav {
@@ -5880,10 +5960,6 @@ input[type="radio"]:focus-visible {
   text-align: center;
 }
 
-.video-offline-note {
-  text-align: center;
-}
-
 /* Cross-kind asset picker (video workflow inputs). */
 .asset-picker-grid {
   display: grid;
@@ -5899,18 +5975,25 @@ input[type="radio"]:focus-visible {
   gap: var(--space-1);
   padding: var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
+  border-radius: var(--radius-card);
+  background: var(--panel);
   cursor: pointer;
   text-align: left;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.asset-picker-item:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
 }
 
 .asset-picker-thumb {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: var(--surface-secondary);
+  border-radius: var(--radius-control);
+  background: var(--inset);
 }
 
 .asset-picker-audio {
@@ -5918,7 +6001,7 @@ input[type="radio"]:focus-visible {
   align-items: center;
   justify-content: center;
   font-size: var(--text-xs);
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 .asset-picker-name {
@@ -5930,19 +6013,11 @@ input[type="radio"]:focus-visible {
 
 .asset-picker-kind {
   font-size: var(--text-xs);
-  color: var(--text-dim);
+  color: var(--dim);
 }
 
 /* Multi-line list param (multi-shot shot prompts). */
 .param-list {
   min-height: 64px;
-  font-family: inherit;
-  padding: var(--space-2);
-}
-
-@media (max-width: 640px) {
-  .video-controls-row {
-    grid-template-columns: 1fr;
-  }
 }
 

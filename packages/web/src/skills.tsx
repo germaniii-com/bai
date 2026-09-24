@@ -5,7 +5,7 @@ import type { ProviderListResponse, SkillInfo, SkillUsageTotals } from "@bai/sha
 import { isValidSkillName } from "@bai/shared";
 import { ModelModal } from "./model-picker";
 import { shouldAutoFocus } from "./pointer";
-import { Button, Chip, ConfirmDialog, Field, PickerTrigger, SectionHeader, SubNav, SubNavCreate, SubNavItem, TagInput, TextInput, Textarea } from "./components";
+import { ActionRow, Banner, Button, Chip, ConfirmDialog, EmptyState, Field, FormSection, PageHeader, PickerTrigger, Stat, StatRow, SubNav, SubNavCreate, SubNavItem, TagInput, TextInput, Textarea } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -101,7 +101,7 @@ export function SkillsPane({
 }) {
   if (creating) {
     return (
-      <div className="agents-pane">
+      <div className="pane-inner">
         <SkillForm
           key="__new_skill__"
           client={client}
@@ -120,13 +120,17 @@ export function SkillsPane({
   const skill = skills.find((s) => s.name === selectedId);
   if (skill === undefined) {
     return (
-      <div className="agents-pane">
-        <p className="dim empty">Select or create a skill.</p>
+      <div className="pane-inner">
+        <EmptyState
+          icon={<Zap size={22} aria-hidden="true" />}
+          title="No skill selected"
+          description="Pick a skill from the list, or create a new one to get started."
+        />
       </div>
     );
   }
   return (
-    <div className="agents-pane">
+    <div className="pane-inner">
       <SkillForm key={skill.name} client={client} skill={skill} refresh={refresh} onNotice={onNotice} />
     </div>
   );
@@ -308,152 +312,172 @@ function SkillForm({
         void save();
       }}
     >
-      <SectionHeader
-        title={
-          creating ? (
-            "New skill"
-          ) : (
-            <>
-              {skill.name} <span className="dim">(skill)</span>
-            </>
-          )
-        }
+      <PageHeader
+        title={creating ? "New skill" : skill.name}
+        lede={creating ? undefined : "A reusable workflow the agent can load on demand."}
       />
       {creating && (
-        <Field label="Name" hint="(the directory stem — ~/.config/bai/skills/<name>/SKILL.md)">
-          <TextInput
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus={shouldAutoFocus()}
-            required
-            maxLength={64}
-            spellCheck={false}
-          />
-        </Field>
+        <FormSection title="Identity" flow="stack">
+          <Field label="Name" hint="(the directory stem — ~/.config/bai/skills/<name>/SKILL.md)">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus={shouldAutoFocus()}
+              required
+              maxLength={64}
+              spellCheck={false}
+            />
+          </Field>
+        </FormSection>
       )}
       {!creating && usage !== null && (
-        <p className="section-lede">
-          {usage.views} view{usage.views === 1 ? "" : "s"} · {usage.sessions} session{usage.sessions === 1 ? "" : "s"}
-          {usage.lastUsedAt !== undefined ? ` · last used ${new Date(usage.lastUsedAt).toLocaleString()}` : " · never used"}
-        </p>
+        <StatRow className="media-model-info" ariaLabel="Skill usage">
+          <Stat label="Views" value={usage.views} />
+          <Stat label="Sessions" value={usage.sessions} />
+          <Stat
+            label="Last used"
+            value={
+              usage.lastUsedAt !== undefined
+                ? new Date(usage.lastUsedAt).toLocaleString()
+                : "never"
+            }
+          />
+        </StatRow>
       )}
-      <Field
-        label="Description"
-        hint="(one sentence — the first ~60 chars show in the agent's skill index)"
-      >
-        <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} required />
-      </Field>
-      <Field label="Version" hint="(optional)">
-        <TextInput value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1.0.0" maxLength={20} />
-      </Field>
-      <Field label="Tags" hint="(optional — Enter, comma, or Tab adds a tag)">
-        <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
-      </Field>
+      <FormSection title="About" columns={2}>
+        <Field
+          label="Description"
+          hint="(one sentence — the first ~60 chars show in the agent's skill index)"
+        >
+          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} required />
+        </Field>
+        <Field label="Version" hint="(optional)">
+          <TextInput value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1.0.0" maxLength={20} />
+        </Field>
+        <Field label="Tags" hint="(optional — Enter, comma, or Tab adds a tag)">
+          <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
+        </Field>
+      </FormSection>
       {!creating && (
-        <>
-          <Field
-            label="Linked files"
-            hint="(references/, templates/, scripts/, assets/ — the agent reads them via skills.view(name, path))"
-          >
-            <div className="skill-linked-files">
-              {skill.linkedFiles.map((f) => (
-                <Chip key={f} interactive selected={openFile === f} onClick={() => void openLinkedFile(f)}>
-                  <code>{f}</code>
-                </Chip>
-              ))}
-              <Chip interactive add onClick={() => { setAddingFile(true); setOpenFile(null); }}>
-                + Add file
+        <FormSection
+          title="Linked files"
+          flow="stack"
+          description="references/, templates/, scripts/, assets/ — the agent reads them via skills.view(name, path)"
+        >
+          <div className="skill-linked-files">
+            {skill.linkedFiles.map((f) => (
+              <Chip key={f} interactive selected={openFile === f} onClick={() => void openLinkedFile(f)}>
+                <code>{f}</code>
               </Chip>
-            </div>
-          </Field>
+            ))}
+            <Chip interactive add onClick={() => { setAddingFile(true); setOpenFile(null); }}>
+              + Add file
+            </Chip>
+          </div>
           {openFile !== null && fileContent !== null && (
-            <Field
-              label={
-                <>
-                  Editing <code>{openFile}</code>
-                </>
-              }
-            >
-              <Textarea
-                mono
-                value={fileContent}
-                onChange={(e) => setFileContent(e.target.value)}
-                rows={12}
-                spellCheck={false}
-              />
-              <div className="agents-actions">
-                <Button variant="secondary" disabled={busy} onClick={() => void saveLinkedFile()}>
-                  Save file
-                </Button>
-                <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteFile(true)}>
-                  Delete file
-                </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
-                  Close
-                </Button>
-              </div>
-            </Field>
+            <div className="linked-file-editor">
+              <Field
+                label={
+                  <>
+                    Editing <code>{openFile}</code>
+                  </>
+                }
+              >
+                <Textarea
+                  mono
+                  value={fileContent}
+                  onChange={(e) => setFileContent(e.target.value)}
+                  rows={12}
+                  spellCheck={false}
+                />
+              </Field>
+              <ActionRow align="between">
+                <div className="action-row-group">
+                  <Button variant="secondary" disabled={busy} onClick={() => void saveLinkedFile()}>
+                    Save file
+                  </Button>
+                </div>
+                <div className="action-row-group">
+                  <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteFile(true)}>
+                    Delete file
+                  </Button>
+                  <Button variant="ghost" disabled={busy} onClick={() => { setOpenFile(null); setFileContent(null); }}>
+                    Close
+                  </Button>
+                </div>
+              </ActionRow>
+            </div>
           )}
           {addingFile && (
-            <Field
-              label="New file path"
-              hint="(must start with references/, templates/, scripts/, or assets/)"
-            >
-              <TextInput
-                value={newPath}
-                onChange={(e) => setNewPath(e.target.value)}
-                placeholder="references/api.md"
-                spellCheck={false}
-              />
-              <Textarea
-                mono
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                rows={8}
-                placeholder="File content…"
-                spellCheck={false}
-              />
-              <div className="agents-actions">
-                <Button variant="secondary" disabled={busy} onClick={() => void createLinkedFile()}>
-                  Create file
-                </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setAddingFile(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </Field>
+            <div className="linked-file-editor">
+              <Field
+                label="New file path"
+                hint="(must start with references/, templates/, scripts/, or assets/)"
+              >
+                <TextInput
+                  value={newPath}
+                  onChange={(e) => setNewPath(e.target.value)}
+                  placeholder="references/api.md"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Content">
+                <Textarea
+                  mono
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  rows={8}
+                  placeholder="File content…"
+                  spellCheck={false}
+                />
+              </Field>
+              <ActionRow align="between">
+                <div className="action-row-group">
+                  <Button variant="secondary" disabled={busy} onClick={() => void createLinkedFile()}>
+                    Create file
+                  </Button>
+                </div>
+                <div className="action-row-group">
+                  <Button variant="ghost" disabled={busy} onClick={() => setAddingFile(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </ActionRow>
+            </div>
           )}
-        </>
+        </FormSection>
       )}
       {/* The instructions body is the grow field: it fills the remaining pane
           height (the page itself does not scroll). */}
-      <Field
-        className="field-grow"
-        label="Instructions"
-        hint="(the markdown body of SKILL.md — hot-reloaded on save)"
-      >
-        <Textarea className="grow-input" value={body} onChange={(e) => setBody(e.target.value)} required />
-      </Field>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          {creating ? "Create" : "Save"}
-        </Button>
-        {creating && onLearnInstead !== undefined && (
-          <Button variant="secondary" disabled={busy} onClick={onLearnInstead}>
-            Learn with AI instead
+      <FormSection title="Instructions" flow="stack" className="field-grow">
+        <Field label="SKILL.md body" hint="(the markdown body — hot-reloaded on save)">
+          <Textarea className="grow-input" value={body} onChange={(e) => setBody(e.target.value)} required />
+        </Field>
+      </FormSection>
+      <ActionRow align="between">
+        <div className="action-row-group">
+          <Button type="submit" variant="primary" loading={busy}>
+            {creating ? "Create" : "Save"}
           </Button>
-        )}
-        {!creating && (
-          <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteSkill(true)}>
-            Delete
-          </Button>
-        )}
-        {creating && onCancel !== undefined && (
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-      </div>
+          {creating && onLearnInstead !== undefined && (
+            <Button variant="secondary" disabled={busy} onClick={onLearnInstead}>
+              Learn with AI instead
+            </Button>
+          )}
+        </div>
+        <div className="action-row-group">
+          {!creating && (
+            <Button variant="danger" disabled={busy} onClick={() => setConfirmDeleteSkill(true)}>
+              Delete
+            </Button>
+          )}
+          {creating && onCancel !== undefined && (
+            <Button variant="ghost" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      </ActionRow>
       <ConfirmDialog
         open={confirmDeleteSkill}
         title="Delete skill?"
@@ -556,48 +580,52 @@ export function SkillLearnForm({
         void submit();
       }}
     >
-      <SectionHeader
-        title={
-          <>
-            <GraduationCap size={16} aria-hidden="true" style={{ verticalAlign: "-2px" }} /> Learn a skill
-          </>
-        }
+      <PageHeader
+        icon={<GraduationCap size={18} aria-hidden="true" />}
+        title="Learn a skill"
+        lede="An agent gathers the sources you describe and authors the skill for you. Point it at a directory, a URL, pasted material, or a workflow — requirements after a source are honored (“focus on the auth flow”)."
       />
-      <p className="section-lede">
-        An agent gathers the sources you describe and authors the skill for you. Point it at a directory, a URL,
-        pasted material, or a workflow — requirements after a source are honored ("focus on the auth flow").
-      </p>
-      <Field label="What would you like to learn?">
-        <Textarea
-          value={request}
-          onChange={(e) => {
-            setRequest(e.target.value);
-            setError(null);
-          }}
-          rows={6}
-          autoFocus={shouldAutoFocus()}
-          required
-          maxLength={8000}
-          placeholder="e.g. the REST client in ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api, skip the deprecated endpoints"
-        />
-      </Field>
-      <Field label="Model" hint="(the learn session runs on it — optional)">
-        <PickerTrigger
-          icon={<Sparkles size={12} aria-hidden="true" />}
-          value={model ?? configDefault ?? "server default"}
-          onClick={() => setPickerOpen(true)}
-          ariaLabel="Learn session model"
-        />
-      </Field>
-      {error !== null && <div className="error">{error}</div>}
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          Learn it
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={onBack}>
-          Create manually instead
-        </Button>
-      </div>
+      <FormSection title="Request" flow="stack">
+        <Field label="What would you like to learn?">
+          <Textarea
+            value={request}
+            onChange={(e) => {
+              setRequest(e.target.value);
+              setError(null);
+            }}
+            rows={6}
+            autoFocus={shouldAutoFocus()}
+            required
+            maxLength={8000}
+            placeholder="e.g. the REST client in ~/projects/acme-sdk, focus on the auth flow — or https://docs.example.com/api, skip the deprecated endpoints"
+          />
+        </Field>
+        <Field label="Model" hint="(the learn session runs on it — optional)">
+          <PickerTrigger
+            icon={<Sparkles size={12} aria-hidden="true" />}
+            value={model ?? configDefault ?? "server default"}
+            onClick={() => setPickerOpen(true)}
+            ariaLabel="Learn session model"
+          />
+        </Field>
+      </FormSection>
+      {error !== null && (
+        <Banner tone="danger" title="Could not start the learn session">
+          {error}
+        </Banner>
+      )}
+      <ActionRow align="between">
+        <div className="action-row-group">
+          <Button type="submit" variant="primary" loading={busy}>
+            Learn it
+          </Button>
+        </div>
+        <div className="action-row-group">
+          <Button variant="ghost" disabled={busy} onClick={onBack}>
+            Create manually instead
+          </Button>
+        </div>
+      </ActionRow>
       {pickerOpen && (
         <ModelModal
           client={client}

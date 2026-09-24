@@ -1,13 +1,18 @@
 import type { MediaParamSpec, MediaParamValue } from "@bai/shared";
-import { Field, TextInput } from "./field";
+import { Field, Textarea, TextInput } from "./field";
 import { Select } from "./Select";
-import { ToggleRow } from "./toggle";
+import { Slider } from "./Slider";
+import { SwitchField } from "./Switch";
 
 /**
  * The generic media-parameter form: renders a capability spec (enum pickers,
  * toggles, ranges with min/max, numbers, text) and reports the whole value
  * map on every change. Shared by the image workbench page and the Image
  * Generation settings (default parameters), so both stay in lockstep.
+ *
+ * Every kind composes a library primitive — enum→Select, toggle→SwitchField,
+ * range→Slider, number/text→TextInput, list→Textarea — so the params grid
+ * reads as one consistent control family.
  */
 export function MediaParamsForm({
   specs,
@@ -37,11 +42,11 @@ export function MediaParamsForm({
         }
         if (spec.kind === "toggle") {
           return (
-            <ToggleRow
+            <SwitchField
               key={spec.key}
               checked={Boolean(value[spec.key] ?? spec.default ?? false)}
               onChange={(next) => set(spec.key, next)}
-              title={spec.label}
+              label={spec.label}
               description={spec.hint}
             />
           );
@@ -51,21 +56,15 @@ export function MediaParamsForm({
             typeof value[spec.key] === "number" ? (value[spec.key] as number) : (spec.default ?? spec.min);
           return (
             <Field key={spec.key} label={spec.label} hint={spec.hint}>
-              <div className="param-range">
-                <input
-                  type="range"
-                  min={spec.min}
-                  max={spec.max}
-                  step={spec.step ?? 1}
-                  value={current}
-                  aria-label={spec.label}
-                  onChange={(e) => set(spec.key, Number(e.target.value))}
-                />
-                <span className="param-range-value">
-                  {current}
-                  {spec.unit ?? ""}
-                </span>
-              </div>
+              <Slider
+                value={current}
+                min={spec.min}
+                max={spec.max}
+                step={spec.step ?? 1}
+                ariaLabel={spec.label}
+                format={(v) => `${v}${spec.unit ?? ""}`}
+                onChange={(v) => set(spec.key, v)}
+              />
             </Field>
           );
         }
@@ -92,16 +91,12 @@ export function MediaParamsForm({
           const items = Array.isArray(raw) ? raw : (spec.default ?? []);
           return (
             <Field key={spec.key} label={spec.label} hint={spec.hint}>
-              <textarea
-                className="input param-list"
-                style={{ width: "100%", resize: "vertical" }}
+              <Textarea
+                className="param-list"
                 rows={Math.min(Math.max(items.length, 2), 8)}
                 aria-label={spec.label}
                 value={items.join("\n")}
                 placeholder="One item per line"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
                 onChange={(e) =>
                   set(
                     spec.key,

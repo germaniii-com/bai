@@ -16,7 +16,7 @@ import { AttachmentChips, AttachmentParts, AttachButton, ImageLightbox, QueuedAt
 import { FolderGlyph } from "./workspace";
 import { Chevron, ToolStatusIcon } from "./icons";
 import { IconButton } from "./ui";
-import { Button, Chip, Disclosure, Field, Modal, Textarea } from "./components";
+import { Button, Chip, Disclosure, EmptyState, Field, Modal, Textarea } from "./components";
 import { shouldAutoFocus } from "./pointer";
 
 /**
@@ -670,7 +670,13 @@ export function ChatPane({
             )}
           </div>
         )}
-        {visible.length === 0 && revertedCount === 0 && !waiting && <p className="dim empty">No messages yet.</p>}
+        {visible.length === 0 && revertedCount === 0 && !waiting && (
+          <EmptyState
+            icon={<Bot size={22} aria-hidden="true" />}
+            title="No messages yet"
+            description="Ask anything to start the conversation — the session is saved and can continue from any device."
+          />
+        )}
         {visible.map((m) => (
            <article key={m.id} className={`message ${m.role}`} aria-label={`${m.role === "user" ? "You" : "Assistant"} message`}>
             {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}

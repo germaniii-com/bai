@@ -16,14 +16,20 @@ import {
 import { modelOverrideOptions } from "./provider-utils";
 import { shouldAutoFocus } from "./pointer";
 import {
+  ActionRow,
   Button,
   Chip,
   Combobox,
   ConfirmDialog,
+  EmptyState,
   Field,
+  FormSection,
   ListItem,
+  PageHeader,
   SectionHeader,
   Select,
+  Stat,
+  StatRow,
   SubNav,
   SubNavCreate,
   SubNavItem,
@@ -332,7 +338,7 @@ export function AutomationsPane({
 }) {
   if (creating) {
     return (
-      <div className="agents-pane">
+      <div className="pane-inner">
         <AutomationForm
           key="__new_automation__"
           client={client}
@@ -355,13 +361,17 @@ export function AutomationsPane({
   const automation = automations.find((a) => a.id === selectedId);
   if (automation === undefined) {
     return (
-      <div className="agents-pane">
-        <p className="dim empty">Select or create an automation.</p>
+      <div className="pane-inner">
+        <EmptyState
+          icon={<Clock size={22} aria-hidden="true" />}
+          title="No automation selected"
+          description="Pick an automation from the list, or create a new one to get started."
+        />
       </div>
     );
   }
   return (
-    <div className="agents-pane">
+    <div className="pane-inner">
       <AutomationForm
         key={automation.id}
         client={client}
@@ -550,39 +560,38 @@ function AutomationForm({
         void save();
       }}
     >
-      <SectionHeader
-        title={
-          creating ? (
-            "New automation"
-          ) : (
-            <>
-              {automation.name} <span className="dim">· {automation.scheduleDisplay}</span>
-            </>
-          )
-        }
-        lede={
-          creating ? undefined : (
-            <>
-              {running && (
-                <span className="run-live">
-                  <LoaderCircle size={12} className="icon-spin" aria-hidden="true" /> running now
-                </span>
-              )}
-              {running && " · "}Next run: {nextRun}
-              <span className="run-clock"> · now: {clock}</span>
-              {automation.lastRunAt !== null && ` · last: ${new Date(automation.lastRunAt).toLocaleString()}`}
-              {automation.lastStatus === "error" && automation.lastError !== undefined && (
-                <span className="run-error"> · {automation.lastError}</span>
-              )}
-            </>
-          )
-        }
+      <PageHeader
+        title={creating ? "New automation" : automation.name}
+        lede={creating ? undefined : automation.scheduleDisplay}
       />
+      {!creating && (
+        <StatRow className="media-model-info" ariaLabel="Automation status">
+          {running && (
+            <Stat
+              label="Status"
+              tone="accent"
+              value={
+                <>
+                  <LoaderCircle size={12} className="icon-spin" aria-hidden="true" /> running now
+                </>
+              }
+            />
+          )}
+          <Stat label="Next run" value={nextRun} />
+          <Stat label="Now" value={clock} />
+          {automation.lastRunAt !== null && (
+            <Stat label="Last" value={new Date(automation.lastRunAt).toLocaleString()} />
+          )}
+          {automation.lastStatus === "error" && automation.lastError !== undefined && (
+            <Stat label="Last error" value={automation.lastError} tone="danger" />
+          )}
+        </StatRow>
+      )}
       {/* Two columns: the inputs on the left (Name/Enabled → Agent/Workspace →
           Model override → Schedule → Prompt), the run history on the right. */}
       <div className="automation-layout">
         <div className="automation-form-col">
-          <div className="automation-grid-2">
+          <FormSection title="Details" columns={2}>
             <Field label="Name" hint="(shown in the sidebar and used for updates)">
               <TextInput
                 value={name}
@@ -593,17 +602,16 @@ function AutomationForm({
                 spellCheck={false}
               />
             </Field>
-            <div className="field">
-              <span className="field-label">Enabled</span>
+            <Field label="Enabled">
               {/* Local state only — the enabled state persists on Save. */}
               <Switch
                 checked={enabled}
                 onChange={setEnabled}
                 label={enabled ? "Fires on schedule" : "Paused"}
               />
-            </div>
-          </div>
-          <div className="automation-grid-2">
+            </Field>
+          </FormSection>
+          <FormSection title="Target" columns={2}>
             <Field label="Agent" hint="(default when unset)">
               <Combobox
                 value={agent}
@@ -622,34 +630,38 @@ function AutomationForm({
                 emptyText="No matching workspace."
               />
             </Field>
-          </div>
-          <Field label="Model override" hint="(optional — inherits the agent/session model when unset)">
-            <Combobox
-              value={model}
-              onChange={setModel}
-              options={modelOverrideOptions(list)}
-              placeholder="(agent/session model)"
-              ariaLabel="Model override"
-              creatable
-              emptyText="No matching model."
-            />
-          </Field>
-          <ScheduleBuilder value={schedule} onChange={setSchedule} />
+            <Field label="Model override" hint="(optional — inherits the agent/session model when unset)">
+              <Combobox
+                value={model}
+                onChange={setModel}
+                options={modelOverrideOptions(list)}
+                placeholder="(agent/session model)"
+                ariaLabel="Model override"
+                creatable
+                emptyText="No matching model."
+              />
+            </Field>
+          </FormSection>
+          <FormSection title="Schedule" flow="stack">
+            <ScheduleBuilder value={schedule} onChange={setSchedule} />
+          </FormSection>
           {/* Prompt is the bottom-most input and the grow field. */}
-          <Field className="field-grow" label="Prompt" hint="(what the agent runs on each fire)">
-            <Textarea
-              className="grow-input"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              required
-              placeholder="e.g. Summarize unread email and flag anything urgent."
-            />
-          </Field>
+          <FormSection title="Prompt" flow="stack" className="field-grow">
+            <Field label="Prompt" hint="(what the agent runs on each fire)">
+              <Textarea
+                className="grow-input"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                required
+                placeholder="e.g. Summarize unread email and flag anything urgent."
+              />
+            </Field>
+          </FormSection>
         </div>
         <aside className="automation-runs" aria-label="Run history">
           <SectionHeader title="Run history" />
           {runs.length === 0 ? (
-            <p className="dim">No runs yet.</p>
+            <EmptyState title="No runs yet" description="Runs appear here after the automation fires." />
           ) : (
             <ul className="run-list">
               {runs.map((run) => (
@@ -689,26 +701,30 @@ function AutomationForm({
           )}
         </aside>
       </div>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          {creating ? "Create" : "Save"}
-        </Button>
-        {!creating && (
-          <Button variant="secondary" disabled={busy} onClick={() => void runNow()}>
-            Run now
+      <ActionRow align="between">
+        <div className="action-row-group">
+          <Button type="submit" variant="primary" loading={busy}>
+            {creating ? "Create" : "Save"}
           </Button>
-        )}
-        {!creating && (
-          <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
-        )}
-        {creating && onCancel !== undefined && (
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-      </div>
+          {!creating && (
+            <Button variant="secondary" disabled={busy} onClick={() => void runNow()}>
+              Run now
+            </Button>
+          )}
+        </div>
+        <div className="action-row-group">
+          {!creating && (
+            <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              Delete
+            </Button>
+          )}
+          {creating && onCancel !== undefined && (
+            <Button variant="ghost" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      </ActionRow>
       <ConfirmDialog
         open={confirmDelete}
         title="Delete automation?"

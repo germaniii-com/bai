@@ -23,7 +23,7 @@ import type {
 } from "@bai/shared";
 import { useUsage } from "./use-usage";
 import { isCoarsePointer } from "./pointer";
-import { Button, Card, Combobox, PageHeader, SectionHeader, Select, Table, Tabs, Td, Th, type ComboboxOption } from "./components";
+import { Button, Card, Combobox, Field, PageHeader, SectionHeader, Select, Table, Tabs, Td, Th, Toolbar, type ComboboxOption } from "./components";
 
 /**
  * The Analytics page (D26 data): KPI cards + four charts over the usage
@@ -304,92 +304,107 @@ export function AnalyticsPane({ client, themeColors }: { client: BaiClient; them
   return (
     <div className="analytics">
       <PageHeader
-        title={
-          <>
-            Analytics
-            {refreshing && <span className="dim"> · refreshing…</span>}
-          </>
+        title="Analytics"
+        lede={refreshing ? "Refreshing…" : "Token, cost, and media usage across the selected window."}
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
         }
       />
 
       {/* --- filters --- */}
-      <div className="analytics-filters">
-        <Tabs
-          className="granularity-tabs"
-          ariaLabel="Granularity"
-          value={granularity}
-          onChange={(value) => setGranularity(value as UsageGranularity)}
-          tabs={(["day", "month", "year"] as const).map((g) => ({
-            value: g,
-            label: g[0]?.toUpperCase() + g.slice(1),
-          }))}
-        />
-        <Select
-          value={range}
-          onChange={(v) => setRange(v as Range)}
-          ariaLabel="Date range"
-          options={[
-            { value: "7d", label: "Last 7 days" },
-            { value: "30d", label: "Last 30 days" },
-            { value: "90d", label: "Last 90 days" },
-            { value: "all", label: "All time" },
-          ]}
-        />
-        <Combobox
-          value={agent}
-          onChange={setAgent}
-          ariaLabel="Agent filter"
-          options={facetOptions(usage.facets.agents, "All agents")}
-          placeholder="All agents"
-          emptyText="No agents in this window."
-        />
-        <Combobox
-          value={workspace}
-          onChange={setWorkspace}
-          ariaLabel="Workspace filter"
-          options={facetOptions(usage.facets.workspaces, "All workspaces")}
-          placeholder="All workspaces"
-          emptyText="No workspaces in this window."
-        />
-        <Combobox
-          value={provider}
-          onChange={setProvider}
-          ariaLabel="Provider filter"
-          options={facetOptions(usage.facets.providers, "All providers")}
-          placeholder="All providers"
-          emptyText="No providers in this window."
-        />
-        <Combobox
-          value={account}
-          onChange={setAccount}
-          ariaLabel="Account filter"
-          options={facetOptions(usage.facets.accounts, "All accounts")}
-          placeholder="All accounts"
-          emptyText="No accounts in this window."
-        />
-        <Combobox
-          value={model}
-          onChange={setModel}
-          ariaLabel="Model filter"
-          options={facetOptions(usage.facets.models, "All models")}
-          placeholder="All models"
-          emptyText="No models in this window."
-        />
-        <Select
-          value={kind}
-          onChange={setKind}
-          ariaLabel="Call kind filter"
-          options={[
-            { value: "", label: "All calls" },
-            { value: "run", label: "Runs only" },
-            { value: "title", label: "Titles only" },
-            { value: "compaction", label: "Compactions only" },
-          ]}
-        />
-        <Button variant="primary" size="sm" onClick={() => void refresh()} disabled={refreshing}>
-          Refresh
-        </Button>
-      </div>
+      <Toolbar className="analytics-filters">
+        <div className="analytics-filter">
+          <span className="field-label">Granularity</span>
+          <Tabs
+            className="granularity-tabs"
+            ariaLabel="Granularity"
+            value={granularity}
+            onChange={(value) => setGranularity(value as UsageGranularity)}
+            tabs={(["day", "month", "year"] as const).map((g) => ({
+              value: g,
+              label: g[0]?.toUpperCase() + g.slice(1),
+            }))}
+          />
+        </div>
+        <Field label="Date range">
+          <Select
+            value={range}
+            onChange={(v) => setRange(v as Range)}
+            ariaLabel="Date range"
+            options={[
+              { value: "7d", label: "Last 7 days" },
+              { value: "30d", label: "Last 30 days" },
+              { value: "90d", label: "Last 90 days" },
+              { value: "all", label: "All time" },
+            ]}
+          />
+        </Field>
+        <Field label="Agent">
+          <Combobox
+            value={agent}
+            onChange={setAgent}
+            ariaLabel="Agent filter"
+            options={facetOptions(usage.facets.agents, "All agents")}
+            placeholder="All agents"
+            emptyText="No agents in this window."
+          />
+        </Field>
+        <Field label="Workspace">
+          <Combobox
+            value={workspace}
+            onChange={setWorkspace}
+            ariaLabel="Workspace filter"
+            options={facetOptions(usage.facets.workspaces, "All workspaces")}
+            placeholder="All workspaces"
+            emptyText="No workspaces in this window."
+          />
+        </Field>
+        <Field label="Provider">
+          <Combobox
+            value={provider}
+            onChange={setProvider}
+            ariaLabel="Provider filter"
+            options={facetOptions(usage.facets.providers, "All providers")}
+            placeholder="All providers"
+            emptyText="No providers in this window."
+          />
+        </Field>
+        <Field label="Account">
+          <Combobox
+            value={account}
+            onChange={setAccount}
+            ariaLabel="Account filter"
+            options={facetOptions(usage.facets.accounts, "All accounts")}
+            placeholder="All accounts"
+            emptyText="No accounts in this window."
+          />
+        </Field>
+        <Field label="Model">
+          <Combobox
+            value={model}
+            onChange={setModel}
+            ariaLabel="Model filter"
+            options={facetOptions(usage.facets.models, "All models")}
+            placeholder="All models"
+            emptyText="No models in this window."
+          />
+        </Field>
+        <Field label="Calls">
+          <Select
+            value={kind}
+            onChange={setKind}
+            ariaLabel="Call kind filter"
+            options={[
+              { value: "", label: "All calls" },
+              { value: "run", label: "Runs only" },
+              { value: "title", label: "Titles only" },
+              { value: "compaction", label: "Compactions only" },
+            ]}
+          />
+        </Field>
+      </Toolbar>
 
       {/* Token (LLM) sections — hidden when the window has only media usage. */}
       {usage.kpis.requests > 0 ? (

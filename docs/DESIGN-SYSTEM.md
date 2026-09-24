@@ -201,7 +201,9 @@ that row are 13px (matching the picker Bot/Cpu glyphs).
 
 Role elevation: floating surfaces (menus, dropdowns, popovers, toasts) use
 `--shadow-popover` (= `--shadow-md`); dialogs use `--shadow-modal`
-(= `--shadow-lg`). Components must not hardcode a `box-shadow`.
+(= `--shadow-lg`); raised cards (`Card variant="raised"`) use
+`--shadow-card` (= `--shadow-sm`) for a soft surface lift. Components must not
+hardcode a `box-shadow`.
 
 ### Motion
 
@@ -261,6 +263,8 @@ Monaco derives its editor theme from the same palette data at call time
    is deliberately small.
 3. `components/components.css` is the reference implementation: every rule
    there is token-driven. `styles.css` is being migrated to the same standard.
+   Forms group fields with `FormSection` (a titled `.form-grid`) and close with
+   `ActionRow` — screens should not hand-roll section headings or action rows.
 4. **Screens compose `components/` — they must not render raw
    `<button>/<input>/<select>/<textarea>`.** Existing files use the
    primitives; the source-scan contract test
@@ -281,6 +285,11 @@ Monaco derives its editor theme from the same palette data at call time
 |---|---|
 | Tokens (`:root`) + all component styles | `packages/web/src/styles.css` |
 | Shared component library styles | `packages/web/src/components/components.css` |
+| Form grouping + action rows | `packages/web/src/components/FormSection.tsx`, `ActionRow.tsx` |
+| Range slider | `packages/web/src/components/Slider.tsx` |
+| Form-row switch | `packages/web/src/components/Switch.tsx` (`SwitchField`) |
+| Stat rows (model info, telemetry) | `packages/web/src/components/Stat.tsx` |
+| Filter/action toolbar | `packages/web/src/components/Toolbar.tsx` |
 | `@font-face` declarations | `packages/web/src/fonts.css` |
 | Monaco/xterm font config | `packages/web/src/editor-font.ts` |
 | Monaco theme derivation | `packages/web/src/monaco-setup.ts` |

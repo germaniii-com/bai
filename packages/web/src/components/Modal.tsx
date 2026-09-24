@@ -26,6 +26,7 @@ export function Modal({
   title,
   size = "md",
   footer,
+  footerAlign = "end",
   children,
   ariaLabel,
   bodyClassName,
@@ -42,6 +43,8 @@ export function Modal({
   size?: "sm" | "md" | "lg";
   /** Sticky footer row (actions). Buttons wrap on mobile. */
   footer?: ReactNode;
+  /** Footer action alignment. Defaults to `end` (right-aligned actions). */
+  footerAlign?: "start" | "end" | "between";
   children: ReactNode;
   /** Accessible dialog name; defaults to the title's text content. */
   ariaLabel?: string;
@@ -130,7 +133,7 @@ export function Modal({
         <div className={bodyClassName !== undefined ? `modal-body ${bodyClassName}` : "modal-body"}>
           {children}
         </div>
-        {footer !== undefined && <div className="modal-foot">{footer}</div>}
+        {footer !== undefined && <div className={`modal-foot modal-foot-${footerAlign}`}>{footer}</div>}
       </div>
     </div>
   );

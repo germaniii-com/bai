@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   Download,
+  Image as ImageIcon,
   LoaderCircle,
   MessageSquare,
   MoreVertical,
@@ -34,20 +35,28 @@ import {
   type MediaTagCount,
 } from "@bai/shared";
 import {
+  ActionRow,
   Button,
+  Card,
   Chip,
   Combobox,
   ConfirmDialog,
   DropdownMenu,
+  EmptyState,
   Field,
   FileInput,
+  FormSection,
   MediaParamsForm,
   Modal,
+  PageHeader,
   SectionHeader,
   Select,
+  Stat,
+  StatRow,
   TagInput,
   Textarea,
   TextInput,
+  Toolbar,
 } from "./components";
 import { ImageLightbox, useAssetUrl } from "./attachments";
 import { galleryNavState } from "./image-nav";
@@ -633,14 +642,14 @@ export function ImagePane({
 
   return (
     <div className="image-pane">
-      <SectionHeader
-        title="Image Gen"
+      <PageHeader
+        title="Image"
         lede="Generate images and browse your history. Click an image to load its inputs — Generate always creates a new one."
       />
 
       <div className="image-workbench">
-        <div className="image-controls">
-          <div className="image-controls-row">
+        <Card variant="raised" className="workbench-panel">
+          <FormSection title="Model" columns={2}>
             <Field label="Workflow">
               <Select
                 value={workflow}
@@ -668,7 +677,7 @@ export function ImagePane({
                 emptyText="No model available."
               />
             </Field>
-          </div>
+          </FormSection>
 
           {workflowModels.length === 0 && (
             <p className="dim">
@@ -679,189 +688,199 @@ export function ImagePane({
 
           {selectedModel !== undefined && <ModelInfo model={selectedModel} />}
 
-          <MediaParamsForm
-            specs={caps?.capabilities.params ?? []}
-            value={params}
-            onChange={setParams}
-          />
-
-          <Field
-            label="Tags"
-            hint="(applied to every image; autocompletes from history)"
-          >
-            <TagInput
-              value={tags}
-              onChange={setTags}
-              suggestions={tagOptions}
+          <FormSection title="Parameters" flow="stack">
+            <MediaParamsForm
+              specs={caps?.capabilities.params ?? []}
+              value={params}
+              onChange={setParams}
             />
-          </Field>
+          </FormSection>
 
-          <Field label="Prompt">
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-              placeholder="Describe the image…"
-            />
-          </Field>
+          <FormSection title="Content" flow="stack">
+            <Field label="Prompt">
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                placeholder="Describe the image…"
+              />
+            </Field>
+            <Field
+              label="Tags"
+              hint="(applied to every image; autocompletes from history)"
+            >
+              <TagInput
+                value={tags}
+                onChange={setTags}
+                suggestions={tagOptions}
+              />
+            </Field>
+          </FormSection>
 
           {workflow === "i2i" && (
-            <Field label="Reference image">
-              <div
-                className="image-ref"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={onReferenceDrop}
-              >
-                {reference !== null ? (
-                  <div className="image-ref-preview">
-                    <ReferenceImage client={client} id={reference.id} />
-                    <div className="image-ref-actions">
-                      <span className="dim">{reference.name}</span>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setReference(null)}
-                      >
-                        Remove
-                      </Button>
+            <FormSection title="Reference" flow="stack">
+              <Field label="Reference image">
+                <div
+                  className="image-ref"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={onReferenceDrop}
+                >
+                  {reference !== null ? (
+                    <div className="image-ref-preview">
+                      <ReferenceImage client={client} id={reference.id} />
+                      <div className="image-ref-actions">
+                        <span className="dim">{reference.name}</span>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setReference(null)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <p className="dim">Drop an image here, paste it (Ctrl/Cmd+V), or</p>
-                    <FileInput
-                      accept={REFERENCE_ACCEPT}
-                      label="Choose image"
-                      className="btn btn-secondary btn-md"
-                      onFiles={(files) => {
-                        const file = files[0];
-                        if (file !== undefined) void uploadReference(file);
-                      }}
-                    >
-                      Choose image
-                    </FileInput>
-                    <p className="image-ref-formats">
-                      Supported: {REFERENCE_LABEL} · up to 10 MB
-                    </p>
-                  </>
-                )}
-              </div>
-            </Field>
+                  ) : (
+                    <>
+                      <p className="dim">Drop an image here, paste it (Ctrl/Cmd+V), or</p>
+                      <FileInput
+                        accept={REFERENCE_ACCEPT}
+                        label="Choose image"
+                        className="btn btn-secondary btn-md"
+                        onFiles={(files) => {
+                          const file = files[0];
+                          if (file !== undefined) void uploadReference(file);
+                        }}
+                      >
+                        Choose image
+                      </FileInput>
+                      <p className="image-ref-formats">
+                        Supported: {REFERENCE_LABEL} · up to 10 MB
+                      </p>
+                    </>
+                  )}
+                </div>
+              </Field>
+            </FormSection>
           )}
 
-          <div className="image-actions">
+          <ActionRow align="end">
+            {busy && (
+              <Button variant="ghost" onClick={() => void cancel()}>
+                Cancel
+              </Button>
+            )}
             <Button
               variant="primary"
+              size="lg"
               onClick={() => void generate()}
               loading={submitting}
               disabled={!canGenerate}
             >
               Generate
             </Button>
-            {busy && (
-              <Button variant="ghost" onClick={() => void cancel()}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
+          </ActionRow>
+        </Card>
 
-      <div className="image-gallery-section">
-        <SectionHeader
-          title="Gallery"
-          lede={
-            gallery.total > 0
-              ? `${gallery.total} image${gallery.total === 1 ? "" : "s"}.`
-              : undefined
-          }
-        />
-        <div className="image-gallery-filter">
-          <TextInput
-            type="search"
-            value={galleryQuery}
-            onChange={(e) => setGalleryQuery(e.target.value)}
-            placeholder="Search tags… (e.g. gemini)"
-            aria-label="Search images by tag"
+        <div className="image-gallery-section">
+          <SectionHeader
+            title="Gallery"
+            lede={
+              gallery.total > 0
+                ? `${gallery.total} image${gallery.total === 1 ? "" : "s"}.`
+                : undefined
+            }
           />
-          {galleryQuery.length > 0 && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setGalleryQuery("");
-                setGalleryApplied("");
-              }}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-        {gallerySuggestions.length > 0 && (
-          <div className="tag-suggestions" role="group" aria-label="Tag suggestions">
-            {gallerySuggestions.map((tag) => (
-              <Chip
-                key={tag.tag}
-                interactive
+          <Toolbar className="image-gallery-filter">
+            <TextInput
+              type="search"
+              value={galleryQuery}
+              onChange={(e) => setGalleryQuery(e.target.value)}
+              placeholder="Search tags… (e.g. gemini)"
+              aria-label="Search images by tag"
+            />
+            {galleryQuery.length > 0 && (
+              <Button
+                variant="ghost"
                 onClick={() => {
-                  setGalleryQuery(tag.tag);
-                  setGalleryApplied(tag.tag);
+                  setGalleryQuery("");
+                  setGalleryApplied("");
                 }}
               >
-                {tag.tag} <span className="dim">· {tag.count}</span>
-              </Chip>
-            ))}
-          </div>
-        )}
-        {gallery.loading ? (
-          <p className="dim">Loading…</p>
-        ) : gallery.images.length === 0 && jobs.length === 0 ? (
-          <p className="dim">
-            {galleryApplied.trim().length > 0
-              ? "No images match that tag search."
-              : "No images yet."}
-          </p>
-        ) : (
-          <div className="image-grid">
-            {jobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onRetry={(j) => void retryJob(j)}
-                onOpenError={setErrorJob}
-              />
-            ))}
-            {gallery.images.map((asset) => (
-              <ImageCard
-                key={asset.id}
-                client={client}
-                asset={asset}
-                onOpen={showLightbox}
-                onDownload={(a) => void downloadImage(a)}
-                onLoad={loadInputs}
-                onEditTags={setEditingTags}
-                onDelete={(a) => setPendingDelete(a)}
-                {...(onOpenSession !== undefined ? { onOpenChat: onOpenSession } : {})}
-              />
-            ))}
-          </div>
-        )}
-        {gallery.hasMore && (
-          <>
-            {/* Intersection sentinel — auto-loads the next page when scrolled near. */}
-            <div
-              ref={gallerySentinelRef}
-              aria-hidden="true"
-              style={{ height: 1, width: "100%" }}
+                Clear
+              </Button>
+            )}
+          </Toolbar>
+          {gallerySuggestions.length > 0 && (
+            <div className="tag-suggestions" role="group" aria-label="Tag suggestions">
+              {gallerySuggestions.map((tag) => (
+                <Chip
+                  key={tag.tag}
+                  interactive
+                  onClick={() => {
+                    setGalleryQuery(tag.tag);
+                    setGalleryApplied(tag.tag);
+                  }}
+                >
+                  {tag.tag} <span className="dim">· {tag.count}</span>
+                </Chip>
+              ))}
+            </div>
+          )}
+          {gallery.loading ? (
+            <p className="dim">Loading…</p>
+          ) : gallery.images.length === 0 && jobs.length === 0 ? (
+            <EmptyState
+              icon={<ImageIcon size={22} aria-hidden="true" />}
+              title={galleryApplied.trim().length > 0 ? "No matches" : "No images yet"}
+              description={
+                galleryApplied.trim().length > 0
+                  ? "No images match that tag search."
+                  : "Generated images land here — generate one above to get started."
+              }
             />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={gallery.loadMore}
-              disabled={gallery.loadingMore}
-            >
-              {gallery.loadingMore ? "Loading…" : "Load more"}
-            </Button>
-          </>
-        )}
+          ) : (
+            <div className="image-grid">
+              {jobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onRetry={(j) => void retryJob(j)}
+                  onOpenError={setErrorJob}
+                />
+              ))}
+              {gallery.images.map((asset) => (
+                <ImageCard
+                  key={asset.id}
+                  client={client}
+                  asset={asset}
+                  onOpen={showLightbox}
+                  onDownload={(a) => void downloadImage(a)}
+                  onLoad={loadInputs}
+                  onEditTags={setEditingTags}
+                  onDelete={(a) => setPendingDelete(a)}
+                  {...(onOpenSession !== undefined ? { onOpenChat: onOpenSession } : {})}
+                />
+              ))}
+            </div>
+          )}
+          {gallery.hasMore && (
+            <>
+              {/* Intersection sentinel — auto-loads the next page when scrolled near. */}
+              <div
+                ref={gallerySentinelRef}
+                aria-hidden="true"
+                style={{ height: 1, width: "100%" }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={gallery.loadMore}
+                disabled={gallery.loadingMore}
+              >
+                {gallery.loadingMore ? "Loading…" : "Load more"}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {lightbox !== null && (
@@ -1238,32 +1257,15 @@ function ReferenceImage({ client, id }: { client: BaiClient; id: string }) {
 /** The selected model's full capability/pricing summary. */
 function ModelInfo({ model }: { model: MediaModelInfo }) {
   return (
-    <div className="media-model-info" aria-label="Model information">
-      <span className="media-rate">
-        <span className="media-rate-label">Model</span>
-        <span className="media-rate-value">{model.label ?? model.id}</span>
-      </span>
-      <span className="media-rate">
-        <span className="media-rate-label">Workflows</span>
-        <span className="media-rate-value">
-          {model.modes.map(modeLabel).join(" + ")}
-        </span>
-      </span>
-      <span className="media-rate">
-        <span className="media-rate-label">References</span>
-        <span className="media-rate-value">≤ {model.maxReferences}</span>
-      </span>
-      <span className="media-rate">
-        <span className="media-rate-label">Max images</span>
-        <span className="media-rate-value">{model.maxCount}</span>
-      </span>
+    <StatRow className="media-model-info" ariaLabel="Model information">
+      <Stat label="Model" value={model.label ?? model.id} />
+      <Stat label="Workflows" value={model.modes.map(modeLabel).join(" + ")} />
+      <Stat label="References" value={`≤ ${model.maxReferences}`} />
+      <Stat label="Max images" value={model.maxCount} />
       {model.rates?.map((rate) => (
-        <span className="media-rate" key={rate.label}>
-          <span className="media-rate-label">{rate.label}</span>
-          <span className="media-rate-value">{rate.value}</span>
-        </span>
+        <Stat key={rate.label} label={rate.label} value={rate.value} />
       ))}
-    </div>
+    </StatRow>
   );
 }
 

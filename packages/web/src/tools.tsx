@@ -6,8 +6,8 @@ import { defineBaiTheme } from "./monaco-setup";
 import { EDITOR_FONT_FAMILY, useEditorFontSize } from "./editor-font";
 import { OverrideWarning } from "./icons";
 import { shouldAutoFocus } from "./pointer";
-import { TriangleAlert, Wrench } from "lucide-react";
-import { Button, ConfirmDialog, Field, SectionHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
+import { Wrench } from "lucide-react";
+import { ActionRow, Banner, Button, ConfirmDialog, EmptyState, Field, FormSection, PageHeader, SubNav, SubNavCreate, SubNavItem, TextInput } from "./components";
 
 /** Toast feedback callback — kind defaults to success (see toast.tsx). */
 type OnNotice = (message: string, kind?: "success" | "error") => void;
@@ -107,7 +107,7 @@ export function ToolsPane({
 }) {
   if (creating) {
     return (
-      <div className="agents-pane">
+      <div className="pane-inner">
         <ToolForm
           key="__new_tool__"
           client={client}
@@ -126,13 +126,17 @@ export function ToolsPane({
   const tool = tools.find((t) => t.name === selectedId);
   if (tool === undefined) {
     return (
-      <div className="agents-pane">
-        <p className="dim empty">Select or create a tool.</p>
+      <div className="pane-inner">
+        <EmptyState
+          icon={<Wrench size={22} aria-hidden="true" />}
+          title="No tool selected"
+          description="Pick a tool from the list, or create a new one to get started."
+        />
       </div>
     );
   }
   return (
-    <div className="agents-pane">
+    <div className="pane-inner">
       <ToolForm key={tool.name} client={client} tool={tool} refresh={refresh} onNotice={onNotice} themeColors={themeColors} />
     </div>
   );
@@ -191,7 +195,7 @@ function ToolForm({
 
   if (code === null) {
     return (
-      <div className="agents-pane">
+      <div className="pane-inner">
         <p className="dim">loading…</p>
       </div>
     );
@@ -253,97 +257,91 @@ function ToolForm({
         void save();
       }}
     >
-      {isBuiltinOverride && (
-        <div className="override-banner" role="status">
-          <TriangleAlert size={14} aria-hidden="true" />
-          <span>
-            <strong>{tool.name}</strong> has been overridden — if it is not working properly, try resetting it
-            to default.
-          </span>
-        </div>
-      )}
-      <SectionHeader
-        title={
-          creating ? (
-            "New tool"
-          ) : (
-            <>
-              {tool.name} <span className="dim">({tool.origin})</span>{" "}
-              {isBuiltinOverride && <OverrideWarning kind="tool" />}
-            </>
-          )
+      <PageHeader
+        title={creating ? "New tool" : tool.name}
+        lede={
+          isBuiltin
+            ? "Built-in tool — editing saves an override that replaces the built-in until the file is deleted (which restores it)."
+            : isBuiltinOverride
+              ? `This file overrides the built-in "${tool.name}" — "Reset to default" deletes it and restores the original.`
+              : creating
+                ? undefined
+                : `Source: ${tool.origin}`
         }
       />
-      {creating && (
-        <Field label="Name" hint="(the filename stem — ~/.config/bai/tools/<name>.ts)">
-          <TextInput
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus={shouldAutoFocus()}
-            required
-            maxLength={64}
-            spellCheck={false}
-          />
-        </Field>
-      )}
-      {isBuiltin && (
-        <p className="section-lede">
-          Built-in tool — editing saves an override that replaces the built-in until the file is deleted (which restores it).
-        </p>
-      )}
       {isBuiltinOverride && (
-        <p className="section-lede">
-          This file overrides the built-in "{tool.name}" — "Reset to default" deletes it and restores the original.
-        </p>
+        <Banner tone="warning" title="Built-in overridden">
+          <strong>{tool.name}</strong> has been overridden — if it is not working properly, try resetting it
+          to default. <OverrideWarning kind="tool" />
+        </Banner>
       )}
-      <Field
-        className="field-grow"
-        label="Code"
-        hint={`(~/.config/bai/tools/${creating ? name.trim() || tool.name : tool.name}.ts — hot-reloaded on save)`}
-      >
-        <div className="tool-editor">
-          <Editor
-            value={code}
-            language="typescript"
-            theme={monacoTheme}
-            loading={<p className="dim empty">Loading editor…</p>}
-            onChange={(value) => setCode(value ?? "")}
-            options={{
-              minimap: { enabled: false },
-              fontFamily: EDITOR_FONT_FAMILY,
-              fontSize: editorFontSize,
-              fontLigatures: true,
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              wordWrap: "on",
-              stickyScroll: { enabled: false },
-              contextmenu: false,
-              padding: { top: 10, bottom: 10 },
-            }}
-          />
+      {creating && (
+        <FormSection title="Identity" flow="stack">
+          <Field label="Name" hint="(the filename stem — ~/.config/bai/tools/<name>.ts)">
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus={shouldAutoFocus()}
+              required
+              maxLength={64}
+              spellCheck={false}
+            />
+          </Field>
+        </FormSection>
+      )}
+      <FormSection title="Source" flow="stack" className="field-grow">
+        <Field
+          label="Code"
+          hint={`(~/.config/bai/tools/${creating ? name.trim() || tool.name : tool.name}.ts — hot-reloaded on save)`}
+        >
+          <div className="tool-editor">
+            <Editor
+              value={code}
+              language="typescript"
+              theme={monacoTheme}
+              loading={<p className="dim empty">Loading editor…</p>}
+              onChange={(value) => setCode(value ?? "")}
+              options={{
+                minimap: { enabled: false },
+                fontFamily: EDITOR_FONT_FAMILY,
+                fontSize: editorFontSize,
+                fontLigatures: true,
+                lineNumbers: "on",
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                wordWrap: "on",
+                stickyScroll: { enabled: false },
+                contextmenu: false,
+                padding: { top: 10, bottom: 10 },
+              }}
+            />
+          </div>
+        </Field>
+      </FormSection>
+      <ActionRow align="between">
+        <div className="action-row-group">
+          <Button type="submit" variant="primary" loading={busy}>
+            {creating ? "Create" : "Save"}
+          </Button>
         </div>
-      </Field>
-      <div className="agents-actions">
-        <Button type="submit" variant="primary" loading={busy}>
-          {creating ? "Create" : "Save"}
-        </Button>
-        {!creating && !isBuiltin && (
-          <Button
-            variant="danger"
-            disabled={busy}
-            onClick={() => setConfirmRemove(true)}
-            title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
-          >
-            {isBuiltinOverride ? "Reset to default" : "Delete"}
-          </Button>
-        )}
-        {creating && onCancel !== undefined && (
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-      </div>
+        <div className="action-row-group">
+          {!creating && !isBuiltin && (
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => setConfirmRemove(true)}
+              title={isBuiltinOverride ? "Delete the override file — the original built-in registration is restored" : undefined}
+            >
+              {isBuiltinOverride ? "Reset to default" : "Delete"}
+            </Button>
+          )}
+          {creating && onCancel !== undefined && (
+            <Button variant="ghost" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      </ActionRow>
       <ConfirmDialog
         open={confirmRemove}
         title={isBuiltinOverride ? "Reset to default?" : "Delete tool?"}

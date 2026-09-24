@@ -18,6 +18,9 @@ dist/
 # test coverage
 coverage/
 
+# demo recordings (demo-recorder skill)
+.demo/
+
 # OS noise
 .DS_Store
 Thumbs.db

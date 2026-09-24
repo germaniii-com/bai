@@ -80,6 +80,7 @@ describe("component contract", () => {
       "--radius-modal:",
       "--shadow-popover:",
       "--shadow-modal:",
+      "--shadow-card:",
       "--duration-fast:",
       "--duration-normal:",
       "--duration-slow:",

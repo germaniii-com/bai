@@ -11,6 +11,7 @@ export function Chip({
   interactive = false,
   selected = false,
   add = false,
+  size = "md",
   onRemove,
   removeLabel,
   onClick,
@@ -23,6 +24,8 @@ export function Chip({
   selected?: boolean;
   /** Dimmed "+ add" affordance style. */
   add?: boolean;
+  /** `sm` is a tighter chip for dense rows (model info, metadata). */
+  size?: "sm" | "md";
   /** Shows the ✕ remove button (implies interactive rendering). */
   onRemove?: () => void;
   removeLabel?: string;
@@ -36,6 +39,7 @@ export function Chip({
     interactive || onRemove !== undefined ? "interactive" : "",
     selected ? "selected" : "",
     add ? "add" : "",
+    size === "sm" ? "sm" : "",
     className,
   ]
     .filter(Boolean)

@@ -1318,11 +1318,10 @@ function ImageGenPane({
 }) {
   return (
     <>
-      <PageHeader title="Image Generation" />
-      <p className="section-lede">
-        Where bai generates images: the provider API keys, the default
-        provider/model, and how many generations run at once.
-      </p>
+      <PageHeader
+        title="Image Generation"
+        lede="Where bai generates images: the provider API keys, the default provider/model, and how many generations run at once."
+      />
       <ImageProvidersCard
         client={client}
         list={list}
@@ -1372,12 +1371,10 @@ function VideoGenPane({
 }) {
   return (
     <>
-      <PageHeader title="Video Generation" />
-      <p className="section-lede">
-        Where bai generates videos: the provider API keys, the default
-        provider/model, and the media job limits (video renders get a longer
-        timeout).
-      </p>
+      <PageHeader
+        title="Video Generation"
+        lede="Where bai generates videos: the provider API keys, the default provider/model, and the media job limits (video renders get a longer timeout)."
+      />
       <ImageProvidersCard
         client={client}
         list={list}

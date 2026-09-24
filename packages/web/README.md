@@ -41,6 +41,10 @@ browsers **and** phones (PWA) from the same bundle.
   [docs/DESIGN-SYSTEM.md](../../docs/DESIGN-SYSTEM.md). Fonts are self-hosted
   (`src/fonts.css`: Inter for UI, JetBrains Mono for code/Monaco/shell) so the
   PWA works offline.
+- Forms compose `Field` inside a `FormSection` (titled group) and close with an
+  `ActionRow`; params render via `MediaParamsForm` (Slider / SwitchField /
+  Textarea primitives). Panels use `Card variant="raised"`; telemetry uses
+  `Stat`/`StatRow`; filters use `Toolbar`.
 - SSE consumption via `@bai/api`'s client (`fetch()` +
   `eventsource-parser`) — identical semantics to the TUI; bearer-token auth
   rules out native `EventSource`.
