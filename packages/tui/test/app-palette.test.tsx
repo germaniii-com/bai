@@ -8,7 +8,7 @@ import { App } from "../src/app";
 
 /**
  * The supermenu end-to-end through the REAL App (bare harness — stub/echo,
- * no prompt): ctrl+p opens the command palette in NORMAL mode, the
+ * no prompt): space-space opens the command palette in NORMAL mode, the
  * Suggested section floats "Connect provider" (no provider connected),
  * a batched "sess\r" dispatches Switch session into the sessions dialog,
  * and the removed ctrl+** family is inert everywhere.
@@ -29,7 +29,7 @@ async function waitForAnyFrame(getFrames: () => string[], predicate: (frame: str
   }
 }
 
-describe("App supermenu (ctrl+p)", () => {
+describe("App supermenu (space-space)", () => {
   let stack: TestStack;
   let server: ReturnType<typeof Bun.serve>;
   let client: BaiClient;
@@ -45,7 +45,7 @@ describe("App supermenu (ctrl+p)", () => {
     stack.cleanup();
   });
 
-  test("ctrl+p opens the palette; dispatch works; the old ctrl family is dead", async () => {
+  test("space-space opens the palette; dispatch works; the old ctrl family is dead", async () => {
     const { stdin, lastFrame, stdout, unmount } = render(<App client={client} version="test" />);
     const frames = stdout.frames;
     try {
@@ -55,7 +55,7 @@ describe("App supermenu (ctrl+p)", () => {
       // on-demand provider fetch lands (stub/echo only → nothing connected)
       // and floats "Connect provider" under Suggested.
       const markP = frames.length;
-      stdin.write("\x10"); // ctrl+p
+      stdin.write("  "); // space space — the supermenu
       const palette = await waitForAnyFrame(
         () => frames.slice(markP),
         (f) => f.includes("commands") && f.includes("Suggested") && f.includes("Connect provider"),
@@ -85,11 +85,14 @@ describe("App supermenu (ctrl+p)", () => {
       expect(after).not.toContain("type to filter");
       expect(after).not.toContain("Themes");
 
-      // INPUT mode: ctrl+p is inert — app globals gate off while typing.
+      // INPUT mode: both ctrl+p AND space-space are inert — the supermenu is
+      // NORMAL-only, so typing never opens it (a space just types a space).
       stdin.write("i");
       await tick();
       const markI = frames.length;
       stdin.write("\x10");
+      await tick();
+      stdin.write("  ");
       await tick();
       await tick();
       expect(frames.slice(markI).every((f) => !f.includes("type to filter"))).toBe(true);
@@ -104,18 +107,18 @@ describe("App supermenu (ctrl+p)", () => {
     try {
       await tick(200); // startup fetches + firehose hello
 
-      // ctrl+p: the palette renders as an OVERLAY — the chat underneath
+      // space-space: the palette renders as an OVERLAY — the chat underneath
       // stays mounted and visible in the same frame (the hub's draft label
       // at the panel's left + the commands row below it; the wider panel
       // covers the empty-transcript line itself on the 100-col terminal).
       const markP = frames.length;
-      stdin.write("\x10"); // ctrl+p
+      stdin.write("  "); // space space
       const palette = await waitForAnyFrame(
         () => frames.slice(markP),
         (f) => f.includes("commands") && f.includes("Suggested"),
       );
       expect(palette).toContain("new session");
-      expect(palette).toContain("i input · j/k scroll");
+      expect(palette).toContain("i insert mode");
 
       // Typing goes to the palette's filter; the chat behind must NOT react
       // ("i" in NORMAL mode would enter INPUT — the hub's commands row would
@@ -126,8 +129,8 @@ describe("App supermenu (ctrl+p)", () => {
         () => frames.slice(markP),
         (f) => f.includes("filter: i"),
       );
-      expect(filtered).toContain("i input · j/k scroll");
-      expect(filtered).not.toContain("enter send · esc normal");
+      expect(filtered).toContain("i insert mode");
+      expect(filtered).not.toContain("› "); // still NORMAL (no input prompt)
 
       // esc closes the overlay; the chat is live again — "i" now enters
       // INPUT mode (the hub's typing affordance appears).
@@ -141,7 +144,7 @@ describe("App supermenu (ctrl+p)", () => {
       stdin.write("i");
       const inputMode = await waitForAnyFrame(
         () => frames.slice(markI),
-        (f) => f.includes("enter send"),
+        (f) => f.includes("? list shortcuts") && !f.includes("i insert mode"),
       );
       expect(inputMode).toContain("›");
       expect(inputMode).not.toContain("type to filter");
@@ -170,7 +173,7 @@ describe("App supermenu (ctrl+p)", () => {
       // The supermenu reaches the same panel: "Show todos" is in the Todos
       // category; filtering + enter dispatches it.
       const markP = frames.length;
-      stdin.write("\x10"); // ctrl+p
+      stdin.write("  "); // space space
       await waitForAnyFrame(() => frames.slice(markP), (f) => f.includes("commands") && f.includes("Suggested"));
       stdin.write("todo");
       const filtered = await waitForAnyFrame(
@@ -194,7 +197,7 @@ describe("App supermenu (ctrl+p)", () => {
 
       // Bare harness → no session/usage, so the dialog shows its empty stance.
       const markP = frames.length;
-      stdin.write("\x10"); // ctrl+p
+      stdin.write("  "); // space space
       await waitForAnyFrame(() => frames.slice(markP), (f) => f.includes("commands") && f.includes("Suggested"));
       stdin.write("context");
       const filtered = await waitForAnyFrame(
@@ -212,6 +215,30 @@ describe("App supermenu (ctrl+p)", () => {
       // esc closes the overlay.
       stdin.write("\x1b");
       await waitForAnyFrame(() => frames.slice(markP), (f) => !f.includes("context usage appears"));
+    } finally {
+      unmount();
+    }
+  }, 30000);
+
+  test("? opens the shortcuts panel; esc closes it", async () => {
+    const { stdin, stdout, unmount } = render(<App client={client} version="test" />);
+    const frames = stdout.frames;
+    try {
+      await tick(200); // startup fetches + firehose hello
+
+      const mark = frames.length;
+      stdin.write("?"); // NORMAL-mode key map
+      const panel = await waitForAnyFrame(
+        () => frames.slice(mark),
+        (f) => f.includes("shortcuts") && f.includes("gg / GG"),
+      );
+      expect(panel).toContain("i / a");
+      expect(panel).toContain("space space");
+      expect(panel).toContain("esc close");
+
+      // esc closes it.
+      stdin.write("\x1b");
+      await waitForAnyFrame(() => frames.slice(mark), (f) => !f.includes("gg / GG"));
     } finally {
       unmount();
     }

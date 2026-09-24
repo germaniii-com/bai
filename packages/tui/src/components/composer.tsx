@@ -11,7 +11,7 @@ import { useTheme } from "../theme";
  *   ┌──────────────────────────────────────────────┐
  *   │ › input draft with cursor block              │
  *   │ chat · title        NORMAL · @agent · model  │  ← status row (chips)
- *   │ i input · ctrl+p commands · …                │  ← commands row
+ *   │ i insert mode · ? shortcuts                   │  ← commands row
  *   └──────────────────────────────────────────────┘
  *
  * Row 1 is the draft (multi-line; ▌ marks the cursor). Row 2 is the status
@@ -30,6 +30,7 @@ export function ComposerHub({
   mode,
   busy,
   escArmed,
+  quitArmed = false,
   runActive,
   layout,
   queuedCount = 0,
@@ -40,6 +41,8 @@ export function ComposerHub({
   busy: boolean;
   /** Double-esc interrupt arming (NORMAL mode hint). */
   escArmed: boolean;
+  /** Double-ctrl+c arming — shown on the draft row (not the App footer). */
+  quitArmed?: boolean;
   /** True while the coordinator is draining the session. */
   runActive: boolean;
   /** Status-row layout (state/hub.ts) — chips render in this exact order. */
@@ -53,10 +56,14 @@ export function ComposerHub({
 }) {
   const t = useTheme();
   const queuedHint = queuedCount > 0 ? `⏳ ${queuedCount} queued · ` : "";
+  // The commands row stays minimal: the full key map lives behind `?`
+  // (views/shortcuts.tsx). The draft row already surfaces run/busy state.
+  // `esc normal` is already shown on the draft row in INPUT mode, so it is
+  // not repeated here.
   const commands =
     mode === "input"
-      ? `${queuedHint}enter send · esc normal · ctrl+j/k newline · ctrl+w word · tab agent`
-      : `${queuedHint}${runActive ? "esc stop · " : ""}i input · j/k scroll · enter/space thought · ctrl+j/k focus · ctrl+p commands · tab agent · ctrl+c quit`;
+      ? `${queuedHint}? list shortcuts`
+      : `${queuedHint}i insert mode · ? list shortcuts`;
   const contextColor = context === undefined ? undefined : context.tone === "danger" ? t.danger : context.tone === "warning" ? t.warning : t.dim;
   return (
     <Box
@@ -87,6 +94,12 @@ export function ComposerHub({
         )}
         {mode === "normal" && escArmed && (
           <Text color={t.warning}> · esc again to stop</Text>
+        )}
+        {/* ctrl+c arming rides the draft row (both modes, since ctrl+c is
+            global) — the App footer no longer prints it, so nothing appears
+            below the composer. */}
+        {quitArmed && (
+          <Text color={t.warning}> · ctrl+c again to {runActive ? "stop" : "quit"}</Text>
         )}
       </Text>
       {/* Row 2 — status row: contextual session/workspace label (click →

@@ -25,9 +25,9 @@ const DIFF_WINDOW = 14;
  * App-hoisted `ui` state (state/asks.ts) so the prompt survives unmounts.
  *
  * First reply wins across devices — a loser's prompt clears via the
- * permission.replied event. esc never answers an ask; ctrl chords pass
- * through to the app's global handler (ctrl+p must open the supermenu,
- * not approve).
+ * permission.replied event. esc never answers an ask; the chat's space-space
+ * chord still opens the supermenu mid-ask (handled above this prompt's keys),
+ * so a blocked run never traps you out of session switching.
  */
 export function PermissionPrompt({
   client,

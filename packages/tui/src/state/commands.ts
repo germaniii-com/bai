@@ -1,5 +1,5 @@
 /**
- * Pure logic for the supermenu — the ctrl+p command palette that replaced
+ * Pure logic for the supermenu — the space-space command palette that replaced
  * the ctrl+** command family. The registry is data-only (no callbacks): the
  * App builds the specs with live context flags, renders them through the
  * palette view, and dispatches a picked id to the same openers the hub

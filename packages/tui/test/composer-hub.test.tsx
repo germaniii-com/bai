@@ -53,7 +53,7 @@ describe("ComposerHub render", () => {
     // Commands row: the old footer hints (the row truncates at the test
     // terminal's 100 columns, so assert the leading entries). The ctrl+**
     // family is gone — the supermenu (ctrl+p) is the single entry point.
-    expect(frame).toContain("ctrl+p commands");
+    expect(frame).toContain("i insert mode · ? list shortcuts");
     expect(frame).not.toContain("ctrl+l models");
     expect(frame).not.toContain("ctrl+p providers");
     // Ex-mode prompt while in NORMAL.
@@ -67,8 +67,8 @@ describe("ComposerHub render", () => {
     unmount();
     expect(frame).toContain("›");
     expect(frame).toContain("▌");
-    expect(frame).toContain("enter send · esc normal · ctrl+j/k newline · ctrl+w word");
-    expect(frame).not.toContain("ctrl+p commands");
+    expect(frame).toContain("? list shortcuts");
+    expect(frame).not.toContain("i insert mode");
   });
 
   test("runActive NORMAL surfaces the esc-stop hint", async () => {
@@ -76,7 +76,8 @@ describe("ComposerHub render", () => {
     await tick();
     const frame = lastFrame() ?? "";
     unmount();
-    expect(frame).toContain("esc stop");
+    // The affordance now rides the draft row (the commands row is minimal).
+    expect(frame).toContain("esc to stop");
   });
 
   test("context tracker: leads the commands row in both modes", async () => {
@@ -101,7 +102,7 @@ describe("ComposerHub render", () => {
     const inputFrame = lastFrame() ?? "";
     expect(inputFrame).toContain("45k/200k (23%)");
     expect(inputFrame).toContain("$0.012");
-    expect(inputFrame.indexOf("45k/200k (23%)")).toBeLessThan(inputFrame.indexOf("enter send"));
+    expect(inputFrame.indexOf("45k/200k (23%)")).toBeLessThan(inputFrame.indexOf("? list shortcuts"));
     unmount();
 
     const normalLayout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });
@@ -120,6 +121,23 @@ describe("ComposerHub render", () => {
     // NORMAL's longer hint row truncates — but only the hints, not the lead.
     expect(normal.lastFrame() ?? "").toContain("45k/200k (23%)");
     normal.unmount();
+  });
+
+  test("quitArmed rides the draft row (not the App footer)", async () => {
+    const layout = layoutHubStatus({ width: 60, session: session(), mode: "normal", agent: "build", model: "stub/echo" });
+    const idle = render(
+      <ComposerHub editor={{ text: "", cursor: 0 }} mode="normal" busy={false} escArmed={false} quitArmed runActive={false} layout={layout} />,
+    );
+    await tick();
+    expect(idle.lastFrame() ?? "").toContain("ctrl+c again to quit");
+    idle.unmount();
+
+    const running = render(
+      <ComposerHub editor={{ text: "", cursor: 0 }} mode="normal" busy={false} escArmed={false} quitArmed runActive layout={layout} />,
+    );
+    await tick();
+    expect(running.lastFrame() ?? "").toContain("ctrl+c again to stop");
+    running.unmount();
   });
 
   test("context tracker: absent when there is no usage yet", async () => {

@@ -99,6 +99,12 @@ const ASSISTANT_INSET = { paddingLeft: 2, paddingRight: 3 };
  *  (and wrap) instead of being clipped at the edge. */
 const TOOL_INSET = { paddingLeft: 2 };
 /**
+ * Window for the NORMAL-mode two-key chords (`gg` → top, `GG` → bottom,
+ * `space space` → supermenu). A lone `g`/`G` does nothing without a second
+ * press; a lone space performs its focused-node action when the window lapses.
+ */
+const DIGRAPH_MS = 350;
+/**
  * Stable empty defaults. Default parameters are re-evaluated every render, so
  * array/object literals (`= []`, `= emptySubagentState`) hand this component a
  * fresh reference per keystroke — which busts the memo dependencies of the
@@ -131,6 +137,7 @@ export function ChatView({
   session,
   messages,
   runActive,
+  quitArmed = false,
   mode,
   modelLabel,
   agent,
@@ -147,6 +154,8 @@ export function ChatView({
   onOpenAgents,
   onOpenSessions,
   onCycleAgent,
+  onOpenPalette,
+  onOpenShortcuts,
   subagents = emptySubagentState,
   pendingAsks = EMPTY_ASKS,
   pendingChildAsks = EMPTY_ASKS,
@@ -173,6 +182,8 @@ export function ChatView({
   messages: Message[];
   /** True while the coordinator is draining this session (run.started → run.finished). */
   runActive: boolean;
+  /** Double-ctrl+c arming (App-owned) — rendered on the composer draft row. */
+  quitArmed?: boolean;
   /** Input mode owned by App: NORMAL (vim motions) vs INPUT (typing). */
   mode: Mode;
   /** Effective model label (App-computed via currentModelLabel) — the hub's model chip. */
@@ -210,6 +221,14 @@ export function ChatView({
   onOpenSessions: () => void;
   /** Tab / Shift+Tab: step through the agent list (+1 next, -1 previous). */
   onCycleAgent?: (delta: 1 | -1) => void;
+  /**
+   * Space-space in NORMAL mode: open the supermenu (command palette). Handled
+   * here because this view owns the space key; runs before the ask guard so
+   * the supermenu stays reachable while an inline prompt is pending.
+   */
+  onOpenPalette?: () => void;
+  /** `?` in NORMAL mode: open the full key map (views/shortcuts.tsx). */
+  onOpenShortcuts?: () => void;
   /**
    * Open the subagent output dialog — `sessionId` when the task's child is
    * resolved (result link or title match), undefined to let App focus the
@@ -1037,6 +1056,132 @@ export function ChatView({
     scrollRef.current?.remeasure();
   }, [columns, rows]);
 
+  // ---- NORMAL-mode two-key chords: gg / GG / space space ------------------
+  // A short window absorbs the first key. `g`/`G` alone are inert in NORMAL
+  // mode, so buffering them costs nothing; a lone space still performs its
+  // focused-node action when the window lapses.
+  const digraphRef = useRef<{
+    key: "g" | "G" | " ";
+    allowSingle: boolean;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const clearDigraph = useCallback((): void => {
+    if (digraphRef.current !== null) {
+      clearTimeout(digraphRef.current.timer);
+      digraphRef.current = null;
+    }
+  }, []);
+  useEffect(() => clearDigraph, [clearDigraph]); // unmount
+
+  /** The focused node's enter/space action (shared by enter and the space chord). */
+  const activateFocusedItem = (): boolean => {
+    const focusedItem = focus !== null ? focusItems[focus] : undefined;
+    if (focusedItem === undefined) return false;
+    if (focusedItem.kind === "load-more") {
+      triggerLoadOlder();
+      return true;
+    }
+    if (focusedItem.kind === "revert-banner") {
+      actionRestore();
+      return true;
+    }
+    if (focusedItem.kind === "thought") {
+      toggleThought(focusedItem.messageId);
+      return true;
+    }
+    if (focusedItem.kind === "tool") {
+      if (focusedItem.call.name === "task") onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
+      else toggleToolPreview(`${focusedItem.messageId}:${focusedItem.call.callId}`);
+      return true;
+    }
+    if (focusedItem.kind === "user") {
+      setMsgActions({ messageId: focusedItem.messageId });
+      return true;
+    }
+    if (focusedItem.kind === "queued-input") {
+      if (!focusedItem.sending) setQueuedActions({ inputId: focusedItem.input.id });
+      return true;
+    }
+    return false;
+  };
+
+  /** `gg` — jump to the transcript top (the Load-more row, else the first node). */
+  const goToTop = (): void => {
+    setFocus(focusItems.length > 0 ? 0 : null);
+    scrollTo(0);
+  };
+
+  /** `GG` — jump to the bottom and re-pin follow (the latest message). */
+  const goToBottom = (): void => {
+    setFocus(null);
+    scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
+  };
+
+  /**
+   * Consume a NORMAL-mode key that may take part in a chord. Returns true when
+   * the key was consumed. `allowSingle` lets a lone space run its focused-node
+   * action (false while an ask owns the slot, so space can't toggle behind it).
+   */
+  const handleDigraph = (ch: string | undefined, allowSingle: boolean): boolean => {
+    const value = ch ?? "";
+    // Batched doubles (fast typing arrives as one chunk) fire immediately.
+    if (value === "gg") {
+      goToTop();
+      return true;
+    }
+    if (value === "GG") {
+      goToBottom();
+      return true;
+    }
+    if (value === "  ") {
+      onOpenPalette?.();
+      return true;
+    }
+    const prefix = value === "g" || value === "G" || value === " ";
+    if (!prefix) {
+      // A different key ends any pending chord: run a pending space's action,
+      // drop a pending g/G, and let the caller handle this key.
+      if (digraphRef.current !== null) {
+        const pending = digraphRef.current;
+        clearDigraph();
+        if (pending.key === " " && pending.allowSingle) activateFocusedItem();
+      }
+      return false;
+    }
+    const pending = digraphRef.current;
+    if (pending !== null && pending.key === value) {
+      clearDigraph();
+      if (value === "g") goToTop();
+      else if (value === "G") goToBottom();
+      else onOpenPalette?.();
+      return true;
+    }
+    if (pending !== null) {
+      clearDigraph();
+      if (pending.key === " " && pending.allowSingle) activateFocusedItem();
+    }
+    if (value === " ") {
+      const run = allowSingle ? activateFocusedItem : () => {};
+      digraphRef.current = {
+        key: " ",
+        allowSingle,
+        timer: setTimeout(() => {
+          digraphRef.current = null;
+          run();
+        }, DIGRAPH_MS),
+      };
+    } else {
+      digraphRef.current = {
+        key: value === "G" ? "G" : "g",
+        allowSingle: false,
+        timer: setTimeout(() => {
+          digraphRef.current = null;
+        }, DIGRAPH_MS),
+      };
+    }
+    return true;
+  };
+
   // Bracketed paste: pasted text (including newlines) arrives on its own
   // channel and is inserted literally at the cursor — it never reaches
   // useInput, which is what makes a lone "\n" there a reliable ctrl+j.
@@ -1173,11 +1318,15 @@ export function ChatView({
         return;
       }
 
+      // NORMAL-mode chords (gg / GG / space space) run BEFORE the ask guard:
+      // the supermenu must stay reachable while an inline prompt is pending.
+      // Single-space toggles are suppressed mid-ask (allowSingle=false).
+      if (mode === "normal" && handleDigraph(ch, !askPending)) return;
+
       // An ask is pending: the inline prompt (its own useInput) owns plain
-      // keys, arrows, enter/space, and — for questions and the permission
-      // reject stage — esc. The chat keeps mouse (above), paging, and
-      // ctrl+u/d scroll; other ctrl chords fall through to App's globals
-      // (the supermenu stays reachable mid-ask — the point of going inline).
+      // keys, arrows, enter, and — for questions and the permission reject
+      // stage — esc. The chat keeps mouse (above), paging, ctrl+u/d scroll,
+      // and the space-space supermenu (handled just above).
       if (askPending) {
         if (key.escape && !escOwnedByPrompt) {
           // The chat's esc semantics: clear transcript focus first, then the
@@ -1274,6 +1423,11 @@ export function ChatView({
           scrollTo(scrollRef.current?.getBottomOffset() ?? bottomOffset);
           return onEnterInput();
         }
+        // `?` — the full key map (the composer row only points at it).
+        if (ch === "?") {
+          onOpenShortcuts?.();
+          return;
+        }
         // f on a focused non-task tool node toggles the bounded full
         // output (preview ↔ full; plain enter/space below toggles preview).
         if (ch === "f") {
@@ -1283,50 +1437,15 @@ export function ChatView({
           }
           return;
         }
-        // Enter/Space act on the focused NODE: thought toggles, a task opens
-        // the subagent dialog, a user message opens the message-actions modal
+        // Enter acts on the focused NODE: thought toggles, a task opens the
+        // subagent dialog, a user message opens the message-actions modal
         // (revert/copy/fork/restore), the revert banner restores, any other
-        // tool toggles its inline output.
-        if (key.return || ch === " ") {
-          const focusedItem = focus !== null ? focusItems[focus] : undefined;
-          if (focusedItem !== undefined) {
-          if (focusedItem.kind === "load-more") {
-            triggerLoadOlder();
-            return;
-          }
-            if (focusedItem.kind === "revert-banner") {
-              actionRestore();
-              return;
-            }
-            if (focusedItem.kind === "thought") {
-              toggleThought(focusedItem.messageId);
-              return;
-            }
-            if (focusedItem.kind === "tool") {
-              if (focusedItem.call.name === "task") {
-                onOpenSubagent(resolveTaskChild(focusedItem)?.sessionId);
-              } else {
-                // Plain enter/space toggles the preview (or hides).
-                // f is handled above (toggleToolFull).
-                toggleToolPreview(
-                  `${focusedItem.messageId}:${focusedItem.call.callId}`,
-                );
-              }
-              return;
-            }
-            if (focusedItem.kind === "user") {
-              setMsgActions({ messageId: focusedItem.messageId });
-              return;
-            }
-            if (focusedItem.kind === "queued-input") {
-              // Sending nodes are in flight — no actions to offer.
-              if (!focusedItem.sending)
-                setQueuedActions({ inputId: focusedItem.input.id });
-              return;
-            }
-          }
-          if (key.return) return onEnterInput();
-          return; // space on user/text: no-op
+        // tool toggles its inline output; with nothing focused it enters
+        // INPUT. Space is the chord prefix — its single action runs through
+        // activateFocusedItem when the digraph window lapses.
+        if (key.return) {
+          if (!activateFocusedItem()) return onEnterInput();
+          return;
         }
         // j/k/arrows: continuous line scroll (±1 row) — the smooth path.
         if (key.upArrow || ch === "k") return scrollBy(-1);
@@ -2039,6 +2158,7 @@ export function ChatView({
           mode={mode}
           busy={busy}
           escArmed={escArmed}
+          quitArmed={quitArmed}
           runActive={runActive}
           layout={hubLayout}
           queuedCount={queuedInputs.length - sendingIds.length}

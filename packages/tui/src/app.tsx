@@ -13,6 +13,7 @@ import { ThemePicker } from "./views/theme-picker";
 import { CommandPalette } from "./views/command-palette";
 import { TodosDialog } from "./views/todos";
 import { ContextUsageDialog } from "./views/context-usage";
+import { ShortcutsDialog } from "./views/shortcuts";
 import { buildCommandSpecs } from "./state/commands";
 import { ThemeProvider, registerCustomThemes, tuiTheme } from "./theme";
 import { applyAskIndexEvent, askIndexFrom, askUiFor, emptyAskUi, type AskIndex, type AskUiState } from "./state/asks";
@@ -35,16 +36,17 @@ export type UiState = "chat" | "gallery" | "jobs" | "settings";
 
 /**
  * Input mode, vim-style. NORMAL (default): vim motions over the transcript
- * plus ctrl+p (the supermenu). INPUT: plain typing into the composer —
- * app-level ctrl bindings are dead there (editing chords ctrl+w/j/k and the
- * ctrl+c safety hatch excepted). esc always returns to NORMAL.
+ * plus space-space (the supermenu) and gg/GG (top/bottom). INPUT: plain
+ * typing into the composer — app-level ctrl bindings are dead there (editing
+ * chords ctrl+w/j/k and the ctrl+c safety hatch excepted). esc always returns
+ * to NORMAL.
  */
 export type Mode = "normal" | "input";
 
 /**
  * Which overlay is open — a single slot, so the supermenu's commands
  * REPLACE the palette when they open one (opencode's dialog.replace).
- * ctrl+p opens the palette; its entries open the rest: the provider wizard
+ * space-space opens the palette; its entries open the rest: the provider wizard
  * (provider → account → model), the flat model list, the agent/tool
  * switcher, the session picker, the theme picker (live preview). The
  * subagent dialog still opens contextually from the transcript.
@@ -59,6 +61,7 @@ type DialogOpen =
   | { kind: "themes" }
   | { kind: "todos" }
   | { kind: "context" }
+  | { kind: "shortcuts" }
   | { kind: "subagents"; index: number };
 
 /**
@@ -67,7 +70,7 @@ type DialogOpen =
  * The rest (agents, skills, subagents) keep the full-screen render-branch
  * swap: they are workspace-like views, not pickers.
  */
-const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes", "todos", "context"]);
+const OVERLAY_DIALOG_KINDS = new Set(["palette", "providers", "all-models", "sessions", "themes", "todos", "context", "shortcuts"]);
 
 /**
  * Root component: view-state enum + focus routing. Overlay dialogs intercept
@@ -618,11 +621,20 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     }
   });
 
-  // NORMAL-mode globals: esc-as-back + ctrl+p (the supermenu). Gated off in
-  // INPUT mode — typing must never trigger app commands (the point of the
-  // mode split). Dialogs handle their own keys and are only reachable from
-  // NORMAL anyway (the palette opens via ctrl+p). The same openers are shared
-  // with the supermenu's dispatch and the composer hub's clickable chips.
+  // NORMAL-mode globals: esc-as-back + ctrl+t (todos). Gated off in INPUT mode
+  // — typing must never trigger app commands (the point of the mode split).
+  // The supermenu itself opens from the chat view's space-space chord (it owns
+  // the space key), so it stays reachable mid-ask too. The openers below are
+  // shared with the supermenu's dispatch and the composer hub's clickable chips.
+  const openShortcutsDialog = useCallback(() => {
+    setDialog({ kind: "shortcuts" });
+  }, []);
+  const openPaletteDialog = useCallback(() => {
+    setDialog({ kind: "palette" });
+    // The Suggested section keys on needsSetup — keep the (on-demand) provider
+    // list fresh so "Connect provider" floats on a bare install.
+    void refreshProviders();
+  }, [refreshProviders]);
   const openProvidersDialog = useCallback(() => {
     setDialog({ kind: "providers" });
     void refreshProviders();
@@ -723,13 +735,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       return;
     }
     if (!key.ctrl || dialogOpenRef.current) return;
-    if (ch === "p") {
-      setDialog({ kind: "palette" });
-      // The Suggested section keys on needsSetup — keep the (on-demand)
-      // provider list fresh so "Connect provider" floats on a bare install.
-      void refreshProviders();
-      return;
-    }
+    // ctrl+p is intentionally gone: the supermenu is opened by the chat view's
+    // space-space chord (NORMAL only), so it can never fire while typing.
     if (ch === "t") {
       setDialog({ kind: "todos" });
     }
@@ -796,8 +803,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
     (error !== null ? 1 : 0) +
     (retryStatus !== null ? 1 : 0) +
     (setupHint ? 1 : 0) +
-    (askPending ? 1 : 0) +
-    (quitArmed ? 1 : 0);
+    (askPending ? 1 : 0);
 
   // Effective theme: the theme picker's live preview wins until confirmed
   // or dismissed; otherwise the config value (unknown ids fall back inside
@@ -880,6 +886,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 session={active}
                 messages={messages}
                 runActive={runActive}
+                quitArmed={quitArmed}
                 mode={mode}
                 modelLabel={modelLabel}
                 agent={activeAgent}
@@ -911,6 +918,8 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 onOpenAgents={openAgentsDialog}
                 onOpenSessions={openSessionsDialog}
                 onCycleAgent={cycleAgent}
+                onOpenPalette={openPaletteDialog}
+                onOpenShortcuts={openShortcutsDialog}
                  subagents={subagents}
                  pendingAsks={pendingAsks}
                  pendingChildAsks={pendingChildAsks}
@@ -938,25 +947,21 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       </Box>
 
       {/* Slim footer: status/warning lines only (errors, provider setup,
-          pending asks, ctrl+c arming). The keybinding hints live in the
-          composer hub's commands row now. Every line here is conditional —
-          footerRows below MUST mirror this render exactly: the chat view
-          derives its chip hit-testing row from it. */}
+          pending asks). Transient key hints — including double-ctrl+c arming —
+          ride the composer hub's draft row instead, so nothing pops up below
+          the composer. Every line here is conditional — footerRows below MUST
+          mirror this render exactly: the chat view derives its chip
+          hit-testing row from it. */}
       <Box paddingX={1} flexDirection="column">
         {error !== null && <Text color={theme.danger}>error: {error}</Text>}
         {retryStatus !== null && <Text color={theme.warning}>{retryStatus}</Text>}
-        {setupHint && <Text color={theme.warning}>no provider connected · ctrl+p → Connect provider</Text>}
+        {setupHint && <Text color={theme.warning}>no provider connected · space space → Connect provider</Text>}
         {askPending && (
           // opencode's footer counter: asks block their session's run, so
           // the count stays visible from ANY view (the prompt itself lives
           // in the chat view).
           <Text color={theme.warning}>
             △ {askTotal} pending ask{askTotal === 1 ? "" : "s"}
-          </Text>
-        )}
-        {quitArmed && (
-          <Text color={theme.warning}>
-            {runActive ? "ctrl+c again to interrupt" : "ctrl+c again to quit"}
           </Text>
         )}
       </Box>
@@ -968,7 +973,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
       {overlayDialog !== null && (
         <DialogOverlay columns={columns} rows={rows}>
           {overlayDialog.kind === "palette" ? (
-            // Supermenu (ctrl+p): the searchable command registry — category
+            // Supermenu (space-space): the searchable command registry — category
             // headers, contextual Suggested section, type-to-filter. Enter
             // dispatches through runCommand (the palette is replaced when a
             // command opens its own dialog); esc closes.
@@ -1036,6 +1041,9 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
             // breakdown — the composer hub's tracker math, per category. The
             // `mcp` row is the MCP tool-schema share of the prompt.
             <ContextUsageDialog usage={usage} onClose={() => setDialog(null)} />
+          ) : overlayDialog.kind === "shortcuts" ? (
+            // `?` key map — the composer row's hints move here.
+            <ShortcutsDialog onClose={() => setDialog(null)} />
           ) : overlayDialog.kind === "providers" || overlayDialog.kind === "all-models" ? (
             providers !== null ? (
               // Provider wizard / flat model list. Re-open with the list

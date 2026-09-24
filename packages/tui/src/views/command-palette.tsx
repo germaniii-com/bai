@@ -13,7 +13,7 @@ const WINDOW = 12;
 type Entry = { kind: "header"; label: string } | { kind: "command"; cmd: CommandSpec };
 
 /**
- * The supermenu (ctrl+p) — opencode's command palette over the App's command
+ * The supermenu (space-space) — opencode's command palette over the App's command
  * registry (state/commands.ts): type-to-filter, dim category headers, and a
  * contextual "Suggested" section while the filter is empty. Key handling
  * mirrors the SelectDialog family exactly (↑/↓, ctrl+j/k — including

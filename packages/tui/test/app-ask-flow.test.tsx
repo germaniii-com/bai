@@ -148,7 +148,7 @@ describe("App inline ask flow (end-to-end)", () => {
       );
       expect(asked).toContain("a allow once");
 
-      // Supermenu (ctrl+p) → Switch session: the sessions dialog shows the
+      // Supermenu (space space) → Switch session: the sessions dialog shows the
       // blocked session with a yellow ask badge (the global index — seeded
       // over HTTP, live via firehose). Verified against the frame STREAM,
       // anchored BEFORE each keystroke: the frames array accumulates every
@@ -159,7 +159,7 @@ describe("App inline ask flow (end-to-end)", () => {
       // ask") can't match. The batched "sess\r" filters to the two session
       // commands and runs the first (Switch session) in one write.
       const markS1 = frames.length;
-      stdin.write("\x10"); // ctrl+p — the supermenu
+      stdin.write("  "); // space space — the supermenu
       await tick();
       stdin.write("sess\r");
       const dialogFrame = await waitForAnyFrame(
@@ -190,7 +190,7 @@ describe("App inline ask flow (end-to-end)", () => {
       // the old transcript. The "enter select" hint line distinguishes the
       // sessions dialog's frames from the palette's ("enter run").
       const markS2 = frames.length;
-      stdin.write("\x10"); // ctrl+p — the supermenu
+      stdin.write("  "); // space space — the supermenu
       await tick();
       stdin.write("sess\r");
       await waitForAnyFrame(

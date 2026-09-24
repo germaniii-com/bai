@@ -29,7 +29,7 @@ describe("App context tracker + overlay (real stack)", () => {
       try {
         await tick(200);
         // Open the sessions dialog via the palette and pick the session.
-        stdin.write("\x10");
+        stdin.write("  ");
         await tick(120);
         stdin.write("sess\r");
         await tick(120);
@@ -38,20 +38,16 @@ describe("App context tracker + overlay (real stack)", () => {
         const withSession = [...frames].reverse().find((f) => f.includes("Echo: hi")) ?? "";
         expect(withSession).toContain("Echo: hi");
 
-        // The tracker leads the commands row; the NORMAL row is long, so
-        // enter INPUT mode (short hints) for a comfortable assert. 15 tokens,
-        // no catalog window → bare count before the hint list.
-        stdin.write("i");
-        await tick(120);
-        const inputFrame = [...frames].reverse().find((f) => f.includes("enter send")) ?? "";
-        expect(inputFrame).toContain("15 ·");
+        // The tracker leads the commands row: 15 tokens (10 in / 5 out), the
+        // bare count before the (now minimal) hint list.
+        const normalFrame = [...frames].reverse().find((f) => f.includes("15 ·")) ?? "";
+        expect(normalFrame).toContain("15 ·");
+        expect(normalFrame).toContain("i insert mode");
 
-        // ctrl+p floats the palette over the live transcript (NORMAL mode
-        // only — esc out of INPUT first); the reply stays visible behind.
-        stdin.write("\x1b");
-        await tick(120);
+        // space-space floats the palette over the live transcript (NORMAL
+        // mode); the reply stays visible behind.
         const mark = frames.length;
-        stdin.write("\x10");
+        stdin.write("  ");
         await tick(200);
         const overlay = [...frames.slice(mark)].reverse().find((f) => f.includes("commands")) ?? "";
         expect(overlay).toContain("Echo: hi");

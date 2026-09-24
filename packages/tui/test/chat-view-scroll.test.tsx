@@ -321,4 +321,29 @@ describe("ChatView scrolling (continuous, follow-the-bottom)", () => {
     expect(frame).toContain("❯ msg-29");
     expect(frame).toContain("msg-29");
   });
+
+  test("gg jumps to the top; GG returns to the bottom (two-key chords)", async () => {
+    const { stdin, lastFrame, unmount } = render(<ChatHarness messages={messages} />);
+    await tick();
+    expect(lastFrame() ?? "").toContain("msg-29"); // pinned to the newest
+
+    // gg — first g arms the chord, the second (within the window) fires.
+    stdin.write("g");
+    await tick();
+    stdin.write("g");
+    await tick();
+    const top = lastFrame() ?? "";
+    expect(top).toContain("msg-00"); // first node in view
+    expect(top).not.toContain("msg-29");
+
+    // GG — back to the tail (follow re-pinned, focus cleared).
+    stdin.write("G");
+    await tick();
+    stdin.write("G");
+    await tick();
+    const bottom = lastFrame() ?? "";
+    unmount();
+    expect(bottom).toContain("msg-29");
+    expect(bottom).not.toContain("msg-00");
+  });
 });
