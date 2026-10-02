@@ -1,11 +1,12 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AskOutcome, Event, Input, Message, Part, PermissionRequest, QuestionRequest, QuestionReview, Session, SessionId, TodoItem } from "@bai/shared";
+import { messageAttributionLabel } from "@bai/shared";
 
 /** Pure reducer applying session-stream events to the message list. */
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
   switch (evt.type) {
     case "message.created": {
-      const { messageId, role } = evt.payload;
+      const { messageId, role, agent, provider, model } = evt.payload;
       setMessages((prev) => [
         ...prev,
         {
@@ -14,6 +15,12 @@ export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt
           role,
           createdAt: evt.ts,
           parts: [],
+          // Assistant turns arrive attributed (the engine resolved the turn's
+          // wiring before the row landed) — the byline shows while it streams
+          // and stays put on a cut-off/cancelled turn.
+          ...(agent !== undefined ? { agent } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          ...(model !== undefined ? { model } : {}),
         },
       ]);
       return;
@@ -401,17 +408,32 @@ export function thinkingText(message: Message): string {
  */
 export type TranscriptItem =
   | { kind: "user"; messageIndex: number; messageId: string }
+  | {
+      /** The byline naming what produced an assistant reply ("chat . anthropic/claude…"). */
+      kind: "attribution";
+      messageIndex: number;
+      messageId: string;
+      label: string;
+    }
   | { kind: "thought"; messageIndex: number; messageId: string }
   | { kind: "tool"; messageIndex: number; messageId: string; call: ToolCallView; rawArgs: string }
   | { kind: "text"; messageIndex: number; messageId: string };
 
 /**
  * Flatten messages into focusable transcript items, in render order:
- * user message → one item; assistant message → thought (when present),
- * one item per tool call, then the text (when non-empty). Messages with
- * nothing renderable are skipped.
+ * user message → one item; assistant message → its attribution byline (when
+ * the engine stamped one), then the thought (when present), one item per tool
+ * call, then the text (when non-empty). Messages with nothing renderable are
+ * skipped — EXCEPT an attributed assistant message, which still renders its
+ * byline so a turn cancelled before its first token is not invisible.
+ *
+ * `providerNames` maps a provider id to its display name (cosmetic; the raw id
+ * is what the engine persisted). Omit it and the label falls back to the id.
  */
-export function buildTranscriptItems(messages: Message[]): TranscriptItem[] {
+export function buildTranscriptItems(
+  messages: Message[],
+  providerNames?: Record<string, string>,
+): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
     const m = messages[messageIndex];
@@ -421,6 +443,11 @@ export function buildTranscriptItems(messages: Message[]): TranscriptItem[] {
         items.push({ kind: "user", messageIndex, messageId: m.id });
       }
       continue;
+    }
+    const providerName = m.provider !== undefined ? providerNames?.[m.provider] : undefined;
+    const label = messageAttributionLabel(m, { ...(providerName !== undefined ? { providerName } : {}) });
+    if (label !== undefined) {
+      items.push({ kind: "attribution", messageIndex, messageId: m.id, label });
     }
     if (thinkingText(m).length > 0) {
       items.push({ kind: "thought", messageIndex, messageId: m.id });

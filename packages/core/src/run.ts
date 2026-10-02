@@ -425,8 +425,24 @@ export class RunCoordinator {
           throw lastErr;
         }
 
-        const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso());
-        this.emitDurable(sessionId, "message.created", { messageId: assistant.id, role: "assistant" });
+        // The turn's resolved wiring is stamped on the assistant message so a
+        // transcript can attribute THIS reply even after the session's
+        // model/agent changes mid-run (plan→build re-resolves `run` below) or
+        // after a reload. `provider` + `model` (the vendor id) compose back into
+        // the catalog's `provider/model`; the row lands before any token
+        // streams, so a cut-off or cancelled turn still carries attribution.
+        const assistant = this.deps.store.messages.append(sessionId, "assistant", this.deps.clock.iso(), {
+          agent: run.agent.name,
+          provider: run.providerId,
+          model: run.model,
+        });
+        this.emitDurable(sessionId, "message.created", {
+          messageId: assistant.id,
+          role: "assistant",
+          agent: run.agent.name,
+          provider: run.providerId,
+          model: run.model,
+        });
 
         let calls: ParsedCall[] = [];
         let stopReason: string | undefined;

@@ -1,8 +1,8 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type Dispatch, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Bot, Check, Copy, FileText, FolderOpen, Gauge, GitFork, GraduationCap, Hourglass, Send, TriangleAlert, Undo2, X, Zap } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AgentInfo, AttachmentRef, Input, MediaAssetRef, Message, ProviderListResponse, Session, SessionUsage } from "@bai/shared";
-import { contextTracker, deriveFolderAliases, mergeExternalResults, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, splitMentionQuery, splitMentions } from "@bai/shared";
+import { contextTracker, deriveFolderAliases, mergeExternalResults, formatMentionRange, formatTokens, applyMention, expandMentionPaths, mentionDisplayToken, mentionLeaf, mentionTrigger, messageAttributionLabel, splitMentionQuery, splitMentions } from "@bai/shared";
 import { messageText, revertBoundary, thinkingText, toolCalls, type ToolCallView } from "./state";
 import { findChildForTask, type SubagentState } from "./state-subagents";
 import { AskPanel, type PendingAsk } from "./ask-panel";
@@ -53,6 +53,39 @@ function contextChipTitle(usage: SessionUsage | null | undefined): string {
   if (usage.contextWindow === undefined) return `${formatTokens(tokens)} tokens in context`;
   const pct = Math.round((tokens / usage.contextWindow) * 100);
   return `${formatTokens(tokens)} of ${formatTokens(usage.contextWindow)} tokens (${pct}% of context window)`;
+}
+
+/**
+ * The byline above an assistant reply: `<agent> . <provider/model>` — which
+ * agent and provider/model actually produced THIS message (stamped by the
+ * engine per turn, so it stays correct across mid-session model/agent switches,
+ * reloads and forks). Renders nothing when the message carries no attribution
+ * (user turns, pre-migration history).
+ */
+function MessageAttribution({
+  agent,
+  provider,
+  model,
+  providers,
+}: {
+  agent?: string;
+  provider?: string;
+  model?: string;
+  /** Provider list — maps the persisted provider id to its display name. */
+  providers: ProviderListResponse | null;
+}) {
+  // The row stores the provider ID; the catalog's display name is cosmetic.
+  const providerName = useMemo(() => {
+    if (providers === null || provider === undefined) return undefined;
+    return providers.providers.find((p) => p.id === provider)?.name;
+  }, [providers, provider]);
+  const label = messageAttributionLabel({ agent, provider, model }, { providerName });
+  if (label === undefined) return null;
+  return (
+    <div className="message-attribution">
+      <span>{label}</span>
+    </div>
+  );
 }
 
 interface MentionUi {
@@ -337,6 +370,27 @@ export function ChatPane({
   const openFileRoot = active?.cwd ?? workspaceRoot;
   // Reference-stable change signal for the external-folder list.
   const foldersKey = (workspaceFolders ?? []).join("|");
+
+  // The "thinking…" indicator has no message yet, so it can't read a stamped
+  // attribution — resolve what the NEXT turn would use instead, mirroring the
+  // engine's tiers (session meta → config default) and the pickers' labels.
+  // Once the assistant message lands it takes over with the real per-turn values.
+  const pendingAttribution = useMemo(() => {
+    const meta = active?.meta as { agent?: unknown; model?: unknown } | undefined;
+    const agent =
+      typeof meta?.agent === "string" && meta.agent.length > 0 ? meta.agent : (configDefaultAgent ?? "build");
+    // Session-pinned model → provider-list default → startup config default.
+    const modelId =
+      typeof meta?.model === "string" && meta.model.length > 0
+        ? meta.model
+        : (list?.default.model ?? configDefault ?? undefined);
+    if (modelId === undefined) return { agent };
+    // `modelId` is the catalog's `provider/model`; split so the byline doesn't
+    // render "anthropic/anthropic/claude…".
+    const slash = modelId.indexOf("/");
+    if (slash < 0) return { agent, model: modelId };
+    return { agent, provider: modelId.slice(0, slash), model: modelId.slice(slash + 1) };
+  }, [active?.meta, configDefaultAgent, configDefault, list?.default.model]);
 
   // ---- scroll-back paging (TUI parity) ---------------------------------
   // `.messages` is the scroll container: near the top it fetches the next
@@ -689,29 +743,55 @@ export function ChatPane({
             description="Ask anything to start the conversation — the session is saved and can continue from any device."
           />
         )}
-        {visible.map((m) => (
-           <article key={m.id} className={`message ${m.role}`} aria-label={`${m.role === "user" ? "You" : "Assistant"} message`}>
-            {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
-            {m.role === "assistant" && toolCalls(m).length > 0 && (
-              <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} onOpenWorkspace={onOpenWorkspace} />
-            )}
-            {/* Attachments render ABOVE the message body (composer-hub order). */}
-            {m.role === "user" && <AttachmentParts message={m} client={client} onOpenImage={setLightbox} />}
-            {/* Assistant bodies render markdown; user input is text + `#file` chips. */}
-            {m.role === "assistant" ? (
-              <Markdown text={messageText(m)} />
-            ) : (
-              <MessageText
-                text={messageText(m)}
-                {...(openFileRoot !== undefined ? { root: openFileRoot } : {})}
-                {...(onOpenFile !== undefined ? { onOpenFile } : {})}
-              />
-            )}
-            {m.role === "user" && (onForkMessage !== undefined || onRevertMessage !== undefined) && (
-              <UserMessageActions message={m} onFork={onForkMessage} onRevert={onRevertMessage} />
-            )}
-           </article>
-        ))}
+        {visible.map((m) => {
+          const body = (
+            <>
+              {m.role === "assistant" && thinkingText(m).length > 0 && <ThinkingNode text={thinkingText(m)} />}
+              {m.role === "assistant" && toolCalls(m).length > 0 && (
+                <ToolNodes calls={toolCalls(m)} subagents={subagents} client={client} onOpenWorkspace={onOpenWorkspace} />
+              )}
+              {/* Attachments render ABOVE the message body (composer-hub order). */}
+              {m.role === "user" && <AttachmentParts message={m} client={client} onOpenImage={setLightbox} />}
+              {/* Assistant bodies render markdown; user input is text + `#file` chips. */}
+              {m.role === "assistant" ? (
+                <Markdown text={messageText(m)} />
+              ) : (
+                <MessageText
+                  text={messageText(m)}
+                  {...(openFileRoot !== undefined ? { root: openFileRoot } : {})}
+                  {...(onOpenFile !== undefined ? { onOpenFile } : {})}
+                />
+              )}
+              {m.role === "user" && (onForkMessage !== undefined || onRevertMessage !== undefined) && (
+                <UserMessageActions message={m} onFork={onForkMessage} onRevert={onRevertMessage} />
+              )}
+            </>
+          );
+          if (m.role === "assistant") {
+            // The byline rides OUTSIDE and above the bubble: it reads as a
+            // byline rather than message content, and it renders even when the
+            // reply is empty (cut off / cancelled), where it becomes the only
+            // thing the turn produced.
+            return (
+              <div key={m.id} className="assistant-turn">
+                <MessageAttribution
+                  {...(m.agent !== undefined ? { agent: m.agent } : {})}
+                  {...(m.provider !== undefined ? { provider: m.provider } : {})}
+                  {...(m.model !== undefined ? { model: m.model } : {})}
+                  providers={list}
+                />
+                <article className="message assistant" aria-label="Assistant message">
+                  {body}
+                </article>
+              </div>
+            );
+          }
+          return (
+            <article key={m.id} className="message user" aria-label="You message">
+              {body}
+            </article>
+          );
+        })}
         {revertedCount > 0 && onRestoreRevert !== undefined && (
           <div className="revert-banner" role="status">
             <Undo2 size={13} aria-hidden="true" />
@@ -764,12 +844,18 @@ export function ChatPane({
           );
         })}
         {waiting && (
-          <div className="message assistant">
-            <div className="typing" role="status" aria-label="assistant is thinking">
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
-              <span className="typing-label">thinking…</span>
+          // Same byline placement as a landed reply — the turn is already
+          // attributable (see `pendingAttribution`), and it disappears the
+          // moment the assistant message with its stamped values replaces it.
+          <div className="assistant-turn">
+            <MessageAttribution {...pendingAttribution} providers={list} />
+            <div className="message assistant">
+              <div className="typing" role="status" aria-label="assistant is thinking">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
+                <span className="typing-label">thinking…</span>
+              </div>
             </div>
           </div>
         )}

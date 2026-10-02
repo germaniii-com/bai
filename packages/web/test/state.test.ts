@@ -25,6 +25,15 @@ function msg(id: string, role: Message["role"], text: string): Message {
 const removedEvent = (messageId: string): Event =>
   ({ seq: 1, ts: "t", type: "message.removed", payload: { messageId } }) as unknown as Event;
 
+const createdEvent = (messageId: string, role: Message["role"], attribution?: Record<string, string>): Event =>
+  ({
+    seq: 1,
+    ts: "t",
+    sessionId: "ses_1",
+    type: "message.created",
+    payload: { messageId, role, ...attribution },
+  }) as unknown as Event;
+
 describe("argsDigest (tool-node one-liner)", () => {
   test("skills.* nodes read the skill name (plus the linked file)", () => {
     expect(argsDigest("skills.view", JSON.stringify({ name: "research" }))).toBe("research");
@@ -139,6 +148,40 @@ describe("message.removed reducer", () => {
 
     applyEvent(setMessages, removedEvent("m2")); // duplicate removal is a no-op
     expect(get()).toHaveLength(2);
+  });
+});
+
+describe("message.created reducer (per-message attribution)", () => {
+  test("an assistant turn keeps the engine-stamped agent/provider/model", () => {
+    const { setMessages, get } = capture();
+    applyEvent(
+      setMessages,
+      createdEvent("m1", "assistant", { agent: "chat", provider: "anthropic", model: "claude-sonnet-4-5" }),
+    );
+    const created = get()[0];
+    expect(created?.agent).toBe("chat");
+    expect(created?.provider).toBe("anthropic");
+    expect(created?.model).toBe("claude-sonnet-4-5");
+    expect(created?.role).toBe("assistant");
+  });
+
+  test("a user turn gets no attribution keys invented for it", () => {
+    const { setMessages, get } = capture();
+    applyEvent(setMessages, createdEvent("m1", "user"));
+    const created = get()[0];
+    expect(created?.role).toBe("user");
+    expect(created?.agent).toBeUndefined();
+    expect(created?.provider).toBeUndefined();
+    expect(created?.model).toBeUndefined();
+  });
+
+  test("attribution arrives before any part, so a cut-off turn is still attributable", () => {
+    const { setMessages, get } = capture();
+    // The engine stamps the row when the stream opens — a turn cancelled
+    // before its first token has a message with attribution and NO parts.
+    applyEvent(setMessages, createdEvent("m1", "assistant", { agent: "build", provider: "stub", model: "echo" }));
+    expect(get()[0]?.parts).toEqual([]);
+    expect(get()[0]?.model).toBe("echo");
   });
 });
 

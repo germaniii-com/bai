@@ -134,6 +134,48 @@ export function contextTracker(usage: SessionUsage | null | undefined): ContextT
   return { label: formatTokens(tokens), tone: "dim", ...extras };
 }
 
+// --- per-message attribution (what produced an assistant reply) ---
+
+/**
+ * The raw attribution a message carries (see `Message`): the agent name, the
+ * provider id, and the vendor model id. Every field is optional — user turns
+ * and pre-migration rows have none.
+ */
+export interface MessageAttributionInput {
+  agent?: string;
+  provider?: string;
+  model?: string;
+}
+
+/**
+ * The byline above an assistant reply: `<agent> . <provider/model>`, e.g.
+ * `chat . anthropic/claude-sonnet-4-5`. Missing parts are simply omitted, so
+ * `build . claude-4` (no provider on the row) still reads sensibly; returns
+ * undefined when NOTHING is known (user turns, pre-migration history), which
+ * callers render as "no label".
+ *
+ * `providerName` lets a surface swap the raw provider id for its display name
+ * (the id is what's persisted; `ProviderInfo.name` is cosmetic). Surfaces that
+ * don't have the catalog at hand simply omit it.
+ */
+export function messageAttributionLabel(
+  attribution: MessageAttributionInput | null | undefined,
+  opts?: { providerName?: string },
+): string | undefined {
+  if (attribution === null || attribution === undefined) return undefined;
+  const agent = typeof attribution.agent === "string" && attribution.agent.length > 0 ? attribution.agent : undefined;
+  const providerId = typeof attribution.provider === "string" && attribution.provider.length > 0 ? attribution.provider : undefined;
+  const model = typeof attribution.model === "string" && attribution.model.length > 0 ? attribution.model : undefined;
+  if (agent === undefined && providerId === undefined && model === undefined) return undefined;
+  // `providerName` only replaces the id when it actually resolved — a lookup
+  // miss keeps the id, which is still a truthful (if plainer) label.
+  const provider = providerId === undefined ? undefined : (opts?.providerName ?? providerId);
+  // A provider-less row (legacy/custom shapes) still names the model on its own.
+  const target = provider !== undefined && model !== undefined ? `${provider}/${model}` : (provider ?? model);
+  if (target === undefined) return agent;
+  return agent !== undefined ? `${agent} . ${target}` : target;
+}
+
 // --- context breakdown (the web breakdown modal's rows) ---
 
 /** Display label for each prompt category. */

@@ -20,7 +20,7 @@ import { unwrapTaskOutput } from "@bai/shared";
 export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt: Event): void {
   switch (evt.type) {
     case "message.created": {
-      const { messageId, role } = evt.payload;
+      const { messageId, role, agent, provider, model } = evt.payload;
       setMessages((prev) => [
         ...prev,
         {
@@ -29,6 +29,12 @@ export function applyEvent(setMessages: Dispatch<SetStateAction<Message[]>>, evt
           role,
           createdAt: evt.ts,
           parts: [],
+          // Assistant turns arrive attributed (the engine resolved the turn's
+          // wiring before the row landed) — carry it so the byline shows while
+          // the reply streams and stays put on a cut-off/cancelled turn.
+          ...(agent !== undefined ? { agent } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          ...(model !== undefined ? { model } : {}),
         },
       ]);
       return;

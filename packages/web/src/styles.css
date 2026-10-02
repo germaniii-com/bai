@@ -1944,6 +1944,39 @@ input[type="radio"]:focus-visible {
   margin-top: 0;
 }
 
+/* Assistant turn: the byline + the bubble. The wrapper exists so the byline
+   sits OUTSIDE the bubble (above its border) and still tracks the bubble's
+   alignment and width cap — the bubble keeps sizing to its own content. */
+.assistant-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+/* Chat section only: the byline + bubble stay under the same cap as a bubble,
+   left-aligned like the assistant bubble it belongs to. */
+.chat-bubbles .assistant-turn {
+  align-self: flex-start;
+  max-width: min(80%, 760px);
+}
+
+/* Per-assistant-message byline ("agent . provider/model") — what actually
+   produced the reply below it: above the bubble in the Chat section, above the
+   response in the Workspace transcript. Quiet by design (it's metadata, not
+   content), but never hidden — a cut-off or cancelled turn still shows what it
+   was cut off from. The wrapper's 12px row gap already separates it, so no
+   bottom margin here. */
+.message-attribution {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .message p {
   margin: 2px 0 0;
   white-space: pre-wrap;

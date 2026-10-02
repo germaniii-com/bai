@@ -45,6 +45,71 @@ describe("store", () => {
     expect((history[1]?.parts[0]?.payload as { text: string }).text).toBe("second");
   });
 
+  test("assistant messages roundtrip their model/agent attribution; user turns carry none", () => {
+    const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const user = store.messages.append(ses.id, "user", "2026-01-01T00:00:01Z");
+    store.parts.append(user.id, 0, "text", { text: "hi" });
+    const assistant = store.messages.append(ses.id, "assistant", "2026-01-01T00:00:02Z", {
+      agent: "chat",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+    store.parts.append(assistant.id, 0, "text", { text: "hello" });
+
+    const history = store.messages.history(ses.id);
+    // The append call echoes the attribution…
+    expect(assistant.agent).toBe("chat");
+    expect(assistant.provider).toBe("anthropic");
+    expect(assistant.model).toBe("claude-sonnet-4-5");
+    // …and it survives the roundtrip through the DB.
+    expect(history[1]?.agent).toBe("chat");
+    expect(history[1]?.provider).toBe("anthropic");
+    expect(history[1]?.model).toBe("claude-sonnet-4-5");
+    // No attribution → the keys stay ABSENT (not empty strings), so surfaces
+    // can tell "unattributed" from "attributed with an empty value".
+    expect(history[0]?.agent).toBeUndefined();
+    expect(history[0]?.provider).toBeUndefined();
+    expect(history[0]?.model).toBeUndefined();
+  });
+
+  test("attribution is per-message, so a mid-session model switch stays truthful", () => {
+    const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    store.messages.append(ses.id, "assistant", "2026-01-01T00:00:01Z", {
+      agent: "chat",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+    store.messages.append(ses.id, "assistant", "2026-01-01T00:00:02Z", {
+      agent: "build",
+      provider: "openai",
+      model: "gpt-5",
+    });
+
+    const history = store.messages.history(ses.id);
+    expect(history[0]?.model).toBe("claude-sonnet-4-5");
+    expect(history[1]?.model).toBe("gpt-5");
+    expect(history[1]?.agent).toBe("build");
+  });
+
+  test("messages.copyRange carries attribution onto the forked copies", () => {
+    const src = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    const dst = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
+    store.messages.append(src.id, "assistant", "2026-01-01T00:00:01Z", {
+      agent: "plan",
+      provider: "openrouter",
+      model: "anthropic/claude-sonnet-4-5",
+    });
+    const boundary = store.messages.append(src.id, "user", "2026-01-01T00:00:02Z");
+
+    store.messages.copyRange(src.id, dst.id, boundary.id);
+
+    const copied = store.messages.history(dst.id);
+    expect(copied).toHaveLength(1);
+    expect(copied[0]?.agent).toBe("plan");
+    expect(copied[0]?.provider).toBe("openrouter");
+    expect(copied[0]?.model).toBe("anthropic/claude-sonnet-4-5");
+  });
+
   test("inputs admit → promote steers (atomic)", () => {
     const ses = store.sessions.insert({ workbench: "chat", now: "2026-01-01T00:00:00Z" });
     store.inputs.admit(ses.id, { text: "one" }, "2026-01-01T00:00:01Z");

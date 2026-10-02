@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
-import { buildTranscriptItems } from "../src/state/sync";
+import type { Dispatch, SetStateAction } from "react";
+import type { Event, Message, MessageId, Part, PartId, SessionId } from "@bai/shared";
+import { applyEvent, buildTranscriptItems } from "../src/state/sync";
 
 /** Build one part with a stable id. */
 function part(ord: number, kind: Part["kind"], payload: unknown): Part {
@@ -14,6 +15,16 @@ function msg(i: number, role: Message["role"], parts: Part[]): Message {
     role,
     createdAt: "t",
     parts,
+  };
+}
+
+/** An assistant message carrying engine-stamped attribution. */
+function attributed(i: number, parts: Part[], attribution: Partial<Pick<Message, "agent" | "provider" | "model">> = {}): Message {
+  return {
+    ...msg(i, "assistant", parts),
+    agent: attribution.agent ?? "chat",
+    provider: attribution.provider ?? "anthropic",
+    model: attribution.model ?? "claude-sonnet-4-5",
   };
 }
 
@@ -62,5 +73,83 @@ describe("buildTranscriptItems (node-level transcript)", () => {
     const first = items[0];
     expect(first?.kind === "tool" && first.call.status).toBe("error");
     expect(first?.kind === "tool" && (first.call.result?.isError ?? false)).toBe(true);
+  });
+
+  test("attribution flattens to a byline node above the message's other nodes", () => {
+    const messages = [
+      msg(0, "user", [part(0, "text", { text: "do it" })]),
+      attributed(1, [
+        part(0, "tool_call", { callId: "c1", name: "fs.read", args: '{"path":"a"}' }),
+        part(1, "text", { text: "done" }),
+      ]),
+    ];
+    const items = buildTranscriptItems(messages);
+    expect(items.map((i) => i.kind)).toEqual(["user", "attribution", "tool", "text"]);
+    const byline = items[1];
+    expect(byline?.kind === "attribution" && byline.label).toBe("chat . anthropic/claude-sonnet-4-5");
+  });
+
+  test("the byline uses the provider display name when the catalog resolved one", () => {
+    const messages = [attributed(0, [part(0, "text", { text: "hi" })])];
+    const items = buildTranscriptItems(messages, { anthropic: "Anthropic" });
+    expect(items[0]?.kind === "attribution" && items[0].label).toBe("chat . Anthropic/claude-sonnet-4-5");
+  });
+
+  test("messages with no attribution produce no byline node (pre-migration history)", () => {
+    const messages = [msg(0, "assistant", [part(0, "text", { text: "legacy reply" })])];
+    const items = buildTranscriptItems(messages);
+    expect(items.map((i) => i.kind)).toEqual(["text"]);
+  });
+
+  test("an attributed turn cancelled before its first token still renders its byline", () => {
+    // No parts at all — the empty assistant message a cancelled turn leaves.
+    // It used to be skipped entirely, which made the turn invisible.
+    const messages = [attributed(0, [])];
+    const items = buildTranscriptItems(messages);
+    expect(items.map((i) => i.kind)).toEqual(["attribution"]);
+    expect(items[0]?.kind === "attribution" && items[0].label).toBe("chat . anthropic/claude-sonnet-4-5");
+  });
+
+  test("a user message never gets a byline, even with stray attribution fields", () => {
+    const messages: Message[] = [
+      { ...msg(0, "user", [part(0, "text", { text: "hi" })]), agent: "chat", provider: "anthropic", model: "claude-4" },
+    ];
+    const items = buildTranscriptItems(messages);
+    expect(items.map((i) => i.kind)).toEqual(["user"]);
+  });
+});
+
+describe("applyEvent (message.created attribution)", () => {
+  function capture() {
+    let messages: Message[] = [];
+    const setMessages = ((update: (prev: Message[]) => Message[]) => {
+      messages = update(messages);
+    }) as Dispatch<SetStateAction<Message[]>>;
+    return { setMessages, get: () => messages };
+  }
+
+  const createdEvent = (role: Message["role"], attribution?: Record<string, string>): Event =>
+    ({
+      seq: 1,
+      ts: "t",
+      sessionId: "ses_1",
+      type: "message.created",
+      payload: { messageId: "m1", role, ...attribution },
+    }) as unknown as Event;
+
+  test("an assistant turn keeps the engine-stamped attribution", () => {
+    const { setMessages, get } = capture();
+    applyEvent(setMessages, createdEvent("assistant", { agent: "chat", provider: "anthropic", model: "claude-4" }));
+    expect(get()[0]?.agent).toBe("chat");
+    expect(get()[0]?.provider).toBe("anthropic");
+    expect(get()[0]?.model).toBe("claude-4");
+  });
+
+  test("a user turn gets no attribution keys invented for it", () => {
+    const { setMessages, get } = capture();
+    applyEvent(setMessages, createdEvent("user"));
+    expect(get()[0]?.agent).toBeUndefined();
+    expect(get()[0]?.provider).toBeUndefined();
+    expect(get()[0]?.model).toBeUndefined();
   });
 });

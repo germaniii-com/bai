@@ -8,6 +8,9 @@ interface MessageRow {
   session_id: string;
   role: string;
   created_at: string;
+  agent: string | null;
+  provider: string | null;
+  model: string | null;
 }
 
 interface PartRow {
@@ -26,6 +29,28 @@ function toPart(row: PartRow): Part {
     kind: row.kind as PartKind,
     payload: JSON.parse(row.payload) as unknown,
   };
+}
+
+/**
+ * What produced a message (see `Message`'s attribution fields). Stored in the
+ * `messages` row's nullable columns; NULL columns simply mean "no attribution"
+ * (user turns, pre-migration rows) and are omitted rather than emitted as
+ * empty strings.
+ */
+export interface MessageAttribution {
+  agent?: string;
+  provider?: string;
+  model?: string;
+}
+
+/** Row → attribution: NULL / empty columns collapse to absent fields. */
+function toAttribution(row: { agent: string | null; provider: string | null; model: string | null }): MessageAttribution | undefined {
+  const attribution: MessageAttribution = {
+    ...(typeof row.agent === "string" && row.agent.length > 0 ? { agent: row.agent } : {}),
+    ...(typeof row.provider === "string" && row.provider.length > 0 ? { provider: row.provider } : {}),
+    ...(typeof row.model === "string" && row.model.length > 0 ? { model: row.model } : {}),
+  };
+  return Object.keys(attribution).length > 0 ? attribution : undefined;
 }
 
 /** Cursor for paged history reads (opaque to clients — base64url JSON). */
@@ -57,12 +82,32 @@ export interface HistoryPage {
 export class MessagesRepo {
   constructor(private db: SqliteDb) {}
 
-  append(sessionId: SessionId, role: Role, now: string): Message {
+  /**
+   * Append a message row. `attribution` (agent/provider/model) is optional and
+   * only ever set for assistant turns — the resolved wiring of the provider call
+   * that turn makes. Omitted → NULL columns → no attribution on the message.
+   */
+  append(sessionId: SessionId, role: Role, now: string, attribution?: MessageAttribution): Message {
     const id = newId.message();
     this.db
-      .query("INSERT INTO messages (id, session_id, role, created_at) VALUES (?, ?, ?, ?)")
-      .run(id, sessionId, role, now);
-    return { id, sessionId, role, createdAt: now, parts: [] };
+      .query("INSERT INTO messages (id, session_id, role, created_at, agent, provider, model) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        id,
+        sessionId,
+        role,
+        now,
+        attribution?.agent ?? null,
+        attribution?.provider ?? null,
+        attribution?.model ?? null,
+      );
+    return {
+      id,
+      sessionId,
+      role,
+      createdAt: now,
+      parts: [],
+      ...(attribution !== undefined ? { ...attribution } : {}),
+    };
   }
 
   /**
@@ -135,13 +180,17 @@ export class MessagesRepo {
       list.push(toPart(row));
       byMessage.set(row.message_id, list);
     }
-    return msgRows.map((row) => ({
-      id: row.id as MessageId,
-      sessionId: row.session_id as SessionId,
-      role: row.role as Role,
-      createdAt: row.created_at,
-      parts: byMessage.get(row.id) ?? [],
-    }));
+    return msgRows.map((row) => {
+      const attribution = toAttribution(row);
+      return {
+        id: row.id as MessageId,
+        sessionId: row.session_id as SessionId,
+        role: row.role as Role,
+        createdAt: row.created_at,
+        parts: byMessage.get(row.id) ?? [],
+        ...(attribution !== undefined ? { ...attribution } : {}),
+      };
+    });
   }
 
   /**
@@ -170,9 +219,9 @@ export class MessagesRepo {
   /**
    * Copy messages strictly before `uptoMessageId` (ALL messages when omitted
    * or not found — opencode's fork semantics) from one session into another
-   * with FRESH ids — the fork primitive. Ordering (created_at), roles and
-   * parts (ord/kind/payload) are preserved verbatim; returns old → new
-   * message id.
+   * with FRESH ids — the fork primitive. Ordering (created_at), roles,
+   * attribution (agent/provider/model) and parts (ord/kind/payload) are
+   * preserved verbatim; returns old → new message id.
    */
   copyRange(
     fromSessionId: SessionId,
@@ -188,8 +237,16 @@ export class MessagesRepo {
         const id = newId.message();
         idMap.set(msg.id, id);
         this.db
-          .query("INSERT INTO messages (id, session_id, role, created_at) VALUES (?, ?, ?, ?)")
-          .run(id, toSessionId, msg.role, msg.createdAt);
+          .query("INSERT INTO messages (id, session_id, role, created_at, agent, provider, model) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(
+            id,
+            toSessionId,
+            msg.role,
+            msg.createdAt,
+            msg.agent ?? null,
+            msg.provider ?? null,
+            msg.model ?? null,
+          );
         for (const part of msg.parts) {
           this.db
             .query("INSERT INTO parts (id, message_id, ord, kind, payload) VALUES (?, ?, ?, ?, ?)")

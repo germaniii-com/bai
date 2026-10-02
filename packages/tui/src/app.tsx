@@ -749,6 +749,14 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
   }, [refreshProviders, refreshSessions]);
 
   const modelLabel = currentModelLabel(active, providers, configDefault);
+  // Provider id → display name, for the transcript's per-message attribution
+  // bylines ("chat . Claude/x"). Cosmetic — the engine persists ids, and the
+  // label falls back to the id when the catalog hasn't loaded.
+  const providerNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const p of providers?.providers ?? []) names[p.id] = p.name;
+    return names;
+  }, [providers]);
 
   /**
    * Open the subagent output dialog: at `sessionId` when the task result
@@ -890,6 +898,7 @@ export function App({ client, workspaceRoot }: { client: BaiClient; version: str
                 mode={mode}
                 modelLabel={modelLabel}
                 agent={activeAgent}
+                providerNames={providerNames}
                 footerRows={footerRows}
                 usage={usage}
                 // The launch folder (registered as a workspace at boot) —

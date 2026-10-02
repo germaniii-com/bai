@@ -39,7 +39,13 @@ export interface EventPayloads {
   "input.cancelled": { inputId: InputId; sessionId: SessionId };
   /** A pending input's delivery changed (send-now flips queued → steer). */
   "input.updated": { inputId: InputId; sessionId: SessionId; queued: boolean };
-  "message.created": { messageId: MessageId; role: Role };
+  /**
+   * A message was appended to the transcript. Assistant turns additionally
+   * carry the resolved `agent`/`provider`/`model` (same fields as `Message`) so
+   * surfaces building state from events alone — no snapshot in between — can
+   * attribute the reply (and label it while it streams or is cut off).
+   */
+  "message.created": { messageId: MessageId; role: Role; agent?: string; provider?: string; model?: string };
   "message.part.updated": { messageId: MessageId; partId: PartId; kind: PartKind; payload: unknown };
   "message.part.delta": { messageId: MessageId; partId: PartId; delta: string };
   /** A message was hard-deleted (revert cleanup at next prompt admission). */

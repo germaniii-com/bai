@@ -273,4 +273,16 @@ export const MIGRATIONS: string[] = [
 
   CREATE INDEX IF NOT EXISTS idx_media_events_kind_created ON media_events(kind, created_at);
   `,
+  // 012 — per-assistant-message model/agent attribution: the engine stamps the
+  // resolved turn wiring (agent name, provider id, catalog model id) on each
+  // assistant message row, so a transcript line can name what produced THAT
+  // reply even after the session's model/agent changed. Purely additive: legacy
+  // rows keep NULL attribution and surfaces hide the label for them (no
+  // backfill — guessing history from the session's current selection would
+  // mislabel it). Names mirror the `usage` table's dimensions.
+  `
+  ALTER TABLE messages ADD COLUMN agent TEXT;
+  ALTER TABLE messages ADD COLUMN provider TEXT;
+  ALTER TABLE messages ADD COLUMN model TEXT;
+  `,
 ];

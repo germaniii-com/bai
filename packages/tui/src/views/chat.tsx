@@ -141,6 +141,7 @@ export function ChatView({
   mode,
   modelLabel,
   agent,
+  providerNames,
   footerRows,
   usage = null,
   workspaceRoot,
@@ -190,6 +191,12 @@ export function ChatView({
   modelLabel: string;
   /** Effective agent name (session pin → config default → build) — the hub's agent chip. */
   agent: string;
+  /**
+   * Provider id → display name (App-computed from the provider list), used to
+   * render each assistant message's attribution byline in catalog names rather
+   * than raw ids. Omitted in tests/embeds — the label falls back to the id.
+   */
+  providerNames?: Record<string, string>;
   /** Rows the App footer renders below this view — anchors the hub chip hit-testing. */
   footerRows: number;
   /** The session's latest provider-reported usage — the hub's context tracker. */
@@ -432,8 +439,8 @@ export function ChatView({
   // The flattened node list — memoized on the visible window so unrelated
   // renders (scroll, focus, typing) skip the rebuild + JSON.parse digests.
   const items = useMemo(
-    () => buildTranscriptItems(visibleMessages),
-    [visibleMessages],
+    () => buildTranscriptItems(visibleMessages, providerNames),
+    [visibleMessages, providerNames],
   );
 
   // Queued nodes (message-queue feature): pending inputs render at the
@@ -1745,6 +1752,26 @@ export function ChatView({
                       <Text color={t.secondary}>{markers.join(" ")}</Text>
                     ) : null;
                   })()}
+                </Box>
+              </Box>
+            );
+          }
+if (item.kind === "attribution") {
+            // The byline naming what produced the reply below it ("chat .
+            // anthropic/claude-sonnet-4-5"). Engine-stamped per turn, so it
+            // survives a mid-session model/agent switch, a reload, and a turn
+            // that was cut off or cancelled before its first token (the node
+            // still exists — it's the only thing that turn produced).
+            // Non-actionable like a text node: it takes a focus stop but enter
+            // does nothing.
+            return (
+              <Box
+                key={`${item.messageId}:attribution`}
+                marginTop={gap}
+                flexShrink={0}
+              >
+                <Box {...ASSISTANT_INSET} flexShrink={0}>
+                  <Text color={focused ? t.accent : t.dim}>{item.label}</Text>
                 </Box>
               </Box>
             );

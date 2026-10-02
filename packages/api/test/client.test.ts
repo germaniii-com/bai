@@ -136,6 +136,13 @@ describe("client ↔ server (integration)", () => {
     const history = await client.history(session.id);
     expect(history).toHaveLength(2);
     expect(history[1]?.role).toBe("assistant");
+    // Attribution rides the wire: the assistant turn names the agent/model
+    // that produced it, the user turn carries none.
+    expect(history[1]?.agent).toBe("build");
+    expect(history[1]?.provider).toBe("stub");
+    expect(history[1]?.model).toBe("echo");
+    expect(history[0]?.agent).toBeUndefined();
+    expect(history[0]?.model).toBeUndefined();
 
     // Snapshot + cursor: user text present, cursor past the events just
     // streamed, so a stream opened at afterSeq replays nothing (only the
@@ -143,6 +150,7 @@ describe("client ↔ server (integration)", () => {
     const snap = await client.historySnapshot(session.id);
     expect(snap.messages).toHaveLength(2);
     expect(snap.messages[0]?.parts.some((p) => p.kind === "text")).toBe(true);
+    expect(snap.messages[1]?.model).toBe("echo");
     expect(snap.afterSeq).toBeGreaterThan(0);
     const ctrl = new AbortController();
     const replayed: Event[] = [];

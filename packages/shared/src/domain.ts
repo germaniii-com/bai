@@ -76,6 +76,18 @@ export interface Message {
   role: Role;
   createdAt: string;
   parts: Part[];
+  /**
+   * What produced this message — stamped by the engine on assistant turns only
+   * (`agent` = agent name, `provider` = provider ID, `model` = catalog model id
+   * like "anthropic/claude-sonnet-4-5"). Resolved PER TURN, so a transcript can
+   * name the model/agent that actually wrote a reply even when the session's
+   * selection changed mid-conversation. Optional everywhere: user/system
+   * messages never carry it, and pre-migration rows have NULL (surfaces hide
+   * the attribution line rather than guess).
+   */
+  agent?: string;
+  provider?: string;
+  model?: string;
 }
 
 /**
