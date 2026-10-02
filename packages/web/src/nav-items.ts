@@ -16,6 +16,8 @@ export interface NavItemDef {
 
 /** Canonical rail order. */
 export const NAV_ITEMS: NavItemDef[] = [
+  // Bot leads the rail (the always-on workbench ahead of everything else).
+  { id: "bot", label: "Bot", advanced: false },
   { id: "chat", label: "Chat", advanced: false },
   { id: "workspace", label: "Workspace", advanced: false },
   { id: "image", label: "Image Gen", advanced: false },

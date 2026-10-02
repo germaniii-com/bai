@@ -25,6 +25,7 @@ export type RouteSettingsSection = SettingsSection;
  * `image` and `video` are single pages (workflow + gallery).
  */
 export type Route =
+  | { section: "bot" }
   | { section: "chat"; sessionId: string | null }
   | {
       section: "workspace";
@@ -93,6 +94,9 @@ export function parseRoute(pathname: string, search: string): Route {
   const [head, rawNext] = segments;
   const next = rawNext !== undefined ? safeDecode(rawNext) : undefined;
   switch (head) {
+    case "bot":
+      // /bot — a single page, no sub-state (extra segments ignored).
+      return { section: "bot" };
     case "chat": {
       // /chat (draft) or /chat/{sessionId}; extra segments fall back to draft.
       const sessionId = next !== undefined && segments.length === 2 ? next : null;
@@ -110,6 +114,7 @@ export function parseRoute(pathname: string, search: string): Route {
       // Legacy /settings/user folded into General (User is no longer a section).
       const settingsSection: RouteSettingsSection =
         sub === "providers" ||
+        sub === "bot" ||
         sub === "image" ||
         sub === "video" ||
         sub === "webSearch" ||
@@ -151,6 +156,8 @@ export function parseRoute(pathname: string, search: string): Route {
  */
 export function routeToPath(route: Route): string {
   switch (route.section) {
+    case "bot":
+      return "/bot";
     case "chat":
       return route.sessionId !== null ? `/chat/${encodeURIComponent(route.sessionId)}` : "/chat";
     case "workspace": {

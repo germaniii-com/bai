@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, ChevronDown, Copy, Download, Eye, EyeOff, FileText, Pencil, Server, Trash2 } from "lucide-react";
+import { BotMessageSquare, Check, ChevronDown, Copy, Download, Eye, EyeOff, FileText, Pencil, Server, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -108,6 +108,7 @@ type ProviderTab =
 export type SettingsSection =
   | "general"
   | "providers"
+  | "bot"
   | "image"
   | "video"
   | "webSearch"
@@ -124,6 +125,7 @@ export function SettingsNav({
   const entries: { id: SettingsSection; title: string; dim: string }[] = [
     { id: "general", title: "General", dim: "name · agent · model" },
     { id: "providers", title: "Model Providers", dim: "accounts · media gen" },
+    { id: "bot", title: "Bot", dim: "identity · behavior" },
     { id: "image", title: "Image Generation", dim: "defaults · concurrency" },
     { id: "video", title: "Video Generation", dim: "workflows · defaults" },
     { id: "webSearch", title: "Web Search", dim: "provider · fallback" },
@@ -233,6 +235,25 @@ export function SettingsPane({
     return (
       <div className={settingsClass}>
         <IntegrationsPane client={client} onNotice={onNotice} />
+      </div>
+    );
+  }
+
+  // Bot's settings land ahead of the provider-list gate — the section reads no
+  // provider data, so it stays reachable while the list is still loading.
+  if (section === "bot") {
+    return (
+      <div className={settingsClass}>
+        <PageHeader
+          title="Bot"
+          icon={<BotMessageSquare size={20} aria-hidden="true" />}
+          lede="Your always-on assistant."
+        />
+        <EmptyState
+          icon={<BotMessageSquare size={28} aria-hidden="true" />}
+          title="Coming soon"
+          description="Bot identity and behavior settings will live here."
+        />
       </div>
     );
   }
@@ -456,7 +477,7 @@ function AdvancedModeCard({
       <SwitchField
         checked={advanced}
         label="Advanced mode"
-        description="Show Agents, Skills, Tools, Automations, Analytics, and Shell in the nav. Off (default) keeps just Chat, Workspace, Image Gen, Video Gen, Theme, and Settings."
+        description="Show Agents, Skills, Tools, Automations, Analytics, and Shell in the nav. Off (default) keeps just Bot, Chat, Workspace, Image Gen, Video Gen, Theme, and Settings."
         onChange={(on) => {
           void mutate(
             async () => {

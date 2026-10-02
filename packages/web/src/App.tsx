@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Bot, ChartColumn, ChevronLeft, ChevronRight, Clock, FileText, Folder, Image, Menu, MessageCircle, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
+import { Bot, BotMessageSquare, ChartColumn, ChevronLeft, ChevronRight, Clock, FileText, Folder, Image, Menu, MessageCircle, MessagesSquare, Palette, Search, SlidersHorizontal, SquarePen, Terminal, Video, Wrench, Zap } from "lucide-react";
 import { BaiClient, eventMux, followSession } from "@bai/api/client";
 import type { AttachmentRef, Input, JobsConfig, MediaGenConfig, Message, PermissionRequest, PlanFile, QuestionRequest, Session, SessionUsage, ThemeColors, ThemeId, TodoItem } from "@bai/shared";
 import { resolveThemeId, isThemeId, slugifyThemeId, themeContrastFailures, THEME_COLORS, buildLearnRequest, collapseMentions, deriveFolderAliases, mentionDisplayToken, resolveAliasPath, toMentionPath, type CustomTheme, type CustomThemeInput } from "@bai/shared";
@@ -39,21 +39,24 @@ import { Toast, type Notice } from "./toast";
 import { TooltipLayer } from "./tooltip";
 import { useLongPress } from "./use-long-press";
 import { useMediaQuery } from "./use-media-query";
-import { Button, Chip, ContextMenu, Drawer, IconButton, ListItem, NavItem, SubNavCreate, SubNavToggle, Tabs, TextInput, type ContextMenuItem } from "./components";
+import { Button, Chip, ContextMenu, Drawer, EmptyState, IconButton, ListItem, NavItem, PageHeader, SubNavCreate, SubNavToggle, Tabs, TextInput, type ContextMenuItem } from "./components";
 
 /**
  * Master-rail sections. Image/Video are Phase 5 placeholders — the rail
  * renders them disabled (same stance as the TUI's placeholder views);
  * chat, workspace, and settings are reachable.
  */
-type Section = "chat" | "workspace" | "agents" | "tools" | "skills" | "automations" | "analytics" | "image" | "video" | "shell" | "settings";
+type Section = "bot" | "chat" | "workspace" | "agents" | "tools" | "skills" | "automations" | "analytics" | "image" | "video" | "shell" | "settings";
 
 /**
  * Sections that render without the nested sidebar (single-pane views — no
  * contextual nav content, so the main pane gets the full width). Add or
  * remove section names here to change which views hide the sidebar.
+ *
+ * Bot is here until it grows nested content: a titled-but-empty column reads
+ * as broken. Drop it from this list alongside that content landing.
  */
-const SIDEBAR_HIDDEN: Section[] = ["shell", "analytics", "image", "video"];
+const SIDEBAR_HIDDEN: Section[] = ["bot", "shell", "analytics", "image", "video"];
 
 /** Workspace right-rail resize bounds + per-device persistence key. */
 const WORKSPACE_SIDEBAR_MIN = 180;
@@ -914,6 +917,9 @@ export function App() {
     // the workspace view (or vice versa) would read as a context mixup —
     // and carry it into the route so the URL keeps identifying it.
     switch (next) {
+      case "bot":
+        pushRoute({ section: "bot" });
+        break;
       case "chat": {
         const keep = activeRef.current?.workbench === "chat" ? activeRef.current : null;
         pushRoute({ section: "chat", sessionId: keep?.id ?? null }, keep);
@@ -966,12 +972,14 @@ export function App() {
   // longer reachable (basic mode, or hidden in Settings → General), fall back
   // to the first visible workbench (then any visible section). Skipped for
   // Settings/other always-reachable views.
+  //
+  // The fallback walks NAV_ITEMS in canonical rail order rather than a second
+  // hardcoded list, so the landing section always matches the rail's top item.
   useEffect(() => {
     if (!NAV_ITEMS.some((i) => i.id === section)) return;
     if (visibleNav.has(section)) return;
     const fallback =
-      (["chat", "workspace", "image", "video"] as const).find((id) => visibleNav.has(id)) ??
-      [...visibleNav][0];
+      NAV_ITEMS.find((item) => visibleNav.has(item.id))?.id ?? [...visibleNav][0];
     if (fallback !== undefined) navigate(fallback as Section);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, visibleNav]);
@@ -1016,7 +1024,9 @@ export function App() {
 
   // The nav state as a Route — the canonical URL projection.
   const canonicalPath = routeToPath(
-    section === "settings"
+    section === "bot"
+      ? { section: "bot" }
+      : section === "settings"
       ? { section: "settings", settingsSection }
       : section === "agents"
         ? { section: "agents", name: effectiveAgentId, creating: creatingAgent }
@@ -2066,7 +2076,22 @@ export function App() {
       </aside>
       )}
 
-      {section === "settings" ? (
+      {section === "bot" ? (
+        // Bot placeholder — the section's own route and rail item land first;
+        // the surface itself arrives with the bot backend.
+        <main id="main-content" className="agents-pane">
+          <PageHeader
+            title="Bot"
+            icon={<BotMessageSquare size={20} aria-hidden="true" />}
+            lede="Your always-on assistant."
+          />
+          <EmptyState
+            icon={<BotMessageSquare size={28} aria-hidden="true" />}
+            title="Coming soon"
+            description="Bot configuration and controls will live here."
+          />
+        </main>
+      ) : section === "settings" ? (
           <main id="main-content" className="settings-pane">
           <SettingsPane
             client={client}
@@ -2675,9 +2700,17 @@ function MasterNav({
         )}
       <div className="master-scroll" ref={scrollRef}>
       <div className="master-items">
+        {visible.has("bot") && (
+          <NavItem
+            icon={<BotMessageSquare className="nav-icon" aria-hidden="true" />}
+            label="Bot"
+            active={section === "bot"}
+            onClick={() => onNavigate("bot")}
+          />
+        )}
         {visible.has("chat") && (
           <NavItem
-            icon={<MessageCircle className="nav-icon" aria-hidden="true" />}
+            icon={<MessagesSquare className="nav-icon" aria-hidden="true" />}
             label="Chat"
             active={section === "chat"}
             onClick={() => onNavigate("chat")}

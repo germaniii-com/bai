@@ -39,6 +39,12 @@ describe("parseRoute", () => {
     expect(parseRoute("/nonsense/deep/path", "")).toEqual({ section: "chat", sessionId: null });
   });
 
+  test("bot: single page, sub-segments ignored", () => {
+    expect(parseRoute("/bot", "")).toEqual({ section: "bot" });
+    expect(parseRoute("/bot/extra", "")).toEqual({ section: "bot" });
+    expect(parseRoute("/bot/", "")).toEqual({ section: "bot" });
+  });
+
   test("chat draft and session", () => {
     expect(parseRoute("/chat", "")).toEqual({ section: "chat", sessionId: null });
     expect(parseRoute("/chat/ses_01ABC", "")).toEqual({ section: "chat", sessionId: "ses_01ABC" });
@@ -85,6 +91,7 @@ describe("parseRoute", () => {
     expect(parseRoute("/settings/user", "")).toEqual({ section: "settings", settingsSection: "general" });
     expect(parseRoute("/settings/general", "")).toEqual({ section: "settings", settingsSection: "general" });
     expect(parseRoute("/settings/providers", "")).toEqual({ section: "settings", settingsSection: "providers" });
+    expect(parseRoute("/settings/bot", "")).toEqual({ section: "settings", settingsSection: "bot" });
     expect(parseRoute("/settings/image", "")).toEqual({ section: "settings", settingsSection: "image" });
     expect(parseRoute("/settings/webSearch", "")).toEqual({ section: "settings", settingsSection: "webSearch" });
     expect(parseRoute("/settings/integrations", "")).toEqual({ section: "settings", settingsSection: "integrations" });
@@ -140,12 +147,14 @@ describe("parseRoute", () => {
 
 describe("routeToPath", () => {
   test("round-trips every route shape", () => {
+    roundTrip({ section: "bot" });
     roundTrip({ section: "chat", sessionId: null });
     roundTrip({ section: "chat", sessionId: "ses_01ABC" });
     roundTrip({ section: "workspace", wsPath: null, view: "chat", sessionId: null });
     roundTrip({ section: "workspace", wsPath: "/Users/german/My Projects/日本語", view: "files", sessionId: "ses_x" });
     roundTrip({ section: "settings", settingsSection: "general" });
     roundTrip({ section: "settings", settingsSection: "providers" });
+    roundTrip({ section: "settings", settingsSection: "bot" });
     roundTrip({ section: "settings", settingsSection: "image" });
     roundTrip({ section: "settings", settingsSection: "webSearch" });
     roundTrip({ section: "settings", settingsSection: "integrations" });
@@ -164,6 +173,7 @@ describe("routeToPath", () => {
   });
 
   test("canonical shapes", () => {
+    expect(routeToPath({ section: "bot" })).toBe("/bot");
     expect(routeToPath({ section: "chat", sessionId: null })).toBe("/chat");
     expect(routeToPath({ section: "chat", sessionId: "ses_01ABC" })).toBe("/chat/ses_01ABC");
     expect(routeToPath({ section: "workspace", wsPath: null, view: "chat", sessionId: null })).toBe("/workspace");
