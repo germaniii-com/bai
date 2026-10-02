@@ -55,7 +55,9 @@ export function MediaParamsForm({
           const current =
             typeof value[spec.key] === "number" ? (value[spec.key] as number) : (spec.default ?? spec.min);
           return (
-            <Field key={spec.key} label={spec.label} hint={spec.hint}>
+            // `param-wide` lets a caller lay sliders out across the full grid
+            // width (the track needs the room to convey a value).
+            <Field key={spec.key} label={spec.label} hint={spec.hint} className="param-wide">
               <Slider
                 value={current}
                 min={spec.min}

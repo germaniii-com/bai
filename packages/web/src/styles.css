@@ -5545,6 +5545,23 @@ input[type="radio"]:focus-visible {
   background: var(--bg);
 }
 
+/* Settings → Image/Video Generation → Default Parameters: at most two columns
+   (the workbench pages keep the auto-fit track list). Sliders span the full
+   width — a track squeezed into half a column can't convey its value. */
+.settings .media-params {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings .media-params > .param-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .settings .media-params {
+    grid-template-columns: 1fr;
+  }
+}
+
 .image-ref {
   display: flex;
   flex-direction: column;

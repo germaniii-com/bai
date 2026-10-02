@@ -123,6 +123,10 @@ function paramsFor(model: CuratedModel): MediaParamSpec[] {
       default: "auto",
       hint: "transparent needs png/webp",
     },
+    // Seed rides beside Background in the two-column params grid — both are
+    // "how the image is produced" knobs, and a range param (output_compression)
+    // spans the full row, so anything after it would strand on its own.
+    { key: "seed", label: "Seed", kind: "number", min: 0, max: 2_147_483_647 },
     {
       key: "output_compression",
       label: "Output compression",
@@ -133,7 +137,6 @@ function paramsFor(model: CuratedModel): MediaParamSpec[] {
       default: 80,
       unit: "%",
     },
-    { key: "seed", label: "Seed", kind: "number", min: 0, max: 2_147_483_647 },
     {
       key: "count",
       label: "Number of generations",

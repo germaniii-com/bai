@@ -125,16 +125,20 @@ The conversation modality and bai's default session type.
   `data[*].b64_json`) — and an optional **video block** (generic mapping with
   per-model workflow lists). Files win over same-id config providers; built-in
   media ids are reserved. Created/edited from Settings → Model Providers (the
-  **Files** tab) or Settings → Image Generation → Providers, and also plain
+  **Files** tab), and also plain
   files on disk. `providerType` decides placement: `text` shows in chat
   pickers, `image` in the image workbench, `video` in the video workbench — a
   file-defined video provider serves t2v/i2v/flf2v/ref2v through the same
   workflow picker as the built-in adapters.
-- **Settings → Model Providers** is one searchable, tabbed list —
-  **Connected · Catalog · Custom · OAuth · Files** — with compact rows: each
+- **Settings → Model Providers** is one tabbed list —
+  **Connected · Catalog · Custom · OAuth · Files · Image Providers · Video
+  Providers** — with compact rows: each
   carries a brand mark, connection state, an inline switch to hide the
   provider from the model pickers, and a chevron to expand accounts/OAuth.
-  The prefer-ZDR and run-as-router preferences sit in one compact card above
+  The **Image Providers** / **Video Providers** tabs own media API keys
+  (including media-only vendors hidden from the LLM rows) — Model Providers is
+  the single source of truth for keys. The prefer-ZDR and run-as-router
+  preferences sit in one compact card above
   it. (Integrations is likewise tabbed **Installed · Catalog**.)
 - Everything streams through the same event system as every other feature —
   chat is just the first consumer of the sync machinery

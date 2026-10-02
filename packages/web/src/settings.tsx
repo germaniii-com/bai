@@ -31,7 +31,7 @@ import {
   THEME_OPTIONS,
 } from "@bai/shared";
 import { NAV_ITEMS } from "./nav-items";
-import { partitionProviders, slugifyProviderId, sortProviders } from "./provider-utils";
+import { mediaProviderOptions, partitionProviders, slugifyProviderId, sortProviders } from "./provider-utils";
 import { modelOptionHint, videoModelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
@@ -73,7 +73,14 @@ import {
 type OnNotice = (message: string, kind?: "success" | "error") => void;
 
 /** Model Providers category tabs (one list instead of four stacked groups). */
-type ProviderTab = "connected" | "catalog" | "custom" | "oauth" | "files";
+type ProviderTab =
+  | "connected"
+  | "catalog"
+  | "custom"
+  | "oauth"
+  | "files"
+  | "imageProviders"
+  | "videoProviders";
 
 /**
  * Settings, divided into sections (the nested sidebar's entries): General,
@@ -260,7 +267,6 @@ export function SettingsPane({
       ) : section === "image" ? (
         <ImageGenPane
           client={client}
-          list={list}
           imageGen={imageGen}
           jobs={jobs}
           mutate={mutate}
@@ -269,7 +275,6 @@ export function SettingsPane({
       ) : section === "video" ? (
         <VideoGenPane
           client={client}
-          list={list}
           videoGen={videoGen}
           jobs={jobs}
           mutate={mutate}
@@ -285,6 +290,8 @@ export function SettingsPane({
           onNotice={onNotice}
           preferZdr={preferZdr}
           routerEnabled={routerEnabled}
+          {...(imageGen !== undefined ? { imageGen } : {})}
+          {...(videoGen !== undefined ? { videoGen } : {})}
         />
       )}
     </div>
@@ -702,6 +709,8 @@ function ProvidersPane({
   onNotice,
   preferZdr,
   routerEnabled,
+  imageGen,
+  videoGen,
 }: {
   client: BaiClient;
   list: ProviderListResponse;
@@ -711,6 +720,10 @@ function ProvidersPane({
   onNotice: (message: string, kind?: "success" | "error") => void;
   preferZdr?: boolean;
   routerEnabled?: boolean;
+  /** config imageGen — seeds the Image Providers tab's default provider. */
+  imageGen?: MediaGenConfig;
+  /** config videoGen — seeds the Video Providers tab's default provider. */
+  videoGen?: MediaGenConfig;
 }) {
   // Single-expanded accordion: one provider's accounts + add form at a time
   // keeps the 200+ catalog page light (forms mount lazily on expand).
@@ -822,6 +835,8 @@ function ProvidersPane({
 
       {/* One searchable, tabbed list instead of four stacked groups. */}
       <Toolbar className="settings-toolbar">
+        {/* Filters whichever list the active tab shows — the LLM provider
+            rows, or the media registry on the Image/Video Providers tabs. */}
         <TextInput
           type="search"
           className="settings-search"
@@ -840,6 +855,8 @@ function ProvidersPane({
             { value: "custom", label: custom.length > 0 ? `Custom (${custom.length})` : "Custom" },
             { value: "oauth", label: "OAuth" },
             { value: "files", label: "Files" },
+            { value: "imageProviders", label: "Image Providers" },
+            { value: "videoProviders", label: "Video Providers" },
           ]}
         />
         <div className="settings-toolbar-actions">
@@ -852,7 +869,25 @@ function ProvidersPane({
         </div>
       </Toolbar>
 
-      {tab === "files" ? (
+      {tab === "imageProviders" ? (
+        <MediaProvidersCard
+          client={client}
+          kind="image"
+          config={imageGen}
+          query={query}
+          mutate={mutate}
+          onNotice={onNotice}
+        />
+      ) : tab === "videoProviders" ? (
+        <MediaProvidersCard
+          client={client}
+          kind="video"
+          config={videoGen}
+          query={query}
+          mutate={mutate}
+          onNotice={onNotice}
+        />
+      ) : tab === "files" ? (
         providerFileList.length === 0 ? (
           <EmptyState
             icon={<FileText size={22} aria-hidden="true" />}
@@ -1509,18 +1544,17 @@ function AddAccount({
 
 /**
  * Image Generation section: the default provider/model (the MediaGenForm) plus
- * the media job-runtime limits (how many generations run at once).
+ * the media job-runtime limits (how many generations run at once). Provider
+ * keys live in Model Providers → Image Providers.
  */
 function ImageGenPane({
   client,
-  list,
   imageGen,
   jobs,
   mutate,
   onNotice,
 }: {
   client: BaiClient;
-  list: ProviderListResponse;
   imageGen?: MediaGenConfig;
   jobs?: JobsConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
@@ -1530,21 +1564,12 @@ function ImageGenPane({
     <>
       <PageHeader
         title="Image Generation"
-        lede="Where bai generates images: the provider API keys, the default provider/model, and how many generations run at once."
-      />
-      <ImageProvidersCard
-        client={client}
-        list={list}
-        config={imageGen}
-        kind="image"
-        mutate={mutate}
-        onNotice={onNotice}
+        lede="Where bai generates images: the default provider/model and how many generations run at once. Provider keys are managed in Model Providers → Image Providers."
       />
       <MediaGenForm
         kind="imageGen"
         title="Default model"
         client={client}
-        list={list}
         config={imageGen}
         mutate={mutate}
       />
@@ -1559,21 +1584,18 @@ function ImageGenPane({
 }
 
 /**
- * Video Generation settings: the provider API keys (video-only vendors hidden
- * from the LLM Model Providers pane), the default provider/model, the default
- * workflow parameters/tags, and the media job limits (video jobs get a longer
- * timeout than images).
+ * Video Generation settings: the default provider/model, the default workflow
+ * parameters/tags, and the media job limits (video jobs get a longer timeout
+ * than images). Provider keys live in Model Providers → Video Providers.
  */
 function VideoGenPane({
   client,
-  list,
   videoGen,
   jobs,
   mutate,
   onNotice,
 }: {
   client: BaiClient;
-  list: ProviderListResponse;
   videoGen?: MediaGenConfig;
   jobs?: JobsConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
@@ -1583,21 +1605,12 @@ function VideoGenPane({
     <>
       <PageHeader
         title="Video Generation"
-        lede="Where bai generates videos: the provider API keys, the default provider/model, and the media job limits (video renders get a longer timeout)."
-      />
-      <ImageProvidersCard
-        client={client}
-        list={list}
-        config={videoGen}
-        kind="video"
-        mutate={mutate}
-        onNotice={onNotice}
+        lede="Where bai generates videos: the default provider/model and the media job limits (video renders get a longer timeout). Provider keys are managed in Model Providers → Video Providers."
       />
       <MediaGenForm
         kind="videoGen"
         title="Default model"
         client={client}
-        list={list}
         config={videoGen}
         mutate={mutate}
       />
@@ -1911,26 +1924,29 @@ function clampInt(
 }
 
 /**
- * Image Generation → **Providers**: manage the API keys of every media
- * provider — including image-only vendors (fal, BFL, …) hidden from the LLM
- * Model Providers pane. Keys are stored server-side (auth.json, 0600) and never
- * echoed back; each saved key is listed as `Provider — account` with a
- * copy-to-clipboard and a delete action.
+ * Model Providers → **Image Providers** / **Video Providers**: manage the API
+ * keys of every media provider — including media-only vendors (fal, BFL, …)
+ * hidden from the LLM provider rows. Keys are stored server-side (auth.json,
+ * 0600) and never echoed back; each saved key is listed as
+ * `Provider — account` with copy-to-clipboard and delete. The provider list is
+ * the media workbench registry, so only providers that can actually generate
+ * the modality are offered.
  */
-function ImageProvidersCard({
+function MediaProvidersCard({
   client,
-  list,
-  config,
   kind = "image",
+  config,
+  query,
   mutate,
   onNotice,
 }: {
   client: BaiClient;
-  list: ProviderListResponse;
-  /** The config this card manages (imageGen or videoGen). */
-  config?: MediaGenConfig;
   /** Which media registry the card manages. */
   kind?: "image" | "video";
+  /** The config this card manages (imageGen or videoGen) — seeds the default. */
+  config?: MediaGenConfig;
+  /** Toolbar search text — filters the provider options and saved keys. */
+  query: string;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
   onNotice: (message: string, kind?: "success" | "error") => void;
 }) {
@@ -1972,22 +1988,24 @@ function ImageProvidersCard({
     );
   }, [config]);
 
-  const providerOptions = (() => {
-    const byId = new Map<string, string>();
-    for (const p of list.providers) byId.set(p.id, p.name);
-    for (const p of providers) byId.set(p.id, p.label);
-    return [...byId.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([value, label]) => ({ value, label }));
-  })();
+  // The toolbar search filters this tab's list. Match on the id and the
+  // display label, matching the LLM tabs' search.
+  const q = query.trim().toLowerCase();
+  const matches = (id: string, label: string): boolean =>
+    q.length === 0 || id.toLowerCase().includes(q) || label.toLowerCase().includes(q);
+  const visibleProviders = providers.filter((p) => matches(p.id, p.label));
+
+  // Only providers that can actually generate this modality (built-in
+  // adapters + provider files) — never the whole LLM catalog.
+  const providerOptions = mediaProviderOptions(visibleProviders);
 
   const selected = providers.find((p) => p.id === provider.trim());
   const storedAccounts = (selected?.accounts ?? []).filter(
     (a) => a.source !== "env",
   );
   const usingEnv = (selected?.accounts ?? []).some((a) => a.source === "env");
-  // Every saved image-provider key, across providers (the overview list).
-  const savedKeys = providers.flatMap((p) =>
+  // Every saved key for this modality (the overview list), search-filtered.
+  const savedKeys = visibleProviders.flatMap((p) =>
     (p.accounts ?? [])
       .filter((a) => a.source !== "env")
       .map((a) => ({ provider: p, account: a })),
@@ -2045,7 +2063,7 @@ function ImageProvidersCard({
   return (
     <Card>
       <SectionHeader
-        title="Providers"
+        title={`${kind === "video" ? "Video" : "Image"} Providers`}
         lede={`API keys for ${kind} generation. Stored server-side (auth.json, 0600) and never echoed back; the provider's env var is the fallback.`}
       />
       <div className="form-grid">
@@ -2107,15 +2125,13 @@ function ImageProvidersCard({
           onClick={saveKey}
         >
           Save API key
-        </Button>{" "}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setFileModal({})}
-        >
-          + Add custom provider
         </Button>
       </div>
+      {q.length > 0 && visibleProviders.length === 0 && (
+        <p className="dim">
+          No {kind} providers match “{query.trim()}”.
+        </p>
+      )}
       {savedKeys.length > 0 && (
         <ul className="accounts">
           {savedKeys.map(({ provider: p, account: a }) => {
@@ -2210,23 +2226,21 @@ function ImageProvidersCard({
 
 /**
  * One media-generation modality's defaults (config imageGen / videoGen):
- * provider (any provider id — media vendors may not be in the LLM catalog,
- * hence the creatable combobox), account (that provider's saved accounts,
- * creatable — the provider may be typed freely), and model. The workbench
- * executor falls back to this model when a job doesn't name one.
+ * provider (only providers registered for that modality — the image/video
+ * workbench registry, never the LLM catalog), account (that provider's saved
+ * accounts, creatable), and model. The workbench executor falls back to this
+ * model when a job doesn't name one.
  */
 function MediaGenForm({
   kind,
   title,
   client,
-  list,
   config,
   mutate,
 }: {
   kind: "imageGen" | "videoGen";
   title: string;
   client: BaiClient;
-  list: ProviderListResponse;
   config?: MediaGenConfig;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
@@ -2240,16 +2254,8 @@ function MediaGenForm({
     Array<MediaProviderInfo | VideoProviderInfo>
   >([]);
 
-  const providerIds = list.providers
-    .map((p) => p.id)
-    .sort((a, b) => a.localeCompare(b));
-  const knownProvider = list.providers.find((p) => p.id === provider.trim());
   const mediaProvider = mediaProviders.find((p) => p.id === provider.trim());
-  const accountIds = (
-    mediaProvider?.accounts ??
-    knownProvider?.accounts ??
-    []
-  ).map((a) => a.id);
+  const accountIds = (mediaProvider?.accounts ?? []).map((a) => a.id);
 
   const reloadMediaProviders = useCallback(async (): Promise<void> => {
     try {
@@ -2269,14 +2275,9 @@ function MediaGenForm({
     void reloadMediaProviders();
   }, [reloadMediaProviders, config]);
 
-  const providerOptions = (() => {
-    const byId = new Map<string, string>();
-    for (const id of providerIds) byId.set(id, id);
-    for (const p of mediaProviders) byId.set(p.id, p.label);
-    return [...byId.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([value, label]) => ({ value, label }));
-  })();
+  // Only providers registered for this modality (built-in media adapters +
+  // provider files) — the LLM catalog has nothing to do with image/video.
+  const providerOptions = mediaProviderOptions(mediaProviders);
 
   // Model autocomplete: the adapter's curated list — the same rows the Image /
   // Video page shows, so the configured default is a real model (the field
@@ -2360,10 +2361,8 @@ function MediaGenForm({
         lede={
           <>
             Defaults for the {kind === "imageGen" ? "image" : "video"} workbench
-            — jobs without an explicit model use this.{" "}
-            {kind === "imageGen"
-              ? "Keys are managed in Providers above."
-              : "Accounts come from the provider's saved keys."}{" "}
+            — jobs without an explicit model use this. Only providers registered
+            for this modality are listed.{" "}
             Empty fields keep their saved value.
           </>
         }

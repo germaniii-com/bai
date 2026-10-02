@@ -1,4 +1,4 @@
-import type { ProviderInfo, ProviderListResponse, RemoteModelInfo } from "@bai/shared";
+import type { MediaProviderInfo, ProviderInfo, ProviderListResponse, RemoteModelInfo } from "@bai/shared";
 import type { ComboboxOption } from "./components";
 
 /**
@@ -97,6 +97,20 @@ export function headersFromRows(rows: HeaderRow[]): Record<string, string> | und
     out[key] = row.value.trim();
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Combobox options for the providers that can actually generate a given
+ * modality — the image/video workbench registries (built-in adapters +
+ * provider files), never the whole LLM catalog. Shared by the Default model
+ * dropdown and the media-provider key manager so both offer the same set.
+ */
+export function mediaProviderOptions(
+  providers: ReadonlyArray<Pick<MediaProviderInfo, "id" | "label">>,
+): ComboboxOption[] {
+  return providers
+    .map((p) => ({ value: p.id, label: p.label }))
+    .sort((a, b) => a.value.localeCompare(b.value));
 }
 
 /**

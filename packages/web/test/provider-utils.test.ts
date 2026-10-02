@@ -4,6 +4,7 @@ import { videoSpecSchema } from "@bai/shared";
 import {
   headerRowsFrom,
   headersFromRows,
+  mediaProviderOptions,
   mergeModelSelection,
   modelOverrideOptions,
   modelSelectionRows,
@@ -123,6 +124,26 @@ describe("header row helpers", () => {
     ]);
     expect(headerRowsFrom(undefined)).toEqual([]);
     expect(headersFromRows(headerRowsFrom({ a: "1" }))).toEqual({ a: "1" });
+  });
+});
+
+describe("mediaProviderOptions", () => {
+  test("maps the media registry to sorted id→label options", () => {
+    expect(
+      mediaProviderOptions([
+        { id: "fal", label: "fal" },
+        { id: "openai", label: "OpenAI" },
+        { id: "bfl", label: "Black Forest Labs" },
+      ]),
+    ).toEqual([
+      { value: "bfl", label: "Black Forest Labs" },
+      { value: "fal", label: "fal" },
+      { value: "openai", label: "OpenAI" },
+    ]);
+  });
+
+  test("empty registry yields no options (never falls back to the LLM catalog)", () => {
+    expect(mediaProviderOptions([])).toEqual([]);
   });
 });
 
