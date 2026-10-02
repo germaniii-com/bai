@@ -60,7 +60,7 @@ import type {
   WebSearchStatus,
 } from "@bai/shared";
 import type { PutAccountBody, ProviderListResponse, ProviderRefreshResponse, SetSessionModelBody, UsageAnalyticsQuery, UsageAnalyticsResponse } from "@bai/shared";
-import type { CustomProviderBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderFile, ProviderFileInfo } from "@bai/shared";
+import type { CustomProviderBody, ListProviderModelsBody, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderFile, ProviderFileInfo, RemoteModelInfo } from "@bai/shared";
 import type { ApiType } from "../server/app";
 import { eventStream } from "./sse";
 import { EventMux, eventMux } from "./mux";
@@ -968,6 +968,18 @@ export class BaiClient {
   }
 
   // --- custom providers ---------------------------------------------------
+
+  /**
+   * List the models of an OpenAI-compatible endpoint (`GET {baseUrl}/models`,
+   * proxied server-side). Used by the custom-provider form's "Fetch models"
+   * button and the TUI wizard — the key rides the request body, the server
+   * env, or the stored key for `body.provider`.
+   */
+  async listProviderModels(body: ListProviderModelsBody): Promise<RemoteModelInfo[]> {
+    const res = await this.rpc().provider.models.$post({ json: body });
+    if (!res.ok) throw new Error(await errorMessage(res, "list models failed"));
+    return (await res.json()).models;
+  }
 
   async putCustomProvider(provider: string, body: CustomProviderBody): Promise<void> {
     const res = await this.rpc().provider[":provider"].custom.$put({

@@ -32,4 +32,10 @@ export interface ApiDeps {
   extraRoutes?: Hono;
   /** Serve the built SPA fallback. False for the headless `--router` listener. Defaults true. */
   serveSpa?: boolean;
+  /**
+   * Outbound fetch override for provider model discovery
+   * (`POST /api/provider/models`). Test seam — production uses the global
+   * fetch. Threaded into the ProviderRegistry in tests.
+   */
+  fetch?: typeof globalThis.fetch;
 }

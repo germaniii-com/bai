@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Plus, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AdapterName, ProviderCapability, ProviderFile, ProviderFileInfo } from "@bai/shared";
-import { Button, Checkbox, Field, Modal, Select, TextInput, Textarea } from "./components";
+import { Button, Checkbox, Field, IconButton, Modal, Select, TextInput, Textarea } from "./components";
+import { headerRowsFrom, headersFromRows, type HeaderRow } from "./provider-utils";
 
 const ADAPTER_OPTIONS: { value: AdapterName; label: string }[] = [
   { value: "openai-compatible", label: "OpenAI-compatible (chat completions)" },
@@ -39,27 +41,16 @@ function imageStarter(template: "openai-images" | "generic"): string {
   );
 }
 
-/** Parse `KEY: VALUE` / `KEY=VALUE` lines into a header map. */
-function parseHeaders(text: string): Record<string, string> | undefined {
-  const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const match = /^([^:=]+)[:=](.*)$/.exec(trimmed);
-    if (match === null) continue;
-    out[match[1]!.trim()] = match[2]!.trim();
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 function csv(value: string): string[] {
   return value.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
 }
 
 /**
  * Create/edit a file-defined provider (`~/.config/bai/providers/<id>.json`).
- * Capability checkboxes drive which blocks are sent; the image block is edited
- * as JSON (the generic mapping is inherently structured).
+ * Same two-column form stance as the custom-provider modal: short labels,
+ * full-width rows for the wide controls, and key/value header rows instead of
+ * a free-text blob. Capability checkboxes drive which blocks are sent; the
+ * image block is edited as JSON (the generic mapping is inherently structured).
  */
 export function ProviderFileModal({
   client,
@@ -81,7 +72,7 @@ export function ProviderFileModal({
   const [providerType, setProviderType] = useState<ProviderCapability[]>(existing?.providerType ?? ["image"]);
   const [baseUrl, setBaseUrl] = useState("");
   const [env, setEnv] = useState("");
-  const [headersText, setHeadersText] = useState("");
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
   const [authHeader, setAuthHeader] = useState("authorization");
   const [authScheme, setAuthScheme] = useState("Bearer");
   const [adapter, setAdapter] = useState<AdapterName>("openai-compatible");
@@ -104,7 +95,7 @@ export function ProviderFileModal({
         setName(file.name);
         setBaseUrl(file.baseUrl);
         setEnv((file.env ?? []).join(", "));
-        setHeadersText(file.headers !== undefined ? Object.entries(file.headers).map(([k, v]) => `${k}: ${v}`).join("\n") : "");
+        setHeaderRows(headerRowsFrom(file.headers));
         setAuthHeader(file.auth?.header ?? "authorization");
         setAuthScheme(file.auth?.scheme ?? "Bearer");
         if (file.text !== undefined) {
@@ -133,25 +124,29 @@ export function ProviderFileModal({
     setProviderType((current) => (on ? [...new Set([...current, cap])] : current.filter((c) => c !== cap)));
   };
 
+  const setHeaderRow = (index: number, patch: Partial<HeaderRow>): void => {
+    setHeaderRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
   const submit = (e: FormEvent): void => {
     e.preventDefault();
     const providerId = id.trim().toLowerCase();
-    if (providerId.length === 0) return setError("Provider id is required");
-    if (name.trim().length === 0) return setError("Display name is required");
+    if (providerId.length === 0) return setError("Provider ID is required");
+    if (name.trim().length === 0) return setError("Display Name is required");
     if (baseUrl.trim().length === 0) return setError("Base URL is required");
     if (providerType.length === 0) return setError("Select at least one capability");
     const ctx = contextLength.trim().length > 0 ? Number(contextLength) : undefined;
-    if (ctx !== undefined && (!Number.isFinite(ctx) || ctx <= 0)) return setError("Context length must be a positive number");
+    if (ctx !== undefined && (!Number.isFinite(ctx) || ctx <= 0)) return setError("Context Length must be a positive number");
 
     let image: unknown;
     if (providerType.includes("image")) {
       try {
         image = JSON.parse(imageJson);
       } catch (err) {
-        return setError(`Image block is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+        return setError(`Image Block is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    const parsedHeaders = parseHeaders(headersText);
+    const parsedHeaders = headersFromRows(headerRows);
     const body = {
       name: name.trim(),
       providerType,
@@ -224,78 +219,118 @@ export function ProviderFileModal({
         </>
       }
     >
-      <form className="form-grid" onSubmit={submit}>
-        <Field label="Provider id" hint="lowercase slug; the filename stem">
-          <TextInput value={id} placeholder="my-flux" disabled={editing} onChange={(e) => setId(e.target.value)} />
-        </Field>
-        <Field label="Display name">
-          <TextInput value={name} placeholder="My FLUX" onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Base URL">
-          <TextInput value={baseUrl} placeholder="https://gateway.example.com/v1" onChange={(e) => setBaseUrl(e.target.value)} />
-        </Field>
-        <Field label="Capabilities" hint="where it appears">
-          <div className="checkbox-group">
-            {CAPABILITIES.map((cap) => (
-              <Checkbox
-                key={cap.value}
-                label={cap.label}
-                checked={providerType.includes(cap.value)}
-                onChange={(e) => toggleCapability(cap.value, e.target.checked)}
-              />
-            ))}
+      <form className="stack-form" onSubmit={submit}>
+        <div className="form-grid form-grid-2">
+          <Field label="Display Name">
+            <TextInput value={name} placeholder="My FLUX" onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Provider ID">
+            <TextInput value={id} placeholder="my-flux" disabled={editing} onChange={(e) => setId(e.target.value)} />
+          </Field>
+          <div className="field span-2">
+            <span className="field-label">Base URL</span>
+            <TextInput value={baseUrl} placeholder="https://gateway.example.com/v1" onChange={(e) => setBaseUrl(e.target.value)} />
           </div>
-        </Field>
-        <Field label="Env vars" hint="comma-separated; the key can also be saved in the Providers card">
-          <TextInput value={env} placeholder="MY_FLUX_API_KEY" onChange={(e) => setEnv(e.target.value)} />
-        </Field>
-        <Field label="Extra headers" hint="one KEY: VALUE per line (optional)">
-          <Textarea value={headersText} mono rows={2} onChange={(e) => setHeadersText(e.target.value)} />
-        </Field>
-        <Field label="Auth header">
-          <TextInput value={authHeader} placeholder="authorization" onChange={(e) => setAuthHeader(e.target.value)} />
-        </Field>
-        <Field label="Auth scheme" hint="empty sends the key raw">
-          <TextInput value={authScheme} placeholder="Bearer" onChange={(e) => setAuthScheme(e.target.value)} />
-        </Field>
+          <div className="field span-2">
+            <span className="field-label">Capabilities</span>
+            <div className="checkbox-group">
+              {CAPABILITIES.map((cap) => (
+                <Checkbox
+                  key={cap.value}
+                  label={cap.label}
+                  checked={providerType.includes(cap.value)}
+                  onChange={(e) => toggleCapability(cap.value, e.target.checked)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="field span-2">
+            <span className="field-label">Env Vars</span>
+            <TextInput value={env} placeholder="MY_FLUX_API_KEY" onChange={(e) => setEnv(e.target.value)} />
+          </div>
+          <Field label="Auth Header">
+            <TextInput value={authHeader} placeholder="authorization" onChange={(e) => setAuthHeader(e.target.value)} />
+          </Field>
+          <Field label="Auth Scheme">
+            <TextInput value={authScheme} placeholder="Bearer" onChange={(e) => setAuthScheme(e.target.value)} />
+          </Field>
+          <div className="field span-2">
+            <span className="field-label">Extra Headers (optional)</span>
+            {headerRows.length > 0 && (
+              <div className="header-rows">
+                {headerRows.map((row, i) => (
+                  <div className="header-row" key={i}>
+                    <TextInput
+                      value={row.key}
+                      placeholder="KEY"
+                      aria-label={`Header ${i + 1} name`}
+                      mono
+                      onChange={(e) => setHeaderRow(i, { key: e.target.value })}
+                    />
+                    <TextInput
+                      value={row.value}
+                      placeholder="Value"
+                      aria-label={`Header ${i + 1} value`}
+                      mono
+                      onChange={(e) => setHeaderRow(i, { value: e.target.value })}
+                    />
+                    <IconButton
+                      label={row.key.trim().length > 0 ? `Remove header ${row.key.trim()}` : `Remove header row ${i + 1}`}
+                      onClick={() => setHeaderRows((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </IconButton>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div>
+              <Button variant="ghost" size="sm" onClick={() => setHeaderRows((prev) => [...prev, { key: "", value: "" }])}>
+                <Plus size={14} aria-hidden="true" /> Add header
+              </Button>
+            </div>
+          </div>
 
-        {providerType.includes("text") && (
-          <>
-            <Field label="Chat adapter">
-              <Select options={ADAPTER_OPTIONS} value={adapter} onChange={(v) => setAdapter(v as AdapterName)} ariaLabel="Chat adapter" />
-            </Field>
-            <Field label="Chat models" hint="comma-separated ids">
-              <TextInput value={textModels} placeholder="my-model-large, my-model-small" onChange={(e) => setTextModels(e.target.value)} />
-            </Field>
-            <Field label="Context length" hint="tokens (optional)">
-              <TextInput value={contextLength} inputMode="numeric" placeholder="200000" onChange={(e) => setContextLength(e.target.value)} />
-            </Field>
-          </>
-        )}
+          {providerType.includes("text") && (
+            <>
+              <Field label="Chat Adapter">
+                <Select options={ADAPTER_OPTIONS} value={adapter} onChange={(v) => setAdapter(v as AdapterName)} ariaLabel="Chat Adapter" />
+              </Field>
+              <Field label="Context Length (optional)">
+                <TextInput value={contextLength} inputMode="numeric" placeholder="200000" onChange={(e) => setContextLength(e.target.value)} />
+              </Field>
+              <div className="field span-2">
+                <span className="field-label">Chat Models</span>
+                <TextInput value={textModels} placeholder="my-model-large, my-model-small" onChange={(e) => setTextModels(e.target.value)} />
+              </div>
+            </>
+          )}
 
-        {providerType.includes("image") && (
-          <>
-            <Field label="Image template">
-              <Select
-                options={[
-                  { value: "openai-images", label: "OpenAI Images (compatible)" },
-                  { value: "generic", label: "Generic (request/response mapping)" },
-                ]}
-                value={imageTemplate}
-                onChange={(v) => {
-                  const template = v === "generic" ? "generic" : "openai-images";
-                  setImageTemplate(template);
-                  setImageJson(imageStarter(template));
-                }}
-                ariaLabel="Image template"
-              />
-            </Field>
-            <Field label="Image block (JSON)" hint="models, params, and the generic mapping">
-              <Textarea value={imageJson} mono rows={12} onChange={(e) => setImageJson(e.target.value)} />
-            </Field>
-          </>
-        )}
-
+          {providerType.includes("image") && (
+            <>
+              <div className="field span-2">
+                <span className="field-label">Image Template</span>
+                <Select
+                  options={[
+                    { value: "openai-images", label: "OpenAI Images (compatible)" },
+                    { value: "generic", label: "Generic (request/response mapping)" },
+                  ]}
+                  value={imageTemplate}
+                  onChange={(v) => {
+                    const template = v === "generic" ? "generic" : "openai-images";
+                    setImageTemplate(template);
+                    setImageJson(imageStarter(template));
+                  }}
+                  ariaLabel="Image Template"
+                />
+              </div>
+              <div className="field span-2">
+                <span className="field-label">Image Block (JSON)</span>
+                <Textarea value={imageJson} mono rows={12} onChange={(e) => setImageJson(e.target.value)} />
+              </div>
+            </>
+          )}
+        </div>
         {error !== null && <p className="error">{error}</p>}
       </form>
     </Modal>

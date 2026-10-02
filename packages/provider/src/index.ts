@@ -12,6 +12,7 @@ export type {
   ResolvedAccount,
 } from "./auth-store";
 export { CatalogService, WELL_KNOWN_BASE_URLS } from "./catalog";
+export { fetchRemoteModels, normalizeRemoteModels, REMOTE_MODELS_TIMEOUT_MS, type FetchRemoteModelsOpts } from "./models";
 export {
   ProviderFileRegistry,
   parseProviderFile,

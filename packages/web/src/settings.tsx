@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, ChevronDown, Copy, Eye, EyeOff, FileText, Pencil, Server, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, Eye, EyeOff, FileText, Pencil, Server, Trash2 } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type {
   AgentInfo,
@@ -27,16 +27,18 @@ import {
   formatTimeAgo,
   isZdrCapableModel,
   sortModelsZdrFirst,
+  suggestAccountId,
   THEME_OPTIONS,
 } from "@bai/shared";
 import { NAV_ITEMS } from "./nav-items";
-import { partitionProviders, sortProviders } from "./provider-utils";
+import { partitionProviders, slugifyProviderId, sortProviders } from "./provider-utils";
 import { modelOptionHint, videoModelOptionHint } from "./media-model-hint";
 import { AgentModal } from "./agent-picker";
 import { ModelModal } from "./model-picker";
 import { ModelCapabilityBadges } from "./model-capabilities";
 import { OAuthModal } from "./oauth-modal";
 import { CustomProviderModal } from "./custom-provider-form";
+import { ManageModelsModal } from "./manage-models-modal";
 import { ProviderFileModal } from "./provider-file-form";
 import { McpServerModal } from "./mcp-server-form";
 import { BrandIcon, CategoryIcon } from "./brand-icon";
@@ -209,13 +211,12 @@ export function SettingsPane({
     }
   };
 
-  // Data-heavy sections get a wider column than the form sections.
-  const settingsClass =
-    section === "providers" || section === "integrations" ? "settings settings-wide" : "settings";
+  // Every section shares the wide column (Model Providers / Integrations stance).
+  const settingsClass = "settings settings-wide";
 
   if (section === "webSearch") {
     return (
-      <div className="settings">
+      <div className={settingsClass}>
         <WebSearchPane client={client} onNotice={onNotice} />
       </div>
     );
@@ -231,7 +232,7 @@ export function SettingsPane({
 
   if (list === null) {
     return (
-      <div className="settings">
+      <div className={settingsClass}>
         <p className="dim">Loading…</p>
       </div>
     );
@@ -726,6 +727,7 @@ function ProvidersPane({
     accountId?: string;
   } | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
+  const [editCustom, setEditCustom] = useState<ProviderInfo | null>(null);
   const [pendingCustom, setPendingCustom] = useState<ProviderInfo | null>(null);
   const sorted = sortProviders(list.providers);
   const oauthById = new Map(oauth.map((o) => [o.id, o]));
@@ -922,7 +924,9 @@ function ProvidersPane({
                     setOauthTarget({ provider: p, intent: "reconnect", accountId })
                   }
                   onAddAccount={() => setOauthTarget({ provider: p, intent: "add" })}
-                  {...(variantFor(p) === "custom" ? { onDeleteCustom: () => setPendingCustom(p) } : {})}
+                  {...(variantFor(p) === "custom"
+                    ? { onEditCustom: () => setEditCustom(p), onDeleteCustom: () => setPendingCustom(p) }
+                    : {})}
                 />
               ))}
             </div>
@@ -957,6 +961,17 @@ function ProvidersPane({
         <CustomProviderModal
           client={client}
           onClose={() => setCustomOpen(false)}
+          onSaved={() => {
+            void refresh();
+          }}
+          onNotice={onNotice}
+        />
+      )}
+      {editCustom !== null && (
+        <CustomProviderModal
+          client={client}
+          provider={editCustom}
+          onClose={() => setEditCustom(null)}
           onSaved={() => {
             void refresh();
           }}
@@ -1014,6 +1029,7 @@ function ProviderRow({
   onConnect,
   onAddAccount,
   onReconnectAccount,
+  onEditCustom,
   onDeleteCustom,
 }: {
   provider: ProviderInfo;
@@ -1027,6 +1043,7 @@ function ProviderRow({
   onConnect?: () => void;
   onAddAccount?: () => void;
   onReconnectAccount?: (accountId: string) => void;
+  onEditCustom?: () => void;
   onDeleteCustom?: () => void;
 }) {
   const hidden = provider.hidden === true;
@@ -1083,6 +1100,7 @@ function ProviderRow({
             {...(onReconnectAccount !== undefined
               ? { onReconnectAccount }
               : {})}
+            {...(onEditCustom !== undefined ? { onEditCustom } : {})}
             {...(onDeleteCustom !== undefined ? { onDeleteCustom } : {})}
           />
         </div>
@@ -1161,6 +1179,7 @@ function ProviderDetail({
   onConnect,
   onAddAccount,
   onReconnectAccount,
+  onEditCustom,
   onDeleteCustom,
 }: {
   provider: ProviderInfo;
@@ -1171,6 +1190,7 @@ function ProviderDetail({
   onConnect?: () => void;
   onAddAccount?: () => void;
   onReconnectAccount?: (accountId: string) => void;
+  onEditCustom?: () => void;
   onDeleteCustom?: () => void;
 }) {
   return (
@@ -1179,10 +1199,24 @@ function ProviderDetail({
         <Card>
           <div className="provider-head">
             <strong>Definition</strong>
-            {onDeleteCustom !== undefined && (
-              <Button variant="danger" size="sm" onClick={onDeleteCustom}>
-                Remove provider
-              </Button>
+            {(onEditCustom !== undefined || onDeleteCustom !== undefined) && (
+              <span className="provider-head-actions">
+                {onEditCustom !== undefined && (
+                  <IconButton label={`Edit ${provider.name}`} hint="Edit" onClick={onEditCustom}>
+                    <Pencil size={14} aria-hidden="true" />
+                  </IconButton>
+                )}
+                {onDeleteCustom !== undefined && (
+                  <IconButton
+                    label={`Delete ${provider.name}`}
+                    hint="Delete Provider"
+                    className="danger"
+                    onClick={onDeleteCustom}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                  </IconButton>
+                )}
+              </span>
             )}
           </div>
           <dl className="provider-meta">
@@ -1269,6 +1303,7 @@ function ProviderAccounts({
   const [pending, setPending] = useState<{ id: string; label: string } | null>(
     null,
   );
+  const [managing, setManaging] = useState<string | null>(null);
   return (
     <Card className={provider.connected ? "connected" : undefined}>
       <div className="provider-head">
@@ -1329,18 +1364,42 @@ function ProviderAccounts({
                   Use by default
                 </Button>
               )}
+              {provider.custom === true && provider.baseUrl !== undefined && a.source !== "oauth" && (
+                <IconButton
+                  label={`Manage models for ${provider.name}`}
+                  hint="Manage models"
+                  onClick={() => setManaging(a.id)}
+                >
+                  <Pencil size={14} aria-hidden="true" />
+                </IconButton>
+              )}
               {a.source !== "env" && (
-                <Button
-                  variant="danger"
-                  size="sm"
+                <IconButton
+                  label={`Remove ${a.label} from ${provider.name}`}
+                  hint="Remove account"
+                  className="danger"
                   onClick={() => setPending({ id: a.id, label: a.label })}
                 >
-                  Remove
-                </Button>
+                  <Trash2 size={14} aria-hidden="true" />
+                </IconButton>
               )}
             </li>
           ))}
         </ul>
+      )}
+      {managing !== null && (
+        <ManageModelsModal
+          client={client}
+          provider={provider}
+          accountId={managing}
+          onSave={(models) => {
+            setManaging(null);
+            void mutate(async () => {
+              await client.putCustomProvider(provider.id, { models });
+            }, `Models updated for ${provider.name}`);
+          }}
+          onClose={() => setManaging(null)}
+        />
       )}
       <ConfirmDialog
         open={pending !== null}
@@ -1378,13 +1437,18 @@ function AddAccount({
   client: BaiClient;
   mutate: (fn: () => Promise<void>, okMessage: string) => Promise<void>;
 }) {
-  const [accountId, setAccountId] = useState("");
   const [label, setLabel] = useState("");
   const [key, setKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
+    // The account id is slugged from the label ("Work" → "work"); a taken
+    // id gets a numeric suffix so an existing account is never overwritten.
+    const accountId = suggestAccountId(
+      provider.accounts.map((a) => a.id),
+      slugifyProviderId(label),
+    );
     if (accountId.length === 0 || key.length === 0) return;
     void mutate(
       () =>
@@ -1395,7 +1459,6 @@ function AddAccount({
         }),
       `Added account "${label.length > 0 ? label : accountId}" for ${provider.id}`,
     );
-    setAccountId("");
     setLabel("");
     setKey("");
     setBaseUrl("");
@@ -1403,22 +1466,12 @@ function AddAccount({
 
   return (
     <Card as="form" onSubmit={submit}>
-      <SectionHeader
-        title={<>Add account · {provider.name}</>}
-        lede="Multiple accounts per provider are fine — each keeps its own key. Keys are stored server-side (auth.json, 0600) and never echoed back."
-      />
+      <SectionHeader title={<>Add account · {provider.name}</>} />
       <div className="form-grid">
-        <Field label="Account id">
-          <TextInput
-            value={accountId}
-            placeholder="personal, work…"
-            onChange={(e) => setAccountId(e.target.value)}
-          />
-        </Field>
-        <Field label="Label">
+        <Field label="Label" hint="the account id is generated from this">
           <TextInput
             value={label}
-            placeholder="display name"
+            placeholder="personal, work…"
             onChange={(e) => setLabel(e.target.value)}
           />
         </Field>
@@ -1445,7 +1498,7 @@ function AddAccount({
         <Button
           type="submit"
           variant="primary"
-          disabled={accountId.length === 0 || key.length === 0}
+          disabled={label.trim().length === 0 || key.length === 0}
         >
           Add account
         </Button>
@@ -2884,14 +2937,6 @@ function IntegrationsPane({
                   </div>
                 </div>
                 <div className="mcp-row-actions">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={busy !== null}
-                    onClick={() => void openEdit(server.name)}
-                  >
-                    Edit
-                  </Button>
                   {server.state === "needs_auth" && (
                     <Button
                       type="button"
@@ -2931,15 +2976,24 @@ function IntegrationsPane({
                       )
                     }
                   />
+                  <IconButton
+                    label={`Edit ${server.name}`}
+                    hint="Edit"
+                    disabled={busy !== null}
+                    onClick={() => void openEdit(server.name)}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                  </IconButton>
                   {server.source === "file" && (
-                    <Button
-                      type="button"
-                      variant="danger"
+                    <IconButton
+                      label={`Remove ${server.name}`}
+                      hint="Remove"
+                      className="danger"
                       disabled={busy !== null}
                       onClick={() => setPendingRemove(server.name)}
                     >
-                      Remove
-                    </Button>
+                      <Trash2 size={14} aria-hidden="true" />
+                    </IconButton>
                   )}
                 </div>
               </div>
@@ -2985,14 +3039,24 @@ function IntegrationsPane({
                     </>
                   }
                   trailing={
-                    <Button
-                      type="button"
-                      variant={installed.has(entry.name) ? "ghost" : "primary"}
-                      disabled={busy !== null || installed.has(entry.name)}
-                      onClick={() => void install(entry.name)}
-                    >
-                      {installed.has(entry.name) ? "Installed" : "Install"}
-                    </Button>
+                    installed.has(entry.name) ? (
+                      <IconButton
+                        label={`${entry.title} installed`}
+                        hint="Installed"
+                        disabled
+                      >
+                        <Download size={14} aria-hidden="true" />
+                      </IconButton>
+                    ) : (
+                      <IconButton
+                        label={`Install ${entry.title}`}
+                        hint="Install"
+                        disabled={busy !== null}
+                        onClick={() => void install(entry.name)}
+                      >
+                        <Download size={14} aria-hidden="true" />
+                      </IconButton>
+                    )
                   }
                 />
               ))}

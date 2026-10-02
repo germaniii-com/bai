@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderInfo } from "@bai/shared";
-import { modelOverrideOptions, partitionProviders, sortProviders } from "../src/provider-utils";
+import {
+  headerRowsFrom,
+  headersFromRows,
+  mergeModelSelection,
+  modelOverrideOptions,
+  modelSelectionRows,
+  partitionProviders,
+  slugifyProviderId,
+  sortProviders,
+  stripProviderPrefix,
+  toggleModelSelection,
+} from "../src/provider-utils";
 
 function provider(id: string, connected = false, source: ProviderInfo["source"] = "catalog"): ProviderInfo {
   return {
@@ -87,5 +98,66 @@ describe("partitionProviders", () => {
     const providers = [provider("b"), provider("a"), provider("c")];
     const { catalog } = partitionProviders(providers, []);
     expect(catalog.map((p) => p.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("header row helpers", () => {
+  test("headersFromRows trims, skips blank keys, later keys win", () => {
+    expect(
+      headersFromRows([
+        { key: " X-Tenant ", value: " acme " },
+        { key: "  ", value: "dropped" },
+        { key: "X-Tenant", value: "other" },
+      ]),
+    ).toEqual({ "X-Tenant": "other" });
+    expect(headersFromRows([])).toBeUndefined();
+    expect(headersFromRows([{ key: "", value: "" }])).toBeUndefined();
+  });
+
+  test("headerRowsFrom round-trips a header map", () => {
+    expect(headerRowsFrom({ a: "1", b: "2" })).toEqual([
+      { key: "a", value: "1" },
+      { key: "b", value: "2" },
+    ]);
+    expect(headerRowsFrom(undefined)).toEqual([]);
+    expect(headersFromRows(headerRowsFrom({ a: "1" }))).toEqual({ a: "1" });
+  });
+});
+
+describe("slugifyProviderId", () => {
+  test("derives a lowercase slug from the display name", () => {
+    expect(slugifyProviderId("My Gateway")).toBe("my-gateway");
+    expect(slugifyProviderId("  ACME  Cloud v2! ")).toBe("acme-cloud-v2");
+    expect(slugifyProviderId("Ollama")).toBe("ollama");
+  });
+
+  test("empty when nothing is slug-worthy", () => {
+    expect(slugifyProviderId("")).toBe("");
+    expect(slugifyProviderId("!!!")).toBe("");
+  });
+});
+
+describe("custom-provider fetched-model selection", () => {
+  test("stripProviderPrefix removes the provider/ prefix only", () => {
+    expect(stripProviderPrefix("gw", "gw/m1")).toBe("m1");
+    expect(stripProviderPrefix("gw", "other/m1")).toBe("other/m1");
+    expect(stripProviderPrefix("gw", "m1")).toBe("m1");
+  });
+
+  test("toggleModelSelection adds/removes without dupes", () => {
+    expect(toggleModelSelection([], "a", true)).toEqual(["a"]);
+    expect(toggleModelSelection(["a"], "a", true)).toEqual(["a"]);
+    expect(toggleModelSelection(["a", "b"], "a", false)).toEqual(["b"]);
+    expect(toggleModelSelection(["a"], "z", false)).toEqual(["a"]);
+  });
+
+  test("mergeModelSelection pre-selects every fetched id, keeps earlier picks", () => {
+    expect(mergeModelSelection(["old"], [{ id: "b" }, { id: "a" }])).toEqual(["old", "b", "a"]);
+    expect(mergeModelSelection(["a"], [{ id: "a" }])).toEqual(["a"]);
+  });
+
+  test("modelSelectionRows keeps selected ids the endpoint didn't return", () => {
+    const rows = modelSelectionRows([{ id: "a", name: "A" }], ["a", "gone"]);
+    expect(rows).toEqual([{ id: "a", name: "A" }, { id: "gone" }]);
   });
 });

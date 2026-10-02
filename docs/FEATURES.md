@@ -26,9 +26,11 @@ The conversation modality and bai's default session type.
   supermenu) or globally in config
 - **OAuth / subscription logins** from web Settings or the TUI wizard:
   ChatGPT/Codex, Anthropic Claude Pro/Max, GitHub Copilot, xAI Grok, Qwen,
-  Nous Portal, MiniMax, Vertex — plus API-key accounts and config-defined
-  custom providers (name, base URL, adapter, key env, models, headers,
-  context length). **Hide a provider from the model pickers** with the toggle
+   Nous Portal, MiniMax, Vertex — plus API-key accounts and config-defined
+   custom providers (OpenAI-compatible only: name, base URL, key env/secret,
+   headers, context length, with a Fetch-models button that lists the
+   endpoint's own `GET /models` for checkbox selection). **Hide a provider
+   from the model pickers** with the toggle
   on its row in **Settings → Model Providers** (`config.providers[id].hidden`):
   its models drop out of the chat model modal, the agent/automation
   model-override comboboxes, and the TUI flat model list, while the provider

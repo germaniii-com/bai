@@ -107,7 +107,7 @@ describe("custom provider API", () => {
       body: JSON.stringify({
         name: "My Gateway",
         baseUrl: "https://gw.example.com/v1",
-        adapter: "responses",
+        adapter: "openai-compatible",
         apiKeyEnv: "MY_GW_KEY",
         models: ["m1"],
         headers: { "X-Tenant": "acme" },
@@ -120,7 +120,7 @@ describe("custom provider API", () => {
     const list = await app.request("/api/provider");
     const body = (await list.json()) as { providers: { id: string; adapter: string; baseUrl?: string; models: { id: string }[] }[] };
     const gw = body.providers.find((p) => p.id === "my-gw");
-    expect(gw?.adapter).toBe("responses");
+    expect(gw?.adapter).toBe("openai-compatible");
     expect(gw?.baseUrl).toBe("https://gw.example.com/v1");
     expect(gw?.models.some((m) => m.id === "my-gw/m1")).toBe(true);
 
@@ -138,5 +138,16 @@ describe("custom provider API", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(bad.status).toBe(400);
+  });
+
+  test("PUT custom provider rejects non-OpenAI-compatible adapters", async () => {
+    for (const adapter of ["openai", "anthropic", "responses"]) {
+      const res = await app.request("/api/provider/x/custom", {
+        method: "PUT",
+        body: JSON.stringify({ baseUrl: "https://gw.example.com/v1", adapter }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(400);
+    }
   });
 });

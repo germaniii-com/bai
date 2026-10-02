@@ -60,7 +60,12 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
     fileProviders: () => providerFiles.catalogProviders(),
     offline: true, // tests never touch network or the bundled snapshot
   });
-  const providers = new ProviderRegistry({ catalog, config: () => config, accounts });
+  const providers = new ProviderRegistry({
+    catalog,
+    config: () => config,
+    accounts,
+    ...(overrides.fetch !== undefined ? { fetch: overrides.fetch } : {}),
+  });
   providers.register(new EchoProvider());
   // OAuth login sessions with one deterministic fake flow for route tests.
   const fakeOAuthSpec: OAuthFlowSpec = {

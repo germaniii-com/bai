@@ -1,6 +1,7 @@
-import type { AccountInfo, AdapterName, ModelInfo, ProviderInfo, ProviderListResponse, UsageRates } from "@bai/shared";
+import type { AccountInfo, AdapterName, ListProviderModelsBody, ModelInfo, ProviderInfo, ProviderListResponse, RemoteModelInfo, UsageRates } from "@bai/shared";
 import type { Config } from "@bai/shared";
 import { ZERO_RATES } from "@bai/shared";
+import { fetchRemoteModels } from "./models";
 import type { CatalogProvider, CatalogService } from "./catalog";
 import { WELL_KNOWN_BASE_URLS } from "./catalog";
 import type { AuthStore, SetAccountInput } from "./auth-store";
@@ -272,6 +273,40 @@ export class ProviderRegistry {
       ...(headers !== undefined ? { headers } : {}),
       ...(contextLength !== undefined ? { contextLength } : {}),
     };
+  }
+
+  /**
+   * List the models of an OpenAI-compatible endpoint (`GET {baseUrl}/models`).
+   * Key precedence: explicit `apiKey` → `apiKeyEnv` (server environment) →
+   * the stored account/config key for `provider` (edit flows where the
+   * secret was never returned to the browser; `account` scopes the lookup
+   * to one account). Keyless endpoints work with no key at all.
+   */
+  async listRemoteModels(input: ListProviderModelsBody): Promise<RemoteModelInfo[]> {
+    let apiKey = input.apiKey;
+    if (apiKey === undefined && input.apiKeyEnv !== undefined) {
+      const envKey = this.env()[input.apiKeyEnv];
+      if (envKey !== undefined && envKey.length > 0) apiKey = envKey;
+    }
+    if (apiKey === undefined && input.provider !== undefined) {
+      apiKey = (await this.resolveCredentials(input.provider, input.account)).apiKey;
+    }
+    // Stored provider headers (curated ⊕ config) apply to discovery too —
+    // the provider list's refresh has no header values to send, but custom
+    // gateways (CF Access, routing) still need theirs. Explicit headers win.
+    let headers = input.headers;
+    if (input.provider !== undefined) {
+      const entry = await this.deps.catalog.get(input.provider);
+      const pc = this.deps.config().providers[input.provider];
+      const stored = mergeHeaders(entry?.headers, pc?.headers);
+      if (stored !== undefined) headers = { ...stored, ...(headers ?? {}) };
+    }
+    return fetchRemoteModels({
+      baseUrl: input.baseUrl,
+      ...(apiKey !== undefined ? { apiKey } : {}),
+      ...(headers !== undefined ? { headers } : {}),
+      ...(this.deps.fetch !== undefined ? { fetch: this.deps.fetch } : {}),
+    });
   }
 
   /** Default account for a provider: config override → first stored → env. */

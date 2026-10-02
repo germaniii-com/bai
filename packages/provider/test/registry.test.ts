@@ -51,7 +51,10 @@ interface Fixture {
   dir: string;
 }
 
-function makeFixture(env: Record<string, string | undefined> = {}): Fixture {
+function makeFixture(
+  env: Record<string, string | undefined> = {},
+  fetch?: typeof globalThis.fetch,
+): Fixture {
   const dir = mkdtempSync(join(tmpdir(), "bai-reg-"));
   let config: Config = { ...DEFAULT_CONFIG, models: { default: "stub/echo" } };
   const accounts = new AuthStore({ file: join(dir, "auth.json") });
@@ -63,6 +66,7 @@ function makeFixture(env: Record<string, string | undefined> = {}): Fixture {
     config: () => config,
     accounts,
     env,
+    ...(fetch !== undefined ? { fetch } : {}),
   });
   return {
     registry,
@@ -195,6 +199,57 @@ describe("ProviderRegistry (dynamic, multi-account)", () => {
     f.registry.invalidate();
     // still resolvable after invalidation (re-materialized on demand)
     expect(await f.registry.adapterFor("openrouter")).toBeTruthy();
+    rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  test("listRemoteModels key precedence: explicit > env var > stored provider key", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      seen.push(headers["Authorization"] ?? "(none)");
+      return new Response(JSON.stringify({ data: [{ id: "m1" }] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const f = makeFixture({ MY_GW_KEY: "env-key" }, fetchImpl);
+    f.setConfig({ providers: { "my-gw": { apiKey: "config-key" } } });
+
+    // explicit key wins
+    await f.registry.listRemoteModels({ baseUrl: "https://gw.example.com/v1", apiKey: "explicit" });
+    // env var next
+    await f.registry.listRemoteModels({ baseUrl: "https://gw.example.com/v1", apiKeyEnv: "MY_GW_KEY" });
+    // stored config key via the provider fallback
+    await f.registry.listRemoteModels({ baseUrl: "https://gw.example.com/v1", provider: "my-gw" });
+    expect(seen).toEqual(["Bearer explicit", "Bearer env-key", "Bearer config-key"]);
+    rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  test("listRemoteModels merges stored provider headers under explicit ones", async () => {
+    let headers: Record<string, string> = {};
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      headers = { ...((init?.headers as Record<string, string>) ?? {}) };
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const f = makeFixture({}, fetchImpl);
+    f.setConfig({ providers: { "my-gw": { headers: { "X-Tenant": "acme" } } } });
+    await f.registry.listRemoteModels({ baseUrl: "https://gw.example.com/v1", provider: "my-gw" });
+    expect(headers["X-Tenant"]).toBe("acme");
+    await f.registry.listRemoteModels({
+      baseUrl: "https://gw.example.com/v1",
+      provider: "my-gw",
+      headers: { "X-Tenant": "other" },
+    });
+    expect(headers["X-Tenant"]).toBe("other");
+    rmSync(f.dir, { recursive: true, force: true });
+  });
+
+  test("listRemoteModels works keyless (no Authorization header)", async () => {
+    let auth: string | undefined = "unset";
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      auth = (init?.headers as Record<string, string>)["Authorization"];
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const f = makeFixture({}, fetchImpl);
+    expect(await f.registry.listRemoteModels({ baseUrl: "http://localhost:11434/v1" })).toEqual([]);
+    expect(auth).toBeUndefined();
     rmSync(f.dir, { recursive: true, force: true });
   });
 });

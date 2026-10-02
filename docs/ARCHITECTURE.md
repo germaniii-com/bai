@@ -556,9 +556,14 @@ local and remote (`--host`) surfaces — no client-side loopback.
 
 Login attempts are exposed at `GET /api/provider/oauth` and
 `POST/GET/DELETE /api/provider/:provider/oauth/...`; web Settings and the TUI
-ctrl+p wizard drive them. Custom providers are config-defined entities
-(name, base URL, adapter, key env/secret, models, headers, context length)
-with `PUT/DELETE /api/provider/:provider/custom`.
+ctrl+p wizard drive them. Custom providers are config-defined
+OpenAI-compatible entities (name, base URL, key env/secret, headers, context
+length — the adapter is pinned to `openai-compatible` and other adapters are
+rejected) with `PUT/DELETE /api/provider/:provider/custom`. Their model list
+is discovered live from the endpoint's own `GET /models` via
+`POST /api/provider/models` (the web form's Fetch-models button and the TUI
+wizard present the results all-selected for checkbox/multi-select picking);
+an edit-time `provider` id lets the server fall back to the stored key.
 
 ### 10.2 Router gateway (OpenAI-compatible)
 

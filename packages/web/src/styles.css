@@ -4076,6 +4076,14 @@ input[type="radio"]:focus-visible {
   flex-wrap: wrap;
 }
 
+/* Edit/delete icon actions at the row end (custom provider definition). */
+.provider-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
 .provider-head .check {
   color: var(--success);
   font-weight: var(--font-weight-bold);
@@ -4119,10 +4127,80 @@ input[type="radio"]:focus-visible {
   gap: var(--space-1);
 }
 
+/* Stacked provider/file form body: a block per section, each a .form-grid-2. */
+.stack-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Base URL + fetch-models icon button row (custom-provider form). */
+.base-url-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* Key/value header rows (custom-provider form). */
+.header-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* Models fetch head: icon button + count + select actions. */
+.model-fetch-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.model-fetch-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+/* Fetched-models checkbox list (custom-provider form) — scrolls past ~8 rows. */
+.model-fetch-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-3);
+}
+
+/* Strict two-column variant (custom-provider form). MUST stay after
+   .form-grid: both are single-class selectors, so source order decides —
+   leaving this above would let .form-grid's auto-fit track list win and
+   grow a third column. `display`/`gap` are inherited from .form-grid. */
+.form-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Full-width row inside a .form-grid-2 (Base URL, API Key, headers, models). */
+.form-grid-2 > .span-2 {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Labels are the `Field` component's job (.field-label in components.css) —

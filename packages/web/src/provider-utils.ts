@@ -1,4 +1,4 @@
-import type { ProviderInfo, ProviderListResponse } from "@bai/shared";
+import type { ProviderInfo, ProviderListResponse, RemoteModelInfo } from "@bai/shared";
 import type { ComboboxOption } from "./components";
 
 /**
@@ -53,6 +53,85 @@ export function modelOverrideOptions(list: ProviderListResponse | null): Combobo
     }),
   );
   return [empty, ...models];
+}
+
+/**
+ * Fetched-model selection helpers for the custom-provider form (pure, so the
+ * checkbox mechanics are unit-testable without rendering).
+ */
+
+/**
+ * Slug for a config-defined custom provider id, derived from its display
+ * name ("My Gateway" → "my-gateway"). Mirrors `slugifyThemeId` (@bai/shared).
+ * Empty when the name has no slug-worthy characters.
+ */
+export function slugifyProviderId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+/**
+ * Extra-headers key/value rows (custom-provider + provider-file forms):
+ * the editor state is a list so rows can be added/removed individually.
+ */
+export interface HeaderRow {
+  key: string;
+  value: string;
+}
+
+/** Header map → editable rows (edit forms). */
+export function headerRowsFrom(headers: Record<string, string> | undefined): HeaderRow[] {
+  if (headers === undefined) return [];
+  return Object.entries(headers).map(([key, value]) => ({ key, value }));
+}
+
+/** Editable rows → header map; blank keys skipped, later keys win. */
+export function headersFromRows(rows: HeaderRow[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (key.length === 0) continue;
+    out[key] = row.value.trim();
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Strip the "provider/" prefix from a catalog model id (edit-form init). */
+export function stripProviderPrefix(providerId: string, modelId: string): string {
+  const prefix = `${providerId}/`;
+  return modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId;
+}
+
+/** Toggle one id in a selection (preserves order, never dupes). */
+export function toggleModelSelection(selected: string[], id: string, on: boolean): string[] {
+  if (on) return selected.includes(id) ? selected : [...selected, id];
+  return selected.filter((m) => m !== id);
+}
+
+/**
+ * Union of the existing selection with freshly fetched ids — every fetched
+ * model arrives pre-selected; previously selected ids (e.g. from an earlier
+ * fetch) are preserved.
+ */
+export function mergeModelSelection(existing: string[], fetched: RemoteModelInfo[]): string[] {
+  const out = [...existing];
+  for (const m of fetched) {
+    if (!out.includes(m.id)) out.push(m.id);
+  }
+  return out;
+}
+
+/**
+ * Rows for the fetched-models checkbox list: every fetched model, plus any
+ * already-selected id the endpoint didn't return (so a selection is never
+ * silently dropped from view).
+ */
+export function modelSelectionRows(available: RemoteModelInfo[], selected: string[]): RemoteModelInfo[] {
+  const ids = new Set(available.map((m) => m.id));
+  return [...available, ...selected.filter((id) => !ids.has(id)).map((id) => ({ id }))];
 }
 
 export function partitionProviders(

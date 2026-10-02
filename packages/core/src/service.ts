@@ -63,6 +63,8 @@ import {
   type OAuthProviderInfo,
   type OAuthStartMode,
   type CustomProviderBody,
+  type ListProviderModelsBody,
+  type RemoteModelInfo,
   type ProviderFile,
   type ProviderFileInfo,
   type SessionsCursor,
@@ -1708,6 +1710,16 @@ export class Service {
     if (this.deps.updateConfig === undefined) throw new Error("config editing is not available");
     this.deps.updateConfig({ providers: { [providerId]: body } });
     this.emitLive("provider.updated", {});
+  }
+
+  /**
+   * List the models of an OpenAI-compatible endpoint (`GET {baseUrl}/models`).
+   * The key comes from the request body, else the server environment, else
+   * the stored key for `provider` — so edit flows work without re-entering
+   * the secret.
+   */
+  listRemoteModels(input: ListProviderModelsBody): Promise<RemoteModelInfo[]> {
+    return this.deps.providers.listRemoteModels(input);
   }
 
   /** Delete a config-defined custom provider; false when it does not exist. */

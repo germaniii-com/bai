@@ -222,11 +222,15 @@ export const oauthSubmitSchema = z.object({
  * PUT /api/provider/:provider/custom body — a config-defined custom provider.
  * `apiKey` is write-only and persisted into the layered config; when both are
  * present `apiKeyEnv` is preferred at runtime.
+ *
+ * Custom providers are OpenAI-compatible only: the adapter is pinned to
+ * `openai-compatible` (other adapters are rejected). Hand-edited configs and
+ * provider files may still declare other adapters; only this API is gated.
  */
 export const customProviderSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   baseUrl: z.string().url().optional(),
-  adapter: z.enum(["openai", "anthropic", "openai-compatible", "responses"]).optional(),
+  adapter: z.literal("openai-compatible").optional(),
   apiKeyEnv: z.string().min(1).max(200).optional(),
   apiKey: z.string().min(1).max(4096).optional(),
   models: z.array(z.string().min(1).max(200)).max(1000).optional(),
@@ -239,6 +243,35 @@ export const customProviderSchema = z.object({
     })
     .optional(),
   authType: z.enum(["api_key", "redirect", "device_code", "paste_code", "import", "adc"]).optional(),
+});
+
+/** One model id discovered from an OpenAI-compatible `/models` endpoint. */
+export interface RemoteModelInfo {
+  id: string;
+  /** Display name when the endpoint reports one (else the id). */
+  name?: string;
+}
+
+/** POST /api/provider/models response. */
+export interface ListProviderModelsResponse {
+  models: RemoteModelInfo[];
+}
+
+/**
+ * POST /api/provider/models body — list the models of an OpenAI-compatible
+ * endpoint. `baseUrl` is required; the key comes from `apiKey`, else
+ * `apiKeyEnv` (read from the server's environment), else — when `provider` is
+ * given — the provider's stored account/config key (edit flows where the
+ * secret was never returned to the browser). `account` scopes the stored-key
+ * lookup to one account (the provider list's per-account refresh action).
+ */
+export const listProviderModelsSchema = z.object({
+  baseUrl: z.string().url(),
+  apiKey: z.string().min(1).max(4096).optional(),
+  apiKeyEnv: z.string().min(1).max(200).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  provider: z.string().min(1).max(100).optional(),
+  account: z.string().min(1).max(100).optional(),
 });
 
 /** PUT /api/session/:id/model body. Omitting `account` keeps the current one. */
@@ -261,5 +294,6 @@ export type PutAccountBody = z.infer<typeof putAccountSchema>;
 export type OAuthStartBody = z.infer<typeof oauthStartSchema>;
 export type OAuthSubmitBody = z.infer<typeof oauthSubmitSchema>;
 export type CustomProviderBody = z.infer<typeof customProviderSchema>;
+export type ListProviderModelsBody = z.infer<typeof listProviderModelsSchema>;
 export type SetSessionModelBody = z.infer<typeof setSessionModelSchema>;
 export type SetSessionAgentBody = z.infer<typeof setSessionAgentSchema>;

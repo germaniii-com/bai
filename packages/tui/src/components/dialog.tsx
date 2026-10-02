@@ -279,6 +279,163 @@ export function SelectDialog({
   );
 }
 
+/**
+ * Multi-select dialog with type-to-filter (the custom-provider wizard's
+ * fetched-models step). Space toggles the highlighted option, ctrl+a selects
+ * everything in view, enter confirms the whole selection, esc backs out.
+ * Starts from `initialSelected` — callers pass every fetched id so the list
+ * arrives all-selected and the user unchecks down.
+ */
+export function MultiSelectDialog({
+  title,
+  options,
+  initialSelected = [],
+  onConfirm,
+  onClose,
+  emptyHint = "no models",
+  windowSize = WINDOW,
+  deferInput = false,
+}: {
+  title: string;
+  options: PickerOption[];
+  /** Pre-checked values (usually every option). */
+  initialSelected?: string[];
+  /** Confirm delivers the selected values (in option order). */
+  onConfirm: (values: string[]) => void;
+  onClose: () => void;
+  /** Empty-list hint when there are no options at all. */
+  emptyHint?: string;
+  /** Sliding-window size — the overlay shell caps it to the terminal height. */
+  windowSize?: number;
+  /** True while an App-level overlay dialog owns the keyboard. */
+  deferInput?: boolean;
+}) {
+  const t = useTheme();
+  const [filter, setFilter] = useState("");
+  const [index, setIndex] = useState(0);
+  const [selected, setSelected] = useState<string[]>(initialSelected);
+
+  const query = filter.toLowerCase();
+  const visible =
+    query.length > 0
+      ? options.filter((o) => o.label.toLowerCase().includes(query) || o.value.toLowerCase().includes(query))
+      : options;
+  const clamped = Math.min(index, Math.max(0, visible.length - 1));
+
+  const toggle = (value: string): void => {
+    setSelected((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+  };
+
+  useInput(
+    (ch, key) => {
+      if (isMouseInput(ch)) return; // clicks/wheel never type into the filter
+      if (key.escape) return onClose();
+      if (key.upArrow) return setIndex((i) => Math.max(0, i - 1));
+      if (key.downArrow) return setIndex((i) => Math.min(visible.length - 1, i + 1));
+      if (key.backspace || key.delete) {
+        setFilter((f) => f.slice(0, -1));
+        setIndex(0);
+        return;
+      }
+      if (key.return) {
+        onConfirm(options.filter((o) => selected.includes(o.value)).map((o) => o.value));
+        return;
+      }
+      // ctrl+w: shell-style word delete, matching the composer.
+      if (key.ctrl && ch === "w") {
+        setFilter((f) => deleteWord(f));
+        setIndex(0);
+        return;
+      }
+      // ctrl+j/ctrl+k: down/up navigation (same stance as SelectDialog).
+      if (key.ctrl && ch === "j") return setIndex((i) => Math.min(visible.length - 1, i + 1));
+      if (key.ctrl && ch === "k") return setIndex((i) => Math.max(0, i - 1));
+      if (ch === "\n") return setIndex((i) => Math.min(visible.length - 1, i + 1));
+      // space toggles the highlight (so it never reaches the filter).
+      if (ch === " ") {
+        const toggled = visible[clamped];
+        if (toggled !== undefined) toggle(toggled.value);
+        return;
+      }
+      // ctrl+a: check everything in view.
+      if (key.ctrl && ch === "a") {
+        const values = visible.map((o) => o.value);
+        setSelected((prev) => [...prev, ...values.filter((v) => !prev.includes(v))]);
+        return;
+      }
+      if (key.ctrl || key.meta) return;
+      if (ch !== undefined && ch.length > 0) {
+        // Batched input ("abc\r" in one chunk): newlines are submit boundaries.
+        const endsWithEnter = /[\r\n]$/.test(ch);
+        const body = ch.replace(/[\r\n]/g, "").replace(/[\x00-\x1f\x7f]/g, "");
+        if (body.length === 0 && !endsWithEnter) return;
+        if (body.length > 0) {
+          setFilter((f) => (f + body).toLowerCase());
+          setIndex(0);
+        }
+        if (endsWithEnter) {
+          onConfirm(options.filter((o) => selected.includes(o.value)).map((o) => o.value));
+        }
+      }
+    },
+    { isActive: !deferInput },
+  );
+
+  // Bracketed paste feeds the filter (same channel as SelectDialog).
+  usePaste(
+    (pasted) => {
+      const clean = pasted.replace(/[\x00-\x1f\x7f]/g, "").trim();
+      if (clean.length === 0) return;
+      setFilter((f) => (f + clean).toLowerCase());
+      setIndex(0);
+    },
+    { isActive: !deferInput },
+  );
+
+  // Sliding window around the highlight.
+  const { start, end } = listWindow(clamped, visible.length, windowSize);
+  const windowed = visible.slice(start, end);
+
+  const hints = ["↑/↓ navigate", "space toggle", "ctrl+a all", "enter done", "esc back"];
+
+  return (
+    <Panel title={title} titleTone="accent" hint={hints.join(" · ")}>
+      <Text color={t.dim}>
+        {selected.length} selected
+        {filter.length > 0 ? ` · filter: ${filter}` : " · type to filter"}
+        {visible.length !== options.length ? ` · ${visible.length}/${options.length}` : ""}
+      </Text>
+      {visible.length === 0 && (
+        <Text color={t.dim}>{options.length === 0 ? ` (${emptyHint})` : " (no matches)"}</Text>
+      )}
+      {start > 0 && <HintRow>{`  ↑ ${start} more`}</HintRow>}
+      {windowed.map((opt, i) => {
+        const absolute = start + i;
+        const checked = selected.includes(opt.value);
+        return (
+          <ListRow
+            key={opt.value}
+            selected={absolute === clamped}
+            {...(opt.gutter !== undefined ? { gutter: opt.gutter } : {})}
+            {...(opt.badge !== undefined ? { badge: opt.badge } : {})}
+            {...(opt.hint !== undefined ? { hint: opt.hint } : {})}
+          >
+            {checked ? "[x] " : "[ ] "}
+            {opt.label}
+            {opt.caps !== undefined && <Text color={t.secondary}> {opt.caps}</Text>}
+          </ListRow>
+        );
+      })}
+      {end < visible.length && (
+        <HintRow>
+          {"  ↓ "}
+          {visible.length - end} more
+        </HintRow>
+      )}
+    </Panel>
+  );
+}
+
 export function PromptDialog({
   title,
   placeholder,

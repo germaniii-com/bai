@@ -184,6 +184,19 @@ export function allModelOptions(providers: ProviderInfo[], preferZdr = false): P
   return out;
 }
 
+/**
+ * Toggle one value in a multi-selection (the fetched-models dialog's space
+ * key). Pure; preserves order, never dupes.
+ */
+export function toggleSelection(selected: string[], value: string): string[] {
+  return selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value];
+}
+
+/** Every option value — the fetched-models dialog starts all-selected. */
+export function allSelected(options: PickerOption[]): string[] {
+  return options.map((o) => o.value);
+}
+
 /** Where a model pick applies: the active session, or the global default. */
 export function applyTarget(active: Session | null): "session" | "global" {
   return active !== null ? "session" : "global";

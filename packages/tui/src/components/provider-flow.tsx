@@ -2,9 +2,9 @@ import { Box, Text } from "ink";
 import { spawn } from "node:child_process";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BaiClient } from "@bai/api/client";
-import type { ModelPageEntry, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
+import type { ModelPageEntry, OAuthLoginSession, OAuthProviderInfo, OAuthStartMode, ProviderInfo, ProviderListResponse, RemoteModelInfo, Session } from "@bai/shared";
 import { suggestAccountId, formatTimeAgo } from "@bai/shared";
-import { PromptDialog, SelectDialog } from "./dialog";
+import { MultiSelectDialog, PromptDialog, SelectDialog } from "./dialog";
 import { useTheme } from "../theme";
 import { accountActionOptions, accountListOptions, modelPageOptions, providerOptions } from "../state/providers";
 
@@ -33,7 +33,8 @@ type Step =
   | { kind: "oauth"; providerId: string; accountId?: string }
   | { kind: "custom-id" }
   | { kind: "custom-url"; providerId: string }
-  | { kind: "custom-models"; providerId: string; baseUrl: string };
+  | { kind: "custom-key"; providerId: string; baseUrl: string }
+  | { kind: "custom-models"; providerId: string; baseUrl: string; apiKey?: string };
 
 export function ProviderFlow({
   client,
@@ -131,11 +132,12 @@ export function ProviderFlow({
     });
   };
 
-  const createCustom = (providerId: string, baseUrl: string, models: string[]): void => {
+  const createCustom = (providerId: string, baseUrl: string, models: string[], apiKey?: string): void => {
     void guard(async () => {
       await client.putCustomProvider(providerId, {
         baseUrl,
         adapter: "openai-compatible",
+        ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
         ...(models.length > 0 ? { models } : {}),
       });
       onRefresh();
@@ -463,29 +465,40 @@ export function ProviderFlow({
         key="custom-url"
         title={`Base URL · ${step.providerId}`}
         placeholder="https://gateway.example.com/v1"
-        onSubmit={(baseUrl) => setStep({ kind: "custom-models", providerId: step.providerId, baseUrl })}
+        onSubmit={(baseUrl) => setStep({ kind: "custom-key", providerId: step.providerId, baseUrl })}
         onClose={() => setStep({ kind: "custom-id" })}
+      />
+    );
+  } else if (step.kind === "custom-key") {
+    dialog = (
+      <PromptDialog
+        key="custom-key"
+        title={`API key · ${step.providerId}`}
+        placeholder="sk-… (optional)"
+        description="Needed to list models on keyed endpoints; stored in config. Empty skips ahead."
+        optional
+        onSubmit={(key) =>
+          setStep({
+            kind: "custom-models",
+            providerId: step.providerId,
+            baseUrl: step.baseUrl,
+            ...(key.trim().length > 0 ? { apiKey: key.trim() } : {}),
+          })
+        }
+        onClose={() => setStep({ kind: "custom-url", providerId: step.providerId })}
       />
     );
   } else {
     dialog = (
-      <PromptDialog
-        key="custom-models"
-        title={`Models · ${step.providerId}`}
-        placeholder="model-a, model-b (optional)"
-        description="Comma-separated model ids. Press enter to finish."
-        optional
-        onSubmit={(models) =>
-          createCustom(
-            step.providerId,
-            step.baseUrl,
-            models
-              .split(",")
-              .map((m) => m.trim())
-              .filter((m) => m.length > 0),
-          )
-        }
-        onClose={() => setStep({ kind: "custom-url", providerId: step.providerId })}
+      <CustomModelsStep
+        key={`custom-models:${step.providerId}:${step.baseUrl}`}
+        client={client}
+        providerId={step.providerId}
+        baseUrl={step.baseUrl}
+        {...(step.apiKey !== undefined ? { apiKey: step.apiKey } : {})}
+        windowSize={windowSize}
+        onDone={(models) => createCustom(step.providerId, step.baseUrl, models, step.apiKey)}
+        onBack={() => setStep({ kind: "custom-key", providerId: step.providerId, baseUrl: step.baseUrl })}
       />
     );
   }
@@ -496,6 +509,86 @@ export function ProviderFlow({
       {error !== null && <ErrorLine error={error} />}
       {dialog}
     </Box>
+  );
+}
+
+/**
+ * Custom-provider models step: fetches the endpoint's own `GET /models` list
+ * (server-side, via the typed client) and presents it all-selected in a
+ * multi-select dialog. A failed fetch offers retry or continuing without
+ * models (the provider is still created — keyed endpoints get their key in
+ * the accounts step).
+ */
+function CustomModelsStep({
+  client,
+  providerId,
+  baseUrl,
+  apiKey,
+  windowSize,
+  onDone,
+  onBack,
+}: {
+  client: BaiClient;
+  providerId: string;
+  baseUrl: string;
+  apiKey?: string;
+  windowSize?: number;
+  onDone: (models: string[]) => void;
+  onBack: () => void;
+}) {
+  const [models, setModels] = useState<RemoteModelInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModels(null);
+    setError(null);
+    void client
+      .listProviderModels({
+        baseUrl,
+        ...(apiKey !== undefined ? { apiKey } : {}),
+      })
+      .then((fetched) => {
+        if (!cancelled) setModels(fetched);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, baseUrl, apiKey, attempt]);
+
+  if (error !== null) {
+    return (
+      <SelectDialog
+        key={`custom-models-error:${attempt}`}
+        title={`Models · ${providerId} (fetch failed)`}
+        options={[
+          { value: "__retry__", label: "Retry", hint: error },
+          { value: "__skip__", label: "Continue without models", hint: "add the key later" },
+        ]}
+        windowSize={windowSize}
+        onPick={(value) => {
+          if (value === "__retry__") setAttempt((a) => a + 1);
+          else onDone([]);
+        }}
+        onClose={onBack}
+      />
+    );
+  }
+  if (models === null) return <BusyLine label="listing models…" />;
+  return (
+    <MultiSelectDialog
+      key={`custom-models:${models.length}`}
+      title={`Models · ${providerId}`}
+      options={models.map((m) => ({ value: m.id, label: m.name ?? m.id }))}
+      initialSelected={models.map((m) => m.id)}
+      windowSize={windowSize}
+      onConfirm={onDone}
+      onClose={onBack}
+    />
   );
 }
 

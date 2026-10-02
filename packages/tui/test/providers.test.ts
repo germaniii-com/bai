@@ -4,11 +4,13 @@ import {
   accountListOptions,
   accountOptions,
   allModelOptions,
+  allSelected,
   currentModelLabel,
   modelOptions,
   needsSetup,
   providerOptions,
   applyTarget,
+  toggleSelection,
 } from "../src/state/providers";
 import type { AccountInfo, OAuthProviderInfo, ProviderInfo, ProviderListResponse, Session } from "@bai/shared";
 
@@ -288,5 +290,23 @@ describe("provider picker logic", () => {
       }),
     ).toBe(true);
     expect(needsSetup(null)).toBe(false);
+  });
+});
+
+describe("fetched-model multi-selection", () => {
+  test("toggleSelection adds/removes without dupes", () => {
+    expect(toggleSelection([], "a")).toEqual(["a"]);
+    expect(toggleSelection(["a"], "a")).toEqual([]);
+    expect(toggleSelection(["a", "b"], "a")).toEqual(["b"]);
+  });
+
+  test("allSelected returns every option value (all-selected start)", () => {
+    expect(
+      allSelected([
+        { value: "b", label: "B" },
+        { value: "a", label: "A" },
+      ]),
+    ).toEqual(["b", "a"]);
+    expect(allSelected([])).toEqual([]);
   });
 });

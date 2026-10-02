@@ -26,6 +26,7 @@ import {
   oauthStartSchema,
   oauthSubmitSchema,
   customProviderSchema,
+  listProviderModelsSchema,
   providerFileSchema,
   putAgentSchema,
   putSkillFileSchema,
@@ -788,6 +789,18 @@ function buildApi(deps: ApiDeps) {
     })
 
     // --- custom providers (config-defined entities) ---
+    // Live model discovery for OpenAI-compatible endpoints (the custom-provider
+    // form's "Fetch models" button + the TUI wizard). The browser/TUI cannot
+    // call the endpoint directly (CORS), so the server proxies `GET
+    // {baseUrl}/models` using the request key, the server env, or the stored
+    // key for `provider`. Registered before the `:provider` routes below.
+    .post("/provider/models", zValidator("json", listProviderModelsSchema), async (c) => {
+      try {
+        return c.json({ models: await deps.core.listRemoteModels(c.req.valid("json")) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+      }
+    })
     .put("/provider/:provider/custom", zValidator("json", customProviderSchema), (c) => {
       const provider = c.req.param("provider");
       try {
