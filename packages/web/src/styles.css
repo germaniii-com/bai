@@ -2304,18 +2304,14 @@ input[type="radio"]:focus-visible {
 }
 
 
-/* Waiting-for-the-model indicator: three staggered bouncing dots + label. */
+/* Waiting-for-the-model indicator: three staggered bouncing dots. The
+   attribution byline above it names the agent/provider/model working on the
+   turn, so the dots stand alone — no "thinking…" label. */
 .typing {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 6px 0;
-}
-
-.typing-label {
-  color: var(--dim);
-  font-size: var(--text-md);
-  margin-left: 4px;
 }
 
 /* Reasoning transcript node (opencode parity): collapsible chain-of-thought

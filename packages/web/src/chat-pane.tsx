@@ -847,6 +847,8 @@ export function ChatPane({
           // Same byline placement as a landed reply — the turn is already
           // attributable (see `pendingAttribution`), and it disappears the
           // moment the assistant message with its stamped values replaces it.
+          // The byline IS the status line: the bare dots carry "working" and
+          // the label beside them names who/what is working on it.
           <div className="assistant-turn">
             <MessageAttribution {...pendingAttribution} providers={list} />
             <div className="message assistant">
@@ -854,7 +856,6 @@ export function ChatPane({
                 <span className="dot" />
                 <span className="dot" />
                 <span className="dot" />
-                <span className="typing-label">thinking…</span>
               </div>
             </div>
           </div>
