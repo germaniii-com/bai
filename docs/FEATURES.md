@@ -119,15 +119,17 @@ The conversation modality and bai's default session type.
 - **Custom provider files** (`~/.config/bai/providers/<id>.json`, hot-reloaded)
   declare their capabilities with a required `providerType`
   (`text`/`image`/`video`), a `baseUrl`, env/headers/auth, an optional chat
-  block (adapter + models) and an optional **image block** — either the
+  block (adapter + models), an optional **image block** — either the
   OpenAI-images wire template or a **generic request/response mapping**
   (`$prompt`/`$model`/`$param.*` body tokens + a tiny response path syntax like
-  `data[*].b64_json`). Files win over same-id config providers; built-in media
-  ids are reserved. Created/edited from Settings → Model Providers (the
+  `data[*].b64_json`) — and an optional **video block** (generic mapping with
+  per-model workflow lists). Files win over same-id config providers; built-in
+  media ids are reserved. Created/edited from Settings → Model Providers (the
   **Files** tab) or Settings → Image Generation → Providers, and also plain
   files on disk. `providerType` decides placement: `text` shows in chat
-  pickers, `image` in the image workbench, `video` is accepted but inert
-  until the video adapter ships.
+  pickers, `image` in the image workbench, `video` in the video workbench — a
+  file-defined video provider serves t2v/i2v/flf2v/ref2v through the same
+  workflow picker as the built-in adapters.
 - **Settings → Model Providers** is one searchable, tabbed list —
   **Connected · Catalog · Custom · OAuth · Files** — with compact rows: each
   carries a brand mark, connection state, an inline switch to hide the

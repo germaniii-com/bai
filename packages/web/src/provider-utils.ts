@@ -99,6 +99,30 @@ export function headersFromRows(rows: HeaderRow[]): Record<string, string> | und
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * Starter JSON for a provider file's `video` block — a minimal but complete
+ * `videoSpecSchema` (generic template, one t2v model). Pure + exported so the
+ * editor's default is unit-tested against the real schema.
+ */
+export function videoStarter(): string {
+  return JSON.stringify(
+    {
+      template: "generic",
+      defaultModel: "my-video-model",
+      models: [{ id: "my-video-model", workflows: ["t2v"] }],
+      generate: {
+        method: "POST",
+        path: "/v1/videos",
+        contentType: "json",
+        body: { prompt: "$prompt", model: "$model" },
+      },
+      response: { videos: "data[*]", url: "url", mime: "mime_type" },
+    },
+    null,
+    2,
+  );
+}
+
 /** Strip the "provider/" prefix from a catalog model id (edit-form init). */
 export function stripProviderPrefix(providerId: string, modelId: string): string {
   const prefix = `${providerId}/`;

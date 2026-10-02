@@ -21,6 +21,7 @@ import {
   ToolRegistry,
   createDefaultWorkbenches,
   providerFilesToMediaDefs,
+  providerFilesToVideoDefs,
   type OAuthFlowSpec,
 } from "@bai/core";
 import { DEFAULT_CONFIG, deepMerge, type Config, type ConfigPatch } from "@bai/shared";
@@ -81,6 +82,7 @@ export function makeStack(overrides: Partial<ApiDeps> = {}): TestStack {
   const workbenches = createDefaultWorkbenches({
     dataDir: dir,
     mediaCustom: () => providerFilesToMediaDefs(providerFiles.list()),
+    mediaCustomVideo: () => providerFilesToVideoDefs(providerFiles.list()),
   });
   const jobs = new JobQueue({
     store,

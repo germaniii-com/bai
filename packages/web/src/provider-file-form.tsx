@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
 import type { BaiClient } from "@bai/api/client";
 import type { AdapterName, ProviderCapability, ProviderFile, ProviderFileInfo } from "@bai/shared";
+import { videoSpecSchema } from "@bai/shared";
 import { Button, Checkbox, Field, IconButton, Modal, Select, TextInput, Textarea } from "./components";
-import { headerRowsFrom, headersFromRows, type HeaderRow } from "./provider-utils";
+import { headerRowsFrom, headersFromRows, videoStarter, type HeaderRow } from "./provider-utils";
 
 const ADAPTER_OPTIONS: { value: AdapterName; label: string }[] = [
   { value: "openai-compatible", label: "OpenAI-compatible (chat completions)" },
@@ -15,7 +16,7 @@ const ADAPTER_OPTIONS: { value: AdapterName; label: string }[] = [
 const CAPABILITIES: { value: ProviderCapability; label: string }[] = [
   { value: "text", label: "Chat (text)" },
   { value: "image", label: "Image generation" },
-  { value: "video", label: "Video (coming soon)" },
+  { value: "video", label: "Video generation" },
 ];
 
 /** Starter JSON for a new image block, per template. */
@@ -80,6 +81,7 @@ export function ProviderFileModal({
   const [contextLength, setContextLength] = useState("");
   const [imageTemplate, setImageTemplate] = useState<"openai-images" | "generic">("openai-images");
   const [imageJson, setImageJson] = useState(imageStarter("openai-images"));
+  const [videoJson, setVideoJson] = useState(videoStarter());
   const [loading, setLoading] = useState(editing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +108,9 @@ export function ProviderFileModal({
         if (file.image !== undefined) {
           setImageTemplate(file.image.template);
           setImageJson(JSON.stringify(file.image, null, 2));
+        }
+        if (file.video !== undefined) {
+          setVideoJson(JSON.stringify(file.video, null, 2));
         }
         setLoading(false);
       })
@@ -146,6 +151,25 @@ export function ProviderFileModal({
         return setError(`Image Block is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    let video: unknown;
+    if (providerType.includes("video")) {
+      let parsedVideo: unknown;
+      try {
+        parsedVideo = JSON.parse(videoJson);
+      } catch (err) {
+        return setError(`Video Block is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const checked = videoSpecSchema.safeParse(parsedVideo);
+      if (!checked.success) {
+        const issues = checked.error.issues
+          .map((i) => `${i.path.join(".") || "block"}: ${i.message}`)
+          .join("; ");
+        return setError(`Video Block is invalid — ${issues}`);
+      }
+      video = checked.data;
+    }
+
     const parsedHeaders = headersFromRows(headerRows);
     const body = {
       name: name.trim(),
@@ -166,6 +190,7 @@ export function ProviderFileModal({
           }
         : {}),
       ...(providerType.includes("image") ? { image } : {}),
+      ...(providerType.includes("video") ? { video } : {}),
     };
     void (async () => {
       setBusy(true);
@@ -329,6 +354,13 @@ export function ProviderFileModal({
                 <Textarea value={imageJson} mono rows={12} onChange={(e) => setImageJson(e.target.value)} />
               </div>
             </>
+          )}
+
+          {providerType.includes("video") && (
+            <div className="field span-2">
+              <span className="field-label">Video Block (JSON)</span>
+              <Textarea value={videoJson} mono rows={12} onChange={(e) => setVideoJson(e.target.value)} />
+            </div>
           )}
         </div>
         {error !== null && <p className="error">{error}</p>}

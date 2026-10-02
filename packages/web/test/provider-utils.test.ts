@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderInfo } from "@bai/shared";
+import { videoSpecSchema } from "@bai/shared";
 import {
   headerRowsFrom,
   headersFromRows,
@@ -11,6 +12,7 @@ import {
   sortProviders,
   stripProviderPrefix,
   toggleModelSelection,
+  videoStarter,
 } from "../src/provider-utils";
 
 function provider(id: string, connected = false, source: ProviderInfo["source"] = "catalog"): ProviderInfo {
@@ -121,6 +123,26 @@ describe("header row helpers", () => {
     ]);
     expect(headerRowsFrom(undefined)).toEqual([]);
     expect(headersFromRows(headerRowsFrom({ a: "1" }))).toEqual({ a: "1" });
+  });
+});
+
+describe("videoStarter", () => {
+  test("the provider-file video block starter validates against videoSpecSchema", () => {
+    const parsed = videoSpecSchema.safeParse(JSON.parse(videoStarter()));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.template).toBe("generic");
+    expect(parsed.data.defaultModel).toBe("my-video-model");
+    expect(parsed.data.models[0]?.workflows).toEqual(["t2v"]);
+    // The response mapping must name base64 and/or url.
+    expect(parsed.data.response.url).toBe("url");
+  });
+
+  test("is pretty-printed JSON with interpolated body tokens", () => {
+    const raw = videoStarter();
+    expect(raw.includes("\n  ")).toBe(true);
+    const doc = JSON.parse(raw) as { generate: { body: Record<string, string> } };
+    expect(doc.generate.body).toEqual({ prompt: "$prompt", model: "$model" });
   });
 });
 
